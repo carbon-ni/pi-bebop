@@ -29,7 +29,11 @@ export async function removeAliasesForSocket(socketPath: string | null): Promise
 			if (!entry.isSymbolicLink()) continue;
 			const aliasPath = path.join(CONTROL_DIR, entry.name);
 			let target: string;
-			try { target = await fs.readlink(aliasPath); } catch { continue; }
+			try {
+				target = await fs.readlink(aliasPath);
+			} catch {
+				continue;
+			}
 			const resolvedTarget = path.resolve(CONTROL_DIR, target);
 			if (resolvedTarget === socketPath) await fs.unlink(aliasPath);
 		}
@@ -43,10 +47,14 @@ export async function createAliasSymlink(sessionId: string, alias: string): Prom
 	if (!alias || !isSafeAlias(alias)) return;
 	const aliasPath = getAliasPath(alias);
 	const target = `${sessionId}${SOCKET_SUFFIX}`;
-	try { await fs.unlink(aliasPath); } catch (error) {
+	try {
+		await fs.unlink(aliasPath);
+	} catch (error) {
 		if (isErrnoException(error) && error.code !== "ENOENT") throw error;
 	}
-	try { await fs.symlink(target, aliasPath); } catch (error) {
+	try {
+		await fs.symlink(target, aliasPath);
+	} catch (error) {
 		if (isErrnoException(error) && error.code !== "EEXIST") throw error;
 	}
 }
@@ -59,7 +67,9 @@ export async function resolveSessionIdFromAlias(alias: string): Promise<string |
 		if (!base.endsWith(SOCKET_SUFFIX)) return null;
 		const sessionId = base.slice(0, -SOCKET_SUFFIX.length);
 		return isSafeSessionId(sessionId) ? sessionId : null;
-	} catch { return null; }
+	} catch {
+		return null;
+	}
 }
 
 export async function getAliasNames(): Promise<string[]> {
@@ -75,11 +85,16 @@ export async function getAliasMap(): Promise<Map<string, string[]>> {
 	for (const entry of entries) {
 		if (!entry.isSymbolicLink() || !entry.name.endsWith(".alias")) continue;
 		let target: string;
-		try { target = await fs.readlink(path.join(CONTROL_DIR, entry.name)); } catch { continue; }
+		try {
+			target = await fs.readlink(path.join(CONTROL_DIR, entry.name));
+		} catch {
+			continue;
+		}
 		const resolvedTarget = path.resolve(CONTROL_DIR, target);
 		const aliasName = entry.name.slice(0, -".alias".length);
 		const aliases = aliasMap.get(resolvedTarget);
-		if (aliases) aliases.push(aliasName); else aliasMap.set(resolvedTarget, [aliasName]);
+		if (aliases) aliases.push(aliasName);
+		else aliasMap.set(resolvedTarget, [aliasName]);
 	}
 	return aliasMap;
 }
@@ -87,9 +102,19 @@ export async function getAliasMap(): Promise<Map<string, string[]>> {
 export async function isSocketAlive(socketPath: string): Promise<boolean> {
 	return await new Promise((resolve) => {
 		const socket = net.createConnection(socketPath);
-		const timeout = setTimeout(() => { socket.destroy(); resolve(false); }, 300);
-		const cleanup = (alive: boolean) => { clearTimeout(timeout); socket.removeAllListeners(); resolve(alive); };
-		socket.once("connect", () => { socket.end(); cleanup(true); });
+		const timeout = setTimeout(() => {
+			socket.destroy();
+			resolve(false);
+		}, 300);
+		const cleanup = (alive: boolean) => {
+			clearTimeout(timeout);
+			socket.removeAllListeners();
+			resolve(alive);
+		};
+		socket.once("connect", () => {
+			socket.end();
+			cleanup(true);
+		});
 		socket.once("error", () => cleanup(false));
 	});
 }

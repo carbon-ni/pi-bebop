@@ -45,7 +45,11 @@ export class CrewMemberLookupError extends Error {
 	readonly socketPath: string;
 
 	constructor(code: "no-match" | "duplicate-path", socketPath: string) {
-		super(code === "no-match" ? `no crew member matches socket path: ${socketPath}` : `duplicate crew members match socket path: ${socketPath}`);
+		super(
+			code === "no-match"
+				? `no crew member matches socket path: ${socketPath}`
+				: `duplicate crew members match socket path: ${socketPath}`,
+		);
 		this.name = "CrewMemberLookupError";
 		this.code = code;
 		this.socketPath = socketPath;
@@ -77,7 +81,12 @@ export function resolveCrewMemberSocketPath(member: Pick<CrewMember, "socket">, 
 	const socketsRoot = path.resolve(path.dirname(manifestPath), "sockets");
 	const socketPath = path.resolve(path.dirname(manifestPath), member.socket);
 	const relativePath = path.relative(socketsRoot, socketPath);
-	if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+	if (
+		relativePath === "" ||
+		relativePath === ".." ||
+		relativePath.startsWith(`..${path.sep}`) ||
+		path.isAbsolute(relativePath)
+	) {
 		invalid("member socket path must remain under the crew sockets directory", "invalid-socket-path");
 	}
 	return socketPath;

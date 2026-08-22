@@ -22,7 +22,11 @@ export function renderCliResult(result: CliResult, format: CliFormat, full: bool
 	if (result.response !== undefined) {
 		const response = full ? result.response : result.response.slice(0, MAX_RESPONSE);
 		output.response = response;
-		output.truncation = { truncated: response.length < result.response.length, originalChars: result.response.length, shownChars: response.length };
+		output.truncation = {
+			truncated: response.length < result.response.length,
+			originalChars: result.response.length,
+			shownChars: response.length,
+		};
 	}
 	return format === "json" ? JSON.stringify(output) : encode(output);
 }

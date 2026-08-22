@@ -13,7 +13,10 @@ type SessionEntry = { id?: string; parentId?: string | null };
 
 function textContent(content: unknown): string {
 	return (Array.isArray(content) ? content : [])
-		.filter((part): part is TextPart => typeof part === "object" && part !== null && (part as { type?: string }).type === "text")
+		.filter(
+			(part): part is TextPart =>
+				typeof part === "object" && part !== null && (part as { type?: string }).type === "text",
+		)
 		.map((part) => part.text)
 		.join("\n");
 }

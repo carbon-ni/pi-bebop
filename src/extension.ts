@@ -3,11 +3,24 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import { renderSessionMessage } from "./pi/message-renderer.ts";
 import { registerMemberTool } from "./tools/index.ts";
-import { activateMembershipTool, createSocketState, deactivateMembershipTool, disableControlServer, emitTurnEnd, ensureControlServer, refreshIntrayStatus } from "./pi/control-runtime.ts";
+import {
+	activateMembershipTool,
+	createSocketState,
+	deactivateMembershipTool,
+	disableControlServer,
+	emitTurnEnd,
+	ensureControlServer,
+	refreshIntrayStatus,
+} from "./pi/control-runtime.ts";
 import { getSocketPath } from "./infra/intray-paths.ts";
 import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
 import { createMembershipRuntime } from "./infra/membership-runtime.ts";
-import { appendMembershipContext, getLatestMembershipState, MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime } from "./pi/membership-context.ts";
+import {
+	appendMembershipContext,
+	getLatestMembershipState,
+	MEMBERSHIP_ENTRY_TYPE,
+	membershipStateFromRuntime,
+} from "./pi/membership-context.ts";
 import { releaseMembershipBeforeCleanup, restorePersistedMembership } from "./pi/membership-lifecycle.ts";
 import { maybeHandleStartupSocketJoin } from "./pi/startup-send.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
@@ -46,20 +59,25 @@ export default function (pi: ExtensionAPI) {
 		pi.sendMessage({ customType: "crew-status", content: message, display: true }, { triggerTurn: false });
 	};
 
-	registerSessionControlCommand(pi, state, {
-		disableControlServer: (currentState, ctx) => disableControlServer(currentState, ctx, pi),
-		ensureControlServer: (api, currentState, ctx) => ensureControlServer(api, currentState, ctx),
-		membershipRuntime: state.membershipRuntime,
-		persistMembership,
-		announceMembership,
-		activateMembershipTool: () => activateMembershipTool(pi),
-		deactivateMembershipTool: () => deactivateMembershipTool(pi),
-		refreshStatus: () => refreshIntrayStatus(state),
-	}, "crew");
+	registerSessionControlCommand(
+		pi,
+		state,
+		{
+			disableControlServer: (currentState, ctx) => disableControlServer(currentState, ctx, pi),
+			ensureControlServer: (api, currentState, ctx) => ensureControlServer(api, currentState, ctx),
+			membershipRuntime: state.membershipRuntime,
+			persistMembership,
+			announceMembership,
+			activateMembershipTool: () => activateMembershipTool(pi),
+			deactivateMembershipTool: () => deactivateMembershipTool(pi),
+			refreshStatus: () => refreshIntrayStatus(state),
+		},
+		"crew",
+	);
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
-		const startupSocket = typeof pi.getFlag(CREW_SOCKET_FLAG) === "string"
-			&& String(pi.getFlag(CREW_SOCKET_FLAG)).trim().length > 0;
+		const startupSocket =
+			typeof pi.getFlag(CREW_SOCKET_FLAG) === "string" && String(pi.getFlag(CREW_SOCKET_FLAG)).trim().length > 0;
 		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
 		const persisted = getLatestMembershipState(branch);
 		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
@@ -70,12 +88,20 @@ export default function (pi: ExtensionAPI) {
 			state.socketPath = getSocketPath(ctx.sessionManager.getSessionId());
 		}
 		if (startupSocket) {
-			const joined = await maybeHandleStartupSocketJoin(ctx, pi, { socket: CREW_SOCKET_FLAG }, state.membershipRuntime, state.socketPath);
+			const joined = await maybeHandleStartupSocketJoin(
+				ctx,
+				pi,
+				{ socket: CREW_SOCKET_FLAG },
+				state.membershipRuntime,
+				state.socketPath,
+			);
 			const membership = state.membershipRuntime.getMembership();
 			if (joined && membership) {
 				activateMembershipTool(pi);
 				persistMembership(true, membership);
-				announceMembership(`Crew joined ${membership.member.name} (${membership.member.role}) at ${membership.socketPath}`);
+				announceMembership(
+					`Crew joined ${membership.member.name} (${membership.member.role}) at ${membership.socketPath}`,
+				);
 			}
 			return;
 		}
@@ -90,9 +116,9 @@ export default function (pi: ExtensionAPI) {
 				announceMembership(message);
 			},
 			reportFailure: (message) => {
-			if (ctx.hasUI) ctx.ui.notify(`Crew membership restore failed: ${message}`, "error");
-			else console.error(`Crew membership restore failed: ${message}`);
-		},
+				if (ctx.hasUI) ctx.ui.notify(`Crew membership restore failed: ${message}`, "error");
+				else console.error(`Crew membership restore failed: ${message}`);
+			},
 		});
 	});
 

@@ -12,10 +12,20 @@ export interface PersistedMembershipState {
 export function getLatestMembershipState(entries: readonly unknown[]): PersistedMembershipState | null {
 	for (let index = entries.length - 1; index >= 0; index -= 1) {
 		const entry = entries[index] as { type?: string; customType?: string; data?: unknown };
-		if (entry.type !== "custom" || entry.customType !== MEMBERSHIP_ENTRY_TYPE || !entry.data || typeof entry.data !== "object") continue;
+		if (
+			entry.type !== "custom" ||
+			entry.customType !== MEMBERSHIP_ENTRY_TYPE ||
+			!entry.data ||
+			typeof entry.data !== "object"
+		)
+			continue;
 		const data = entry.data as Partial<PersistedMembershipState>;
 		if (typeof data.active !== "boolean" || typeof data.socketPath !== "string") continue;
-		return { active: data.active, socketPath: data.socketPath, manifestPath: typeof data.manifestPath === "string" ? data.manifestPath : undefined };
+		return {
+			active: data.active,
+			socketPath: data.socketPath,
+			manifestPath: typeof data.manifestPath === "string" ? data.manifestPath : undefined,
+		};
 	}
 	return null;
 }

@@ -4,11 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import {
-	claimMemberEndpoint,
-	MemberEndpointError,
-	releaseMemberEndpoint,
-} from "./member-endpoint.ts";
+import { claimMemberEndpoint, MemberEndpointError, releaseMemberEndpoint } from "./member-endpoint.ts";
 
 let root: string;
 
@@ -30,8 +26,12 @@ async function closeServer(server: net.Server, socketPath: string): Promise<void
 	await fs.rm(socketPath, { force: true });
 }
 
-before(async () => { root = await fs.mkdtemp(path.join(os.tmpdir(), "intray-member-")); });
-after(async () => { await fs.rm(root, { recursive: true, force: true }); });
+before(async () => {
+	root = await fs.mkdtemp(path.join(os.tmpdir(), "intray-member-"));
+});
+after(async () => {
+	await fs.rm(root, { recursive: true, force: true });
+});
 
 describe("member endpoint ownership", () => {
 	test("claims a missing endpoint, creates parents, and is idempotent", async () => {
@@ -48,21 +48,32 @@ describe("member endpoint ownership", () => {
 	});
 
 	test("protects live foreign links and reclaims stale links in both layouts", async () => {
-	for (const layout of ["bebop", "crew"]) {
-		const endpoint = path.join(root, "project", ".pi", layout, "sockets", "dev.sock");
-		const foreignSocket = path.join(root, "global", `${layout}-foreign.sock`);
-		const currentSocket = path.join(root, "global", `${layout}-current.sock`);
-		const server = await socketServer(foreignSocket);
-		await fs.mkdir(path.dirname(endpoint), { recursive: true }); await fs.symlink(foreignSocket, endpoint);
-		try {
-			await assert.rejects(() => claimMemberEndpoint(endpoint, currentSocket), (error: unknown) => error instanceof MemberEndpointError && error.code === "live-foreign");
-			assert.equal(await fs.readlink(endpoint), foreignSocket);
-			await fs.unlink(endpoint); await fs.symlink(path.join(root, "missing", `${layout}-stale.sock`), endpoint);
-			assert.deepEqual(await claimMemberEndpoint(endpoint, currentSocket), { claimed: true, idempotent: false });
-			assert.equal(await fs.readlink(endpoint), currentSocket);
-		} finally { await closeServer(server, foreignSocket); await fs.rm(endpoint, { force: true }); }
-	}
-});
+		for (const layout of ["bebop", "crew"]) {
+			const endpoint = path.join(root, "project", ".pi", layout, "sockets", "dev.sock");
+			const foreignSocket = path.join(root, "global", `${layout}-foreign.sock`);
+			const currentSocket = path.join(root, "global", `${layout}-current.sock`);
+			const server = await socketServer(foreignSocket);
+			await fs.mkdir(path.dirname(endpoint), { recursive: true });
+			await fs.symlink(foreignSocket, endpoint);
+			try {
+				await assert.rejects(
+					() => claimMemberEndpoint(endpoint, currentSocket),
+					(error: unknown) => error instanceof MemberEndpointError && error.code === "live-foreign",
+				);
+				assert.equal(await fs.readlink(endpoint), foreignSocket);
+				await fs.unlink(endpoint);
+				await fs.symlink(path.join(root, "missing", `${layout}-stale.sock`), endpoint);
+				assert.deepEqual(await claimMemberEndpoint(endpoint, currentSocket), {
+					claimed: true,
+					idempotent: false,
+				});
+				assert.equal(await fs.readlink(endpoint), currentSocket);
+			} finally {
+				await closeServer(server, foreignSocket);
+				await fs.rm(endpoint, { force: true });
+			}
+		}
+	});
 
 	test("rejects a live foreign endpoint without modifying it", async () => {
 		const endpoint = path.join(root, "foreign", "dev.sock");
@@ -116,7 +127,9 @@ describe("member endpoint ownership", () => {
 		assert.deepEqual(await releaseMemberEndpoint(endpoint, ownedSocket), { released: true });
 		await assert.rejects(() => fs.lstat(endpoint), /ENOENT/);
 		assert.deepEqual(await releaseMemberEndpoint(endpoint, ownedSocket), { released: false });
-		assert.deepEqual(await releaseMemberEndpoint(path.join(root, "missing-parent", "dev.sock"), ownedSocket), { released: false });
+		assert.deepEqual(await releaseMemberEndpoint(path.join(root, "missing-parent", "dev.sock"), ownedSocket), {
+			released: false,
+		});
 		const regularFile = path.join(root, "release", "regular.sock");
 		await fs.writeFile(regularFile, "not a symlink");
 		assert.deepEqual(await releaseMemberEndpoint(regularFile, ownedSocket), { released: false });
@@ -135,7 +148,9 @@ describe("member endpoint ownership", () => {
 				return foreignSocket;
 			},
 			acquireLock: async () => async () => undefined,
-			unlink: async () => { unlinks += 1; },
+			unlink: async () => {
+				unlinks += 1;
+			},
 		});
 		assert.deepEqual(result, { released: false });
 		assert.equal(reads, 2);

@@ -5,7 +5,13 @@ import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 import { getSocketPath } from "../infra/intray-paths.ts";
 import { isSocketAlive, resolveSessionIdFromAlias } from "../infra/control-store.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
-import { isSafeSessionId, normalizeMode, normalizeWaitUntil, type RpcSendCommand, type WaitUntil } from "../domain/index.ts";
+import {
+	isSafeSessionId,
+	normalizeMode,
+	normalizeWaitUntil,
+	type RpcSendCommand,
+	type WaitUntil,
+} from "../domain/index.ts";
 
 export type StartupControlSendFlags = {
 	target: string;
@@ -30,7 +36,10 @@ function getStringFlag(pi: ExtensionAPI, name: string): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function parseStartupControlSendOptions(pi: ExtensionAPI, flags: StartupControlSendFlags): { options?: StartupControlSendOptions; error?: string } {
+function parseStartupControlSendOptions(
+	pi: ExtensionAPI,
+	flags: StartupControlSendFlags,
+): { options?: StartupControlSendOptions; error?: string } {
 	const target = getStringFlag(pi, flags.target);
 	const message = getStringFlag(pi, flags.message);
 
@@ -87,7 +96,11 @@ export function normalizeStartupSocketPath(rawPath: string, cwd: string): string
 	return path.resolve(cwd, withoutPrefix);
 }
 
-function reportStartupControlSend(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
+function reportStartupControlSend(
+	ctx: ExtensionContext,
+	message: string,
+	level: "info" | "warning" | "error" = "info",
+): void {
 	if (ctx.hasUI) {
 		ctx.ui.notify(message, level);
 		return;
@@ -110,7 +123,11 @@ export async function maybeHandleStartupSocketJoin(
 	if (!rawSocket) return false;
 	const selection = selectCrewSocketPath(rawSocket, ctx.cwd);
 	if (!selection) {
-		reportStartupControlSend(ctx, `Invalid --${flags.socket}: expected a .pi/bebop or .pi/crew sockets path.`, "error");
+		reportStartupControlSend(
+			ctx,
+			`Invalid --${flags.socket}: expected a .pi/bebop or .pi/crew sockets path.`,
+			"error",
+		);
 		return false;
 	}
 	const { socketPath, manifestPath } = selection;
@@ -132,11 +149,18 @@ export async function maybeHandleStartupSocketJoin(
 		reportStartupControlSend(ctx, `Intray startup join failed: ${result.error.message}`, "error");
 		return false;
 	}
-	reportStartupControlSend(ctx, `Intray joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`);
+	reportStartupControlSend(
+		ctx,
+		`Intray joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
+	);
 	return true;
 }
 
-export async function maybeHandleStartupControlSend(pi: ExtensionAPI, ctx: ExtensionContext, flags: StartupControlSendFlags): Promise<void> {
+export async function maybeHandleStartupControlSend(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	flags: StartupControlSendFlags,
+): Promise<void> {
 	const parsed = parseStartupControlSendOptions(pi, flags);
 	if (!parsed.options) {
 		if (parsed.error) {
@@ -165,15 +189,15 @@ export async function maybeHandleStartupControlSend(pi: ExtensionAPI, ctx: Exten
 
 	const senderInfo = includeSenderInfo
 		? (() => {
-			const senderSessionId = ctx.sessionManager.getSessionId();
-			const senderSessionName = ctx.sessionManager.getSessionName()?.trim();
-			return senderSessionId
-				? `\n\n<sender_info>${JSON.stringify({
-					sessionId: senderSessionId,
-					sessionName: senderSessionName || undefined,
-				})}</sender_info>`
-				: "";
-		})()
+				const senderSessionId = ctx.sessionManager.getSessionId();
+				const senderSessionName = ctx.sessionManager.getSessionName()?.trim();
+				return senderSessionId
+					? `\n\n<sender_info>${JSON.stringify({
+							sessionId: senderSessionId,
+							sessionName: senderSessionName || undefined,
+						})}</sender_info>`
+					: "";
+			})()
 		: "";
 
 	const sendCommand: RpcSendCommand = {
@@ -194,7 +218,10 @@ export async function maybeHandleStartupControlSend(pi: ExtensionAPI, ctx: Exten
 			}
 			const lastMessage = result.event?.message;
 			if (!lastMessage?.content) {
-				reportStartupControlSend(ctx, `Message delivered to ${target}; turn completed without assistant output.`);
+				reportStartupControlSend(
+					ctx,
+					`Message delivered to ${target}; turn completed without assistant output.`,
+				);
 				return;
 			}
 			if (ctx.hasUI) {
@@ -225,4 +252,3 @@ export async function maybeHandleStartupControlSend(pi: ExtensionAPI, ctx: Exten
 		reportStartupControlSend(ctx, `Failed to send to ${target}: ${msg}`, "error");
 	}
 }
-

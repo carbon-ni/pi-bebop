@@ -24,7 +24,12 @@ test("createSequentialProjectBranchAlias appends the first available sequential 
 
 test("createSequentialProjectBranchAlias keeps current alias stable", () => {
 	assert.equal(
-		createSequentialProjectBranchAlias("pi-intray", "main", ["intra-pi-intray-branch-main-1"], "intra-pi-intray-branch-main-1"),
+		createSequentialProjectBranchAlias(
+			"pi-intray",
+			"main",
+			["intra-pi-intray-branch-main-1"],
+			"intra-pi-intray-branch-main-1",
+		),
 		"intra-pi-intray-branch-main-1",
 	);
 });

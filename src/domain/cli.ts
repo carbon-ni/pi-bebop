@@ -48,7 +48,11 @@ function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: s
 	return { parts };
 }
 
-export function parseSessionControlAction(args: string): { action?: SessionControlAction; target?: string; error?: string } {
+export function parseSessionControlAction(args: string): {
+	action?: SessionControlAction;
+	target?: string;
+	error?: string;
+} {
 	const tokenized = tokenizeSessionControlArgs(args);
 	if (tokenized.error) return tokenized;
 	const parts = tokenized.parts!;
@@ -85,8 +89,10 @@ export function normalizeWaitUntil(raw: string): WaitUntil | null {
 }
 
 export function isSessionControlRequested(getFlag: (name: string) => unknown, argv = process.argv.slice(2)): boolean {
-	return getFlag(CONTROL_FLAG) === true
-		|| getFlag(CONTROL_SHORT_FLAG) === true
-		|| argv.includes(`--${CONTROL_FLAG}`)
-		|| argv.includes(`--${CONTROL_SHORT_FLAG}`);
+	return (
+		getFlag(CONTROL_FLAG) === true ||
+		getFlag(CONTROL_SHORT_FLAG) === true ||
+		argv.includes(`--${CONTROL_FLAG}`) ||
+		argv.includes(`--${CONTROL_SHORT_FLAG}`)
+	);
 }

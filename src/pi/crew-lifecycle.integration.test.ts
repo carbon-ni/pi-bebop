@@ -18,7 +18,13 @@ async function socketServer(socketPath: string, messages: string[]): Promise<net
 	return createRpcServer(socketPath, async (command, socket) => {
 		if (command.type !== "send") return;
 		messages.push(command.message);
-		writeResponse(socket, { type: "response", command: "send", success: true, id: command.id, data: { delivered: true, mode: "steer" } });
+		writeResponse(socket, {
+			type: "response",
+			command: "send",
+			success: true,
+			id: command.id,
+			data: { delivered: true, mode: "steer" },
+		});
 	});
 }
 
@@ -30,15 +36,26 @@ async function setupCrew() {
 	await fs.mkdir(sockets, { recursive: true });
 	await fs.mkdir(globals, { recursive: true });
 	const manifestPath = path.join(bebop, "crew.json");
-	await fs.writeFile(manifestPath, JSON.stringify({
-		version: 1,
-		members: [
-			{ name: "lead", role: "lead", socket: "sockets/lead.sock" },
-			{ name: "developer", role: "developer", socket: "sockets/developer.sock" },
-			{ name: "qa", role: "QA", socket: "sockets/qa.sock" },
-		],
-	}));
-	return { root, manifestPath, sockets, globals, async cleanup() { await fs.rm(root, { recursive: true, force: true }); } };
+	await fs.writeFile(
+		manifestPath,
+		JSON.stringify({
+			version: 1,
+			members: [
+				{ name: "lead", role: "lead", socket: "sockets/lead.sock" },
+				{ name: "developer", role: "developer", socket: "sockets/developer.sock" },
+				{ name: "qa", role: "QA", socket: "sockets/qa.sock" },
+			],
+		}),
+	);
+	return {
+		root,
+		manifestPath,
+		sockets,
+		globals,
+		async cleanup() {
+			await fs.rm(root, { recursive: true, force: true });
+		},
+	};
 }
 
 test("publishes exactly one real external endpoint for every supported layout", async (t) => {
@@ -49,9 +66,15 @@ test("publishes exactly one real external endpoint for every supported layout", 
 		const socketPath = path.join(root, ".pi", layout, "sockets", "lead.sock");
 		const globalSocketPath = path.join(root, `${layout}-global.sock`);
 		await fs.mkdir(path.dirname(manifestPath), { recursive: true });
-		await fs.writeFile(manifestPath, JSON.stringify({ version: 1, members: [{ name: "lead", role: layout, socket: "sockets/lead.sock" }] }));
+		await fs.writeFile(
+			manifestPath,
+			JSON.stringify({ version: 1, members: [{ name: "lead", role: layout, socket: "sockets/lead.sock" }] }),
+		);
 		const server = await socketServer(globalSocketPath, []);
-		t.after(async () => { await closeRpcServer(server); await fs.rm(root, { recursive: true, force: true }); });
+		t.after(async () => {
+			await closeRpcServer(server);
+			await fs.rm(root, { recursive: true, force: true });
+		});
 		await assert.rejects(() => fs.readlink(socketPath));
 		const claimPaths: string[] = [];
 		const runtime = createMembershipRuntime({
@@ -66,9 +89,21 @@ test("publishes exactly one real external endpoint for every supported layout", 
 		assert.equal(joined.ok && joined.membership.manifestPath, manifestPath);
 		assert.deepEqual(claimPaths, [socketPath]);
 		assert.equal(claimPaths.length, 1);
-		assert.equal((await fs.readlink(socketPath)), globalSocketPath);
-		const restoredRuntime = createMembershipRuntime({ loadManifest: (selected) => readTrustedCrewManifest(selected, root, () => true) });
-		const restored = await restorePersistedMembership({ runtime: restoredRuntime, persisted: getLatestMembershipState([{ type: "custom", customType: MEMBERSHIP_ENTRY_TYPE, data: { active: true, socketPath, manifestPath } }]), startupSocketSelected: false, globalSocketPath, manifestPathForSocket: () => manifestPath, announce: () => undefined, reportFailure: assert.fail });
+		assert.equal(await fs.readlink(socketPath), globalSocketPath);
+		const restoredRuntime = createMembershipRuntime({
+			loadManifest: (selected) => readTrustedCrewManifest(selected, root, () => true),
+		});
+		const restored = await restorePersistedMembership({
+			runtime: restoredRuntime,
+			persisted: getLatestMembershipState([
+				{ type: "custom", customType: MEMBERSHIP_ENTRY_TYPE, data: { active: true, socketPath, manifestPath } },
+			]),
+			startupSocketSelected: false,
+			globalSocketPath,
+			manifestPathForSocket: () => manifestPath,
+			announce: () => undefined,
+			reportFailure: assert.fail,
+		});
 		assert.equal(restored, true);
 	}
 });
@@ -93,12 +128,20 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 	// Startup adoption and real endpoint publication.
 	const runtime = createMembershipRuntime({ loadManifest: async () => manifest });
 	const leadPath = path.join(crew.sockets, "lead.sock");
-	const joined = await runtime.join({ manifestPath: crew.manifestPath, socketPath: leadPath, globalSocketPath: leadGlobal });
+	const joined = await runtime.join({
+		manifestPath: crew.manifestPath,
+		socketPath: leadPath,
+		globalSocketPath: leadGlobal,
+	});
 	assert.equal(joined.ok, true);
-	assert.equal((await fs.readlink(leadPath)), leadGlobal);
+	assert.equal(await fs.readlink(leadPath), leadGlobal);
 
 	// Reload/resume restore reclaims the same live endpoint without changing identity.
-	const persisted = { type: "custom", customType: MEMBERSHIP_ENTRY_TYPE, data: { active: true, socketPath: leadPath, manifestPath: crew.manifestPath } };
+	const persisted = {
+		type: "custom",
+		customType: MEMBERSHIP_ENTRY_TYPE,
+		data: { active: true, socketPath: leadPath, manifestPath: crew.manifestPath },
+	};
 	const restoredRuntime = createMembershipRuntime({ loadManifest: async () => manifest });
 	const restored = await restorePersistedMembership({
 		runtime: restoredRuntime,
@@ -112,7 +155,10 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 	assert.equal(restored, true);
 
 	// New/fork branches carrying an inactive state do not reclaim an endpoint.
-	assert.equal(getLatestMembershipState([{ ...persisted, data: { ...persisted.data, active: false } }])?.active, false);
+	assert.equal(
+		getLatestMembershipState([{ ...persisted, data: { ...persisted.data, active: false } }])?.active,
+		false,
+	);
 	const inactive = await restorePersistedMembership({
 		runtime: createMembershipRuntime({ loadManifest: async () => manifest }),
 		persisted: getLatestMembershipState([{ ...persisted, data: { ...persisted.data, active: false } }]),
@@ -130,20 +176,34 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 
 	// One lead orchestrator addresses both configured roles through public tool/RPC seams.
 	const registered = new Map<string, any>();
-	registerMemberTool({ registerTool(tool: any) { registered.set(tool.name, tool); } } as never, {
-		membershipRuntime: restoredRuntime,
-		context: { sessionManager: { getSessionId: () => "orchestrator", getSessionName: () => "lead" } },
-	} as never);
+	registerMemberTool(
+		{
+			registerTool(tool: any) {
+				registered.set(tool.name, tool);
+			},
+		} as never,
+		{
+			membershipRuntime: restoredRuntime,
+			context: { sessionManager: { getSessionId: () => "orchestrator", getSessionName: () => "lead" } },
+		} as never,
+	);
 	const tool = registered.get("send_to_member");
-	const send = (member: string, message: string) => tool.execute("call", { member, message, wait_until: "off" }, undefined, undefined, undefined);
+	const send = (member: string, message: string) =>
+		tool.execute("call", { member, message, wait_until: "off" }, undefined, undefined, undefined);
 	assert.equal(await fs.readlink(path.join(crew.sockets, "developer.sock")), developerGlobal);
 	assert.equal(await fs.readlink(path.join(crew.sockets, "qa.sock")), qaGlobal);
 	const developerResult = await send("developer", "please implement fix");
 	const qaResult = await send("qa", "please verify lifecycle");
 	assert.equal(developerResult?.isError, undefined);
 	assert.equal(qaResult?.isError, undefined);
-	assert.match(developerMessages[0], /^please implement fix\n\n<sender_info>\{"sessionId":"orchestrator","sessionName":"lead"\}<\/sender_info>$/);
-	assert.match(qaMessages[0], /^please verify lifecycle\n\n<sender_info>\{"sessionId":"orchestrator","sessionName":"lead"\}<\/sender_info>$/);
+	assert.match(
+		developerMessages[0],
+		/^please implement fix\n\n<sender_info>\{"sessionId":"orchestrator","sessionName":"lead"\}<\/sender_info>$/,
+	);
+	assert.match(
+		qaMessages[0],
+		/^please verify lifecycle\n\n<sender_info>\{"sessionId":"orchestrator","sessionName":"lead"\}<\/sender_info>$/,
+	);
 
 	// A live foreign owner is never stolen; a stale symlink is reclaimed.
 	const foreign = path.join(crew.sockets, "developer.sock");
@@ -168,7 +228,19 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 		cleanup: async () => undefined,
 		reportFailure: assert.fail,
 	});
-	assert.equal(await fs.lstat(path.join(crew.sockets, "developer.sock")).then(() => true, () => false), true); // lead shutdown cannot remove another endpoint owner
-	assert.equal(await fs.lstat(leadPath).then(() => true, () => false), false);
+	assert.equal(
+		await fs.lstat(path.join(crew.sockets, "developer.sock")).then(
+			() => true,
+			() => false,
+		),
+		true,
+	); // lead shutdown cannot remove another endpoint owner
+	assert.equal(
+		await fs.lstat(leadPath).then(
+			() => true,
+			() => false,
+		),
+		false,
+	);
 	await sendRpcCommand(qaGlobal, { type: "send", message: "boundary probe", mode: "steer" }, { timeout: 1000 });
 });

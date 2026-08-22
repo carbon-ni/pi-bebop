@@ -17,25 +17,28 @@ let projectDir: string;
 before(async () => {
 	projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "intray-crew-"));
 	await fs.mkdir(path.join(projectDir, ".pi", "bebop"), { recursive: true });
-	await fs.writeFile(getDefaultCrewManifestPath(projectDir), JSON.stringify({
-		version: 1,
-		members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
-	}));
+	await fs.writeFile(
+		getDefaultCrewManifestPath(projectDir),
+		JSON.stringify({
+			version: 1,
+			members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+		}),
+	);
 });
 
 after(async () => fs.rm(projectDir, { recursive: true, force: true }));
 
 describe("trusted crew manifest store", () => {
 	test("selects an absolute external-root endpoint without cwd fallback", () => {
-	const rootA = path.join(projectDir, "worktree-A");
-	const rootB = path.join(projectDir, "worktree-B");
-	assert.deepEqual(selectCrewSocketPath(`${rootB}/.pi/bebop/sockets/dev1.sock`, rootA), {
-		socketPath: `${rootB}/.pi/bebop/sockets/dev1.sock`,
-		manifestPath: `${rootB}/.pi/bebop/crew.json`,
+		const rootA = path.join(projectDir, "worktree-A");
+		const rootB = path.join(projectDir, "worktree-B");
+		assert.deepEqual(selectCrewSocketPath(`${rootB}/.pi/bebop/sockets/dev1.sock`, rootA), {
+			socketPath: `${rootB}/.pi/bebop/sockets/dev1.sock`,
+			manifestPath: `${rootB}/.pi/bebop/crew.json`,
+		});
+		assert.equal(selectCrewSocketPath(`${rootB}/.pi/other/sockets/dev1.sock`, rootA), null);
+		assert.equal(selectCrewSocketPath(`${rootB}/.pi/bebop/sockets/../dev1.sock`, rootA), null);
 	});
-	assert.equal(selectCrewSocketPath(`${rootB}/.pi/other/sockets/dev1.sock`, rootA), null);
-	assert.equal(selectCrewSocketPath(`${rootB}/.pi/bebop/sockets/../dev1.sock`, rootA), null);
-});
 
 	test("uses Pi CONFIG_DIR_NAME for the project-local default", () => {
 		assert.equal(getDefaultCrewManifestPath(projectDir), path.join(projectDir, ".pi", "bebop", "crew.json"));
@@ -44,24 +47,51 @@ describe("trusted crew manifest store", () => {
 	});
 
 	test("accepts the exact compatibility layout and selects by socket path", async () => {
-	const legacyManifest = path.join(projectDir, ".pi", "crew", "crew.json");
-	await fs.mkdir(path.dirname(legacyManifest), { recursive: true });
-	await fs.writeFile(legacyManifest, JSON.stringify({ version: 1, members: [{ name: "legacy", role: "developer", socket: "sockets/legacy.sock" }] }));
-	assert.equal(getCrewManifestPathFromSocketPath(path.join(projectDir, ".pi", "bebop", "sockets", "dev.sock")), getDefaultCrewManifestPath(projectDir));
-	assert.equal(getCrewManifestPathFromSocketPath(path.join(projectDir, ".pi", "crew", "sockets", "legacy.sock")), legacyManifest);
-	assert.equal(isTrustedCrewManifestPath(legacyManifest, projectDir), true);
-	assert.equal((await readTrustedCrewManifest(legacyManifest, projectDir, () => true)).members[0].name, "legacy");
-	await assert.rejects(() => readTrustedCrewManifest(path.join(projectDir, ".pi", "other", "crew.json"), projectDir, () => true), (error: unknown) => error instanceof CrewManifestReadError && error.code === "untrusted-path");
-});
+		const legacyManifest = path.join(projectDir, ".pi", "crew", "crew.json");
+		await fs.mkdir(path.dirname(legacyManifest), { recursive: true });
+		await fs.writeFile(
+			legacyManifest,
+			JSON.stringify({
+				version: 1,
+				members: [{ name: "legacy", role: "developer", socket: "sockets/legacy.sock" }],
+			}),
+		);
+		assert.equal(
+			getCrewManifestPathFromSocketPath(path.join(projectDir, ".pi", "bebop", "sockets", "dev.sock")),
+			getDefaultCrewManifestPath(projectDir),
+		);
+		assert.equal(
+			getCrewManifestPathFromSocketPath(path.join(projectDir, ".pi", "crew", "sockets", "legacy.sock")),
+			legacyManifest,
+		);
+		assert.equal(isTrustedCrewManifestPath(legacyManifest, projectDir), true);
+		assert.equal((await readTrustedCrewManifest(legacyManifest, projectDir, () => true)).members[0].name, "legacy");
+		await assert.rejects(
+			() => readTrustedCrewManifest(path.join(projectDir, ".pi", "other", "crew.json"), projectDir, () => true),
+			(error: unknown) => error instanceof CrewManifestReadError && error.code === "untrusted-path",
+		);
+	});
 	test("keeps selected layout failures distinct and never falls back", async () => {
-	const legacyManifest = path.join(projectDir, ".pi", "crew", "crew.json");
-	await fs.rm(legacyManifest, { force: true });
-	await assert.rejects(() => readTrustedCrewManifest(legacyManifest, projectDir, () => true), (error: unknown) => error instanceof CrewManifestReadError && error.code === "read-failed" && error.message.includes(legacyManifest));
-	await fs.writeFile(legacyManifest, "{ nope");
-	await assert.rejects(() => readTrustedCrewManifest(legacyManifest, projectDir, () => true), (error: unknown) => error instanceof CrewManifestReadError && error.code === "invalid-json");
-	await fs.writeFile(legacyManifest, JSON.stringify({ version: 1, members: [] }));
-	await assert.rejects(() => readTrustedCrewManifest(legacyManifest, projectDir, () => true), (error: unknown) => error instanceof Error && error.message.includes("members must be a non-empty array"));
-});
+		const legacyManifest = path.join(projectDir, ".pi", "crew", "crew.json");
+		await fs.rm(legacyManifest, { force: true });
+		await assert.rejects(
+			() => readTrustedCrewManifest(legacyManifest, projectDir, () => true),
+			(error: unknown) =>
+				error instanceof CrewManifestReadError &&
+				error.code === "read-failed" &&
+				error.message.includes(legacyManifest),
+		);
+		await fs.writeFile(legacyManifest, "{ nope");
+		await assert.rejects(
+			() => readTrustedCrewManifest(legacyManifest, projectDir, () => true),
+			(error: unknown) => error instanceof CrewManifestReadError && error.code === "invalid-json",
+		);
+		await fs.writeFile(legacyManifest, JSON.stringify({ version: 1, members: [] }));
+		await assert.rejects(
+			() => readTrustedCrewManifest(legacyManifest, projectDir, () => true),
+			(error: unknown) => error instanceof Error && error.message.includes("members must be a non-empty array"),
+		);
+	});
 
 	test("reads and parses only the trusted project-local manifest", async () => {
 		const manifest = await readTrustedCrewManifest(getDefaultCrewManifestPath(projectDir), projectDir, () => true);
@@ -75,10 +105,16 @@ describe("trusted crew manifest store", () => {
 	test("rejects an untrusted project before attempting manifest IO", async () => {
 		let reads = 0;
 		await assert.rejects(
-			() => readTrustedCrewManifest(getDefaultCrewManifestPath(projectDir), projectDir, () => false, async () => {
-				reads += 1;
-				return "{}";
-			}),
+			() =>
+				readTrustedCrewManifest(
+					getDefaultCrewManifestPath(projectDir),
+					projectDir,
+					() => false,
+					async () => {
+						reads += 1;
+						return "{}";
+					},
+				),
 			(error: unknown) => error instanceof CrewManifestReadError && error.code === "untrusted-project",
 		);
 		assert.equal(reads, 0);

@@ -30,23 +30,40 @@ const defaultDependencies: Required<MemberEndpointDependencies> = {
 	symlink: (target, filePath) => fs.symlink(target, filePath),
 	rename: (oldPath, newPath) => fs.rename(oldPath, newPath),
 	unlink: (filePath) => fs.unlink(filePath),
-	isSocketAlive: async (socketPath) => await new Promise((resolve) => {
-		const socket = net.createConnection(socketPath);
-		const timeout = setTimeout(() => { socket.destroy(); resolve(false); }, 300);
-		socket.once("connect", () => { clearTimeout(timeout); socket.destroy(); resolve(true); });
-		socket.once("error", () => { clearTimeout(timeout); resolve(false); });
-	}),
+	isSocketAlive: async (socketPath) =>
+		await new Promise((resolve) => {
+			const socket = net.createConnection(socketPath);
+			const timeout = setTimeout(() => {
+				socket.destroy();
+				resolve(false);
+			}, 300);
+			socket.once("connect", () => {
+				clearTimeout(timeout);
+				socket.destroy();
+				resolve(true);
+			});
+			socket.once("error", () => {
+				clearTimeout(timeout);
+				resolve(false);
+			});
+		}),
 	acquireLock: async (lockPath) => {
 		let handle: fs.FileHandle;
 		try {
 			handle = await fs.open(lockPath, "wx");
 		} catch (error) {
-			if (isCode(error, "EEXIST")) throw new MemberEndpointError("claim-conflict", `member endpoint claim is already in progress: ${lockPath}`);
+			if (isCode(error, "EEXIST"))
+				throw new MemberEndpointError(
+					"claim-conflict",
+					`member endpoint claim is already in progress: ${lockPath}`,
+				);
 			throw error;
 		}
 		return async () => {
 			await handle.close();
-			try { await fs.unlink(lockPath); } catch (error) {
+			try {
+				await fs.unlink(lockPath);
+			} catch (error) {
 				if (!isCode(error, "ENOENT")) throw error;
 			}
 		};
@@ -71,7 +88,10 @@ async function createEndpoint(
 		return { claimed: true, idempotent: false };
 	} catch (error) {
 		if (isCode(error, "EEXIST")) {
-			throw new MemberEndpointError("claim-conflict", `member endpoint was claimed concurrently: ${endpointPath}`);
+			throw new MemberEndpointError(
+				"claim-conflict",
+				`member endpoint was claimed concurrently: ${endpointPath}`,
+			);
 		}
 		throw error;
 	}
@@ -86,39 +106,47 @@ export async function claimMemberEndpoint(
 	await deps.mkdir(path.dirname(endpointPath), { recursive: true });
 	const releaseLock = await deps.acquireLock(`${endpointPath}.claim`);
 	try {
-	let existingTarget: string;
-	try {
-		existingTarget = await deps.readlink(endpointPath);
-	} catch (error) {
-		if (isCode(error, "ENOENT")) return createEndpoint(endpointPath, globalSocketPath, deps);
-		throw new MemberEndpointError("occupied", `member endpoint is not a symlink: ${endpointPath}`);
-	}
-
-	const currentTarget = path.resolve(globalSocketPath);
-	const existingResolved = normalizedTarget(endpointPath, existingTarget);
-	if (existingResolved === currentTarget) return { claimed: true, idempotent: true };
-	if (await deps.isSocketAlive(existingResolved)) {
-		throw new MemberEndpointError("live-foreign", `member endpoint is owned by a live session: ${endpointPath}`);
-	}
-
-	const reclaimPath = `${endpointPath}.reclaim.${path.basename(currentTarget)}`;
-	try {
-		await deps.rename(endpointPath, reclaimPath);
-	} catch (error) {
-		if (isCode(error, "ENOENT")) return createEndpoint(endpointPath, globalSocketPath, deps);
-		if (isCode(error, "EEXIST")) {
-			throw new MemberEndpointError("claim-conflict", `member endpoint reclaim is already in progress: ${endpointPath}`);
+		let existingTarget: string;
+		try {
+			existingTarget = await deps.readlink(endpointPath);
+		} catch (error) {
+			if (isCode(error, "ENOENT")) return createEndpoint(endpointPath, globalSocketPath, deps);
+			throw new MemberEndpointError("occupied", `member endpoint is not a symlink: ${endpointPath}`);
 		}
-		throw error;
-	}
 
-	try {
-		return await createEndpoint(endpointPath, globalSocketPath, deps);
-	} finally {
-		try { await deps.unlink(reclaimPath); } catch (error) {
-			if (!isCode(error, "ENOENT")) throw error;
+		const currentTarget = path.resolve(globalSocketPath);
+		const existingResolved = normalizedTarget(endpointPath, existingTarget);
+		if (existingResolved === currentTarget) return { claimed: true, idempotent: true };
+		if (await deps.isSocketAlive(existingResolved)) {
+			throw new MemberEndpointError(
+				"live-foreign",
+				`member endpoint is owned by a live session: ${endpointPath}`,
+			);
 		}
-	}
+
+		const reclaimPath = `${endpointPath}.reclaim.${path.basename(currentTarget)}`;
+		try {
+			await deps.rename(endpointPath, reclaimPath);
+		} catch (error) {
+			if (isCode(error, "ENOENT")) return createEndpoint(endpointPath, globalSocketPath, deps);
+			if (isCode(error, "EEXIST")) {
+				throw new MemberEndpointError(
+					"claim-conflict",
+					`member endpoint reclaim is already in progress: ${endpointPath}`,
+				);
+			}
+			throw error;
+		}
+
+		try {
+			return await createEndpoint(endpointPath, globalSocketPath, deps);
+		} finally {
+			try {
+				await deps.unlink(reclaimPath);
+			} catch (error) {
+				if (!isCode(error, "ENOENT")) throw error;
+			}
+		}
 	} finally {
 		await releaseLock();
 	}

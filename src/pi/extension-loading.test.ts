@@ -8,10 +8,16 @@ test("registers independent crew surfaces without shared intray tools", () => {
 	const tools: string[] = [];
 	const commands: string[] = [];
 	const pi = {
-		registerFlag(name: string) { flags.push(name); },
+		registerFlag(name: string) {
+			flags.push(name);
+		},
 		registerMessageRenderer() {},
-		registerTool(tool: { name: string }) { tools.push(tool.name); },
-		registerCommand(name: string) { commands.push(name); },
+		registerTool(tool: { name: string }) {
+			tools.push(tool.name);
+		},
+		registerCommand(name: string) {
+			commands.push(name);
+		},
 		on() {},
 	} as never;
 

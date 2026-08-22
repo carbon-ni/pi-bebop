@@ -32,57 +32,95 @@ function labelResult(result: MessageToolResult, label: string): MessageToolResul
 	const content = result.content[0];
 	if (!content) return result;
 	const text = content.text;
-	return { ...result, content: [{ type: "text", text: `[${label}] ${text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}...` : text}` }] };
+	return {
+		...result,
+		content: [
+			{ type: "text", text: `[${label}] ${text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}...` : text}` },
+		],
+	};
 }
 
-export function registerMemberTool(pi: ExtensionAPI, state: SocketState, dependencies: MemberToolDependencies = {}): void {
+export function registerMemberTool(
+	pi: ExtensionAPI,
+	state: SocketState,
+	dependencies: MemberToolDependencies = {},
+): void {
 	const sendRpc = dependencies.sendRpcCommand ?? sendRpcCommand;
 	const resolveEndpoint = dependencies.resolveEndpoint ?? resolveMemberEndpoint;
 	pi.registerTool({
 		name: "send_to_member",
 		label: "Send To Member",
-		description: "Send a message to a joined crew member role over request-scoped RPC. With allow_reply, one sender_info block lets the recipient call send_to_session back to this sender.",
+		description:
+			"Send a message to a joined crew member role over request-scoped RPC. With allow_reply, one sender_info block lets the recipient call send_to_session back to this sender.",
 		parameters: Type.Object({
 			member: Type.String({ description: "Crew member name/role" }),
 			message: Type.String({ description: "Message to send" }),
 			mode: Type.Optional(Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], { default: "steer" })),
-			wait_until: Type.Optional(Type.Union([Type.Literal("turn_end"), Type.Literal("message_processed"), Type.Literal("off")], { default: "turn_end" })),
+			wait_until: Type.Optional(
+				Type.Union([Type.Literal("turn_end"), Type.Literal("message_processed"), Type.Literal("off")], {
+					default: "turn_end",
+				}),
+			),
 			reply_behavior: Type.Optional(Type.Union([Type.Literal("allow_reply"), Type.Literal("end_conversation")])),
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			const membership = state.membershipRuntime?.getMembership();
-			if (!membership) return { content: [{ type: "text", text: "Not joined to a crew" }], isError: true, details: { error: "not-joined" } };
+			if (!membership)
+				return {
+					content: [{ type: "text", text: "Not joined to a crew" }],
+					isError: true,
+					details: { error: "not-joined" },
+				};
 			const targetName = params.member.trim();
 			const byName = membership.manifest.members.find((member) => member.name === targetName);
 			const byRole = membership.manifest.members.filter((member) => member.role === targetName);
 			const target = byName ?? (byRole.length === 1 ? byRole[0] : undefined);
 			const label = roleLabel(membership);
 			if (!target) {
-				const reason = byRole.length > 1 ? `Ambiguous crew role: ${targetName}` : `Unknown crew member: ${targetName}`;
-				return { content: [{ type: "text", text: `[${label}] ${reason}` }], isError: true, details: { error: byRole.length > 1 ? "ambiguous-member" : "unknown-member" } };
+				const reason =
+					byRole.length > 1 ? `Ambiguous crew role: ${targetName}` : `Unknown crew member: ${targetName}`;
+				return {
+					content: [{ type: "text", text: `[${label}] ${reason}` }],
+					isError: true,
+					details: { error: byRole.length > 1 ? "ambiguous-member" : "unknown-member" },
+				};
 			}
 			if (target.name === membership.member.name || target.socketPath === membership.socketPath) {
-				return { content: [{ type: "text", text: `[${label}] Cannot send to yourself` }], isError: true, details: { error: "self-send" } };
+				return {
+					content: [{ type: "text", text: `[${label}] Cannot send to yourself` }],
+					isError: true,
+					details: { error: "self-send" },
+				};
 			}
 			const waitUntil = params.wait_until ?? "turn_end";
 			const policy = resolveResponsePolicy(waitUntil, params.reply_behavior);
-			if ("error" in policy) return { content: [{ type: "text", text: policy.error }], isError: true, details: { error: policy.error } };
+			if ("error" in policy)
+				return {
+					content: [{ type: "text", text: policy.error }],
+					isError: true,
+					details: { error: policy.error },
+				};
 			const targetLabel = `${target.name} (${target.role})`;
 			try {
-								const result = await sendMessageToSocket({
-					socketPath: await resolveEndpoint(target.socketPath),
+				const result = await sendMessageToSocket(
+					{
+						socketPath: await resolveEndpoint(target.socketPath),
 
-					message: params.message,
-					mode: params.mode ?? "steer",
-					policy,
-					signal,
-					displayTarget: targetLabel,
-					deliveryTarget: targetLabel,
-					sender: state.context?.sessionManager.getSessionId() ? {
-						sessionId: state.context.sessionManager.getSessionId(),
-						sessionName: state.context.sessionManager.getSessionName()?.trim() || undefined,
-					} : undefined,
-				}, sendRpc);
+						message: params.message,
+						mode: params.mode ?? "steer",
+						policy,
+						signal,
+						displayTarget: targetLabel,
+						deliveryTarget: targetLabel,
+						sender: state.context?.sessionManager.getSessionId()
+							? {
+									sessionId: state.context.sessionManager.getSessionId(),
+									sessionName: state.context.sessionManager.getSessionName()?.trim() || undefined,
+								}
+							: undefined,
+					},
+					sendRpc,
+				);
 				return labelResult(result, targetLabel);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "Unknown error";
@@ -90,7 +128,11 @@ export function registerMemberTool(pi: ExtensionAPI, state: SocketState, depende
 				const text = aborted
 					? `[${targetLabel}] Member request aborted`
 					: `[${targetLabel}] Member endpoint offline: ${message.slice(0, MAX_OUTPUT)}`;
-				return { content: [{ type: "text", text }], isError: true, details: { error: aborted ? "aborted" : message } };
+				return {
+					content: [{ type: "text", text }],
+					isError: true,
+					details: { error: aborted ? "aborted" : message },
+				};
 			}
 		},
 	});

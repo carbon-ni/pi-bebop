@@ -9,7 +9,10 @@ test("TOON and JSON outputs are semantically equivalent", () => {
 	const toon = renderCliResult(success, "toon", false);
 	const json = renderCliResult(success, "json", false);
 	assert.deepEqual(decode(toon), JSON.parse(json));
-	assert.deepEqual(JSON.parse(json), { ...success, truncation: { truncated: false, originalChars: 5, shownChars: 5 } });
+	assert.deepEqual(JSON.parse(json), {
+		...success,
+		truncation: { truncated: false, originalChars: 5, shownChars: 5 },
+	});
 });
 
 test("bounds assistant output with explicit truncation metadata unless full", () => {
@@ -22,6 +25,16 @@ test("bounds assistant output with explicit truncation metadata unless full", ()
 
 test("text emits only useful success output and concise errors", () => {
 	assert.equal(renderCliResult(success, "text", false), "hello");
-	assert.equal(renderCliResult({ ok: true, target: "/x", status: "accepted", data: { delivered: true } }, "text", false), "Message accepted");
-	assert.equal(renderCliResult({ ok: false, target: "/x", status: "error", error: { code: "offline", message: "Socket is offline" } }, "text", false), "Socket is offline");
+	assert.equal(
+		renderCliResult({ ok: true, target: "/x", status: "accepted", data: { delivered: true } }, "text", false),
+		"Message accepted",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: false, target: "/x", status: "error", error: { code: "offline", message: "Socket is offline" } },
+			"text",
+			false,
+		),
+		"Socket is offline",
+	);
 });

@@ -35,7 +35,10 @@ export function createSequentialProjectBranchAlias(
 }
 
 function toAliasSlug(value: string): string {
-	return value.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+	return value
+		.trim()
+		.replace(/[^A-Za-z0-9._-]+/g, "-")
+		.replace(/^-+|-+$/g, "");
 }
 
 function createSequentialAlias(baseAlias: string | null, usedAliases: string[], currentAlias?: string): string | null {

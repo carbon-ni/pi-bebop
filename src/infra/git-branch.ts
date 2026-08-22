@@ -2,11 +2,7 @@ import { execFile as nodeExecFile } from "node:child_process";
 import * as path from "node:path";
 import { promisify } from "node:util";
 
-type ExecFile = (
-	file: string,
-	args: string[],
-	options: { cwd: string },
-) => Promise<{ stdout: string }>;
+type ExecFile = (file: string, args: string[], options: { cwd: string }) => Promise<{ stdout: string }>;
 
 const execFile = promisify(nodeExecFile) as ExecFile;
 

@@ -4,7 +4,8 @@ import type { TextContent } from "@earendil-works/pi-ai";
 import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 
 const SENDER_INFO_PATTERN = /<sender_info>[\s\S]*?<\/sender_info>/g;
-const LEGACY_REPLY_INSTRUCTION_PATTERN = /<reply_instruction>When responding, reply directly to the sender by calling send_to_session with the sessionId from sender_info\. Do not use get_message polling\.<\/reply_instruction>/g;
+const LEGACY_REPLY_INSTRUCTION_PATTERN =
+	/<reply_instruction>When responding, reply directly to the sender by calling send_to_session with the sessionId from sender_info\. Do not use get_message polling\.<\/reply_instruction>/g;
 
 function extractTextContent(content: string | Array<TextContent | { type: string }>): string {
 	if (typeof content === "string") return content;
@@ -88,4 +89,3 @@ export const renderSessionMessage: MessageRenderer = (message, { expanded }, the
 	);
 	return box;
 };
-

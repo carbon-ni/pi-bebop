@@ -14,11 +14,14 @@ export function chooseMembershipServerMode(input: {
 	return "disable";
 }
 
-export async function prepareMembershipServer(mode: MembershipServerMode, deps: {
-	readonly ensure: () => Promise<void>;
-	readonly enable: () => Promise<void>;
-	readonly disable: () => Promise<void>;
-}): Promise<void> {
+export async function prepareMembershipServer(
+	mode: MembershipServerMode,
+	deps: {
+		readonly ensure: () => Promise<void>;
+		readonly enable: () => Promise<void>;
+		readonly disable: () => Promise<void>;
+	},
+): Promise<void> {
 	if (mode === "ensure") return deps.ensure();
 	if (mode === "enable") return deps.enable();
 	return deps.disable();
@@ -45,7 +48,9 @@ export async function restorePersistedMembership(deps: MembershipRestoreDeps): P
 		deps.reportFailure(result.error.message);
 		return false;
 	}
-	deps.announce(`Intray restored ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`);
+	deps.announce(
+		`Intray restored ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
+	);
 	return true;
 }
 
@@ -59,7 +64,8 @@ export async function releaseMembershipBeforeCleanup(deps: {
 	try {
 		if (deps.hasMembership) {
 			const result = await deps.leave();
-			if (result && typeof result === "object" && "error" in result && result.error instanceof Error) throw result.error;
+			if (result && typeof result === "object" && "error" in result && result.error instanceof Error)
+				throw result.error;
 			if (result && typeof result === "object" && "left" in result && result.left === true) deps.onReleased?.();
 		}
 	} catch (error) {
