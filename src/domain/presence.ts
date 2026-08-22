@@ -29,14 +29,13 @@ export function createInitialPresenceState(
 	currentMemberName?: string,
 	config: PresenceConfig = DEFAULT_CONFIG,
 ): PresenceState {
-	const statuses: Record<string, PresenceStatus> = {};
-	const failures: Record<string, number> = {};
-	for (const member of members) {
-		if (member.name === currentMemberName) continue;
-		statuses[member.name] = "unknown";
-		failures[member.name] = 0;
-	}
-	return { members: statuses, failures, initialScanComplete: false, config };
+	const included = members.filter((member) => member.name !== currentMemberName);
+	return {
+		members: Object.fromEntries(included.map((member) => [member.name, "unknown" as const])),
+		failures: Object.fromEntries(included.map((member) => [member.name, 0])),
+		initialScanComplete: false,
+		config,
+	};
 }
 
 function roster(members: readonly PresenceMember[], state: PresenceState): PresenceEffect {
@@ -46,6 +45,22 @@ function roster(members: readonly PresenceMember[], state: PresenceState): Prese
 			.filter((member) => member.name in state.members)
 			.map((member) => ({ ...member, status: state.members[member.name]! })),
 	};
+}
+
+function transitionPresence(
+	member: PresenceMember,
+	current: PresenceStatus,
+	online: boolean,
+	failureCount: number,
+): { readonly status: PresenceStatus; readonly effect?: PresenceEffect } {
+	if (online) {
+		return current === "offline" ? { status: "online", effect: { type: "joined", member } } : { status: "online" };
+	}
+	if (current === "online") return { status: "suspect" };
+	if (current === "suspect" && failureCount >= DEFAULT_PRESENCE_OFFLINE_FAILURE_THRESHOLD) {
+		return { status: "offline", effect: { type: "left", member } };
+	}
+	return { status: current };
 }
 
 export function reducePresence(state: PresenceState, input: PresenceReducerInput): PresenceReducerResult {
@@ -60,25 +75,15 @@ export function reducePresence(state: PresenceState, input: PresenceReducerInput
 	if (!member || !(member.name in state.members)) return { state, effects: [] };
 	const current = state.members[member.name]!;
 	const online = observation.online;
-	const failures = { ...state.failures };
-	const statuses = { ...state.members };
-	let nextStatus = current;
-	let effect: PresenceEffect | undefined;
-	if (online) {
-		failures[member.name] = 0;
-		if (current === "offline") {
-			nextStatus = "online";
-			effect = { type: "joined", member };
-		} else if (current === "unknown" || current === "suspect") nextStatus = "online";
-	} else {
-		failures[member.name] = (failures[member.name] ?? 0) + 1;
-		if (current === "online") nextStatus = "suspect";
-		else if (current === "suspect" && failures[member.name] >= DEFAULT_PRESENCE_OFFLINE_FAILURE_THRESHOLD) {
-			nextStatus = "offline";
-			effect = { type: "left", member };
-		}
-	}
-	if (nextStatus === current && failures[member.name] === state.failures[member.name]) return { state, effects: [] };
-	statuses[member.name] = nextStatus;
-	return { state: { ...state, members: statuses, failures }, effects: effect ? [effect] : [] };
+	const failureCount = online ? 0 : (state.failures[member.name] ?? 0) + 1;
+	const transition = transitionPresence(member, current, online, failureCount);
+	if (transition.status === current && failureCount === state.failures[member.name]) return { state, effects: [] };
+	return {
+		state: {
+			...state,
+			members: { ...state.members, [member.name]: transition.status },
+			failures: { ...state.failures, [member.name]: failureCount },
+		},
+		effects: transition.effect ? [transition.effect] : [],
+	};
 }
