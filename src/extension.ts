@@ -5,8 +5,8 @@ import { renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts
 import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/index.ts";
 import { registerSessionTool } from "./tools/send-to-session.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
-import { createPresenceObserver, PRESENCE_HINT_TIMEOUT_MS } from "./application/presence-observer.ts";
 import { createPresenceLifecycleCoordinator } from "./application/presence-lifecycle.ts";
+import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
 import { sendRpcCommand } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
@@ -110,29 +110,18 @@ export default function (pi: ExtensionAPI) {
 		},
 		createObserver: (membership) => {
 			const instanceId = state.context?.sessionManager.getSessionId() ?? "";
-			const observer = createPresenceObserver(
-				membership.members,
-				membership.member.identity,
-				instanceId,
-				{ notifications: membership.notifications },
-				{
-					scheduler: {
-						schedule: (delay, callback) => setTimeout(callback, delay),
-						cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-					},
-					probe: (identity, timeout) => probeMemberEndpoint(identity, { timeoutMs: timeout }),
-					sendHint: async (target, changed, stateValue) => {
-						const endpoint = await resolveMemberEndpoint(target.identity);
-						await sendRpcCommand(
-							endpoint,
-							{ type: "presence_hint", member: changed, state: stateValue, instanceId },
-							{ timeout: PRESENCE_HINT_TIMEOUT_MS },
-						);
-					},
-					onEffects: () => undefined,
+			return createPresenceObserverAdapter(membership, instanceId, {
+				scheduler: {
+					schedule: (delay, callback) => setTimeout(callback, delay),
+					cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 				},
-			);
-			return observer;
+				probe: (identity, timeout) => probeMemberEndpoint(identity, { timeoutMs: timeout }),
+				resolveTarget: resolveMemberEndpoint,
+				send: async (endpoint, payload, timeout) => {
+					await sendRpcCommand(endpoint, { type: "presence_hint", ...payload }, { timeout });
+				},
+				onEffects: () => undefined,
+			});
 		},
 		onObserverChanged: (observer) => {
 			state.presenceObserver = observer;
