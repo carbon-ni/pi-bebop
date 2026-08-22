@@ -183,16 +183,23 @@ test("leave and rejoin role-switch table preserves old-role left/new-role joined
 		members: [oldRole],
 		event: { type: "observation", memberIdentity: identity, online: false },
 	}).state;
-	state = reducePresence(state, {
+	const left = reducePresence(state, {
 		members: [oldRole],
 		event: { type: "observation", memberIdentity: identity, online: false },
-	}).state;
+	});
+	assert.deepEqual(left.effects, [{ type: "left", member: oldRole }]);
+	state = left.state;
+	const rejoined = reducePresence(state, {
+		members: [oldRole],
+		event: { type: "observation", memberIdentity: identity, online: true },
+	});
+	assert.deepEqual(rejoined.effects, [{ type: "joined", member: oldRole }]);
 	assert.deepEqual(
-		reducePresence(state, {
+		reducePresence(rejoined.state, {
 			members: [oldRole],
 			event: { type: "observation", memberIdentity: identity, online: true },
 		}).effects,
-		[{ type: "joined", member: oldRole }],
+		[],
 	);
 	let switched = createInitialPresenceState([oldRole]);
 	switched = reducePresence(switched, { members: [oldRole], event: { type: "initial-scan-complete" } }).state;
@@ -204,10 +211,12 @@ test("leave and rejoin role-switch table preserves old-role left/new-role joined
 		members: [oldRole],
 		event: { type: "observation", memberIdentity: identity, online: false },
 	}).state;
-	switched = reducePresence(switched, {
+	const switchedLeft = reducePresence(switched, {
 		members: [oldRole],
 		event: { type: "observation", memberIdentity: identity, online: false },
-	}).state;
+	});
+	assert.deepEqual(switchedLeft.effects, [{ type: "left", member: oldRole }]);
+	switched = switchedLeft.state;
 	assert.deepEqual(
 		reducePresence(switched, {
 			members: [newRole],
