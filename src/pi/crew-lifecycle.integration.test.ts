@@ -51,10 +51,20 @@ test("supports both canonical and compatibility layouts for join and restore", a
 		await fs.writeFile(manifestPath, JSON.stringify({ version: 1, members: [{ name: "lead", role: layout, socket: "sockets/lead.sock" }] }));
 		const server = await socketServer(globalSocketPath, []);
 		t.after(async () => { await closeRpcServer(server); await fs.rm(root, { recursive: true, force: true }); });
-		const runtime = createMembershipRuntime({ loadManifest: (selected) => readTrustedCrewManifest(selected, root, () => true) });
+		await assert.rejects(() => fs.readlink(socketPath));
+		const claimPaths: string[] = [];
+		const runtime = createMembershipRuntime({
+			loadManifest: (selected) => readTrustedCrewManifest(selected, root, () => true),
+			claimEndpoint: async (endpoint, global, dependencies) => {
+				claimPaths.push(endpoint);
+				return claimMemberEndpoint(endpoint, global, dependencies);
+			},
+		});
 		const joined = await runtime.join({ manifestPath, socketPath, globalSocketPath });
 		assert.equal(joined.ok, true);
 		assert.equal(joined.ok && joined.membership.manifestPath, manifestPath);
+		assert.deepEqual(claimPaths, [socketPath]);
+		assert.equal((await fs.readlink(socketPath)), globalSocketPath);
 		const restoredRuntime = createMembershipRuntime({ loadManifest: (selected) => readTrustedCrewManifest(selected, root, () => true) });
 		const restored = await restorePersistedMembership({ runtime: restoredRuntime, persisted: getLatestMembershipState([{ type: "custom", customType: MEMBERSHIP_ENTRY_TYPE, data: { active: true, socketPath, manifestPath } }]), startupSocketSelected: false, globalSocketPath, manifestPathForSocket: () => manifestPath, announce: () => undefined, reportFailure: assert.fail });
 		assert.equal(restored, true);
