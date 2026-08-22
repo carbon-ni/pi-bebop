@@ -85,7 +85,7 @@ test("application omission defaults to follow-up wire delivery and coordinator q
 			coordinator: createMemberMessageCoordinator(),
 		},
 	);
-	assert.equal(command.mode, "follow_up");
+	assert.equal(command.delivery, "follow_up");
 	assert.equal(outcome.disposition, "queued");
 });
 
@@ -117,8 +117,8 @@ test("uses follow-up by default and maps immediate to explicit steering", async 
 		.execute("call", { member: "qa", message: "now" }, undefined, undefined, undefined);
 	assert.equal(follow.isError, undefined);
 	assert.equal(immediate.isError, undefined);
-	assert.equal(calls[0].command.mode, "follow_up");
-	assert.equal(calls[1].command.mode, "steer");
+	assert.equal(calls[0].command.delivery, "follow_up");
+	assert.equal(calls[1].command.delivery, "immediate");
 	assert.deepEqual(
 		calls.map((call) => call.options),
 		[{ signal: undefined }, { signal: undefined }],
@@ -142,7 +142,7 @@ test("proves FIFO follow-ups wait for the first ack and immediates start concurr
 		resolveImmediateStarts = resolve;
 	});
 	const tools = setup(async (_path, command) => {
-		const message = command.message.split("\n")[0];
+		const message = command.payload.content.split("\n")[0];
 		order.push(message);
 		if (message === "first follow-up") return firstReleased.then(() => ack("queued"));
 		if (message === "second follow-up") {
@@ -243,7 +243,7 @@ test("cleans failed tails and isolates a role-switched endpoint while the old qu
 			await new Promise<void>((resolve) => {
 				releaseOld = resolve;
 			});
-			return ack(command.mode === "steer" ? "steered" : "queued");
+			return ack(command.delivery === "immediate" ? "steered" : "queued");
 		},
 		true,
 		membership,
@@ -289,7 +289,7 @@ test("cleans failed tails and isolates a role-switched endpoint while the old qu
 		async (_endpoint, command) => {
 			failureCalls += 1;
 			if (failureCalls === 1) throw new Error("target shutdown");
-			return ack(command.mode === "steer" ? "steered" : "queued");
+			return ack(command.delivery === "immediate" ? "steered" : "queued");
 		},
 		true,
 		membership,

@@ -19,7 +19,7 @@ import { restorePersistedMembership, releaseMembershipBeforeCleanup } from "./me
 async function socketServer(socketPath: string, messages: string[]): Promise<net.Server> {
 	return createRpcServer(socketPath, async (command, socket) => {
 		if (command.type !== "send") return;
-		messages.push(command.message);
+		messages.push(command.payload.content);
 		writeResponse(socket, {
 			type: "response",
 			command: "send",
@@ -243,5 +243,9 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 		),
 		false,
 	);
-	await sendRpcCommand(qaGlobal, { type: "send", message: "boundary probe", mode: "steer" }, { timeout: 1000 });
+	await sendRpcCommand(
+		qaGlobal,
+		{ type: "send", payload: { content: "boundary probe" }, delivery: "immediate" },
+		{ timeout: 1000 },
+	);
 });

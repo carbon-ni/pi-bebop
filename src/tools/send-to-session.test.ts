@@ -67,7 +67,7 @@ test("send_to_session defaults to synchronous turn_end without reverse-reply met
 
 	assert.equal(result.isError, undefined);
 	assert.equal(calls.length, 1);
-	assert.deepEqual(calls[0]?.command, { type: "send", message: "hello", mode: "steer" });
+	assert.deepEqual(calls[0]?.command, { type: "send", payload: { content: "hello" }, delivery: "immediate" });
 	assert.equal(calls[0]?.options?.waitForEvent, "turn_end");
 	assert.equal(calls[0]?.options?.signal, signal);
 });
@@ -210,8 +210,10 @@ test("send_to_session includes callback metadata for asynchronous allow_reply", 
 
 	const command = calls[0]?.command;
 	assert.equal(command?.type, "send");
-	assert.doesNotMatch((command as { message: string }).message, /<reply_instruction>/);
-	assert.match((command as { message: string }).message, /<sender_info>.*sender-id/);
-	assert.equal(((command as { message: string }).message.match(/<sender_info>/g) ?? []).length, 1);
+	assert.equal((command as { payload: { content: string } }).payload.content, "hello");
+	assert.deepEqual((command as { payload: { replyTo?: unknown } }).payload.replyTo, {
+		sessionId: "sender-id",
+		sessionName: "sender",
+	});
 	assert.equal(calls[0]?.options?.waitForEvent, undefined);
 });

@@ -1,7 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
-/** Transport limits are deterministic UTF-8 byte limits. */
+/** Transport limits are deterministic UTF-8 byte limits. Aggregate size is UTF-8 bytes of compact JSON payload (framing excluded). */
 export const MAX_MESSAGE_CONTENT_BYTES = 1_000_000;
 export const MAX_MESSAGE_INSTRUCTIONS = 32;
 export const MAX_MESSAGE_INSTRUCTION_BYTES = 100_000;
@@ -40,9 +40,12 @@ export type ReplyTo = Static<typeof ReplyToSchema>;
 export type MessagePayload = Static<typeof MessagePayloadSchema>;
 
 const utf8Bytes = (value: string): number => Buffer.byteLength(value, "utf8");
+export const messagePayloadUtf8Bytes = (payload: MessagePayload): number => utf8Bytes(JSON.stringify(payload));
 const invalidContent = (value: string): boolean =>
 	value.trim().length === 0 || value.includes("\0") || utf8Bytes(value) > MAX_MESSAGE_CONTENT_BYTES;
-const invalidField = (value: string, limit: number): boolean =>
+const invalidInstruction = (value: string): boolean =>
+	value.trim().length === 0 || value.includes("\0") || utf8Bytes(value) > MAX_MESSAGE_INSTRUCTION_BYTES;
+const invalidIdentity = (value: string, limit: number): boolean =>
 	value.trim().length === 0 || value !== value.trim() || value.includes("\0") || utf8Bytes(value) > limit;
 
 export function isMessagePayload(value: unknown): value is MessagePayload {
@@ -50,30 +53,17 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
 	const payload = value as MessagePayload;
 	if (invalidContent(payload.content)) return false;
 	const instructions = payload.instructions ?? [];
-	if (instructions.some((instruction) => invalidField(instruction, MAX_MESSAGE_INSTRUCTION_BYTES))) return false;
+	if (instructions.some(invalidInstruction)) return false;
 	if (payload.origin) {
 		const fields =
 			payload.origin.kind === "crew" ? [payload.origin.name, payload.origin.role] : [payload.origin.label];
-		if (fields.some((field) => invalidField(field, MAX_MESSAGE_ORIGIN_FIELD_BYTES))) return false;
+		if (fields.some((field) => invalidIdentity(field, MAX_MESSAGE_ORIGIN_FIELD_BYTES))) return false;
 	}
 	if (payload.replyTo) {
 		const fields = [payload.replyTo.sessionId, payload.replyTo.sessionName].filter(
 			(field): field is string => field !== undefined,
 		);
-		if (fields.some((field) => invalidField(field, MAX_MESSAGE_REPLY_FIELD_BYTES))) return false;
+		if (fields.some((field) => invalidIdentity(field, MAX_MESSAGE_REPLY_FIELD_BYTES))) return false;
 	}
-	const originBytes = payload.origin
-		? payload.origin.kind === "crew"
-			? utf8Bytes(payload.origin.name) + utf8Bytes(payload.origin.role)
-			: utf8Bytes(payload.origin.label)
-		: 0;
-	const replyBytes = payload.replyTo
-		? utf8Bytes(payload.replyTo.sessionId) + utf8Bytes(payload.replyTo.sessionName ?? "")
-		: 0;
-	const aggregate =
-		utf8Bytes(payload.content) +
-		instructions.reduce((total, item) => total + utf8Bytes(item), 0) +
-		originBytes +
-		replyBytes;
-	return aggregate <= MAX_MESSAGE_PAYLOAD_BYTES;
+	return messagePayloadUtf8Bytes(payload) <= MAX_MESSAGE_PAYLOAD_BYTES;
 }

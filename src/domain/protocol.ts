@@ -374,9 +374,9 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 		const payload = rawParams
 			? {
 					content: rawParams.content,
-					instructions: rawParams.instructions,
-					origin: rawParams.origin,
-					replyTo: rawParams.replyTo,
+					...(rawParams.instructions === undefined ? {} : { instructions: rawParams.instructions }),
+					...(rawParams.origin === undefined ? {} : { origin: rawParams.origin }),
+					...(rawParams.replyTo === undefined ? {} : { replyTo: rawParams.replyTo }),
 				}
 			: undefined;
 		if (!Value.Check(MessageSendParamsSchema, params) || !isMessagePayload(payload))

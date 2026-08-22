@@ -92,7 +92,7 @@ test("characterizes idle direct and busy follow-up or immediate delivery disposi
 	const context = { sessionManager: { getSessionId: () => "session" }, isIdle: () => true, abort: () => undefined };
 	state.context = context as never;
 	const pi = { sendMessage: (message: unknown, options: unknown) => sent.push({ message, options }) } as never;
-	await handleCommand(pi, state, { type: "send", message: "normal", id: "idle" }, socket);
+	await handleCommand(pi, state, { type: "send", payload: { content: "normal" }, id: "idle" }, socket);
 	assert.deepEqual(JSON.parse(writes[0]!), {
 		jsonrpc: "2.0",
 		id: "idle",
@@ -102,7 +102,12 @@ test("characterizes idle direct and busy follow-up or immediate delivery disposi
 	writes.length = 0;
 	sent.length = 0;
 	context.isIdle = () => false;
-	await handleCommand(pi, state, { type: "send", message: "later", mode: "follow_up", id: "follow" }, socket);
+	await handleCommand(
+		pi,
+		state,
+		{ type: "send", payload: { content: "later" }, delivery: "follow_up", id: "follow" },
+		socket,
+	);
 	assert.deepEqual(JSON.parse(writes[0]!), {
 		jsonrpc: "2.0",
 		id: "follow",
@@ -111,7 +116,12 @@ test("characterizes idle direct and busy follow-up or immediate delivery disposi
 	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true, deliverAs: "followUp" });
 	writes.length = 0;
 	sent.length = 0;
-	await handleCommand(pi, state, { type: "send", message: "now", mode: "steer", id: "immediate" }, socket);
+	await handleCommand(
+		pi,
+		state,
+		{ type: "send", payload: { content: "now" }, delivery: "immediate", id: "immediate" },
+		socket,
+	);
 	assert.deepEqual(JSON.parse(writes[0]!), {
 		jsonrpc: "2.0",
 		id: "immediate",
