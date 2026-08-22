@@ -19,6 +19,8 @@ export interface SessionToolDependencies {
 	resolveSessionTarget?: typeof resolveSessionTarget;
 	loadCrewManifest?: (manifestPath: string) => Promise<import("../domain/index.ts").CrewManifest>;
 	readlink?: (socketPath: string) => Promise<string>;
+	/** Read at execute time; caller cannot override crew origin. */
+	getCurrentCrewOrigin?: () => import("../domain/index.ts").MessageOrigin | undefined;
 }
 
 // ============================================================================
@@ -84,6 +86,12 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 				}),
 			),
 			message: Type.Optional(Type.String({ description: "Message to send (required for action=send)" })),
+			instructions: Type.Optional(
+				Type.Array(Type.String({ minLength: 1 }), {
+					minItems: 1,
+					description: "Ordered user-level instructions",
+				}),
+			),
 			mode: Type.Optional(
 				Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], {
 					description: "Delivery mode for send: steer (immediate) or follow_up (after task)",
@@ -227,6 +235,8 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 					{
 						socketPath,
 						message: params.message,
+						instructions: params.instructions,
+						origin: dependencies.getCurrentCrewOrigin?.(),
 						mode: params.mode ?? "steer",
 						policy: policy!,
 						signal,

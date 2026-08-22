@@ -9,6 +9,7 @@ test("parses direct send defaults and resolves a relative socket", () => {
 		command: "send",
 		socketPath: "/project/.pi/bebop/sockets/dev.sock",
 		message: "hello",
+		instructions: [],
 		stdin: false,
 		mode: "steer",
 		wait: "turn_end",
@@ -16,6 +17,27 @@ test("parses direct send defaults and resolves a relative socket", () => {
 		format: "toon",
 		full: false,
 	});
+});
+
+test("preserves ordered instructions and claimed external origin", () => {
+	const parsed = parseCliArguments(
+		[
+			"send",
+			"--socket",
+			"/tmp/dev.sock",
+			"--message",
+			"hello",
+			"--instruction",
+			"first",
+			"--instruction",
+			"second",
+			"--from",
+			"CI",
+		],
+		cwd,
+	);
+	assert.deepEqual(parsed.instructions, ["first", "second"]);
+	assert.deepEqual(parsed.origin, { kind: "external", label: "CI" });
 });
 
 test("resolves both supported direct endpoint layouts", () => {

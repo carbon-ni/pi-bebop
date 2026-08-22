@@ -1,4 +1,4 @@
-import type { ResponsePolicy } from "../domain/index.ts";
+import type { MessageOrigin, ResponsePolicy } from "../domain/index.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { DirectMessageError, sendDirectMessage } from "../application/direct-message.ts";
 
@@ -12,6 +12,8 @@ export interface SendMessageRequest {
 	readonly socketPath: string;
 	readonly message: string;
 	readonly mode: "steer" | "follow_up";
+	readonly instructions?: readonly string[];
+	readonly origin?: MessageOrigin;
 	readonly policy: ResponsePolicy;
 	readonly sender?: { sessionId: string; sessionName?: string };
 	readonly signal?: AbortSignal;
@@ -31,6 +33,8 @@ export async function sendMessageToSocket(
 				socketPath: request.socketPath,
 				message: request.message,
 				mode: request.mode,
+				instructions: request.instructions,
+				origin: request.origin,
 				wait,
 				timeoutMs: wait === "turn_end" ? 300000 : undefined,
 				signal: request.signal,
