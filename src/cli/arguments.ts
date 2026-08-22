@@ -1,4 +1,5 @@
 import path from "node:path";
+import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
 
 export type CliFormat = "toon" | "json" | "text";
 export interface SendCliOptions {
@@ -47,7 +48,10 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 		"--from",
 	]);
 	for (let index = 1; index < args.length; index += 1) {
-		const flag = args[index]!;
+		const rawFlag = args[index]!;
+		const equals = rawFlag.indexOf("=");
+		const flag = equals > 0 ? rawFlag.slice(0, equals) : rawFlag;
+		const inlineValue = equals > 0 ? rawFlag.slice(equals + 1) : undefined;
 		if (flag === "--stdin" || flag === "--full") {
 			if ((flag === "--stdin" && stdin) || (flag === "--full" && full))
 				throw new UsageError(`Duplicate flag: ${flag}`);
@@ -60,14 +64,28 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 				`Unknown flag '${flag}'; valid flags: --socket, --message, --stdin, --instruction, --from, --mode, --wait, --timeout, --format, --full`,
 			);
 		if (flag === "--instruction") {
-			const value = args[++index];
-			if (value === undefined || value.startsWith("--")) throw new UsageError("Missing value for --instruction");
+			let value = inlineValue ?? args[++index];
+			let escaped = false;
+			if (value === "--") {
+				value = args[++index];
+				escaped = true;
+			}
+			if (value === undefined || (inlineValue === undefined && !escaped && value.startsWith("--")))
+				throw new UsageError("Missing value for --instruction");
 			instructions.push(value);
+			if (instructions.length > MAX_MESSAGE_INSTRUCTIONS)
+				throw new UsageError(`Too many --instruction values; maximum is ${MAX_MESSAGE_INSTRUCTIONS}`);
 			continue;
 		}
 		if (values.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-		const value = args[++index];
-		if (value === undefined || value.startsWith("--")) throw new UsageError(`Missing value for ${flag}`);
+		let value = inlineValue ?? args[++index];
+		let escaped = false;
+		if (value === "--") {
+			value = args[++index];
+			escaped = true;
+		}
+		if (value === undefined || (inlineValue === undefined && !escaped && value.startsWith("--")))
+			throw new UsageError(`Missing value for ${flag}`);
 		values.set(flag, value);
 	}
 	const socket = values.get("--socket");
@@ -75,8 +93,15 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 	const message = values.get("--message");
 	const from = values.get("--from");
 	if (from !== undefined) {
-		if (from.trim().length === 0 || from.includes("\0"))
-			throw new UsageError("--from must be non-empty and must not contain NUL");
+		if (
+			from.trim().length === 0 ||
+			from !== from.trim() ||
+			from.includes("\0") ||
+			Buffer.byteLength(from, "utf8") > MAX_MESSAGE_ORIGIN_FIELD_BYTES
+		)
+			throw new UsageError(
+				"--from must be trimmed, non-empty, within the UTF-8 byte limit, and must not contain NUL",
+			);
 		origin = { kind: "external", label: from };
 	}
 	if (message !== undefined && stdin)

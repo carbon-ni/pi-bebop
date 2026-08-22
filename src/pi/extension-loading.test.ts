@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import extension from "../extension.ts";
 
-test("registers independent crew surfaces without shared intray tools", () => {
+test("registers crew delivery surfaces with the structured session tool", () => {
 	const flags: string[] = [];
 	const tools: string[] = [];
 	const commands: string[] = [];
@@ -23,6 +23,6 @@ test("registers independent crew surfaces without shared intray tools", () => {
 
 	assert.doesNotThrow(() => extension(pi));
 	assert.deepEqual(flags, ["crew", "crew-socket"]);
-	assert.deepEqual(tools, ["send_follow_up", "send_immediate"]);
+	assert.deepEqual(tools, ["send_follow_up", "send_immediate", "send_to_session"]);
 	assert.deepEqual(commands, ["crew"]);
 });
