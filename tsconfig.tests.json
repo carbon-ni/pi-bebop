@@ -1,5 +1,11 @@
 {
 	"extends": "./tsconfig.json",
-	"include": ["src/application/presence-*.ts", "src/domain/presence.ts"],
+	"include": [
+		"src/application/presence-*.ts",
+		"src/domain/presence.ts",
+		"src/pi/membership-lifecycle.test.ts",
+		"src/pi/control-runtime.test.ts",
+		"src/infra/rpc-server.test.ts"
+	],
 	"exclude": []
 }

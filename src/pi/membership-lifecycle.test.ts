@@ -7,6 +7,7 @@ import {
 	restorePersistedMembership,
 } from "./membership-lifecycle.ts";
 import { MEMBERSHIP_ENTRY_TYPE, getLatestMembershipState } from "./membership-context.ts";
+import { MembershipRuntimeError } from "../infra/membership-runtime.ts";
 
 const membership = { member: { name: "dev", role: "developer" }, socketPath: "/crew/dev.sock" } as never;
 
@@ -86,12 +87,14 @@ test("restores active membership, skips inactive and startup-overridden selectio
 		runtime: {
 			join: async () => {
 				joins += 1;
-				return { ok: true, membership };
+				return { ok: true as const, membership, idempotent: false };
 			},
 		},
 		globalSocketPath: "/crew/global.sock",
 		manifestPathForSocket: () => "/crew/crew.json",
-		announce: (message: string) => announcements.push(message),
+		announce: (message: string) => {
+			announcements.push(message);
+		},
 		reportFailure: (message: string) => failures.push(message),
 	};
 	assert.equal(
@@ -111,13 +114,31 @@ test("restores active membership, skips inactive and startup-overridden selectio
 	assert.deepEqual(failures, []);
 });
 
+test("persisted restore awaits the announcement composition hook", async () => {
+	let completed = false;
+	const restored = await restorePersistedMembership({
+		runtime: { join: async () => ({ ok: true as const, membership, idempotent: false }) },
+		persisted: persisted(true),
+		startupSocketSelected: false,
+		globalSocketPath: "/crew/global.sock",
+		manifestPathForSocket: () => "/crew/crew.json",
+		announce: async () => {
+			await Promise.resolve();
+			completed = true;
+		},
+		reportFailure: assert.fail,
+	});
+	assert.equal(restored, true);
+	assert.equal(completed, true);
+});
+
 test("restores persisted external-root membership without rebasing to cwd", async () => {
 	let request: unknown;
 	const restored = await restorePersistedMembership({
 		runtime: {
 			join: async (value) => {
 				request = value;
-				return { ok: true, membership };
+				return { ok: true as const, membership, idempotent: false };
 			},
 		},
 		persisted: {
@@ -146,7 +167,7 @@ test("failed or unavailable restore reports failure without creating identity", 
 		runtime: {
 			join: async () => {
 				joins += 1;
-				return { ok: false, error: new Error("endpoint is occupied") };
+				return { ok: false, error: new MembershipRuntimeError("claim-failed", "endpoint is occupied") };
 			},
 		},
 		persisted: persisted(true),
@@ -166,7 +187,7 @@ test("shutdown cleanup runs even when membership release fails and reports the f
 	const failures: string[] = [];
 	await releaseMembershipBeforeCleanup({
 		hasMembership: true,
-		leave: async () => ({ ok: false, error: new Error("release failed") }),
+		leave: async () => ({ ok: false, error: new MembershipRuntimeError("leave-failed", "release failed") }),
 		cleanup: async () => {
 			cleanup += 1;
 		},
