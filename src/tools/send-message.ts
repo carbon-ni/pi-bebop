@@ -1,6 +1,6 @@
-import type { ResponsePolicy, RpcSendCommand, ExtractedMessage } from "../domain/index.ts";
-import { appendSenderMetadata } from "../domain/index.ts";
-import { sendRpcCommand, type RpcClientOptions } from "../infra/rpc-client.ts";
+import type { ResponsePolicy, ExtractedMessage } from "../domain/index.ts";
+import { sendRpcCommand } from "../infra/rpc-client.ts";
+import { DirectMessageError, sendDirectMessage } from "../application/direct-message.ts";
 
 export interface MessageToolResult {
 	readonly content: Array<{ type: "text"; text: string }>;
@@ -20,21 +20,29 @@ export interface SendMessageRequest {
 }
 
 export async function sendMessageToSocket(request: SendMessageRequest, sendRpc: typeof sendRpcCommand = sendRpcCommand): Promise<MessageToolResult> {
-	const message = appendSenderMetadata(request.message, request.policy.allowsReply ? request.sender ?? null : null);
-	const command: RpcSendCommand = { type: "send", message, mode: request.mode };
-	let options: RpcClientOptions = { signal: request.signal };
-	if (request.policy.waitUntil === "turn_end") options = { timeout: 300000, waitForEvent: "turn_end", signal: request.signal };
-	const result = await sendRpc(request.socketPath, command, options);
-	if (!result.response.success) {
-		return { content: [{ type: "text", text: `Failed: ${result.response.error ?? "unknown error"}` }], isError: true, details: result };
+	const wait = request.policy.waitUntil === "turn_end" ? "turn_end" : "accepted";
+	let result;
+	try {
+		result = await sendDirectMessage({
+			socketPath: request.socketPath,
+			message: request.message,
+			mode: request.mode,
+			wait,
+			timeoutMs: wait === "turn_end" ? 300000 : undefined,
+			signal: request.signal,
+			sender: request.policy.allowsReply ? request.sender : undefined,
+		}, sendRpc);
+	} catch (error) {
+		if (error instanceof DirectMessageError) return { content: [{ type: "text", text: `Failed: ${error.message}` }], isError: true, details: { error: error.message } };
+		throw error;
 	}
-	if (request.policy.waitUntil === "turn_end") {
-		const lastMessage = result.event?.message as ExtractedMessage | undefined;
-		if (!lastMessage) return { content: [{ type: "text", text: "Turn completed but no assistant message found" }], details: { turnIndex: result.event?.turnIndex } };
-		return { content: [{ type: "text", text: lastMessage.content }], details: { message: lastMessage, turnIndex: result.event?.turnIndex } };
+	if (wait === "turn_end") {
+		const lastMessage = result.message as ExtractedMessage | undefined;
+		if (!lastMessage) return { content: [{ type: "text", text: "Turn completed but no assistant message found" }], details: { turnIndex: result.turnIndex } };
+		return { content: [{ type: "text", text: lastMessage.content }], details: { message: lastMessage, turnIndex: result.turnIndex } };
 	}
 	if (request.policy.waitUntil === "message_processed" || request.policy.waitUntil === "off") {
-		return { content: [{ type: "text", text: `Message delivered to ${request.deliveryTarget ?? "session"}` }], details: result.response.data };
+		return { content: [{ type: "text", text: `Message delivered to ${request.deliveryTarget ?? "session"}` }], details: result.data };
 	}
-	return { content: [{ type: "text", text: `Message sent to ${request.displayTarget}` }], details: result.response.data };
+	return { content: [{ type: "text", text: `Message sent to ${request.displayTarget}` }], details: result.data };
 }

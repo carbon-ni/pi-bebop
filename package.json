@@ -4,32 +4,47 @@
   "description": "Independent crew management for Pi agents",
   "type": "module",
   "main": "./index.ts",
+  "bin": {
+    "pi-bebop": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist/cli/main.js",
+    "README.md",
+    "docs",
+    "LICENSE"
+  ],
   "pi": {
     "extensions": [
       "./index.ts"
     ]
   },
   "scripts": {
+    "build": "esbuild src/cli/main.ts --bundle --platform=node --format=esm --outfile=dist/cli/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "npm run typecheck",
+    "prepack": "npm run build",
     "test": "tsx --test src/**/*.test.ts",
     "test:coverage": "node --test --experimental-test-coverage --import tsx src/**/*.test.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "@sinclair/typebox": "*",
     "typebox": "*"
   },
+  "dependencies": {
+    "@toon-format/toon": "^4.1.1"
+  },
   "devDependencies": {
-    "@types/node": "^22.13.0",
-    "typescript": "^5.8.3",
-    "@earendil-works/pi-coding-agent": "^0.80.3",
     "@earendil-works/pi-ai": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "^0.80.3",
     "@earendil-works/pi-tui": "^0.80.3",
     "@sinclair/typebox": "*",
+    "@types/node": "^22.13.0",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.20.5",
     "typebox": "^1.1.38",
-    "tsx": "^4.20.5"
+    "typescript": "^5.8.3"
   }
 }
