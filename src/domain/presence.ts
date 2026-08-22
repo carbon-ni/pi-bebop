@@ -34,7 +34,7 @@ export function createInitialPresenceState(
 		members: Object.fromEntries(included.map((member) => [member.name, "unknown" as const])),
 		failures: Object.fromEntries(included.map((member) => [member.name, 0])),
 		initialScanComplete: false,
-		config,
+		config: Object.freeze({ notifications: config.notifications }),
 	};
 }
 
@@ -53,14 +53,36 @@ function transitionPresence(
 	online: boolean,
 	failureCount: number,
 ): { readonly status: PresenceStatus; readonly effect?: PresenceEffect } {
-	if (online) {
-		return current === "offline" ? { status: "online", effect: { type: "joined", member } } : { status: "online" };
-	}
-	if (current === "online") return { status: "suspect" };
-	if (current === "suspect" && failureCount >= DEFAULT_PRESENCE_OFFLINE_FAILURE_THRESHOLD) {
+	if (current === "offline")
+		return online ? { status: "online", effect: { type: "joined", member } } : { status: current };
+	if (online) return { status: "online" };
+	if (current === "unknown" || current === "online") return { status: "suspect" };
+	if (failureCount >= DEFAULT_PRESENCE_OFFLINE_FAILURE_THRESHOLD) {
 		return { status: "offline", effect: { type: "left", member } };
 	}
 	return { status: current };
+}
+
+function reduceObservation(
+	state: PresenceState,
+	input: PresenceReducerInput & { readonly event: Extract<PresenceEvent, { readonly type: "observation" }> },
+): PresenceReducerResult {
+	const observation = input.event;
+	const member = input.members.find((candidate) => candidate.name === observation.memberName);
+	if (!member || !(member.name in state.members)) return { state, effects: [] };
+	const current = state.members[member.name]!;
+	const previousFailures = state.failures[member.name] ?? 0;
+	const failureCount = observation.online ? 0 : current === "offline" ? previousFailures : previousFailures + 1;
+	const transition = transitionPresence(member, current, observation.online, failureCount);
+	if (transition.status === current && failureCount === state.failures[member.name]) return { state, effects: [] };
+	return {
+		state: {
+			...state,
+			members: { ...state.members, [member.name]: transition.status },
+			failures: { ...state.failures, [member.name]: failureCount },
+		},
+		effects: state.initialScanComplete && transition.effect ? [transition.effect] : [],
+	};
 }
 
 export function reducePresence(state: PresenceState, input: PresenceReducerInput): PresenceReducerResult {
@@ -70,20 +92,8 @@ export function reducePresence(state: PresenceState, input: PresenceReducerInput
 		const next = { ...state, initialScanComplete: true };
 		return { state: next, effects: [roster(input.members, next)] };
 	}
-	const observation = input.event;
-	const member = input.members.find((candidate) => candidate.name === observation.memberName);
-	if (!member || !(member.name in state.members)) return { state, effects: [] };
-	const current = state.members[member.name]!;
-	const online = observation.online;
-	const failureCount = online ? 0 : (state.failures[member.name] ?? 0) + 1;
-	const transition = transitionPresence(member, current, online, failureCount);
-	if (transition.status === current && failureCount === state.failures[member.name]) return { state, effects: [] };
-	return {
-		state: {
-			...state,
-			members: { ...state.members, [member.name]: transition.status },
-			failures: { ...state.failures, [member.name]: failureCount },
-		},
-		effects: transition.effect ? [transition.effect] : [],
-	};
+	return reduceObservation(state, {
+		...input,
+		event: input.event as Extract<PresenceEvent, { readonly type: "observation" }>,
+	});
 }
