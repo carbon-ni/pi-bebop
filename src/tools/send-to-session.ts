@@ -6,7 +6,14 @@ import { Type } from "@sinclair/typebox";
 import { readTrustedCrewManifest } from "../infra/crew-manifest-store.ts";
 import { resolveSessionIdFromAlias } from "../infra/control-store.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
-import { isClearResult, isExtractedMessage, isGetMessageResult, resolveResponsePolicy } from "../domain/index.ts";
+import {
+	MAX_MESSAGE_INSTRUCTIONS,
+	MAX_MESSAGE_ORIGIN_FIELD_BYTES,
+	isClearResult,
+	isExtractedMessage,
+	isGetMessageResult,
+	resolveResponsePolicy,
+} from "../domain/index.ts";
 import { resolveSessionTarget, SessionTargetError } from "./session-target.ts";
 import { sendMessageToSocket } from "./send-message.ts";
 
@@ -75,45 +82,53 @@ CLI bridge (for shell scripts/background jobs):
   pi -p --intray --control-session "$PI_SESSION_ID" --send-session-message "What is the current time?" --send-session-wait turn_end
 
 Response modes are mutually exclusive: turn_end is synchronous and never adds callback metadata; use message_processed or off with reply_behavior="allow_reply" for callback chat. allow_reply includes one sender_info block so the recipient can call send_to_session with that identity. Use reply_behavior="end_conversation" for one-way asynchronous messages.`,
-		parameters: Type.Object({
-			socketPath: Type.Optional(Type.String({ description: "Repository-local crew member socket path" })),
-			sessionId: Type.Optional(Type.String({ description: "Target session id (UUID)" })),
-			sessionName: Type.Optional(Type.String({ description: "Target session name (alias)" })),
-			action: Type.Optional(
-				Type.Union([Type.Literal("send"), Type.Literal("get_message"), Type.Literal("clear")], {
-					description: "Action to perform (default: send)",
-					default: "send",
-				}),
-			),
-			message: Type.Optional(Type.String({ description: "Message to send (required for action=send)" })),
-			instructions: Type.Optional(
-				Type.Array(Type.String({ minLength: 1 }), {
-					minItems: 1,
-					description: "Ordered user-level instructions",
-				}),
-			),
-			from: Type.Optional(
-				Type.String({ minLength: 1, description: "Claimed external label; unavailable when joined" }),
-			),
-			mode: Type.Optional(
-				Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], {
-					description: "Delivery mode for send: steer (immediate) or follow_up (after task)",
-					default: "steer",
-				}),
-			),
-			wait_until: Type.Optional(
-				Type.Union([Type.Literal("turn_end"), Type.Literal("message_processed"), Type.Literal("off")], {
-					description: "Wait behavior for send action",
-					default: "turn_end",
-				}),
-			),
-			reply_behavior: Type.Optional(
-				Type.Union([Type.Literal("allow_reply"), Type.Literal("end_conversation")], {
-					description:
-						"Whether this message should include callback sender metadata. Omit for a mode-appropriate default; turn_end defaults to end_conversation.",
-				}),
-			),
-		}),
+		parameters: Type.Object(
+			{
+				socketPath: Type.Optional(Type.String({ description: "Repository-local crew member socket path" })),
+				sessionId: Type.Optional(Type.String({ description: "Target session id (UUID)" })),
+				sessionName: Type.Optional(Type.String({ description: "Target session name (alias)" })),
+				action: Type.Optional(
+					Type.Union([Type.Literal("send"), Type.Literal("get_message"), Type.Literal("clear")], {
+						description: "Action to perform (default: send)",
+						default: "send",
+					}),
+				),
+				message: Type.Optional(Type.String({ description: "Message to send (required for action=send)" })),
+				instructions: Type.Optional(
+					Type.Array(Type.String({ minLength: 1, maxLength: MAX_MESSAGE_ORIGIN_FIELD_BYTES }), {
+						minItems: 1,
+						maxItems: MAX_MESSAGE_INSTRUCTIONS,
+						description: "Ordered user-level instructions",
+					}),
+				),
+				from: Type.Optional(
+					Type.String({
+						minLength: 1,
+						maxLength: MAX_MESSAGE_ORIGIN_FIELD_BYTES,
+						description: "Claimed external label; unavailable when joined",
+					}),
+				),
+				mode: Type.Optional(
+					Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], {
+						description: "Delivery mode for send: steer (immediate) or follow_up (after task)",
+						default: "steer",
+					}),
+				),
+				wait_until: Type.Optional(
+					Type.Union([Type.Literal("turn_end"), Type.Literal("message_processed"), Type.Literal("off")], {
+						description: "Wait behavior for send action",
+						default: "turn_end",
+					}),
+				),
+				reply_behavior: Type.Optional(
+					Type.Union([Type.Literal("allow_reply"), Type.Literal("end_conversation")], {
+						description:
+							"Whether this message should include callback sender metadata. Omit for a mode-appropriate default; turn_end defaults to end_conversation.",
+					}),
+				),
+			},
+			{ additionalProperties: false },
+		),
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			const action = params.action ?? "send";
 			const waitUntil = params.wait_until ?? "turn_end";

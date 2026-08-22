@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Value } from "@sinclair/typebox/value";
 
 import { registerSessionTool } from "./send-to-session.ts";
 import type { RpcClientOptions } from "../infra/rpc-client.ts";
 import { parseCrewManifest, type RpcCommand } from "../domain/index.ts";
 
 interface RegisteredTool {
+	parameters: any;
 	execute: (
 		...args: unknown[]
 	) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean; details?: unknown }>;
@@ -70,6 +72,53 @@ test("send_to_session defaults to synchronous turn_end without reverse-reply met
 	assert.deepEqual(calls[0]?.command, { type: "send", payload: { content: "hello" }, delivery: "immediate" });
 	assert.equal(calls[0]?.options?.waitForEvent, "turn_end");
 	assert.equal(calls[0]?.options?.signal, signal);
+});
+
+test("send_to_session schema is closed and bounds structured context", () => {
+	const tool = setup(async () => successfulSend());
+	assert.equal(Value.Check(tool.parameters, { sessionId: "target-id", message: "x", from: "CI" }), true);
+	assert.equal(
+		Value.Check(tool.parameters, {
+			sessionId: "target-id",
+			message: "x",
+			origin: { kind: "crew", name: "Bob", role: "dev" },
+		}),
+		false,
+	);
+	assert.equal(
+		Value.Check(tool.parameters, { sessionId: "target-id", message: "x", instructions: Array(33).fill("x") }),
+		false,
+	);
+	assert.equal(Value.Check(tool.parameters, { sessionId: "target-id", message: "x", extra: true }), false);
+});
+
+test("send_to_session carries external claims and rejects joined origin overrides", async () => {
+	const calls: RpcCommand[] = [];
+	const external = setup(async (_path, command) => {
+		calls.push(command);
+		return successfulSend();
+	});
+	const externalResult = await external.execute(
+		"call",
+		{ sessionId: "target-id", message: "hello", from: "CI" },
+		undefined,
+		undefined,
+		undefined,
+	);
+	assert.equal(externalResult.isError, undefined);
+	assert.deepEqual(calls[0]?.payload.origin, { kind: "external", label: "CI" });
+	const joined = setup(async () => successfulSend(), {
+		getCurrentCrewOrigin: () => ({ kind: "crew", name: "Bob", role: "dev" }),
+	});
+	const override = await joined.execute(
+		"call",
+		{ sessionId: "target-id", message: "hello", from: "Mallory" },
+		undefined,
+		undefined,
+		undefined,
+	);
+	assert.equal(override.isError, true);
+	assert.equal(override.details?.error, "origin-override");
 });
 
 test("send_to_session rejects turn_end plus allow_reply before RPC IO", async () => {

@@ -86,6 +86,10 @@ test("application omission defaults to follow-up wire delivery and coordinator q
 		},
 	);
 	assert.equal(command.delivery, "follow_up");
+	assert.deepEqual(command.payload, {
+		content: "default",
+		origin: { kind: "crew", name: "dev", role: "developer" },
+	});
 	assert.equal(outcome.disposition, "queued");
 });
 

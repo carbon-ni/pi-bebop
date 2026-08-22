@@ -40,6 +40,18 @@ test("preserves ordered instructions and claimed external origin", () => {
 	assert.deepEqual(parsed.origin, { kind: "external", label: "CI" });
 });
 
+test("accepts equals and sentinel syntax for values beginning with option prefixes", () => {
+	const inline = parseCliArguments(
+		["send", "--socket", "/tmp/x", "--message=--content", "--instruction=--focus", "--from=--ci"],
+		cwd,
+	);
+	assert.equal(inline.message, "--content");
+	assert.deepEqual(inline.instructions, ["--focus"]);
+	assert.deepEqual(inline.origin, { kind: "external", label: "--ci" });
+	const sentinel = parseCliArguments(["send", "--socket", "/tmp/x", "--message", "--", "--content"], cwd);
+	assert.equal(sentinel.message, "--content");
+});
+
 test("resolves both supported direct endpoint layouts", () => {
 	assert.equal(
 		parseCliArguments(["send", "--socket", ".pi/bebop/sockets/dev.sock", "--message", "x"], cwd).socketPath,
@@ -74,6 +86,33 @@ test("parses stdin, enum, duration, format, and full options", () => {
 	assert.equal(parsed.timeoutMs, 1500);
 	assert.equal(parsed.format, "json");
 	assert.equal(parsed.full, true);
+});
+
+test("rejects missing, repeated-over-limit, whitespace, and oversized context values", () => {
+	assert.throws(
+		() => parseCliArguments(["send", "--socket", "/tmp/x", "--message", "x", "--instruction"]),
+		/Missing value/,
+	);
+	assert.throws(
+		() => parseCliArguments(["send", "--socket", "/tmp/x", "--message", "x", "--from", " CI"]),
+		/trimmed/,
+	);
+	assert.throws(
+		() => parseCliArguments(["send", "--socket", "/tmp/x", "--message", "x", "--from", "x".repeat(257)]),
+		/UTF-8/,
+	);
+	assert.throws(
+		() =>
+			parseCliArguments([
+				"send",
+				"--socket",
+				"/tmp/x",
+				"--message",
+				"x",
+				...Array.from({ length: 33 }, () => ["--instruction", "x"]).flat(),
+			]),
+		/Too many/,
+	);
 });
 
 test("rejects missing, conflicting, invalid, duplicate, and unknown inputs", () => {

@@ -46,9 +46,10 @@ async function withEndpoint(
 	}
 }
 
-test("runs against a live Unix socket and waits for the assistant response", async () => {
+test("runs against a live Unix socket and sends ordered instructions and claimed origin", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-"));
 	const socketPath = path.join(dir, "member.sock");
+	let sentParams: any;
 	const server = net.createServer((socket) => {
 		socket.setEncoding("utf8");
 		let buffer = "";
@@ -58,8 +59,9 @@ test("runs against a live Unix socket and waits for the assistant response", asy
 				const [line, rest] = buffer.split(/\n(.*)/s);
 				buffer = rest ?? "";
 				if (!line) continue;
-				const command = JSON.parse(line) as { method: string; id: string };
-				if (command.method === "message.send")
+				const command = JSON.parse(line) as { method: string; id: string; params?: unknown };
+				if (command.method === "message.send") {
+					sentParams = command.params;
 					socket.write(
 						JSON.stringify({
 							jsonrpc: "2.0",
@@ -67,6 +69,7 @@ test("runs against a live Unix socket and waits for the assistant response", asy
 							result: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
 						}) + "\n",
 					);
+				}
 				if (command.method === "event.subscribe") {
 					socket.write(
 						JSON.stringify({
@@ -99,13 +102,33 @@ test("runs against a live Unix socket and waits for the assistant response", asy
 			text += chunk;
 		});
 		const code = await runCli(
-			["send", "--socket", socketPath, "--message", "hello", "--format", "json"],
+			[
+				"send",
+				"--socket",
+				socketPath,
+				"--message",
+				"hello",
+				"--instruction",
+				"first",
+				"--instruction",
+				"second",
+				"--from",
+				"CI",
+				"--format",
+				"json",
+			],
 			process.cwd(),
 			process.stdin,
 			output,
 		);
 		assert.equal(code, 0);
 		assert.equal(JSON.parse(text).response, "answer");
+		assert.deepEqual(sentParams, {
+			content: "hello",
+			instructions: ["first", "second"],
+			origin: { kind: "external", label: "CI" },
+			delivery: "immediate",
+		});
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(dir, { recursive: true, force: true });
