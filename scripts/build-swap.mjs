@@ -18,10 +18,12 @@ export async function atomicSwapDirectory(staging, dist, backupBase, operations 
 	const accessImpl = operations.access ?? access;
 	const backup = await uniqueBackupPath(backupBase, accessImpl);
 	let moved = false;
+	let hadPreviousDist = false;
 	let restored = false;
 	try {
 		try {
 			await renameImpl(dist, backup);
+			hadPreviousDist = true;
 		} catch (error) {
 			if (error?.code !== "ENOENT") throw error;
 		}
@@ -29,6 +31,7 @@ export async function atomicSwapDirectory(staging, dist, backupBase, operations 
 			await renameImpl(staging, dist);
 			moved = true;
 		} catch (error) {
+			if (!hadPreviousDist) throw error;
 			try {
 				await renameImpl(backup, dist);
 				restored = true;

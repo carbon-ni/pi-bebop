@@ -46,11 +46,8 @@ export async function acquireBuildLock(
 				if (statError?.code !== "ENOENT") throw statError;
 			}
 			const stale = lockAge > staleMs;
-			if (
-				stale &&
-				((Number.isInteger(pid) && pid > 0 && Number.isFinite(created) && !processAlive(pid)) ||
-					(!Number.isInteger(pid) && !Number.isFinite(created)))
-			) {
+			const validOwner = Number.isInteger(pid) && pid > 0 && Number.isFinite(created);
+			if (stale && (!validOwner || !processAlive(pid))) {
 				await rm(lockPath, { recursive: true, force: true });
 				continue;
 			}

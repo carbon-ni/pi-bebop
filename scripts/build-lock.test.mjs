@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { acquireBuildLock } from "./build-lock.mjs";
 import { atomicSwapDirectory } from "./build-swap.mjs";
@@ -11,11 +11,24 @@ test("recovers stale ownerless locks and cleans ownership", async () => {
 	const root = await temp();
 	const lock = join(root, "lock");
 	await mkdir(lock);
-	await writeFile(join(lock, "owner"), "999999\n1\n");
+	const stale = new Date(Date.now() - 10_000);
+	await utimes(lock, stale, stale);
 	const release = await acquireBuildLock(lock, { staleMs: 1, timeoutMs: 100 });
 	assert.equal((await readFile(join(lock, "owner"), "utf8")).split("\n")[0], String(process.pid));
 	await release();
 	await assert.rejects(() => readFile(lock), { code: "ENOENT" });
+	await rm(root, { recursive: true, force: true });
+});
+
+test("recovers malformed partial owner locks after grace", async () => {
+	const root = await temp();
+	const lock = join(root, "lock");
+	await mkdir(lock);
+	await writeFile(join(lock, "owner"), "123\nbad\n");
+	const stale = new Date(Date.now() - 10_000);
+	await utimes(lock, stale, stale);
+	const release = await acquireBuildLock(lock, { staleMs: 1, timeoutMs: 100 });
+	await release();
 	await rm(root, { recursive: true, force: true });
 });
 
@@ -51,6 +64,23 @@ test("restores the previous dist when atomic swap cannot install staging", async
 	await rm(root, { recursive: true, force: true });
 });
 
+test("does not claim a recovery backup when no previous dist existed", async () => {
+	const root = await temp();
+	const dist = join(root, "dist");
+	const staging = join(root, "staging");
+	const backup = join(root, "backup");
+	await mkdir(staging);
+	let renameCount = 0;
+	const failingRename = async () => {
+		renameCount += 1;
+		if (renameCount === 1) throw Object.assign(new Error("missing dist"), { code: "ENOENT" });
+		throw Object.assign(new Error("install failed"), { code: "EIO" });
+	};
+	await assert.rejects(() => atomicSwapDirectory(staging, dist, backup, { rename: failingRename }), /install failed/);
+	await assert.rejects(() => readFile(backup), { code: "ENOENT" });
+	await rm(root, { recursive: true, force: true });
+});
+
 test("retains a recovery backup when rollback itself fails", async () => {
 	const root = await temp();
 	const dist = join(root, "dist");
@@ -58,22 +88,19 @@ test("retains a recovery backup when rollback itself fails", async () => {
 	const backup = join(root, "backup");
 	await mkdir(dist);
 	await mkdir(staging);
+	await writeFile(join(dist, "sentinel"), "old");
 	let renameCount = 0;
-	const rename = async () => {
+	const failingRename = async (from, to) => {
 		renameCount += 1;
-		if (renameCount === 2 || renameCount === 3) throw Object.assign(new Error("rename failed"), { code: "EIO" });
+		if (renameCount === 1) return rename(from, to);
+		throw Object.assign(new Error("rename failed"), { code: "EIO" });
 	};
 	await assert.rejects(
-		() =>
-			atomicSwapDirectory(staging, dist, backup, {
-				rename,
-				rm: async () => undefined,
-				access: async () => {
-					throw Object.assign(new Error("missing"), { code: "ENOENT" });
-				},
-			}),
+		() => atomicSwapDirectory(staging, dist, backup, { rename: failingRename }),
 		/recovery backup retained/,
 	);
 	assert.equal(renameCount, 3);
+	assert.equal(await readFile(join(backup, "sentinel"), "utf8"), "old");
+	await assert.rejects(() => readFile(staging), { code: "ENOENT" });
 	await rm(root, { recursive: true, force: true });
 });
