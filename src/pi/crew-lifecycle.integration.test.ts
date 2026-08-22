@@ -24,12 +24,12 @@ async function socketServer(socketPath: string, messages: string[]): Promise<net
 
 async function setupCrew() {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "intray-crew-integration-"));
-	const intray = path.join(root, ".pi", "intray");
-	const sockets = path.join(intray, "sockets");
+	const bebop = path.join(root, ".pi", "bebop");
+	const sockets = path.join(bebop, "sockets");
 	const globals = path.join(root, "globals");
 	await fs.mkdir(sockets, { recursive: true });
 	await fs.mkdir(globals, { recursive: true });
-	const manifestPath = path.join(intray, "crew.json");
+	const manifestPath = path.join(bebop, "crew.json");
 	await fs.writeFile(manifestPath, JSON.stringify({
 		version: 1,
 		members: [

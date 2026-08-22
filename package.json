@@ -1,7 +1,7 @@
 {
-  "name": "intray",
+  "name": "pi-bebop",
   "version": "0.1.0",
-  "description": "Control and communicate with running Pi sessions over Unix sockets",
+  "description": "Independent crew management for Pi agents",
   "type": "module",
   "main": "./index.ts",
   "pi": {

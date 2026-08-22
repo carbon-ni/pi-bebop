@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import extension from "../extension.ts";
 
-test("registers only crew-specific surfaces and leaves the shared intray tools untouched", () => {
+test("registers independent crew surfaces without shared intray tools", () => {
 	const flags: string[] = [];
 	const tools: string[] = [];
 	const commands: string[] = [];
@@ -16,7 +16,7 @@ test("registers only crew-specific surfaces and leaves the shared intray tools u
 	} as never;
 
 	assert.doesNotThrow(() => extension(pi));
-	assert.deepEqual(flags, ["crew-socket"]);
+	assert.deepEqual(flags, ["crew", "crew-socket"]);
 	assert.deepEqual(tools, ["send_to_member"]);
 	assert.deepEqual(commands, ["crew"]);
 });

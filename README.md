@@ -1,17 +1,16 @@
 # Pi Bebop
 
-Give a small dysfunctional crew to your Pi agents. Bebop is deliberately layered
-on top of the separately installed `pi-intray` extension: intray owns generic
-session transport, `send_to_session`, `list_sessions`, and `--intray`; Bebop
-owns trusted, project-local crew identity and `send_to_member`.
+Give a small dysfunctional crew to your Pi agents. Bebop is self-contained: it
+owns its crew socket transport, project-local membership, and role-based
+`send_to_member` delivery.
 
 ## Setup
 
 Create the crew manifest in a trusted project:
 
 ```bash
-mkdir -p .pi/intray/sockets
-cat > .pi/intray/crew.json <<'JSON'
+mkdir -p .pi/bebop/sockets
+cat > .pi/bebop/crew.json <<'JSON'
 {"version":1,"members":[
   {"name":"lead","role":"lead","socket":"sockets/lead.sock"},
   {"name":"developer","role":"developer","socket":"sockets/developer.sock"}
@@ -26,21 +25,20 @@ path.
 > This is why it is a dysfunctional crew: members may or may not be there, by
 > design. You can create a script to start the crew yourself.
 
-Start each member with intray's transport flag and Bebop's crew flag:
+Start each member with its crew identity:
 
 ```bash
-pi --intray --crew-socket "$PWD/.pi/intray/sockets/lead.sock"
-pi --intray --crew-socket "$PWD/.pi/intray/sockets/developer.sock"
+pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"
+pi --crew-socket "$PWD/.pi/bebop/sockets/developer.sock"
 ```
 
-`--crew-socket` selects a member from the trusted manifest; it does not start a
-socket server. `--intray` must therefore be provided (or intray must be
-otherwise configured to start).
+`--crew-socket` starts Bebop's socket server and selects the member represented
+by that endpoint. Use `pi --crew` to start a server without joining a crew.
 
 For an existing session, join a crew endpoint with:
 
 ```text
-/crew join .pi/intray/sockets/lead.sock
+/crew join .pi/bebop/sockets/lead.sock
 ```
 
 Use `/crew status`, `/crew leave`, or `/crew stop` to inspect or release the
@@ -61,6 +59,3 @@ send_to_member({
 
 Members can be addressed by unique name or role. A live endpoint owned by
 another session is never overwritten; stale endpoints may be reclaimed.
-
-For generic session discovery, direct session messaging, and intray CLI flags,
-use `pi-intray` directly.
