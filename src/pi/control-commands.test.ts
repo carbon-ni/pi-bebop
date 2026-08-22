@@ -60,7 +60,7 @@ test("/intray join and leave use membership runtime without stopping base server
 	const runtime = {
 		join: async (request: unknown) => {
 			calls.push({ operation: "join", value: request });
-			currentMembership = { manifestPath: "/project/.pi/intray/crew.json", socketPath: "/project/.pi/intray/sockets/dev.sock", globalSocketPath: "/tmp/global.sock", member: { name: "dev", role: "developer", socket: "sockets/dev.sock", socketPath: "/project/.pi/intray/sockets/dev.sock" } };
+			currentMembership = { manifestPath: "/project/.pi/bebop/crew.json", socketPath: "/project/.pi/bebop/sockets/dev.sock", globalSocketPath: "/tmp/global.sock", member: { name: "dev", role: "developer", socket: "sockets/dev.sock", socketPath: "/project/.pi/bebop/sockets/dev.sock" } };
 			return { ok: true, membership: currentMembership, idempotent: false };
 		},
 		leave: async () => { calls.push({ operation: "leave" }); currentMembership = null; return { ok: true, left: true }; },
@@ -76,9 +76,9 @@ test("/intray join and leave use membership runtime without stopping base server
 		ensureControlServer: async (_pi, state, ctx) => { state.server = {} as never; state.socketPath = "/tmp/global.sock"; state.context = ctx; },
 	}));
 
-	await setupState.getCommand().handler("join '.pi/intray/sockets/dev.sock'", setupState.ctx);
+	await setupState.getCommand().handler("join '.pi/bebop/sockets/dev.sock'", setupState.ctx);
 	assert.equal(calls[0]?.operation, "join");
-	assert.deepEqual(calls[0]?.value, { manifestPath: "/project/.pi/intray/crew.json", socketPath: "/project/.pi/intray/sockets/dev.sock", globalSocketPath: "/tmp/global.sock" });
+	assert.deepEqual(calls[0]?.value, { manifestPath: "/project/.pi/bebop/crew.json", socketPath: "/project/.pi/bebop/sockets/dev.sock", globalSocketPath: "/tmp/global.sock" });
 	assert.match(setupState.notifications[0]!, /dev \(developer\)/);
 	assert.equal(setupState.ctx.sessionManager.getSessionName(), "local-name");
 	await setupState.getCommand().handler("status", setupState.ctx);
@@ -91,6 +91,22 @@ test("/intray join and leave use membership runtime without stopping base server
 	assert.equal(announcements.length, 2);
 	assert.deepEqual(activation, ["activate", "deactivate"]);
 	assert.equal(refreshes, 2);
+});
+
+test("/crew join accepts both layouts and rejects arbitrary siblings before runtime join", async () => {
+	for (const layout of ["bebop", "crew"]) {
+		const state = setup(); let joins = 0;
+		const runtime = { join: async () => { joins += 1; return { ok: true, membership: { member: { name: "dev", role: "developer" }, socketPath: `/project/.pi/${layout}/sockets/dev.sock` }, idempotent: false }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
+		registerSessionControlCommand(state.pi, state.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/tmp/global.sock"; current.context = ctx; } }));
+		await state.getCommand().handler(`join .pi/${layout}/sockets/dev.sock`, state.ctx);
+		assert.equal(joins, 1);
+	}
+	const rejected = setup(); let joins = 0;
+	const runtime = { join: async () => { joins += 1; return { ok: false, error: new Error("must not join") }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
+	registerSessionControlCommand(rejected.pi, rejected.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/tmp/global.sock"; current.context = ctx; } }));
+	await rejected.getCommand().handler("join .pi/other/sockets/dev.sock", rejected.ctx);
+	assert.equal(joins, 0);
+	assert.match(rejected.notifications[0]!, /untrusted crew manifest path/);
 });
 
 test("/intray join reports trust and runtime failures without claiming", async () => {
@@ -106,7 +122,7 @@ test("/intray join reports trust and runtime failures without claiming", async (
 		membershipRuntime: runtime,
 		ensureControlServer: async (_pi, state, ctx) => { state.server = {} as never; state.socketPath = "/tmp/global.sock"; state.context = ctx; },
 	}));
-	await untrusted.getCommand().handler("join /tmp/project/.pi/intray/sockets/dev.sock", untrusted.ctx);
+	await untrusted.getCommand().handler("join /tmp/project/.pi/bebop/sockets/dev.sock", untrusted.ctx);
 	assert.equal(joins, 0);
 	assert.deepEqual(untrusted.notifications, ["Intray join failed: project is not trusted"]);
 
@@ -120,7 +136,7 @@ test("/intray join reports trust and runtime failures without claiming", async (
 		membershipRuntime: failingRuntime,
 		ensureControlServer: async (_pi, state, ctx) => { state.server = {} as never; state.socketPath = "/tmp/global.sock"; state.context = ctx; },
 	}));
-	await failed.getCommand().handler("join /tmp/project/.pi/intray/sockets/dev.sock", failed.ctx);
+	await failed.getCommand().handler("join .pi/bebop/sockets/dev.sock", failed.ctx);
 	assert.deepEqual(failed.notifications, ["Intray join failed: claim failed"]);
 });
 
