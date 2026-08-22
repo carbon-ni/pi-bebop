@@ -1,7 +1,7 @@
 ---
 id: TASK-0025
 title: Add structured message context
-status: doing
+status: done
 depends_on: [TASK-0024, TASK-0031]
 priority: high
 tags: [messaging, instructions, origin, schema, crew]
