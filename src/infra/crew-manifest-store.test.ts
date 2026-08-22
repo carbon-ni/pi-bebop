@@ -41,6 +41,16 @@ describe("trusted crew manifest store", () => {
 	assert.equal((await readTrustedCrewManifest(legacyManifest, projectDir, () => true)).members[0].name, "legacy");
 	await assert.rejects(() => readTrustedCrewManifest(path.join(projectDir, ".pi", "other", "crew.json"), projectDir, () => true), (error: unknown) => error instanceof CrewManifestReadError && error.code === "untrusted-path");
 });
+	test("keeps selected layout failures distinct and never falls back", async () => {
+	const legacyManifest = path.join(projectDir, ".pi", "crew", "crew.json");
+	await fs.rm(legacyManifest, { force: true });
+	await assert.rejects(() => readTrustedCrewManifest(legacyManifest, projectDir, () => true), (error: unknown) => error instanceof CrewManifestReadError && error.code === "read-failed" && error.message.includes(legacyManifest));
+	await fs.writeFile(legacyManifest, "{ nope");
+	await assert.rejects(() => readTrustedCrewManifest(legacyManifest, projectDir, () => true), (error: unknown) => error instanceof CrewManifestReadError && error.code === "invalid-json");
+	await fs.writeFile(legacyManifest, JSON.stringify({ version: 1, members: [] }));
+	await assert.rejects(() => readTrustedCrewManifest(legacyManifest, projectDir, () => true), (error: unknown) => error instanceof Error && error.message.includes("members must be a non-empty array"));
+});
+
 	test("reads and parses only the trusted project-local manifest", async () => {
 		const manifest = await readTrustedCrewManifest(getDefaultCrewManifestPath(projectDir), projectDir, () => true);
 		assert.equal(manifest.members[0].role, "developer");
