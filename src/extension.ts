@@ -5,8 +5,10 @@ import { renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts
 import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/index.ts";
 import { registerSessionTool } from "./tools/send-to-session.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
+import { createPresenceObserver } from "./application/presence-observer.ts";
 import { sendRpcCommand } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
+import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -77,6 +79,45 @@ export default function (pi: ExtensionAPI) {
 	const announceMembership = (message: string) => {
 		pi.sendMessage({ customType: "crew-status", content: message, display: true }, { triggerTurn: false });
 	};
+	const stopPresence = () => {
+		state.presenceObserver?.stop();
+		state.presenceObserver = undefined;
+	};
+	const refreshPresence = () => {
+		stopPresence();
+		const membership = state.membershipRuntime?.getMembership();
+		if (!membership || !membership.manifest.presence.notifications) return;
+		const instanceId = state.context?.sessionManager.getSessionId();
+		if (!instanceId) return;
+		const observer = createPresenceObserver(
+			membership.manifest.members.map((member) => ({
+				identity: member.socketPath,
+				name: member.name,
+				role: member.role,
+			})),
+			membership.member.socketPath,
+			instanceId,
+			membership.manifest.presence,
+			{
+				scheduler: {
+					schedule: (delay, callback) => setTimeout(callback, delay),
+					cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+				},
+				probe: (identity, timeout) => probeMemberEndpoint(identity),
+				sendHint: async (member, stateValue) => {
+					const endpoint = await resolveMemberEndpoint(member.identity);
+					await sendRpcCommand(
+						endpoint,
+						{ type: "presence_hint", member, state: stateValue, instanceId },
+						{ timeout: 500 },
+					);
+				},
+				onEffects: () => undefined,
+			},
+		);
+		state.presenceObserver = observer;
+		void observer.start();
+	};
 
 	registerSessionControlCommand(
 		pi,
@@ -90,6 +131,8 @@ export default function (pi: ExtensionAPI) {
 			activateMembershipTool: () => activateMembershipTool(pi),
 			deactivateMembershipTool: () => deactivateMembershipTool(pi),
 			refreshStatus: () => refreshIntrayStatus(state),
+			refreshPresence,
+			stopPresence,
 		},
 		"crew",
 	);
@@ -117,6 +160,7 @@ export default function (pi: ExtensionAPI) {
 			const membership = state.membershipRuntime.getMembership();
 			if (joined && membership) {
 				activateMembershipTool(pi);
+				refreshPresence();
 				persistMembership(true, membership);
 				announceMembership(
 					`Crew joined ${membership.member.name} (${membership.member.role}) at ${membership.socketPath}`,
@@ -153,6 +197,7 @@ export default function (pi: ExtensionAPI) {
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
 			leave: async () => state.membershipRuntime!.leave(),
 			cleanup: async () => {
+				stopPresence();
 				deactivateMembershipTool(pi);
 				await disableControlServer(state, context, pi);
 			},

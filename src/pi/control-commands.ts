@@ -16,6 +16,8 @@ export type ControlCommandDeps = {
 	activateMembershipTool?: () => void;
 	deactivateMembershipTool?: () => void;
 	refreshStatus?: () => void;
+	refreshPresence?: () => void;
+	stopPresence?: () => void;
 };
 
 const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop"];
@@ -118,6 +120,7 @@ export function registerSessionControlCommand(
 					deps.persistMembership?.(true, result.membership);
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
+					deps.refreshPresence?.();
 					deps.announceMembership?.(joinedMessage);
 					notify(ctx, joinedMessage);
 					return;
@@ -135,6 +138,7 @@ export function registerSessionControlCommand(
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
+							deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
 						}
 						notify(ctx, result.left ? "Crew membership released" : "Crew not joined");
@@ -162,6 +166,7 @@ export function registerSessionControlCommand(
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
+							deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
 						},
 						reportFailure: (message) => notify(ctx, message, "warning"),
