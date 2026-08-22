@@ -91,6 +91,8 @@ export async function runCli(
 		const result = await sendDirectMessage({
 			socketPath: options.socketPath,
 			message: message!,
+			...(options.instructions.length === 0 ? {} : { instructions: options.instructions }),
+			...(options.origin === undefined ? {} : { origin: options.origin }),
 			mode: options.mode,
 			wait: options.wait,
 			timeoutMs: options.timeoutMs,
