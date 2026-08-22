@@ -43,8 +43,37 @@ test("initial scan emits one ordered roster and no joined or left effects", () =
 	assert.deepEqual(result.effects, []);
 });
 
-test("online failure becomes suspect, then offline at the named threshold with one left", () => {
+test("unknown failure becomes suspect, then offline at the named threshold", () => {
+	let state = apply(createInitialPresenceState(members, "lead"), { type: "initial-scan-complete" }).state;
+	let result = apply(state, { type: "observation", memberName: "dev", online: false });
+	assert.equal(result.state.members.dev, "suspect");
+	assert.deepEqual(result.effects, []);
+	result = apply(result.state, { type: "observation", memberName: "dev", online: false });
+	assert.equal(result.state.members.dev, "offline");
+	assert.deepEqual(result.effects, [{ type: "left", member: { name: "dev", role: "developer" } }]);
+});
+
+test("observations before initial scan suppress effects and roster reflects final ordered statuses", () => {
 	let state = createInitialPresenceState(members, "lead");
+	let result = apply(state, { type: "observation", memberName: "qa", online: true });
+	assert.deepEqual(result.effects, []);
+	state = result.state;
+	result = apply(state, { type: "observation", memberName: "dev", online: false });
+	assert.deepEqual(result.effects, []);
+	result = apply(result.state, { type: "initial-scan-complete" });
+	assert.deepEqual(result.effects, [
+		{
+			type: "roster",
+			members: [
+				{ name: "dev", role: "developer", status: "suspect" },
+				{ name: "qa", role: "qa", status: "online" },
+			],
+		},
+	]);
+});
+
+test("online failure becomes suspect, then offline at the named threshold with one left", () => {
+	let state = apply(createInitialPresenceState(members, "lead"), { type: "initial-scan-complete" }).state;
 	state = apply(state, { type: "observation", memberName: "dev", online: true }).state;
 	let result = apply(state, { type: "observation", memberName: "dev", online: false });
 	assert.equal(result.state.members.dev, "suspect");
@@ -58,7 +87,7 @@ test("online failure becomes suspect, then offline at the named threshold with o
 });
 
 test("suspect success is silent and offline success emits one joined", () => {
-	let state = createInitialPresenceState(members, "lead");
+	let state = apply(createInitialPresenceState(members, "lead"), { type: "initial-scan-complete" }).state;
 	state = apply(state, { type: "observation", memberName: "dev", online: true }).state;
 	state = apply(state, { type: "observation", memberName: "dev", online: false }).state;
 	let result = apply(state, { type: "observation", memberName: "dev", online: true });
@@ -67,6 +96,30 @@ test("suspect success is silent and offline success emits one joined", () => {
 	state = { ...result.state, members: { ...result.state.members, dev: "offline" } };
 	result = apply(state, { type: "observation", memberName: "dev", online: true });
 	assert.deepEqual(result.effects, [{ type: "joined", member: { name: "dev", role: "developer" } }]);
+});
+
+test("offline and online duplicates are no-ops and out-of-order probes retain manifest order", () => {
+	let state = createInitialPresenceState(members, "lead");
+	state = apply(state, { type: "observation", memberName: "qa", online: true }).state;
+	state = apply(state, { type: "observation", memberName: "dev", online: true }).state;
+	const duplicateOnline = apply(state, { type: "observation", memberName: "dev", online: true });
+	assert.equal(duplicateOnline.state, state);
+	state = {
+		...state,
+		members: { ...state.members, dev: "offline" },
+		failures: { ...state.failures, dev: DEFAULT_PRESENCE_OFFLINE_FAILURE_THRESHOLD },
+	};
+	const duplicateOffline = apply(state, { type: "observation", memberName: "dev", online: false });
+	assert.equal(duplicateOffline.state, state);
+	assert.deepEqual(duplicateOffline.effects, []);
+	const scanned = apply(state, { type: "initial-scan-complete" });
+	assert.deepEqual(scanned.effects[0], {
+		type: "roster",
+		members: [
+			{ name: "dev", role: "developer", status: "offline" },
+			{ name: "qa", role: "qa", status: "online" },
+		],
+	});
 });
 
 test("observations are immutable, ordered, and current identity is ignored", () => {
@@ -116,7 +169,11 @@ test("leave and rejoin effects are deterministic across a role switch table", ()
 		{ name: "qa", role: "reviewer", expected: { type: "left", member: { name: "qa", role: "reviewer" } } },
 	] as const;
 	for (const row of cases) {
-		let state = createInitialPresenceState([{ name: row.name, role: row.role }], "lead");
+		let state = reducePresence(createInitialPresenceState([{ name: row.name, role: row.role }], "lead"), {
+			members: [{ name: row.name, role: row.role }],
+			currentMemberName: "lead",
+			event: { type: "initial-scan-complete" },
+		}).state;
 		state = reducePresence(state, {
 			members: [{ name: row.name, role: row.role }],
 			currentMemberName: "lead",
@@ -140,6 +197,21 @@ test("leave and rejoin effects are deterministic across a role switch table", ()
 		});
 		assert.deepEqual(rejoined.effects, [{ type: "joined", member: { name: row.name, role: `${row.role}-new` } }]);
 	}
+});
+
+test("initial state snapshots inputs and cannot be changed through config mutation", () => {
+	const inputMembers = [{ name: "dev", role: "developer" }];
+	const inputConfig = { notifications: true };
+	const state = createInitialPresenceState(inputMembers, "lead", inputConfig);
+	inputMembers[0]!.name = "changed";
+	inputConfig.notifications = false;
+	assert.deepEqual(state.members, { dev: "unknown" });
+	const result = reducePresence(state, {
+		members: [{ name: "dev", role: "developer" }],
+		currentMemberName: "lead",
+		event: { type: "observation", memberName: "dev", online: false },
+	});
+	assert.equal(result.state.members.dev, "suspect");
 });
 
 test("disabled notifications preserve membership state while suppressing observations and effects", () => {
