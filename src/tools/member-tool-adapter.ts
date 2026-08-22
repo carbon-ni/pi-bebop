@@ -40,7 +40,7 @@ export function registerMemberIntentTool(
 	pi: ExtensionAPI,
 	state: SocketState,
 	intent: MemberDeliveryIntent,
-	dependencies: MemberToolAdapterDependencies = {},
+	dependencies: MemberToolAdapterDependencies,
 ): void {
 	const name = intent === "follow_up" ? "send_follow_up" : "send_immediate";
 	const label = intent === "follow_up" ? "Send Follow-up" : "Send Immediate";

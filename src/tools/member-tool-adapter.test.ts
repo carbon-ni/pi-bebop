@@ -6,7 +6,7 @@ import { parseCrewManifest } from "../domain/index.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 import type { RpcClientOptions } from "../infra/rpc-client.ts";
 import { createSocketState } from "../pi/control-runtime.ts";
-import { createMemberMessageCoordinator } from "../application/member-message.ts";
+import { createMemberMessageCoordinator, sendMemberMessage } from "../application/member-message.ts";
 import { registerSendFollowUpTool } from "./send-follow-up.ts";
 import { registerSendImmediateTool } from "./send-immediate.ts";
 
@@ -51,8 +51,13 @@ function setup(
 	state.membershipRuntime = {
 		getMembership: () => (joined ? currentMembership : null),
 	} as unknown as MembershipRuntime;
-	registerSendFollowUpTool(pi, state, { sendRpcCommand, ...dependencies });
-	registerSendImmediateTool(pi, state, { sendRpcCommand, ...dependencies });
+	const adapterDependencies = {
+		transport: { send: sendRpcCommand },
+		resolveEndpoint: async (socketPath: string) => socketPath,
+		...dependencies,
+	};
+	registerSendFollowUpTool(pi, state, adapterDependencies);
+	registerSendImmediateTool(pi, state, adapterDependencies);
 	return tools;
 }
 const ack = (disposition: string) => ({
@@ -63,6 +68,25 @@ const ack = (disposition: string) => ({
 		id: "request-1",
 		data: { deliveryId: "delivery-request-1", disposition },
 	},
+});
+
+test("application omission defaults to follow-up wire delivery and coordinator queue", async () => {
+	let command: any;
+	const outcome = await sendMemberMessage(
+		{ membership, member: "qa", message: "default", sender: undefined },
+		{
+			transport: {
+				send: async (_endpoint, value) => {
+					command = value;
+					return ack("queued");
+				},
+			},
+			resolveEndpoint: async (socketPath) => socketPath,
+			coordinator: createMemberMessageCoordinator(),
+		},
+	);
+	assert.equal(command.mode, "follow_up");
+	assert.equal(outcome.disposition, "queued");
 });
 
 test("registers only intent-named tools with compact parameters and teaching descriptions", () => {
@@ -279,9 +303,36 @@ test("cleans failed tails and isolates a role-switched endpoint while the old qu
 		.execute("call", { member: "qa", message: "recovers" }, undefined, undefined, undefined);
 	const results = await Promise.all([failed, recovered]);
 	assert.equal(results[0].isError, true);
+	assert.match(results[0].content[0].text, /offline.*target shutdown/i);
+	assert.equal(results[0].details.error, "offline");
 	assert.equal(results[1].isError, undefined);
 	assert.equal(failureCalls, 2);
 	assert.equal(failureCoordinator.pendingKeyCount(), 0);
+});
+
+test("classifies invalid acknowledgements, remote rejection, and true offline errors", async () => {
+	const invalid = setup(async () => ({
+		response: { type: "response", command: "send", success: true, id: "invalid", data: {} },
+	}));
+	const invalidResult = await invalid
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "x" }, undefined, undefined, undefined);
+	assert.equal(invalidResult.details.error, "invalid-ack");
+	const remote = setup(async () => ({
+		response: { type: "response", command: "send", success: false, id: "remote", error: "busy" },
+	}));
+	const remoteResult = await remote
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "x" }, undefined, undefined, undefined);
+	assert.equal(remoteResult.details.error, "remote-rejected");
+	const offline = setup(async () => {
+		throw new Error("ENOENT socket");
+	});
+	const offlineResult = await offline
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "x" }, new AbortController().signal, undefined, undefined);
+	assert.equal(offlineResult.details.error, "offline");
+	assert.match(offlineResult.content[0].text, /offline.*ENOENT/i);
 });
 
 test("rejects response waiting and preserves membership target errors without RPC", async () => {

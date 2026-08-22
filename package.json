@@ -33,6 +33,7 @@
 		"src/infra/rpc-client.ts",
 		"src/infra/rpc-server.ts",
 		"src/infra/session-env.ts",
+		"src/infra/socket-endpoint.ts",
 		"src/pi/control-commands.ts",
 		"src/pi/control-runtime.ts",
 		"src/pi/membership-context.ts",

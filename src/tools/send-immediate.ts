@@ -5,7 +5,7 @@ import { registerMemberIntentTool, type MemberToolAdapterDependencies } from "./
 export function registerSendImmediateTool(
 	pi: ExtensionAPI,
 	state: SocketState,
-	dependencies: MemberToolAdapterDependencies = {},
+	dependencies: MemberToolAdapterDependencies,
 ): void {
 	registerMemberIntentTool(pi, state, "immediate", dependencies);
 }
