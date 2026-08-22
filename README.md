@@ -1,6 +1,6 @@
 # Pi Bebop
 
-Give a small disfunctional crew to your PI agents.
+Give a small dysfunctional crew to your PI agents.
 
 ## Crew Getting Started
 
@@ -28,6 +28,8 @@ python3 -m json.tool .pi/crew/crew.json >/dev/null
 The project must be trusted by Pi before this manifest can be read. Trust is a project security boundary, not a property granted by the filename or socket path.
 
 ### 2. Start one Pi session for each role
+
+This is why it is dysfunctional crew, they may or may not be there, by design. You can create a script to start the crew yourself.
 
 In three terminals, from the same trusted project, start the sessions with their configured endpoint:
 
