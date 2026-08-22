@@ -10,3 +10,4 @@ export * from "./branch-alias.ts";
 export * from "./session-filter.ts";
 export * from "./crew-manifest.ts";
 export * from "./crew-roster.ts";
+export * from "./presence.ts";

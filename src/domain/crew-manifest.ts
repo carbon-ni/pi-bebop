@@ -11,9 +11,14 @@ export interface CrewMember {
 	readonly instructions?: string;
 }
 
+export interface CrewPresenceConfig {
+	readonly notifications: boolean;
+}
+
 export interface CrewManifest {
 	readonly version: typeof CREW_MANIFEST_VERSION;
 	readonly members: readonly CrewMember[];
+	readonly presence: CrewPresenceConfig;
 }
 
 export type CrewManifestErrorCode =
@@ -100,6 +105,14 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 	if (!Array.isArray(input.members) || input.members.length === 0) {
 		throw new CrewManifestError("invalid-members", "members must be a non-empty array");
 	}
+	const rawPresence = input.presence;
+	let presence: CrewPresenceConfig = { notifications: true };
+	if (rawPresence !== undefined) {
+		if (!isRecord(rawPresence) || Object.keys(rawPresence).some((key) => key !== "notifications") || typeof rawPresence.notifications !== "boolean") {
+			throw new CrewManifestError("invalid-manifest", "presence must contain only boolean notifications");
+		}
+		presence = { notifications: rawPresence.notifications };
+	}
 
 	const names = new Set<string>();
 	const socketPaths = new Map<string, CrewMember[]>();
@@ -136,7 +149,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 			throw new CrewManifestError("duplicate-socket-path", `duplicate socket path: ${socketPath}`);
 		}
 	}
-	return { version: CREW_MANIFEST_VERSION, members };
+	return { version: CREW_MANIFEST_VERSION, members, presence };
 }
 
 export function lookupCrewMemberBySocketPath(manifest: CrewManifest, socketPath: string): CrewMemberLookup {
