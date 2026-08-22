@@ -7,7 +7,7 @@ export type CrewPresenceRoster = Extract<PresenceEffect, { readonly type: "roste
 
 function safeLabel(value: string): string {
 	return value
-		.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, " ")
+		.replace(/[\u0000-\u001f\u007f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, " ")
 		.replace(/\s+/g, " ")
 		.trim();
 }
@@ -33,7 +33,12 @@ export function formatCrewPresenceRoster(
 	const limit = Math.max(1, previewLimit);
 	let visible = online.slice(0, limit);
 	const current = online.find((member) => member.identity === currentIdentity);
-	if (current && !visible.some((member) => member.identity === currentIdentity)) visible = [...visible, current];
+	if (current && !visible.some((member) => member.identity === currentIdentity)) {
+		const selected = new Set(
+			[...visible.slice(0, Math.max(0, limit - 1)), current].map((member) => member.identity),
+		);
+		visible = online.filter((member) => selected.has(member.identity));
+	}
 	const omitted = Math.max(0, total - visible.length);
 	const suffix = omitted > 0 ? ` (+${omitted} more; use /crew members)` : "";
 	return `[crew] Online (${total}): ${visible.map((member) => label(member, currentIdentity)).join(", ") || "none"}${suffix}`;
