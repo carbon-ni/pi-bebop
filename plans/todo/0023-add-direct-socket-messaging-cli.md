@@ -62,15 +62,16 @@ External CLI calls have no live sender session, so they must not attach `sender_
 - [ ] `pi-bebop send --socket <live-member-endpoint> --message <text>` delivers a steer message without requiring a running sender Pi session.
 - [ ] `--stdin` delivers exact multiline UTF-8 input; empty stdin and conflicting message sources fail before connecting.
 - [ ] `--wait turn_end` waits for and returns the completed assistant message; `--wait accepted` returns after delivery acknowledgement.
-- [ ] A finite timeout and SIGINT abort close the RPC connection and return exit `1` without a stack trace.
-- [ ] Offline sockets, permission denial, RPC rejection, malformed response, timeout, and missing assistant response produce distinct actionable errors.
-- [ ] Unknown flags and invalid enum/duration values return exit `2` before socket IO.
+- [ ] A finite timeout and SIGINT abort close pending stdin reads and RPC connections, returning exit `1` without a stack trace; subprocess coverage holds stdin open, sends SIGINT, and proves timely cleanup.
+- [ ] Offline sockets, permission denial, RPC rejection, timeout, and missing assistant response produce distinct actionable errors. Malformed peer responses are explicitly deferred to TASK-0024 and must not be claimed as complete here.
+- [ ] Unknown flags and invalid enum/duration values return exit `2` before socket IO in the selected output format and through the injected output stream—never implicit global stdout.
 - [ ] Default TOON output is deterministic and specification-compatible; JSON is semantically equivalent and text remains concise.
 - [ ] The CLI never adds callback sender metadata; tests and documentation accurately define who can connect based on directory/socket permissions on supported platforms.
 - [ ] Both `.pi/bebop/sockets/*` and `.pi/crew/sockets/*` work because targeting is direct; no manifest fallback or role lookup is introduced.
-- [ ] The existing `send_to_member` and `send_to_session` behavior remains unchanged and uses the shared direct-message operation.
-- [ ] Package installation exposes `pi-bebop`; the built executable runs under plain Node without development dependencies.
+- [ ] The existing `send_to_member` and `send_to_session` behavior remains unchanged and uses the shared direct-message operation, including a non-error `Turn completed but no assistant message found` result for tool adapters.
+- [ ] Package installation exposes `pi-bebop`; an npm-pack/install subprocess test executes the installed `dist/cli/main.js` under plain Node without development dependencies while the Pi extension entrypoint remains loadable.
 - [ ] `npm pack --dry-run` contains only intentional runtime, type, license, and documentation files—no `.pi`, `.tmp`, database, log, plan, or nested fixture state.
+- [ ] Integration coverage includes accepted wait, remote rejection, timeout, SIGINT during stdin, exact multiline/empty stdin, both endpoint layouts, no outbound sender metadata, and real supported-platform permission behavior where deterministic.
 - [ ] Focused parser, renderer, transport, integration, packaging, unhappy-path, and truncation tests pass, followed by the final watcher gate.
 
 ## Out of scope
