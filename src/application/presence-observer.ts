@@ -8,6 +8,7 @@ import {
 
 export const PRESENCE_RECONCILE_INTERVAL_MS = 5_000;
 export const PRESENCE_PROBE_TIMEOUT_MS = 500;
+export const PRESENCE_HINT_TIMEOUT_MS = 500;
 
 export interface PresenceScheduler {
 	schedule(delayMs: number, callback: () => void): unknown;
@@ -39,33 +40,43 @@ export function createPresenceObserver(
 	let active = false;
 	let timer: unknown;
 	let starting: Promise<void> | undefined;
+	let scanPromise: Promise<void> | undefined;
+	const revisions = new Map<string, number>();
 	let state = createInitialPresenceState(members, currentIdentity, config);
 	const peers = () => members.filter((member) => member.identity !== currentIdentity);
 	const isActive = (token: number) => active && token === generation;
 	const broadcast = async (changed: PresenceMember, status: "online" | "offline") => {
-		if (!config.notifications) return;
+		if (!active || !config.notifications) return;
 		await Promise.allSettled(peers().map((target) => dependencies.sendHint(target, changed, status)));
+	};
+	const applyObservation = (member: PresenceMember, online: boolean, revision: number) => {
+		if (revisions.get(member.identity) !== revision) return;
+		const reduced = reducePresence(state, {
+			members,
+			currentMemberIdentity: currentIdentity,
+			event: { type: "observation", memberIdentity: member.identity, online },
+		});
+		state = reduced.state;
+		if (reduced.effects.length > 0) dependencies.onEffects(reduced.effects);
 	};
 	const scan = async (token: number) => {
 		const results = await Promise.all(
 			peers().map(async (member) => {
+				const revision = (revisions.get(member.identity) ?? 0) + 1;
+				revisions.set(member.identity, revision);
 				try {
-					return { member, online: await dependencies.probe(member.identity, PRESENCE_PROBE_TIMEOUT_MS) };
+					return {
+						member,
+						revision,
+						online: await dependencies.probe(member.identity, PRESENCE_PROBE_TIMEOUT_MS),
+					};
 				} catch {
-					return { member, online: false };
+					return { member, revision, online: false };
 				}
 			}),
 		);
 		if (!isActive(token)) return;
-		for (const result of results) {
-			const reduced = reducePresence(state, {
-				members,
-				currentMemberIdentity: currentIdentity,
-				event: { type: "observation", memberIdentity: result.member.identity, online: result.online },
-			});
-			state = reduced.state;
-			if (reduced.effects.length > 0) dependencies.onEffects(reduced.effects);
-		}
+		for (const result of results) applyObservation(result.member, result.online, result.revision);
 		if (!state.initialScanComplete) {
 			const reduced = reducePresence(state, {
 				members,
@@ -77,14 +88,25 @@ export function createPresenceObserver(
 		}
 	};
 	const schedule = (token: number) => {
-		if (isActive(token))
-			timer = dependencies.scheduler.schedule(PRESENCE_RECONCILE_INTERVAL_MS, () => void reconcile());
+		if (isActive(token) && timer === undefined)
+			timer = dependencies.scheduler.schedule(PRESENCE_RECONCILE_INTERVAL_MS, () => {
+				timer = undefined;
+				void reconcile(token);
+			});
 	};
-	const reconcile = async () => {
-		if (!active) return;
-		const token = generation;
-		await scan(token);
-		schedule(token);
+	const reconcile = async (requestedToken?: number) => {
+		if (!active || (requestedToken !== undefined && requestedToken !== generation)) return;
+		if (scanPromise) return scanPromise;
+		const token = requestedToken ?? generation;
+		const run = scan(token);
+		let wrapped!: Promise<void>;
+		wrapped = run.finally(() => {
+			if (scanPromise !== wrapped) return;
+			scanPromise = undefined;
+			if (isActive(token)) schedule(token);
+		});
+		scanPromise = wrapped;
+		await wrapped;
 	};
 	return {
 		async start() {
@@ -92,10 +114,14 @@ export function createPresenceObserver(
 			active = true;
 			generation += 1;
 			const token = generation;
-			starting = reconcile()
+			const current = members.find((member) => member.identity === currentIdentity);
+			if (!current) {
+				active = false;
+				return;
+			}
+			starting = reconcile(token)
 				.then(async () => {
-					if (isActive(token))
-						await broadcast(members.find((member) => member.identity === currentIdentity)!, "online");
+					if (isActive(token)) await broadcast(current, "online");
 				})
 				.finally(() => {
 					starting = undefined;
@@ -114,17 +140,13 @@ export function createPresenceObserver(
 			);
 			if (!member) return false;
 			const token = generation;
+			const revision = (revisions.get(member.identity) ?? 0) + 1;
+			revisions.set(member.identity, revision);
 			void dependencies
 				.probe(member.identity, PRESENCE_PROBE_TIMEOUT_MS)
 				.then((online) => {
 					if (!isActive(token)) return;
-					const reduced = reducePresence(state, {
-						members,
-						currentMemberIdentity: currentIdentity,
-						event: { type: "observation", memberIdentity: member.identity, online },
-					});
-					state = reduced.state;
-					if (reduced.effects.length > 0) dependencies.onEffects(reduced.effects);
+					applyObservation(member, online, revision);
 				})
 				.catch(() => undefined);
 			return true;
@@ -135,6 +157,7 @@ export function createPresenceObserver(
 			generation += 1;
 			if (timer !== undefined) dependencies.scheduler.cancel(timer);
 			timer = undefined;
+			scanPromise = undefined;
 		},
 		getState: () => state,
 	};

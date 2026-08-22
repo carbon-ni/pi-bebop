@@ -64,6 +64,31 @@ test("initial scan probes non-current concurrently, emits ordered roster, and hi
 	assert.equal(h.probes.length, probesBeforeDuplicate);
 });
 
+test("reverse probe completion retains manifest order", async () => {
+	const pending = new Map<string, (value: boolean) => void>();
+	const effects: unknown[] = [];
+	const observer = createPresenceObserver(
+		[lead, dev, qa],
+		lead.identity,
+		"self",
+		{ notifications: true },
+		{
+			scheduler: { schedule: (_d, cb) => cb, cancel: () => undefined },
+			probe: async (identity) => await new Promise<boolean>((resolve) => pending.set(identity, resolve)),
+			sendHint: async () => undefined,
+			onEffects: (items) => effects.push(...items),
+		},
+	);
+	const started = observer.start();
+	pending.get(qa.identity)!(false);
+	pending.get(dev.identity)!(true);
+	await started;
+	assert.deepEqual(
+		(effects[0] as { members: PresenceMember[] }).members.map((item) => item.identity),
+		[dev.identity, qa.identity],
+	);
+});
+
 test("hint validates claimed active identity, never mutates directly, and probes once", async () => {
 	const h = harness();
 	await h.observer.start();
@@ -134,6 +159,66 @@ test("stale in-flight reconciliation and hint are ignored after stop", async () 
 	observer.stop();
 });
 
+test("missing current identity rejects start without probing or hints", async () => {
+	const h = harness();
+	const observer = createPresenceObserver(
+		[dev],
+		lead.identity,
+		"self",
+		{ notifications: true },
+		{
+			scheduler: { schedule: (_d, cb) => cb, cancel: () => undefined },
+			probe: async () => {
+				throw new Error("must not probe");
+			},
+			sendHint: async () => {
+				throw new Error("must not hint");
+			},
+			onEffects: () => {
+				throw new Error("must not effect");
+			},
+		},
+	);
+	await observer.start();
+	assert.equal(observer.acceptHint({ member: dev, state: "online", instanceId: "peer" }), false);
+	assert.deepEqual(h.probes, []);
+});
+
+test("dequeued timer from old generation cannot scan or reschedule after restart", async () => {
+	const callbacks: Array<() => void> = [];
+	let probes = 0;
+	const observer = createPresenceObserver(
+		[lead, dev],
+		lead.identity,
+		"self",
+		{ notifications: true },
+		{
+			scheduler: {
+				schedule: (_d, cb) => {
+					callbacks.push(cb);
+					return cb;
+				},
+				cancel: () => undefined,
+			},
+			probe: async () => {
+				probes += 1;
+				return true;
+			},
+			sendHint: async () => undefined,
+			onEffects: () => undefined,
+		},
+	);
+	await observer.start();
+	const old = callbacks[0]!;
+	observer.stop();
+	await observer.start();
+	const afterRestart = probes;
+	old();
+	await Promise.resolve();
+	assert.equal(probes, afterRestart);
+	assert.equal(callbacks.length, 2);
+});
+
 test("disabled notifications create no probes, hints, effects, or timers", async () => {
 	const h = harness(false);
 	await h.observer.start();
@@ -164,6 +249,9 @@ test("offline broadcast targets every peer with changed current member and isola
 	);
 	await observer.start();
 	sent.length = 0;
+	await observer.broadcast(lead, "offline");
+	assert.deepEqual(sent, [`${dev.identity}<-${lead.identity}:offline`, `${qa.identity}<-${lead.identity}:offline`]);
+	observer.stop();
 	await observer.broadcast(lead, "offline");
 	assert.deepEqual(sent, [`${dev.identity}<-${lead.identity}:offline`, `${qa.identity}<-${lead.identity}:offline`]);
 });

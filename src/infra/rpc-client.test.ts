@@ -373,3 +373,24 @@ test("rejects failed subscription responses", async () => {
 		},
 	);
 });
+
+test("rejects malformed presence hint acknowledgements", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "presence.hint") send(socket, { jsonrpc: "2.0", id: request.id, result: {} });
+			}),
+		async (socketPath) => {
+			await assert.rejects(
+				() =>
+					sendRpcCommand(socketPath, {
+						type: "presence_hint",
+						member: { identity: "/crew/dev.sock", name: "dev", role: "developer" },
+						state: "online",
+						instanceId: "peer",
+					}),
+				/invalid|response/i,
+			);
+		},
+	);
+});

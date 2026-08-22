@@ -33,7 +33,7 @@ export interface MembershipRestoreDeps {
 	readonly startupSocketSelected: boolean;
 	readonly globalSocketPath: string | undefined;
 	readonly manifestPathForSocket: (socketPath: string) => string;
-	readonly announce: (message: string) => void;
+	readonly announce: (message: string) => void | Promise<void>;
 	readonly reportFailure: (message: string) => void;
 }
 
@@ -48,7 +48,7 @@ export async function restorePersistedMembership(deps: MembershipRestoreDeps): P
 		deps.reportFailure(result.error.message);
 		return false;
 	}
-	deps.announce(
+	await deps.announce(
 		`Crew restored ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
 	);
 	return true;
