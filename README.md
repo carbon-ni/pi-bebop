@@ -81,11 +81,16 @@ printf 'line one\nline two\n' | pi-bebop send --socket .pi/crew/sockets/lead.soc
 ```
 
 The default is `--mode steer`, `--wait turn_end`, `--timeout 5m`, and `--format
-toon`. Use `--wait accepted` for acknowledgement-only automation, `--format text`
+ toon`. Repeat `--instruction <text>` to attach ordered user-level instructions, and
+use `--from <label>` for explicitly claimed external attribution (never verified
+crew identity). `--instruction` values are bounded by the shared UTF-8 payload
+limits; missing values and blank labels are usage errors. Stdin is content only.
+Use `--wait accepted` for acknowledgement-only automation, `--format text`
 for concise human output, and `--full` to disable the 2,000-character response
 preview. JSON and TOON always include `ok`, `target`, `status`, and response/error
 data; exit status is 0 for success, 1 for operational failures, and 2 for
-invalid usage. The CLI never attaches callback metadata.
+invalid usage. The CLI never attaches callback metadata unless a caller explicitly uses the
+session tool; `--from` is attribution only and never a reply route.
 
 Release/package verification is intentionally separate from quick tests because it installs a pinned consumer dependency set and may require network or a warm npm cache:
 
