@@ -108,7 +108,11 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 	const rawPresence = input.presence;
 	let presence: CrewPresenceConfig = { notifications: true };
 	if (rawPresence !== undefined) {
-		if (!isRecord(rawPresence) || Object.keys(rawPresence).some((key) => key !== "notifications") || typeof rawPresence.notifications !== "boolean") {
+		if (
+			!isRecord(rawPresence) ||
+			Object.keys(rawPresence).some((key) => key !== "notifications") ||
+			typeof rawPresence.notifications !== "boolean"
+		) {
 			throw new CrewManifestError("invalid-manifest", "presence must contain only boolean notifications");
 		}
 		presence = { notifications: rawPresence.notifications };

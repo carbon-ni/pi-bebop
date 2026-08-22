@@ -40,7 +40,12 @@ export function createInitialPresenceState(
 }
 
 function roster(members: readonly PresenceMember[], state: PresenceState): PresenceEffect {
-	return { type: "roster", members: members.filter((member) => member.name in state.members).map((member) => ({ ...member, status: state.members[member.name]! })) };
+	return {
+		type: "roster",
+		members: members
+			.filter((member) => member.name in state.members)
+			.map((member) => ({ ...member, status: state.members[member.name]! })),
+	};
 }
 
 export function reducePresence(state: PresenceState, input: PresenceReducerInput): PresenceReducerResult {
