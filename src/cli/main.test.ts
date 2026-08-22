@@ -61,8 +61,11 @@ test("runs against a live Unix socket and waits for the assistant response", asy
 				const command = JSON.parse(line) as { method: string; id: string };
 				if (command.method === "message.send")
 					socket.write(
-						JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { delivered: true, mode: "steer" } }) +
-							"\n",
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: command.id,
+							result: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
+						}) + "\n",
 					);
 				if (command.method === "event.subscribe") {
 					socket.write(
@@ -226,8 +229,11 @@ test("covers accepted, rejection, timeout, exact multiline stdin, and no sender 
 		(command, socket) => {
 			if (command.method === "message.send")
 				socket.write(
-					JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { delivered: true, mode: "steer" } }) +
-						"\n",
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: command.id,
+						result: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
+					}) + "\n",
 				);
 		},
 		async (socketPath, messages) => {
@@ -249,8 +255,8 @@ test("covers accepted, rejection, timeout, exact multiline stdin, and no sender 
 				0,
 			);
 			assert.equal(JSON.parse(text).status, "accepted");
-			assert.equal((messages[0]?.params as { message?: string })?.message, "line one\nline two\n");
-			assert.equal(((messages[0]?.params as { message?: string })?.message ?? "").includes("sender_info"), false);
+			assert.equal((messages[0]?.params as { content?: string })?.content, "line one\nline two\n");
+			assert.equal(((messages[0]?.params as { content?: string })?.content ?? "").includes("sender_info"), false);
 		},
 	);
 	await withEndpoint(
@@ -319,8 +325,11 @@ test("delivers through symlinked bebop and crew endpoint layouts", async () => {
 		(command, socket) => {
 			if (command.method === "message.send")
 				socket.write(
-					JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { delivered: true, mode: "steer" } }) +
-						"\n",
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: command.id,
+						result: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
+					}) + "\n",
 				);
 		},
 		async (socketPath) => {
@@ -367,7 +376,7 @@ test("packs and executes the bundled CLI locally without registry access", async
 		await execFile("tar", ["-xzf", path.join(archiveDir, archive), "-C", extract, "--strip-components=1"]);
 		const packageJson = JSON.parse(await readFile(path.join(extract, "package.json"))) as { main?: string };
 		assert.equal(packageJson.main, "./dist/extension.js");
-		assert.equal((await readFile(path.join(extract, "dist/extension.js"))).includes("registerMemberTool"), true);
+		assert.equal((await readFile(path.join(extract, "dist/extension.js"))).includes("send_follow_up"), true);
 		let cliError: { code?: number; stdout?: string } | undefined;
 		try {
 			await execFile(

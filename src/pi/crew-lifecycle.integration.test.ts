@@ -10,7 +10,7 @@ import { claimMemberEndpoint } from "../infra/member-endpoint.ts";
 import { readTrustedCrewManifest } from "../infra/crew-manifest-store.ts";
 import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-server.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
-import { registerMemberTool } from "../tools/send-to-member.ts";
+import { registerSendFollowUpTool, registerSendImmediateTool } from "../tools/index.ts";
 import { getLatestMembershipState, MEMBERSHIP_ENTRY_TYPE } from "./membership-context.ts";
 import { restorePersistedMembership, releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
 
@@ -23,7 +23,7 @@ async function socketServer(socketPath: string, messages: string[]): Promise<net
 			command: "send",
 			success: true,
 			id: command.id,
-			data: { delivered: true, mode: "steer" },
+			data: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
 		});
 	});
 }
@@ -176,20 +176,20 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 
 	// One lead orchestrator addresses both configured roles through public tool/RPC seams.
 	const registered = new Map<string, any>();
-	registerMemberTool(
-		{
-			registerTool(tool: any) {
-				registered.set(tool.name, tool);
-			},
-		} as never,
-		{
-			membershipRuntime: restoredRuntime,
-			context: { sessionManager: { getSessionId: () => "orchestrator", getSessionName: () => "lead" } },
-		} as never,
-	);
-	const tool = registered.get("send_to_member");
+	const toolApi = {
+		registerTool(tool: any) {
+			registered.set(tool.name, tool);
+		},
+	} as never;
+	const toolState = {
+		membershipRuntime: restoredRuntime,
+		context: { sessionManager: { getSessionId: () => "orchestrator", getSessionName: () => "lead" } },
+	} as never;
+	registerSendFollowUpTool(toolApi, toolState);
+	registerSendImmediateTool(toolApi, toolState);
+	const tool = registered.get("send_follow_up");
 	const send = (member: string, message: string) =>
-		tool.execute("call", { member, message, wait_until: "off" }, undefined, undefined, undefined);
+		tool.execute("call", { member, message }, undefined, undefined, undefined);
 	assert.equal(await fs.readlink(path.join(crew.sockets, "developer.sock")), developerGlobal);
 	assert.equal(await fs.readlink(path.join(crew.sockets, "qa.sock")), qaGlobal);
 	const developerResult = await send("developer", "please implement fix");

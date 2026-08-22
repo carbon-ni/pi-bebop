@@ -79,16 +79,18 @@ function isStaleContextError(error: unknown): boolean {
 	return String(error instanceof Error ? error.message : error).includes("This extension ctx is stale");
 }
 
-const MEMBERSHIP_TOOL = "send_to_member";
+const MEMBERSHIP_TOOLS = ["send_follow_up", "send_immediate"] as const;
 
 export function activateMembershipTool(pi: ExtensionAPI): void {
-	if (pi.getActiveTools().includes(MEMBERSHIP_TOOL)) return;
-	pi.setActiveTools([...pi.getActiveTools(), MEMBERSHIP_TOOL]);
+	const active = pi.getActiveTools();
+	const additions = MEMBERSHIP_TOOLS.filter((name) => !active.includes(name));
+	if (additions.length > 0) pi.setActiveTools([...active, ...additions]);
 }
 
 export function deactivateMembershipTool(pi: ExtensionAPI): void {
-	if (!pi.getActiveTools().includes(MEMBERSHIP_TOOL)) return;
-	pi.setActiveTools(pi.getActiveTools().filter((name) => name !== MEMBERSHIP_TOOL));
+	const active = pi.getActiveTools();
+	const filtered = active.filter((name) => !MEMBERSHIP_TOOLS.some((membershipTool) => membershipTool === name));
+	if (filtered.length !== active.length) pi.setActiveTools(filtered);
 }
 
 export type IntrayStatus = "stopped" | "online" | "joined";
@@ -227,7 +229,7 @@ export async function handleCommand(
 			return;
 		}
 
-		const mode = command.mode ?? "steer";
+		const mode = command.mode ?? "follow_up";
 		const isIdle = ctx.isIdle();
 		const customMessage = {
 			customType: SESSION_MESSAGE_TYPE,
@@ -244,7 +246,8 @@ export async function handleCommand(
 			});
 		}
 
-		respond(true, "send", { delivered: true, mode: isIdle ? "direct" : mode });
+		const disposition = isIdle ? "direct" : mode === "follow_up" ? "queued" : "steered";
+		respond(true, "send", { deliveryId: `delivery-${id}`, disposition });
 		return;
 	}
 

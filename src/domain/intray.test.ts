@@ -45,7 +45,7 @@ test("JSON-RPC parser validates supported requests and maps methods", () => {
 			jsonrpc: "2.0",
 			id: "1",
 			method: "message.send",
-			params: { message: "hello", mode: "steer" },
+			params: { content: "hello", delivery: "immediate" },
 		}),
 	);
 	assert.equal(result.error, undefined);
@@ -57,14 +57,15 @@ test("JSON-RPC parser returns standard failures for malformed and non-RPC envelo
 	assert.equal(parseRequest("{ nope").error?.code, -32700);
 	assert.equal(parseRequest(JSON.stringify({ type: "send", message: "hello" })).error?.code, -32600);
 	const extra = parseRequest(
-		JSON.stringify({ jsonrpc: "2.0", id: "1", method: "message.send", params: { message: "x", extra: true } }),
+		JSON.stringify({ jsonrpc: "2.0", id: "1", method: "message.send", params: { content: "x", extra: true } }),
 	).request!;
 	assert.equal("code" in requestToCommand(extra), true);
 });
 
 test("method parameter schemas accept only their exact valid shapes", () => {
 	const cases: Array<[string, Parameters<typeof Value.Check>[0], unknown]> = [
-		["message.send", MessageSendParamsSchema, { message: "hello", mode: "steer" }],
+		["message.send explicit", MessageSendParamsSchema, { content: "hello", delivery: "immediate" }],
+		["message.send default", MessageSendParamsSchema, { content: "hello" }],
 		["event.subscribe", SubscribeParamsSchema, { event: "turn_end" }],
 		["session.status", EmptyParamsSchema, {}],
 		["session.get_message", EmptyParamsSchema, {}],
@@ -72,10 +73,10 @@ test("method parameter schemas accept only their exact valid shapes", () => {
 		["session.abort", EmptyParamsSchema, {}],
 	];
 	for (const [method, schema, value] of cases) assert.equal(Value.Check(schema, value), true, method);
-	assert.equal(Value.Check(MessageSendParamsSchema, { message: "" }), false);
-	assert.equal(Value.Check(MessageSendParamsSchema, { message: "x", mode: "later" }), false);
-	assert.equal(Value.Check(MessageSendParamsSchema, { message: "x", extra: true }), false);
-	assert.equal(Value.Check(MessageSendParamsSchema, { message: "x".repeat(1_000_001) }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { content: "" }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x", delivery: "later" }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x", extra: true }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x".repeat(1_000_001) }), false);
 	assert.equal(Value.Check(SubscribeParamsSchema, { event: null }), false);
 	assert.equal(Value.Check(EmptyParamsSchema, { extra: true }), false);
 });
@@ -146,13 +147,17 @@ test("command and request mappings round-trip through their strict schemas", () 
 			true,
 			`request ${i}`,
 		);
-		assert.deepEqual(requestToCommand(request), { ...command, id: command.id ?? `roundtrip-${i}` });
+		assert.deepEqual(requestToCommand(request), {
+			...command,
+			...(command.type === "send" && command.mode === undefined ? { mode: "follow_up" } : {}),
+			id: command.id ?? `roundtrip-${i}`,
+		});
 	}
 });
 
 test("method request schemas reject invalid envelopes and required fields", () => {
 	const valid: Array<[string, unknown]> = [
-		["message.send", { jsonrpc: "2.0", id: "1", method: "message.send", params: { message: "x" } }],
+		["message.send", { jsonrpc: "2.0", id: "1", method: "message.send", params: { content: "x" } }],
 		["event.subscribe", { jsonrpc: "2.0", id: 1, method: "event.subscribe", params: { event: "turn_end" } }],
 		["session.status", { jsonrpc: "2.0", id: "s", method: "session.status" }],
 		["session.get_message", { jsonrpc: "2.0", id: "g", method: "session.get_message" }],
@@ -173,12 +178,12 @@ test("method request schemas reject invalid envelopes and required fields", () =
 			jsonrpc: "1.0",
 			id: "1",
 			method: "message.send",
-			params: { message: "x" },
+			params: { content: "x" },
 		}),
 		false,
 	);
 	assert.equal(
-		Value.Check(MessageSendRequestSchema, { jsonrpc: "2.0", method: "message.send", params: { message: "x" } }),
+		Value.Check(MessageSendRequestSchema, { jsonrpc: "2.0", method: "message.send", params: { content: "x" } }),
 		false,
 	);
 	assert.equal(
@@ -186,7 +191,7 @@ test("method request schemas reject invalid envelopes and required fields", () =
 			jsonrpc: "2.0",
 			id: "1",
 			method: "message.send",
-			params: { message: "x", extra: true },
+			params: { content: "x", extra: true },
 		}),
 		false,
 	);
@@ -201,7 +206,7 @@ test("method result, error, event, and extracted-message schemas accept only con
 	const extracted = { role: "assistant", content: "done", timestamp: 1 };
 	const cases: Array<[string, Parameters<typeof Value.Check>[0], unknown]> = [
 		["status", StatusResultSchema, { status: "online" }],
-		["send", SendResultSchema, { delivered: true, mode: "steer" }],
+		["send", SendResultSchema, { deliveryId: "delivery-1", disposition: "steered" }],
 		["get_message", GetMessageResultSchema, { message: extracted }],
 		["clear", ClearResultSchema, { cleared: true }],
 		["subscribe", SubscribeResultSchema, { subscriptionId: "sub-1", event: "turn_end" }],

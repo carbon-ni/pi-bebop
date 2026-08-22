@@ -10,8 +10,8 @@ export const UnknownMethodParamsSchema = Type.Union([Type.Null(), Type.Object({}
 
 export const MessageSendParamsSchema = Type.Object(
 	{
-		message: Type.String({ minLength: 1, maxLength: 1_000_000 }),
-		mode: Type.Optional(Type.Union([Type.Literal("steer"), Type.Literal("follow_up")])),
+		content: Type.String({ minLength: 1, maxLength: 1_000_000 }),
+		delivery: Type.Optional(Type.Union([Type.Literal("follow_up"), Type.Literal("immediate")])),
 	},
 	{ additionalProperties: false },
 );
@@ -86,8 +86,8 @@ export const StatusResultSchema = Type.Object(
 );
 export const SendResultSchema = Type.Object(
 	{
-		delivered: Type.Literal(true),
-		mode: Type.Optional(Type.Union([Type.Literal("direct"), Type.Literal("steer"), Type.Literal("follow_up")])),
+		deliveryId: Type.String({ minLength: 1 }),
+		disposition: Type.Union([Type.Literal("direct"), Type.Literal("queued"), Type.Literal("steered")]),
 	},
 	{ additionalProperties: false },
 );
@@ -158,6 +158,8 @@ export type ClearParams = Static<typeof EmptyParamsSchema>;
 export type AbortParams = Static<typeof EmptyParamsSchema>;
 export type StatusResult = Static<typeof StatusResultSchema>;
 export type SendResult = Static<typeof SendResultSchema>;
+export type DeliveryIntent = NonNullable<MessageSendParams["delivery"]>;
+export type DeliveryDisposition = SendResult["disposition"];
 export type GetMessageResult = Static<typeof GetMessageResultSchema>;
 export type ClearResult = Static<typeof ClearResultSchema>;
 export type SubscribeResult = Static<typeof SubscribeResultSchema>;
@@ -193,7 +195,8 @@ export type RpcSubscribeCommand = SubscribeCommand;
 export const MessageSendCommandSchema = Type.Object(
 	{
 		type: Type.Literal("send"),
-		...MessageSendParamsSchema.properties,
+		message: Type.String({ minLength: 1, maxLength: 1_000_000 }),
+		mode: Type.Optional(Type.Union([Type.Literal("steer"), Type.Literal("follow_up")])),
 		id: Type.Optional(RpcIdSchema),
 	},
 	{ additionalProperties: false },
@@ -293,6 +296,9 @@ export function isMethodResult(method: string, value: unknown): value is RpcMeth
 	const schema = methodResultSchema(method);
 	return schema ? Value.Check(schema, value) : false;
 }
+export function isSendResult(value: unknown): value is SendResult {
+	return Value.Check(SendResultSchema, value);
+}
 export function isSubscribeResult(value: unknown): value is Static<typeof SubscribeResultSchema> {
 	return Value.Check(SubscribeResultSchema, value);
 }
@@ -346,7 +352,7 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 			jsonrpc: JSON_RPC_VERSION,
 			id,
 			method: "message.send",
-			params: { message: command.message, ...(command.mode ? { mode: command.mode } : {}) },
+			params: { content: command.message, delivery: command.mode === "steer" ? "immediate" : "follow_up" },
 		};
 	if (command.type === "subscribe")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "event.subscribe", params: { event: command.event } };
@@ -362,8 +368,8 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 		return Value.Check(MessageSendParamsSchema, params)
 			? {
 					type: "send",
-					message: params.message,
-					...(params.mode === undefined ? {} : { mode: params.mode }),
+					message: params.content,
+					mode: params.delivery === "immediate" ? "steer" : "follow_up",
 					id: request.id,
 				}
 			: invalid("Invalid message.send params");
