@@ -1,7 +1,7 @@
 ---
 id: TASK-0030
 title: Render crew presence as chat activity
-status: doing
+status: done
 depends_on: [TASK-0026, TASK-0029]
 priority: normal
 tags: [crew, presence, ux, docs]
