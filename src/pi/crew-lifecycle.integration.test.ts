@@ -41,6 +41,26 @@ async function setupCrew() {
 	return { root, manifestPath, sockets, globals, async cleanup() { await fs.rm(root, { recursive: true, force: true }); } };
 }
 
+test("supports both canonical and compatibility layouts for join and restore", async (t) => {
+	for (const layout of ["bebop", "crew"]) {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), `intray-${layout}-`));
+		const manifestPath = path.join(root, ".pi", layout, "crew.json");
+		const socketPath = path.join(root, ".pi", layout, "sockets", "lead.sock");
+		const globalSocketPath = path.join(root, `${layout}-global.sock`);
+		await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+		await fs.writeFile(manifestPath, JSON.stringify({ version: 1, members: [{ name: "lead", role: layout, socket: "sockets/lead.sock" }] }));
+		const server = await socketServer(globalSocketPath, []);
+		t.after(async () => { await closeRpcServer(server); await fs.rm(root, { recursive: true, force: true }); });
+		const runtime = createMembershipRuntime({ loadManifest: (selected) => readTrustedCrewManifest(selected, root, () => true) });
+		const joined = await runtime.join({ manifestPath, socketPath, globalSocketPath });
+		assert.equal(joined.ok, true);
+		assert.equal(joined.ok && joined.membership.manifestPath, manifestPath);
+		const restoredRuntime = createMembershipRuntime({ loadManifest: (selected) => readTrustedCrewManifest(selected, root, () => true) });
+		const restored = await restorePersistedMembership({ runtime: restoredRuntime, persisted: getLatestMembershipState([{ type: "custom", customType: MEMBERSHIP_ENTRY_TYPE, data: { active: true, socketPath, manifestPath } }]), startupSocketSelected: false, globalSocketPath, manifestPathForSocket: () => manifestPath, announce: () => undefined, reportFailure: assert.fail });
+		assert.equal(restored, true);
+	}
+});
+
 test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries", async (t) => {
 	const crew = await setupCrew();
 	t.after(crew.cleanup);

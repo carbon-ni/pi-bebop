@@ -6,7 +6,7 @@ owns its crew socket transport, project-local membership, and role-based
 
 ## Setup
 
-Create the crew manifest in a trusted project:
+Create the crew manifest in a trusted project. `.pi/bebop` is the canonical layout; `.pi/crew` is supported as an exact compatibility layout for existing projects:
 
 ```bash
 mkdir -p .pi/bebop/sockets
@@ -24,6 +24,8 @@ path.
 
 > This is why it is a dysfunctional crew: members may or may not be there, by
 > design. You can create a script to start the crew yourself.
+
+A socket under `.pi/bebop/sockets/` selects only `.pi/bebop/crew.json`; a socket under `.pi/crew/sockets/` selects only `.pi/crew/crew.json`. There is no fallback or merge when both manifests exist. Other `.pi/<name>/crew.json` paths are rejected as untrusted, and missing, malformed, or member-mismatched manifests report their actionable cause.
 
 Start each member with its crew identity:
 

@@ -34,6 +34,15 @@ function joinArgs(member = "dev", globalSocket = "/tmp/global.sock") {
 }
 
 describe("membership runtime", () => {
+	test("surfaces the actionable manifest load cause", async () => {
+		const runtime = createMembershipRuntime(dependencies({ loadManifest: async () => { throw new Error("untrusted-path: compatibility layout rejected"); } }));
+		const result = await runtime.join(joinArgs());
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.equal(result.error.code, "manifest-load-failed");
+			assert.match(result.error.message, /untrusted-path: compatibility layout rejected/);
+		}
+	});
 	test("joins by authoritative socket lookup and stores normalized membership", async () => {
 		const runtime = createMembershipRuntime(dependencies());
 		const result = await runtime.join({ ...joinArgs(), socketPath: "/project/.pi/intray/sockets/../sockets/dev.sock" });

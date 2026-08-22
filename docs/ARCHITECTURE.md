@@ -25,13 +25,17 @@ Bebop owns these namespaces:
 
 - Runtime Unix sockets: `~/.pi/bebop/<session-id>.sock`
 - Runtime aliases: `~/.pi/bebop/<alias>.alias`
-- Project crew manifest: `.pi/bebop/crew.json`
-- Project member endpoints: `.pi/bebop/sockets/<member>.sock`
+- Project crew manifest: `.pi/bebop/crew.json` (canonical)
+- Compatibility manifest: `.pi/crew/crew.json` (exact allowlist only)
+- Project member endpoints: `.pi/bebop/sockets/<member>.sock` or `.pi/crew/sockets/<member>.sock`
 - Inbound custom messages: `bebop-session-message`
 
-The manifest is trusted only when its resolved location is exactly the
-project-local `.pi/bebop/crew.json`. It maps unique names and roles to relative
-paths beneath `sockets/`; endpoint symlinks are transport details, not identity.
+The manifest is trusted only when its resolved location is exactly one of the
+project-local `.pi/bebop/crew.json` or `.pi/crew/crew.json` paths. A socket's
+layout selects its matching manifest deterministically; there is no fallback or
+merge, and arbitrary `.pi/<name>/crew.json` paths remain rejected. It maps unique
+names and roles to relative paths beneath `sockets/`; endpoint symlinks are
+transport details, not identity.
 
 ## Runtime lifecycle
 

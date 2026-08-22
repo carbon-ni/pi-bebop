@@ -8,6 +8,8 @@ import {
 } from "../domain/index.ts";
 
 const BEBOP_DIR_NAME = "bebop";
+const COMPATIBILITY_DIR_NAME = "crew";
+const CREW_LAYOUTS = [BEBOP_DIR_NAME, COMPATIBILITY_DIR_NAME] as const;
 
 export type CrewManifestReadErrorCode = "untrusted-project" | "untrusted-path" | "read-failed" | "invalid-json";
 
@@ -26,12 +28,23 @@ export function getDefaultCrewManifestPath(projectRoot: string): string {
 }
 
 export function getCrewManifestPathFromSocketPath(socketPath: string): string {
-	return path.resolve(path.dirname(socketPath), "..", DEFAULT_CREW_MANIFEST_FILE);
+	const normalized = path.resolve(socketPath);
+	const socketsDir = path.dirname(normalized);
+	const layoutDir = path.dirname(socketsDir);
+	if (path.basename(socketsDir) === "sockets" && CREW_LAYOUTS.includes(path.basename(layoutDir) as typeof CREW_LAYOUTS[number])) {
+		return path.join(layoutDir, DEFAULT_CREW_MANIFEST_FILE);
+	}
+	return path.resolve(socketsDir, "..", DEFAULT_CREW_MANIFEST_FILE);
+}
+
+export function getTrustedCrewManifestPaths(projectRoot: string): string[] {
+	const root = path.resolve(projectRoot, CONFIG_DIR_NAME);
+	return CREW_LAYOUTS.map((layout) => path.join(root, layout, DEFAULT_CREW_MANIFEST_FILE));
 }
 
 export function isTrustedCrewManifestPath(manifestPath: string, projectRoot: string): boolean {
 	if (!manifestPath || !projectRoot || manifestPath.includes("\0") || projectRoot.includes("\0")) return false;
-	return path.resolve(manifestPath) === getDefaultCrewManifestPath(projectRoot);
+	return getTrustedCrewManifestPaths(projectRoot).includes(path.resolve(manifestPath));
 }
 
 type ManifestTrust = () => boolean;

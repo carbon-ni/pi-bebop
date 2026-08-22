@@ -23,6 +23,15 @@ test("startup socket paths normalize leading @ and startup cwd", () => {
 	assert.equal(normalizeStartupSocketPath("sockets/dev.sock", "/project"), "/project/sockets/dev.sock");
 });
 
+test("startup selection chooses the manifest adjacent to either supported layout", async () => {
+	for (const layout of ["bebop", "crew"]) {
+		let request: any;
+		const runtime = { join: async (value: unknown) => { request = value; return { ok: true, idempotent: false, membership: { member: { name: "dev", role: "developer" }, socketPath: `/project/.pi/${layout}/sockets/dev.sock` } }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
+		assert.equal(await maybeHandleStartupSocketJoin(context(), piWithFlag(`.pi/${layout}/sockets/dev.sock`), { socket: "crew-socket" }, runtime, "/tmp/global.sock"), true);
+		assert.equal(request.manifestPath, `/project/.pi/${layout}/crew.json`);
+	}
+});
+
 test("startup socket selection delegates one trusted join with canonical paths", async () => {
 	let request: unknown;
 	const runtime = {
