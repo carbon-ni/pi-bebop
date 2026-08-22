@@ -7,6 +7,5 @@ export * from "./message-payload.ts";
 export * from "./message-renderer.ts";
 export * from "./session-messages.ts";
 export * from "./branch-alias.ts";
-export * from "./sender-metadata.ts";
 export * from "./session-filter.ts";
 export * from "./crew-manifest.ts";

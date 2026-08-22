@@ -19,6 +19,9 @@ export const ExternalOriginSchema = Type.Object(
 	{ additionalProperties: false },
 );
 export const MessageOriginSchema = Type.Union([CrewOriginSchema, ExternalOriginSchema]);
+export const MessageInstructionsSchema = Type.Optional(
+	Type.Array(NonEmptyText, { minItems: 1, maxItems: MAX_MESSAGE_INSTRUCTIONS }),
+);
 export const ReplyToSchema = Type.Object(
 	{ sessionId: NonEmptyText, sessionName: Type.Optional(NonEmptyText) },
 	{ additionalProperties: false },
@@ -26,7 +29,7 @@ export const ReplyToSchema = Type.Object(
 export const MessagePayloadSchema = Type.Object(
 	{
 		content: Type.String({ minLength: 1, maxLength: MAX_MESSAGE_CONTENT_BYTES }),
-		instructions: Type.Optional(Type.Array(NonEmptyText, { minItems: 1, maxItems: MAX_MESSAGE_INSTRUCTIONS })),
+		instructions: MessageInstructionsSchema,
 		origin: Type.Optional(MessageOriginSchema),
 		replyTo: Type.Optional(ReplyToSchema),
 	},

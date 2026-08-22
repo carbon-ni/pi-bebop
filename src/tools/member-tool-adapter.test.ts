@@ -97,7 +97,12 @@ test("registers only intent-named tools with compact parameters and teaching des
 	const tools = setup(async () => ack("queued"));
 	assert.deepEqual([...tools.keys()], ["send_follow_up", "send_immediate"]);
 	for (const tool of tools.values()) {
-		assert.deepEqual(Object.keys(tool.parameters.properties ?? {}).sort(), ["member", "message", "wait_for"]);
+		assert.deepEqual(Object.keys(tool.parameters.properties ?? {}).sort(), [
+			"instructions",
+			"member",
+			"message",
+			"wait_for",
+		]);
 		assert.equal(tool.description.includes("mode"), false);
 		assert.equal(Value.Check(tool.parameters, { member: "qa", message: "x" }), true);
 		assert.equal(Value.Check(tool.parameters, { member: "qa", message: "x", mode: "steer" }), false);
@@ -105,6 +110,46 @@ test("registers only intent-named tools with compact parameters and teaching des
 	}
 	assert.match(tools.get("send_follow_up")!.description, /default/i);
 	assert.match(tools.get("send_immediate")!.description, /redirect.*active/i);
+});
+
+test("intent tools reject invalid instruction payloads before transport", async () => {
+	let calls = 0;
+	const tools = setup(async () => {
+		calls += 1;
+		return ack("queued");
+	});
+	for (const instructions of [["   "], ["\0"], ["😀".repeat(25_001)], Array(33).fill("x")]) {
+		const result = await tools
+			.get("send_follow_up")!
+			.execute("call", { member: "qa", message: "hello", instructions }, undefined, undefined, undefined);
+		assert.equal(result.isError, true);
+	}
+	assert.equal(calls, 0);
+});
+
+test("both intent tools preserve ordered instructions and current origin with callback route", async () => {
+	const calls: any[] = [];
+	const tools = setup(async (_path, command) => {
+		calls.push(command);
+		return ack("queued");
+	});
+	for (const name of ["send_follow_up", "send_immediate"]) {
+		const result = await tools
+			.get(name)!
+			.execute(
+				"call",
+				{ member: "qa", message: "hello", instructions: [" first\n", "second"], wait_for: "accepted" },
+				undefined,
+				undefined,
+				undefined,
+			);
+		assert.equal(result.isError, undefined);
+	}
+	for (const command of calls) {
+		assert.deepEqual(command.payload.instructions, [" first\n", "second"]);
+		assert.deepEqual(command.payload.origin, { kind: "crew", name: "dev", role: "developer" });
+		assert.deepEqual(command.payload.replyTo, { sessionId: "dev-session", sessionName: "dev" });
+	}
 });
 
 test("uses follow-up by default and maps immediate to explicit steering", async () => {

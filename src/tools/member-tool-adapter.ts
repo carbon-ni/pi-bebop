@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { MessagePayloadSchema } from "../domain/index.ts";
 import {
 	sendMemberMessage,
 	type MemberDeliveryIntent,
@@ -12,6 +13,7 @@ const parameters = Type.Object(
 	{
 		member: Type.String({ minLength: 1, description: "Crew member name or unique role" }),
 		message: Type.String({ minLength: 1, description: "Message to send" }),
+		instructions: MessagePayloadSchema.properties.instructions,
 		wait_for: Type.Optional(Type.Union([Type.Literal("accepted"), Type.Literal("response")])),
 	},
 	{ additionalProperties: false },
@@ -63,6 +65,7 @@ export function registerMemberIntentTool(
 						membership,
 						member: target,
 						message: params.message,
+						instructions: params.instructions,
 						intent,
 						waitFor: params.wait_for,
 						signal,
