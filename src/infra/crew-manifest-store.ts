@@ -7,7 +7,7 @@ import {
 	type CrewManifest,
 } from "../domain/index.ts";
 
-const INTRAY_DIR_NAME = "intray";
+const BEBOP_DIR_NAME = "bebop";
 
 export type CrewManifestReadErrorCode = "untrusted-project" | "untrusted-path" | "read-failed" | "invalid-json";
 
@@ -22,7 +22,7 @@ export class CrewManifestReadError extends Error {
 }
 
 export function getDefaultCrewManifestPath(projectRoot: string): string {
-	return path.resolve(projectRoot, CONFIG_DIR_NAME, INTRAY_DIR_NAME, DEFAULT_CREW_MANIFEST_FILE);
+	return path.resolve(projectRoot, CONFIG_DIR_NAME, BEBOP_DIR_NAME, DEFAULT_CREW_MANIFEST_FILE);
 }
 
 export function getCrewManifestPathFromSocketPath(socketPath: string): string {

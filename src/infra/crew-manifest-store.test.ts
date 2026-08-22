@@ -14,7 +14,7 @@ let projectDir: string;
 
 before(async () => {
 	projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "intray-crew-"));
-	await fs.mkdir(path.join(projectDir, ".pi", "intray"), { recursive: true });
+	await fs.mkdir(path.join(projectDir, ".pi", "bebop"), { recursive: true });
 	await fs.writeFile(getDefaultCrewManifestPath(projectDir), JSON.stringify({
 		version: 1,
 		members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
@@ -25,7 +25,7 @@ after(async () => fs.rm(projectDir, { recursive: true, force: true }));
 
 describe("trusted crew manifest store", () => {
 	test("uses Pi CONFIG_DIR_NAME for the project-local default", () => {
-		assert.equal(getDefaultCrewManifestPath(projectDir), path.join(projectDir, ".pi", "intray", "crew.json"));
+		assert.equal(getDefaultCrewManifestPath(projectDir), path.join(projectDir, ".pi", "bebop", "crew.json"));
 		assert.equal(isTrustedCrewManifestPath(getDefaultCrewManifestPath(projectDir), projectDir), true);
 		assert.equal(isTrustedCrewManifestPath(path.join(projectDir, "crew.json"), projectDir), false);
 	});

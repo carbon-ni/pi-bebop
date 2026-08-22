@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 
-export const CONTROL_DIR = path.join(os.homedir(), ".pi", "intray");
+export const CONTROL_DIR = path.join(os.homedir(), ".pi", "bebop");
 export const SOCKET_SUFFIX = ".sock";
 
 export function getSocketPath(sessionId: string): string {

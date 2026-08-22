@@ -1,58 +1,70 @@
 # Architecture
 
-`pi-intray` is a Pi TypeScript extension that exposes running Pi sessions over local Unix sockets.
+`pi-bebop` is an independent Pi TypeScript extension for managing small,
+project-local agent crews. It does not depend on `pi-intray` at runtime or
+share its socket directory, flags, tools, or custom message type.
 
-## Folder structure
-
-- `src/domain/` — pure parsing, validation, formatting, and protocol rules. No Pi runtime or filesystem dependencies.
-- `src/infra/` — socket, filesystem, git, environment, model, and other dependency boundaries.
-- `src/pi/` — Pi extension commands, renderers, hooks, and runtime glue.
-- `src/tools/` — Pi tool registrations (`list_sessions`, `send_to_session`, `send_to_member`).
-- `src/**/*.test.ts` — colocated deterministic `node:test` coverage for domain behavior and runtime seams.
-- `.githooks/` — versioned local hooks aligned with `Makefile` gates.
-- `.github/workflows/` — CI gate that runs the same local command path.
-
-## Dependency direction
+## Boundaries
 
 ```text
 src/domain  <-  src/infra  <-  src/pi / src/tools
 ```
 
-Rules:
+- `src/domain/` — pure protocol, crew-manifest, response-policy, and parsing
+  rules. No Pi runtime or filesystem imports.
+- `src/infra/` — filesystem, socket, git, environment, and RPC boundaries.
+- `src/pi/` — flags, `/crew` command, renderer, lifecycle hooks, and socket
+  runtime composition.
+- `src/tools/` — discoverable Pi tool registrations. Bebop registers only
+  `send_to_member`.
+- `src/**/*.test.ts` — deterministic colocated `node:test` coverage.
 
-1. Domain code stays pure and importable by tests.
-2. Infrastructure owns IO and external dependencies.
-3. Pi integration composes domain + infra; it does not hide business rules. The base socket runtime owns UUID socket lifecycle, aliases, subscriptions, and membership status.
-4. Tools stay discoverable in `src/tools/` and delegate logic downward.
-5. CI and local checks both use `make all`.
+## Isolation and configuration
 
-## Runtime status
+Bebop owns these namespaces:
 
-The runtime status is minimal and deterministic: `stopped` when no server exists, `online` when the base server exists without crew membership, and `joined` when an active crew membership exists.
+- Runtime Unix sockets: `~/.pi/bebop/<session-id>.sock`
+- Runtime aliases: `~/.pi/bebop/<alias>.alias`
+- Project crew manifest: `.pi/bebop/crew.json`
+- Project member endpoints: `.pi/bebop/sockets/<member>.sock`
+- Inbound custom messages: `bebop-session-message`
 
-## Configuration
+The manifest is trusted only when its resolved location is exactly the
+project-local `.pi/bebop/crew.json`. It maps unique names and roles to relative
+paths beneath `sockets/`; endpoint symlinks are transport details, not identity.
 
-Canonical project configuration lives in:
+## Runtime lifecycle
 
-- `package.json` for npm scripts and dependencies.
-- `tsconfig.json` for TypeScript settings.
-- `Makefile` for operator quality gates.
-- `.githooks/` and `.github/workflows/ci.yml` for enforcement.
+- `pi --crew` starts Bebop's socket server.
+- `pi --crew-socket <path>` starts the server and adopts the configured member
+  represented by that endpoint.
+- `/crew join <socket>` starts the server if needed, validates project trust,
+  then claims the member endpoint.
+- `/crew leave` releases only the current endpoint.
+- `/crew stop` releases membership before stopping Bebop's server.
+- Reload/resume restores active membership after revalidation. Shutdown always
+  attempts endpoint release before server cleanup.
 
-## Commit messages
+Server status is `stopped`, `online`, or `joined`. A session publishes its
+socket and up to two aliases (session name and project/branch alias) under
+Bebop's own runtime directory.
 
-Commit subjects use one canonical convention enforced by `.githooks/commit-msg`:
+## Crew delivery
 
-```text
-<type>: <summary>
-<type>(<scope>): <summary>
-```
+`send_to_member` resolves a unique member name or role from the active trusted
+manifest and sends request-scoped RPC to its endpoint. The tool is active only
+while the session is joined to a crew. A live endpoint owned by another session
+is never overwritten; stale endpoints can be reclaimed.
 
-Allowed types: `feat`, `fix`, `docs`, `test`, `chore`, `refactor`.
+Bebop intentionally does **not** register generic session discovery or direct
+session-control tools. Those capabilities are outside crew management.
 
-Local lifecycle gates:
+## Quality gates
 
-- pre-commit: `npm run lint` and `npm test`.
-- pre-push/CI: `make all`.
+- `npm run lint` — TypeScript check
+- `npm test` — deterministic test suite
+- `npm run test:coverage` — coverage gate
+- `make all` — pre-push/CI gate
 
-Do not add competing command paths without updating `Makefile`, hooks, CI, and docs together.
+Commit subjects follow `<type>: <summary>` or `<type>(<scope>): <summary>`;
+allowed types are `feat`, `fix`, `docs`, `test`, `chore`, and `refactor`.
