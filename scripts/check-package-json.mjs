@@ -10,4 +10,6 @@ const names = [...devDependencies.matchAll(/^\s*"([^"]+)"\s*:/gm)].map((match) =
 const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
 if (duplicates.length > 0) throw new Error(`Duplicate devDependency keys: ${[...new Set(duplicates)].join(", ")}`);
 if (packageJson.devDependencies?.prettier !== "3.6.2") throw new Error("Prettier must remain pinned exactly at 3.6.2");
+if (packageJson.scripts?.pretest !== "npm run build")
+	throw new Error("pretest must build the current artifacts before tests");
 console.log("package.json dependency keys and exact Prettier pin are valid");
