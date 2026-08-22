@@ -125,6 +125,36 @@ test("hint during initial scan waits for the complete ordered roster", async () 
 	);
 });
 
+test("queued hints are generation-owned and deduplicated across stop and restart", async () => {
+	const pending: Array<(online: boolean) => void> = [];
+	let probeCount = 0;
+	const observer = createPresenceObserver(
+		[lead, dev, qa],
+		lead.identity,
+		"self",
+		{ notifications: true },
+		{
+			scheduler: { schedule: (_d, cb) => cb, cancel: () => undefined },
+			probe: () => {
+				probeCount++;
+				return new Promise<boolean>((resolve) => pending.push(resolve));
+			},
+			sendHint: async () => undefined,
+			onEffects: () => undefined,
+		},
+	);
+	const first = observer.start();
+	assert.equal(observer.acceptHint({ member: dev, state: "online", instanceId: "peer" }), true);
+	assert.equal(observer.acceptHint({ member: dev, state: "online", instanceId: "peer" }), true);
+	observer.stop();
+	pending.splice(0).forEach((resolve) => resolve(true));
+	await first;
+	const restarted = observer.start();
+	pending.splice(0).forEach((resolve) => resolve(true));
+	await restarted;
+	assert.equal(probeCount, 4);
+});
+
 test("hint validates claimed active identity, never mutates directly, and probes once", async () => {
 	const h = harness();
 	await h.observer.start();

@@ -42,7 +42,7 @@ export function createPresenceObserver(
 	let starting: Promise<void> | undefined;
 	let scanPromise: Promise<void> | undefined;
 	const revisions = new Map<string, number>();
-	const pendingHints: PresenceMember[] = [];
+	const pendingHints = new Map<string, { token: number; member: PresenceMember }>();
 	let state = createInitialPresenceState(members, currentIdentity, config);
 	const peers = () => members.filter((member) => member.identity !== currentIdentity);
 	const isActive = (token: number) => active && token === generation;
@@ -86,7 +86,8 @@ export function createPresenceObserver(
 			});
 			state = reduced.state;
 			if (reduced.effects.length > 0) dependencies.onEffects(reduced.effects);
-			for (const member of pendingHints.splice(0)) void probeHint(member, token);
+			for (const { member, token: hintToken } of pendingHints.values()) void probeHint(member, hintToken);
+			pendingHints.clear();
 		}
 	};
 	const schedule = (token: number) => {
@@ -155,7 +156,7 @@ export function createPresenceObserver(
 			);
 			if (!member) return false;
 			const token = generation;
-			if (!state.initialScanComplete) pendingHints.push(member);
+			if (!state.initialScanComplete) pendingHints.set(member.identity, { member, token });
 			else probeHint(member, token);
 			return true;
 		},
@@ -166,6 +167,7 @@ export function createPresenceObserver(
 			if (timer !== undefined) dependencies.scheduler.cancel(timer);
 			timer = undefined;
 			scanPromise = undefined;
+			pendingHints.clear();
 		},
 		getState: () => state,
 	};
