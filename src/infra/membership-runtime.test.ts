@@ -129,6 +129,29 @@ test("dev1 versus dev1.sock fails before claim with bounded exact guidance", asy
 	assert.equal(claims, 0);
 });
 
+test("bounds many-member guidance and suggests the exact configured endpoint", async () => {
+	let claims = 0;
+	const members = Array.from({ length: 8 }, (_, index) => ({ name: `dev${index}`, role: "developer", socket: `sockets/dev${index}.sock` }));
+	const manifest = parseCrewManifest({ version: 1, members }, "/root-B/.pi/bebop/crew.json");
+	const runtime = createMembershipRuntime({ loadManifest: async () => manifest, claimEndpoint: (async () => { claims += 1; return { idempotent: false }; }) as never });
+	const result = await runtime.join({ manifestPath: "/root-B/.pi/bebop/crew.json", socketPath: "/root-B/.pi/bebop/sockets/dev1", globalSocketPath: "/tmp/global.sock" });
+	assert.equal(result.ok, false);
+	if (result.ok) return;
+	assert.match(result.error.message, /Did you mean \/root-B\/\.pi\/bebop\/sockets\/dev1\.sock\?/);
+	assert.match(result.error.message, /\.\.\. \(5 omitted\)/);
+	assert.ok(result.error.message.length < 300);
+	assert.equal(claims, 0);
+});
+
+test("claims an initially absent external-root configured endpoint", async () => {
+	let claimed: string | undefined;
+	const manifest = parseCrewManifest({ version: 1, members: [{ name: "dev1", role: "developer", socket: "sockets/dev1.sock" }] }, "/root-B/.pi/crew/crew.json");
+	const runtime = createMembershipRuntime({ loadManifest: async () => manifest, claimEndpoint: (async (socketPath: string) => { claimed = socketPath; return { idempotent: false }; }) as never });
+	const result = await runtime.join({ manifestPath: "/root-B/.pi/crew/crew.json", socketPath: "/root-B/.pi/crew/sockets/dev1.sock", globalSocketPath: "/tmp/global.sock" });
+	assert.equal(result.ok, true);
+	assert.equal(claimed, "/root-B/.pi/crew/sockets/dev1.sock");
+});
+
 test("unknown member and malformed manifest fail without claiming", async () => {
 	let claims = 0;
 	const runtime = createMembershipRuntime(dependencies({
