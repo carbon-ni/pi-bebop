@@ -102,7 +102,6 @@ export async function sendMemberMessage(
 			"wait_for=response is unavailable: Pi turn events cannot prove delivery-level response correlation",
 		);
 	const target = resolveTarget(request.membership, request.member.trim());
-	const endpoint = await dependencies.resolveEndpoint(target.socketPath);
 	const origin = {
 		kind: "crew" as const,
 		name: request.membership.member.name,
@@ -116,6 +115,7 @@ export async function sendMemberMessage(
 	};
 	if (!isMessagePayload(payload))
 		throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
+	const endpoint = await dependencies.resolveEndpoint(target.socketPath);
 	const command: RpcCommand = {
 		type: "send",
 		payload,

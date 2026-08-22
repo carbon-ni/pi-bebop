@@ -37,7 +37,7 @@ function setup(
 	sendRpcCommand: (path: string, command: any, options?: RpcClientOptions) => Promise<any>,
 	joined = true,
 	currentMembership = membership,
-	dependencies = { coordinator: createMemberMessageCoordinator() },
+	dependencies: any = { coordinator: createMemberMessageCoordinator() },
 ): Map<string, Tool> {
 	const tools = new Map<string, Tool>();
 	const pi = {
@@ -112,19 +112,36 @@ test("registers only intent-named tools with compact parameters and teaching des
 	assert.match(tools.get("send_immediate")!.description, /redirect.*active/i);
 });
 
-test("intent tools reject invalid instruction payloads before transport", async () => {
+test("intent tools reject invalid instruction payloads before endpoint or transport", async () => {
 	let calls = 0;
-	const tools = setup(async () => {
-		calls += 1;
-		return ack("queued");
-	});
-	for (const instructions of [["   "], ["\0"], ["😀".repeat(25_001)], Array(33).fill("x")]) {
-		const result = await tools
-			.get("send_follow_up")!
-			.execute("call", { member: "qa", message: "hello", instructions }, undefined, undefined, undefined);
-		assert.equal(result.isError, true);
+	let endpointCalls = 0;
+	const tools = setup(
+		async () => {
+			calls += 1;
+			return ack("queued");
+		},
+		true,
+		membership,
+		{
+			coordinator: createMemberMessageCoordinator(),
+			resolveEndpoint: async (socketPath: string) => {
+				endpointCalls += 1;
+				return socketPath;
+			},
+		},
+	);
+	const aggregateOverflow = Array.from({ length: 32 }, () => "x".repeat(31_250));
+	const invalidMatrices = [["   "], ["\0"], ["😀".repeat(25_001)], Array(33).fill("x"), aggregateOverflow];
+	for (const name of ["send_follow_up", "send_immediate"]) {
+		for (const instructions of invalidMatrices) {
+			const result = await tools
+				.get(name)!
+				.execute("call", { member: "qa", message: "hello", instructions }, undefined, undefined, undefined);
+			assert.equal(result.isError, true, `${name} invalid instructions`);
+		}
 	}
 	assert.equal(calls, 0);
+	assert.equal(endpointCalls, 0);
 });
 
 test("both intent tools preserve ordered instructions and current origin with callback route", async () => {
