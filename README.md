@@ -1,23 +1,23 @@
 # Pi Bebop
 
+<img  width="250" alt="screenshot-2026-08-22_15-39-54" src="https://github.com/user-attachments/assets/9430855c-9060-4f1f-b7a8-e8d3b03ce232"  align="left"  />
+
+
 Give a small dysfunctional crew to your Pi agents. Bebop is self-contained: it
 owns its crew socket transport, project-local membership, and role-based
 `send_to_member` delivery.
 
-## Development checks
 
-Formatting is pinned to Prettier 3.6.2. Run `npm run format:write` to apply the
-configured formatting scope, then `npm run format:check` to verify it. The full
-`make all` quality gate also checks package dependency-key uniqueness and the
-exact Prettier pin before typechecking, build, tests, and security. `npm test`
-rebuilds `dist/` first so standalone tests never depend on stale generated output. Generated
-output, dependency locks, plans, and shared agent state are intentionally
-excluded from formatting.
+</br>
+</br>
+</br>
+</br>
 
-## Setup
+## Getting started
 
 Create the crew manifest in a trusted project. `.pi/bebop` is the canonical layout; `.pi/crew` is supported as an exact compatibility layout for existing projects:
 
+### Setup
 ```bash
 mkdir -p .pi/bebop/sockets
 cat > .pi/bebop/crew.json <<'JSON'
@@ -31,6 +31,8 @@ JSON
 The project must be trusted by Pi before this manifest can be read. Trust is a
 project security boundary, not a property granted by the filename or socket
 path.
+
+### The crew
 
 > This is why it is a dysfunctional crew: members may or may not be there, by
 > design. You can create a script to start the crew yourself.
@@ -66,17 +68,6 @@ pi --crew-socket /worktree-B/.pi/bebop/sockets/dev1.sock
 # in an existing session:
 /crew join /worktree-B/.pi/crew/sockets/dev1.sock
 ```
-
-## Socket wire contract
-
-Bebop sockets use newline-delimited JSON-RPC 2.0. The legacy `{ type, ... }`
-envelope is no longer accepted. Requests use methods such as `message.send`,
-`session.status`, and `event.subscribe`, with non-null correlated string or
-integer IDs. Responses contain exactly one `result` or `error`; malformed JSON,
-invalid envelopes, unknown methods, and invalid params return standard codes
-`-32700` through `-32603` without invoking session handlers. `session.turn_end`
-is a one-shot notification carrying its subscription ID. JSON-RPC provides no
-authentication; Unix socket permissions remain the security boundary.
 
 ## Direct socket messaging from a shell
 
