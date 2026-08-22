@@ -32,6 +32,13 @@ import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
 
+export function resolveCurrentCrewOrigin(state: ReturnType<typeof createSocketState>) {
+	const membership = state.membershipRuntime?.getMembership();
+	return membership
+		? { kind: "crew" as const, name: membership.member.name, role: membership.member.role }
+		: undefined;
+}
+
 /** Crew management with its own namespaced socket transport. */
 export default function (pi: ExtensionAPI) {
 	pi.registerFlag(CREW_FLAG, {
@@ -62,14 +69,7 @@ export default function (pi: ExtensionAPI) {
 	};
 	registerSendFollowUpTool(pi, state, memberMessageDependencies);
 	registerSendImmediateTool(pi, state, memberMessageDependencies);
-	registerSessionTool(pi, state, {
-		getCurrentCrewOrigin: () => {
-			const membership = state.membershipRuntime?.getMembership();
-			return membership
-				? { kind: "crew", name: membership.member.name, role: membership.member.role }
-				: undefined;
-		},
-	});
+	registerSessionTool(pi, state, { getCurrentCrewOrigin: () => resolveCurrentCrewOrigin(state) });
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};

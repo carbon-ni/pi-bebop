@@ -92,6 +92,25 @@ test("send_to_session schema is closed and bounds structured context", () => {
 	assert.equal(Value.Check(tool.parameters, { sessionId: "target-id", message: "x", extra: true }), false);
 });
 
+test("send_to_session rejects invalid structured context before RPC", async () => {
+	let calls = 0;
+	const tool = setup(async () => {
+		calls += 1;
+		return successfulSend();
+	});
+	for (const instructions of [["   "], ["\0"], ["😀".repeat(25_001)]]) {
+		const result = await tool.execute(
+			"call",
+			{ sessionId: "target-id", message: "hello", instructions },
+			undefined,
+			undefined,
+			undefined,
+		);
+		assert.equal(result.isError, true);
+	}
+	assert.equal(calls, 0);
+});
+
 test("send_to_session carries external claims and rejects joined origin overrides", async () => {
 	const calls: RpcCommand[] = [];
 	const external = setup(async (_path, command) => {
@@ -119,6 +138,43 @@ test("send_to_session carries external claims and rejects joined origin override
 	);
 	assert.equal(override.isError, true);
 	assert.equal(override.details?.error, "origin-override");
+});
+
+test("reply policy changes only replyTo while preserving origin", async () => {
+	const calls: RpcCommand[] = [];
+	const tool = setup(async (_path, command) => {
+		calls.push(command);
+		return successfulSend();
+	});
+	await tool.execute(
+		"call",
+		{
+			sessionId: "target-id",
+			message: "hello",
+			from: "CI",
+			wait_until: "message_processed",
+			reply_behavior: "end_conversation",
+		},
+		undefined,
+		undefined,
+		undefined,
+	);
+	await tool.execute(
+		"call",
+		{
+			sessionId: "target-id",
+			message: "hello",
+			from: "CI",
+			wait_until: "message_processed",
+			reply_behavior: "allow_reply",
+		},
+		undefined,
+		undefined,
+		undefined,
+	);
+	assert.deepEqual(calls[0]?.payload.origin, calls[1]?.payload.origin);
+	assert.equal(calls[0]?.payload.replyTo, undefined);
+	assert.deepEqual(calls[1]?.payload.replyTo, { sessionId: "sender-id", sessionName: "sender" });
 });
 
 test("send_to_session rejects turn_end plus allow_reply before RPC IO", async () => {

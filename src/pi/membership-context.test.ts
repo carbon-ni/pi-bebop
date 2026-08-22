@@ -58,4 +58,5 @@ test("injects concise identity exactly once per system prompt", () => {
 	assert.match(first, /Member: dev/);
 	assert.match(first, /Role instructions: Build it/);
 	assert.match(first, /Members: dev \(developer\), qa \(reviewer\)/);
+	assert.doesNotMatch(first, /message-context|per-message|Reply with evidence/);
 });
