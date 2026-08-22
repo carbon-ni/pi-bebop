@@ -13,6 +13,8 @@ import {
 	parseSessionControlAction,
 	resolveResponsePolicy,
 	MessageSendParamsSchema, SubscribeParamsSchema, EmptyParamsSchema,
+	MessageSendCommandSchema, SubscribeCommandSchema, StatusCommandSchema, GetMessageCommandSchema, ClearCommandSchema, AbortCommandSchema,
+	commandToRequest,
 	MessageSendRequestSchema, SubscribeRequestSchema, StatusRequestSchema, GetMessageRequestSchema, ClearRequestSchema, AbortRequestSchema,
 	StatusResultSchema, SendResultSchema, GetMessageResultSchema, ClearResultSchema, SubscribeResultSchema, EmptyResultSchema,
 	RpcErrorSchema, TurnEndNotificationSchema, ExtractedMessageSchema,
@@ -48,6 +50,42 @@ test("method parameter schemas accept only their exact valid shapes", () => {
 	assert.equal(Value.Check(MessageSendParamsSchema, { message: "x".repeat(1_000_001) }), false);
 	assert.equal(Value.Check(SubscribeParamsSchema, { event: null }), false);
 	assert.equal(Value.Check(EmptyParamsSchema, { extra: true }), false);
+});
+
+test("command schemas accept valid optional fields and reject invalid or extra fields", () => {
+	const valid: Array<[string, Parameters<typeof Value.Check>[0], unknown]> = [
+		["send with mode and id", MessageSendCommandSchema, { type: "send", message: "x", mode: "follow_up", id: "send-1" }],
+		["send without optional fields", MessageSendCommandSchema, { type: "send", message: "x" }],
+		["subscribe with id", SubscribeCommandSchema, { type: "subscribe", event: "turn_end", id: 1 }],
+		["subscribe without id", SubscribeCommandSchema, { type: "subscribe", event: "turn_end" }],
+		["status", StatusCommandSchema, { type: "status" }],
+		["get_message", GetMessageCommandSchema, { type: "get_message" }],
+		["clear", ClearCommandSchema, { type: "clear" }],
+		["abort", AbortCommandSchema, { type: "abort" }],
+	];
+	for (const [name, schema, value] of valid) assert.equal(Value.Check(schema, value), true, name);
+	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send" }), false);
+	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send", message: "x", mode: "later" }), false);
+	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send", message: 1 }), false);
+	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send", message: "x", extra: true }), false);
+	assert.equal(Value.Check(SubscribeCommandSchema, { type: "subscribe", event: "other" }), false);
+	assert.equal(Value.Check(SubscribeCommandSchema, { type: "subscribe", event: "turn_end", extra: true }), false);
+	assert.equal(Value.Check(StatusCommandSchema, { type: "status", id: null }), false);
+});
+
+test("command and request mappings round-trip through their strict schemas", () => {
+	const commands = [
+		{ type: "send", message: "x" }, { type: "send", message: "x", mode: "follow_up", id: "send-1" },
+		{ type: "subscribe", event: "turn_end", id: 2 }, { type: "status" }, { type: "get_message" }, { type: "clear" }, { type: "abort" },
+	] as const;
+	const schemas = [MessageSendCommandSchema, MessageSendCommandSchema, SubscribeCommandSchema, StatusCommandSchema, GetMessageCommandSchema, ClearCommandSchema, AbortCommandSchema];
+	for (let i = 0; i < commands.length; i += 1) {
+		const command = commands[i];
+		assert.equal(Value.Check(schemas[i], command), true, `command ${i}`);
+		const request = commandToRequest(command, command.id ?? `roundtrip-${i}`);
+		assert.equal(Value.Check((request.method === "message.send" ? MessageSendRequestSchema : request.method === "event.subscribe" ? SubscribeRequestSchema : request.method === "session.status" ? StatusRequestSchema : request.method === "session.get_message" ? GetMessageRequestSchema : request.method === "session.clear" ? ClearRequestSchema : AbortRequestSchema), request), true, `request ${i}`);
+		assert.deepEqual(requestToCommand(request), { ...command, id: command.id ?? `roundtrip-${i}` });
+	}
 });
 
 test("method request schemas reject invalid envelopes and required fields", () => {

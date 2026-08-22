@@ -73,8 +73,16 @@ export type AbortCommand = Static<typeof AbortCommandSchema>;
 export type RpcSendCommand = MessageSendCommand;
 export type RpcSubscribeCommand = SubscribeCommand;
 
-export const MessageSendCommandSchema = Type.Intersect([Type.Object({ type: Type.Literal("send") }), MessageSendParamsSchema, Type.Object({ id: Type.Optional(RpcIdSchema) })]);
-export const SubscribeCommandSchema = Type.Intersect([Type.Object({ type: Type.Literal("subscribe") }), SubscribeParamsSchema, Type.Object({ id: Type.Optional(RpcIdSchema) })]);
+export const MessageSendCommandSchema = Type.Object({
+	type: Type.Literal("send"),
+	...MessageSendParamsSchema.properties,
+	id: Type.Optional(RpcIdSchema),
+}, { additionalProperties: false });
+export const SubscribeCommandSchema = Type.Object({
+	type: Type.Literal("subscribe"),
+	...SubscribeParamsSchema.properties,
+	id: Type.Optional(RpcIdSchema),
+}, { additionalProperties: false });
 export const StatusCommandSchema = Type.Object({ type: Type.Literal("status"), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
 export const GetMessageCommandSchema = Type.Object({ type: Type.Literal("get_message"), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
 export const ClearCommandSchema = Type.Object({ type: Type.Literal("clear"), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
@@ -125,7 +133,7 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 export function requestToCommand(request: RpcRequest): RpcInboundCommand | ProtocolFailure {
 	const params = "params" in request ? request.params : undefined;
 	const invalid = (message: string): ProtocolFailure => ({ code: RPC_ERROR.invalidParams, message });
-	if (request.method === "message.send") return Value.Check(MessageSendParamsSchema, params) ? { type: "send", message: params.message, mode: params.mode, id: request.id } : invalid("Invalid message.send params");
+	if (request.method === "message.send") return Value.Check(MessageSendParamsSchema, params) ? { type: "send", message: params.message, ...(params.mode === undefined ? {} : { mode: params.mode }), id: request.id } : invalid("Invalid message.send params");
 	if (["session.status", "session.get_message", "session.clear", "session.abort"].includes(request.method)) {
 		if (params !== undefined) return invalid(`Invalid ${request.method} params`);
 		if (request.method === "session.status") return { type: "status", id: request.id };
