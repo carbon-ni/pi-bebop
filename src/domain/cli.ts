@@ -43,7 +43,7 @@ function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: s
 		current += character;
 	}
 	if (escaped) current += "\\";
-	if (quote) return { error: "Unclosed quote in intray command." };
+	if (quote) return { error: "Unclosed quote in crew command." };
 	if (current) parts.push(current);
 	return { parts };
 }

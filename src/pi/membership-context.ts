@@ -1,7 +1,7 @@
 import type { Membership } from "../infra/membership-runtime.ts";
 
 export const MEMBERSHIP_ENTRY_TYPE = "intray-membership";
-export const MEMBERSHIP_CONTEXT_MARKER = "## Current intray crew identity";
+export const MEMBERSHIP_CONTEXT_MARKER = "## Current crew identity";
 
 export interface PersistedMembershipState {
 	readonly active: boolean;
