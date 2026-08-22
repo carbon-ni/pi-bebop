@@ -97,7 +97,15 @@ export default function (pi: ExtensionAPI) {
 				},
 				notifications: membership.manifest.presence.notifications,
 				members,
-				fingerprint: JSON.stringify({ members, notifications: membership.manifest.presence.notifications }),
+				fingerprint: JSON.stringify({
+					current: {
+						identity: membership.member.socketPath,
+						name: membership.member.name,
+						role: membership.member.role,
+					},
+					members,
+					notifications: membership.manifest.presence.notifications,
+				}),
 			};
 		},
 		createObserver: (membership) => {
@@ -219,7 +227,7 @@ export default function (pi: ExtensionAPI) {
 				await stopPresence();
 			},
 			cleanup: async () => {
-				stopPresence();
+				await stopPresence();
 				deactivateMembershipTool(pi);
 				await disableControlServer(state, context, pi);
 			},

@@ -32,6 +32,19 @@ export function createPresenceLifecycleCoordinator(deps: {
 			report(error);
 		}
 	};
+	const safeStop = () => {
+		const current = observer;
+		try {
+			current?.stop();
+		} catch (error) {
+			report(error);
+		} finally {
+			observer = undefined;
+			activeMember = undefined;
+			activeFingerprint = undefined;
+			deps.onObserverChanged?.(undefined);
+		}
+	};
 	return {
 		async refresh() {
 			const membership = deps.getMembership();
@@ -41,11 +54,7 @@ export function createPresenceLifecycleCoordinator(deps: {
 			}
 			if (observer && activeMember && activeFingerprint !== membership.fingerprint) {
 				await safeBroadcast(activeMember, "offline");
-				observer.stop();
-				observer = undefined;
-				activeMember = undefined;
-				activeFingerprint = undefined;
-				deps.onObserverChanged?.(undefined);
+				safeStop();
 			}
 			if (observer) return;
 			try {
@@ -57,22 +66,14 @@ export function createPresenceLifecycleCoordinator(deps: {
 				deps.onObserverChanged?.(next);
 			} catch (error) {
 				report(error);
-				observer?.stop();
-				observer = undefined;
-				activeMember = undefined;
-				activeFingerprint = undefined;
-				deps.onObserverChanged?.(undefined);
+				safeStop();
 			}
 		},
 		async stop() {
 			if (!observer) return;
 			const current = activeMember;
 			await safeBroadcast(current!, "offline");
-			observer.stop();
-			observer = undefined;
-			activeMember = undefined;
-			activeFingerprint = undefined;
-			deps.onObserverChanged?.(undefined);
+			safeStop();
 		},
 		broadcast: safeBroadcast,
 	};
