@@ -42,7 +42,7 @@ export async function runCli(args: string[], cwd = process.cwd(), input = proces
 				const cleanup = () => { input.off("data", onData); input.off("end", onEnd); input.off("error", onError); controller.signal.removeEventListener("abort", onAbort); };
 				const onEnd = () => { cleanup(); resolve(data); };
 				const onError = (error: Error) => { cleanup(); reject(error); };
-				const onAbort = () => { cleanup(); input.destroy(); reject(abortError); };
+				const onAbort = () => { cleanup(); input.pause(); input.destroy(); reject(abortError); };
 				input.setEncoding("utf8"); input.on("data", onData); input.once("end", onEnd); input.once("error", onError); controller.signal.addEventListener("abort", onAbort, { once: true });
 			});
 			if (message.length === 0) return usage(new UsageError("--stdin received empty input; provide UTF-8 message content"), output, options.format);
@@ -62,5 +62,5 @@ export async function runCli(args: string[], cwd = process.cwd(), input = proces
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-	runCli(process.argv.slice(2)).then((code) => { process.exit(code); }).catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : "CLI failure"}\n`); process.exit(1); });
+	runCli(process.argv.slice(2)).then((code) => { process.exitCode = code; }).catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : "CLI failure"}\n`); process.exitCode = 1; });
 }
