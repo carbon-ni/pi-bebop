@@ -5,7 +5,7 @@ import { renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts
 import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/index.ts";
 import { registerSessionTool } from "./tools/send-to-session.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
-import { createPresenceObserver } from "./application/presence-observer.ts";
+import { createPresenceObserver, PRESENCE_HINT_TIMEOUT_MS } from "./application/presence-observer.ts";
 import { sendRpcCommand } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
@@ -115,7 +115,7 @@ export default function (pi: ExtensionAPI) {
 					await sendRpcCommand(
 						endpoint,
 						{ type: "presence_hint", member: changed, state: stateValue, instanceId },
-						{ timeout: 500 },
+						{ timeout: PRESENCE_HINT_TIMEOUT_MS },
 					);
 				},
 				onEffects: () => undefined,
@@ -181,8 +181,9 @@ export default function (pi: ExtensionAPI) {
 			startupSocketSelected: false,
 			globalSocketPath: state.socketPath,
 			manifestPathForSocket: getCrewManifestPathFromSocketPath,
-			announce: (message) => {
+			announce: async (message) => {
 				activateMembershipTool(pi);
+				await refreshPresence();
 				announceMembership(message);
 			},
 			reportFailure: (message) => {
@@ -200,9 +201,17 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		const context = state.context;
+		const previousMembership = state.membershipRuntime?.getMembership();
 		await releaseMembershipBeforeCleanup({
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
 			leave: async () => state.membershipRuntime!.leave(),
+			onReleased: async () => {
+				try {
+					if (previousMembership) await broadcastPresence(previousMembership.member, "offline");
+				} finally {
+					stopPresence();
+				}
+			},
 			cleanup: async () => {
 				stopPresence();
 				deactivateMembershipTool(pi);
