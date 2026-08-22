@@ -23,6 +23,6 @@ test("registers independent crew surfaces without shared intray tools", () => {
 
 	assert.doesNotThrow(() => extension(pi));
 	assert.deepEqual(flags, ["crew", "crew-socket"]);
-	assert.deepEqual(tools, ["send_to_member"]);
+	assert.deepEqual(tools, ["send_follow_up", "send_immediate"]);
 	assert.deepEqual(commands, ["crew"]);
 });

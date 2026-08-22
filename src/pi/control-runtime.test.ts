@@ -33,7 +33,7 @@ test("membership tool activation preserves unrelated tools and is idempotent", (
 	} as never;
 	activateMembershipTool(pi);
 	activateMembershipTool(pi);
-	assert.deepEqual(active, ["read", "send_to_session", "send_to_member"]);
+	assert.deepEqual(active, ["read", "send_to_session", "send_follow_up", "send_immediate"]);
 	deactivateMembershipTool(pi);
 	deactivateMembershipTool(pi);
 	assert.deepEqual(active, ["read", "send_to_session"]);
@@ -81,6 +81,43 @@ test("RPC status reports online and joined without legacy fields", async () => {
 	state.membershipRuntime = { getMembership: () => ({}) } as never;
 	await handleCommand(pi, state, { type: "status", id: "status-2" }, socket);
 	assert.deepEqual(JSON.parse(writes[1]!), { jsonrpc: "2.0", id: "status-2", result: { status: "joined" } });
+});
+
+test("characterizes idle direct and busy follow-up or immediate delivery dispositions", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const sent: unknown[] = [];
+	const state = createSocketState();
+	state.server = {} as never;
+	const context = { sessionManager: { getSessionId: () => "session" }, isIdle: () => true, abort: () => undefined };
+	state.context = context as never;
+	const pi = { sendMessage: (message: unknown, options: unknown) => sent.push({ message, options }) } as never;
+	await handleCommand(pi, state, { type: "send", message: "normal", id: "idle" }, socket);
+	assert.deepEqual(JSON.parse(writes[0]!), {
+		jsonrpc: "2.0",
+		id: "idle",
+		result: { deliveryId: "delivery-idle", disposition: "direct" },
+	});
+	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true });
+	writes.length = 0;
+	sent.length = 0;
+	context.isIdle = () => false;
+	await handleCommand(pi, state, { type: "send", message: "later", mode: "follow_up", id: "follow" }, socket);
+	assert.deepEqual(JSON.parse(writes[0]!), {
+		jsonrpc: "2.0",
+		id: "follow",
+		result: { deliveryId: "delivery-follow", disposition: "queued" },
+	});
+	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true, deliverAs: "followUp" });
+	writes.length = 0;
+	sent.length = 0;
+	await handleCommand(pi, state, { type: "send", message: "now", mode: "steer", id: "immediate" }, socket);
+	assert.deepEqual(JSON.parse(writes[0]!), {
+		jsonrpc: "2.0",
+		id: "immediate",
+		result: { deliveryId: "delivery-immediate", disposition: "steered" },
+	});
+	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true, deliverAs: "steer" });
 });
 
 test("disableControlServer clears the base server status", async () => {

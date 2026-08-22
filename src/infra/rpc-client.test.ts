@@ -50,7 +50,11 @@ test("correlates send and subscription responses then accepts the matching turn 
 		(socket) =>
 			lines(socket, (request) => {
 				if (request.method === "message.send")
-					send(socket, { jsonrpc: "2.0", id: request.id, result: { delivered: true, mode: "steer" } });
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { deliveryId: "delivery-test", disposition: "steered" },
+					});
 				if (request.method === "event.subscribe") {
 					send(socket, {
 						jsonrpc: "2.0",
@@ -94,7 +98,11 @@ test("requires primary response and matching subscription acknowledgement in eit
 					const primary = requests.find((item) => item.method === "message.send")!;
 					const subscribe = requests.find((item) => item.method === "event.subscribe")!;
 					const frames = [
-						{ jsonrpc: "2.0", id: primary.id, result: { delivered: true, mode: "steer" } },
+						{
+							jsonrpc: "2.0",
+							id: primary.id,
+							result: { deliveryId: "delivery-test", disposition: "steered" },
+						},
 						{
 							jsonrpc: "2.0",
 							id: subscribe.id,
@@ -135,7 +143,11 @@ test("rejects a turn notification before either required response or acknowledge
 					if (requests.length !== 2) return;
 					const primary = requests.find((item) => item.method === "message.send")!;
 					const subscribe = requests.find((item) => item.method === "event.subscribe")!;
-					const primaryFrame = { jsonrpc: "2.0", id: primary.id, result: { delivered: true, mode: "steer" } };
+					const primaryFrame = {
+						jsonrpc: "2.0",
+						id: primary.id,
+						result: { deliveryId: "delivery-test", disposition: "steered" },
+					};
 					const ackFrame = {
 						jsonrpc: "2.0",
 						id: subscribe.id,
@@ -172,7 +184,11 @@ test("rejects a subscription acknowledgement with the wrong subscription id", as
 		(socket) =>
 			lines(socket, (request) => {
 				if (request.method === "message.send")
-					send(socket, { jsonrpc: "2.0", id: request.id, result: { delivered: true, mode: "steer" } });
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { deliveryId: "delivery-test", disposition: "steered" },
+					});
 				if (request.method === "event.subscribe")
 					send(socket, {
 						jsonrpc: "2.0",
@@ -257,7 +273,11 @@ test("fails immediately on malformed, mismatched, duplicate, invalid, or wrong-s
 	await withSocketServer(
 		(socket) =>
 			lines(socket, (request) =>
-				send(socket, { jsonrpc: "2.0", id: "wrong", result: { delivered: true, mode: "steer" } }),
+				send(socket, {
+					jsonrpc: "2.0",
+					id: "wrong",
+					result: { deliveryId: "delivery-test", disposition: "steered" },
+				}),
 			),
 		async (socketPath) => {
 			await assert.rejects(
@@ -269,7 +289,11 @@ test("fails immediately on malformed, mismatched, duplicate, invalid, or wrong-s
 	await withSocketServer(
 		(socket) =>
 			lines(socket, (request) => {
-				const response = { jsonrpc: "2.0", id: request.id, result: { delivered: true, mode: "steer" } };
+				const response = {
+					jsonrpc: "2.0",
+					id: request.id,
+					result: { deliveryId: "delivery-test", disposition: "steered" },
+				};
 				send(socket, response);
 				send(socket, response);
 			}),
@@ -303,9 +327,14 @@ test("fails immediately on malformed, mismatched, duplicate, invalid, or wrong-s
 		},
 	);
 	for (const malformed of [
-		{ jsonrpc: "1.0", id: "x", result: { delivered: true, mode: "steer" } },
-		{ jsonrpc: "2.0", id: "x", result: { delivered: true, mode: "steer" }, error: { code: 1, message: "both" } },
-		{ jsonrpc: "2.0", id: "x", result: { delivered: true, mode: "steer" }, extra: true },
+		{ jsonrpc: "1.0", id: "x", result: { deliveryId: "delivery-test", disposition: "steered" } },
+		{
+			jsonrpc: "2.0",
+			id: "x",
+			result: { deliveryId: "delivery-test", disposition: "steered" },
+			error: { code: 1, message: "both" },
+		},
+		{ jsonrpc: "2.0", id: "x", result: { deliveryId: "delivery-test", disposition: "steered" }, extra: true },
 	])
 		await withSocketServer(
 			(socket) => lines(socket, (request) => send(socket, malformed)),
@@ -323,7 +352,11 @@ test("rejects failed subscription responses", async () => {
 		(socket) =>
 			lines(socket, (request) => {
 				if (request.method === "message.send")
-					send(socket, { jsonrpc: "2.0", id: request.id, result: { delivered: true, mode: "steer" } });
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { deliveryId: "delivery-test", disposition: "steered" },
+					});
 				if (request.method === "event.subscribe")
 					send(socket, { jsonrpc: "2.0", id: request.id, error: { code: -32602, message: "not supported" } });
 			}),

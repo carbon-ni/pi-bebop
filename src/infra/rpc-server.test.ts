@@ -78,7 +78,7 @@ test("rejects unknown methods, extra params, non-RPC envelopes, and malformed en
 				[JSON.stringify({ jsonrpc: "2.0", id: "unknown", method: "no.such" }), -32601],
 				[JSON.stringify({ jsonrpc: "2.0", id: "null", method: "message.send", params: null }), -32602],
 				[
-					JSON.stringify({ jsonrpc: "2.0", id: "type", method: "message.send", params: { message: 1 } }),
+					JSON.stringify({ jsonrpc: "2.0", id: "type", method: "message.send", params: { content: 1 } }),
 					-32602,
 				],
 				[
@@ -86,7 +86,7 @@ test("rejects unknown methods, extra params, non-RPC envelopes, and malformed en
 						jsonrpc: "2.0",
 						id: "enum",
 						method: "message.send",
-						params: { message: "x", mode: "later" },
+						params: { content: "x", delivery: "later" },
 					}),
 					-32602,
 				],
@@ -95,7 +95,7 @@ test("rejects unknown methods, extra params, non-RPC envelopes, and malformed en
 						jsonrpc: "2.0",
 						id: "extra-params",
 						method: "message.send",
-						params: { message: "x", extra: true },
+						params: { content: "x", extra: true },
 					}),
 					-32602,
 				],
@@ -105,7 +105,7 @@ test("rejects unknown methods, extra params, non-RPC envelopes, and malformed en
 						jsonrpc: "2.0",
 						id: "oversized",
 						method: "message.send",
-						params: { message: "x".repeat(1_000_001) },
+						params: { content: "x".repeat(1_000_001) },
 					}),
 					-32602,
 				],
@@ -158,7 +158,7 @@ test("writeResponse ignores closed socket write errors", () => {
 			command: "send",
 			success: true,
 			id: "send-1",
-			data: { delivered: true, mode: "steer" },
+			data: { deliveryId: "delivery-test", disposition: "steered" },
 		}),
 	);
 });
@@ -178,7 +178,7 @@ test("rejects a response without a correlated id instead of fabricating one", ()
 		command: "send",
 		success: true,
 		id: undefined as never,
-		data: { delivered: true, mode: "steer" },
+		data: { deliveryId: "delivery-test", disposition: "steered" },
 	});
 	assert.equal(JSON.parse(writes[0]!).error.code, -32600);
 });

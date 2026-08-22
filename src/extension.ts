@@ -2,7 +2,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import { renderSessionMessage } from "./pi/message-renderer.ts";
-import { registerMemberTool } from "./tools/index.ts";
+import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/index.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -51,7 +51,8 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	registerMemberTool(pi, state);
+	registerSendFollowUpTool(pi, state);
+	registerSendImmediateTool(pi, state);
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};

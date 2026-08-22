@@ -4,8 +4,8 @@
 
 
 Give a small dysfunctional crew to your Pi agents. Bebop is self-contained: it
-owns its crew socket transport, project-local membership, and role-based
-`send_to_member` delivery.
+owns its crew socket transport, project-local membership, and intent-based
+`send_follow_up`/`send_immediate` delivery.
 
 
 </br>
@@ -106,16 +106,19 @@ tracked for TASK-0024; this CLI currently reports the shared transport timeout.
 
 ## Role-based messaging
 
-Once joined, use Bebop's only tool:
+Once joined, use `send_follow_up` by default:
 
 ```text
-send_to_member({
+send_follow_up({
   "member": "developer",
-  "message": "Please confirm the endpoint is working.",
-  "wait_until": "turn_end",
-  "reply_behavior": "end_conversation"
+  "message": "Please confirm the endpoint is working."
 })
 ```
 
-Members can be addressed by unique name or role. A live endpoint owned by
-another session is never overwritten; stale endpoints may be reclaimed.
+Use `send_immediate` only when the message should redirect active work. Both
+return an accepted delivery acknowledgement with `deliveryId` and disposition
+(`direct`, `queued`, or `steered`). `wait_for: response` is explicitly
+unsupported because Pi lifecycle events cannot prove delivery-level response
+correlation; it never consumes an unrelated global `turn_end`. Members can be
+addressed by unique name or role. A live endpoint owned by another session is
+never overwritten; stale endpoints may be reclaimed.

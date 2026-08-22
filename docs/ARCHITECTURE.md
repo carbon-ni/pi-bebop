@@ -16,7 +16,7 @@ src/domain  <-  src/infra  <-  src/pi / src/tools
 - `src/pi/` — flags, `/crew` command, renderer, lifecycle hooks, and socket
   runtime composition.
 - `src/tools/` — discoverable Pi tool registrations. Bebop registers only
-  `send_to_member`.
+  `send_follow_up` and `send_immediate`.
 - `src/**/*.test.ts` — deterministic colocated `node:test` coverage.
 
 ## Isolation and configuration
@@ -66,18 +66,23 @@ Bebop's own runtime directory.
 
 ## Crew delivery
 
-`send_to_member` resolves a unique member name or role from the active trusted
-manifest and sends request-scoped RPC to its endpoint. The tool is active only
-while the session is joined to a crew. A live endpoint owned by another session
-is never overwritten; stale endpoints can be reclaimed.
+`send_follow_up` and `send_immediate` are thin intent adapters over
+`src/application/member-message.ts`. Follow-up is the normal/default path and
+maps to queued delivery while busy; immediate is opt-in and maps to steering
+active work. Both return schema-validated `deliveryId`/disposition
+acknowledgements without subscribing to global `turn_end`. Response waiting is
+rejected because Pi lifecycle events cannot prove delivery-level correlation.
+The tools are active only while joined to a crew. A live endpoint owned by
+another session is never overwritten; stale endpoints can be reclaimed.
 
 Bebop intentionally does **not** register generic session discovery or direct
 session-control tools. Those capabilities are outside crew management.
 
 ## Quality gates
 
+- `npm run format:check` — Prettier check
 - `npm run lint` — TypeScript check
-- `npm test` — deterministic test suite
+- `npm test` — deterministic test suite (builds artifacts first)
 - `npm run test:coverage` — coverage gate
 - `make all` — pre-push/CI gate
 

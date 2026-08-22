@@ -10,6 +10,7 @@
 	"files": [
 		"index.ts",
 		"src/application/direct-message.ts",
+		"src/application/member-message.ts",
 		"src/domain/branch-alias.ts",
 		"src/domain/cli.ts",
 		"src/domain/crew-manifest.ts",
@@ -41,7 +42,9 @@
 		"src/tools/index.ts",
 		"src/tools/list-sessions.ts",
 		"src/tools/send-message.ts",
-		"src/tools/send-to-member.ts",
+		"src/tools/member-tool-adapter.ts",
+		"src/tools/send-follow-up.ts",
+		"src/tools/send-immediate.ts",
 		"src/tools/send-to-session.ts",
 		"src/tools/session-target.ts",
 		"dist/cli/main.js",
