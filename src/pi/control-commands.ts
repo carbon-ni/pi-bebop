@@ -16,8 +16,9 @@ export type ControlCommandDeps = {
 	activateMembershipTool?: () => void;
 	deactivateMembershipTool?: () => void;
 	refreshStatus?: () => void;
-	refreshPresence?: () => void;
+	refreshPresence?: () => void | Promise<void>;
 	stopPresence?: () => void;
+	broadcastPresence?: (member: Membership["member"], state: "online" | "offline") => Promise<void>;
 };
 
 const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop"];
@@ -107,6 +108,7 @@ export function registerSessionControlCommand(
 					}
 					const socketPath = selection.socketPath;
 					const manifestPath = selection.manifestPath;
+					const previousMembership = membership.getMembership();
 					const result = await membership.join({
 						manifestPath,
 						socketPath,
@@ -120,7 +122,9 @@ export function registerSessionControlCommand(
 					deps.persistMembership?.(true, result.membership);
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
-					deps.refreshPresence?.();
+					if (previousMembership && previousMembership.socketPath !== result.membership.socketPath)
+						await deps.broadcastPresence?.(previousMembership.member, "offline");
+					await deps.refreshPresence?.();
 					deps.announceMembership?.(joinedMessage);
 					notify(ctx, joinedMessage);
 					return;
@@ -138,6 +142,7 @@ export function registerSessionControlCommand(
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
+							await deps.broadcastPresence?.(previousMembership!.member, "offline");
 							deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
 						}
@@ -162,10 +167,12 @@ export function registerSessionControlCommand(
 						hasMembership: Boolean(previousMembership),
 						leave: async () => membership!.leave(),
 						cleanup: () => deps.disableControlServer(state, ctx),
-						onReleased: () => {
+						onReleased: async () => {
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
+							if (previousMembership)
+								await deps.broadcastPresence?.(previousMembership.member, "offline");
 							deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
 						},

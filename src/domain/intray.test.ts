@@ -42,6 +42,8 @@ import {
 	PresenceHintParamsSchema,
 	PresenceHintRequestSchema,
 	PresenceHintCommandSchema,
+	PresenceHintResultSchema,
+	isPresenceHintParams,
 } from "./index.ts";
 
 test("presence hint uses a strict claimed identity schema and round-trips through JSON-RPC", () => {
@@ -55,11 +57,16 @@ test("presence hint uses a strict claimed identity schema and round-trips throug
 		Value.Check(PresenceHintParamsSchema, { ...params, member: { ...params.member, extra: true } }),
 		false,
 	);
+	assert.equal(isPresenceHintParams({ ...params, instanceId: " bad" }), false);
+	assert.equal(isPresenceHintParams({ ...params, instanceId: "bad\0" }), false);
+	assert.equal(isPresenceHintParams({ ...params, instanceId: "😀".repeat(300) }), false);
 	assert.equal(
 		Value.Check(PresenceHintRequestSchema, { jsonrpc: "2.0", id: "1", method: "presence.hint", params }),
 		true,
 	);
 	assert.equal(Value.Check(PresenceHintCommandSchema, { type: "presence_hint", ...params }), true);
+	assert.equal(Value.Check(PresenceHintResultSchema, { accepted: true }), true);
+	assert.equal(Value.Check(PresenceHintResultSchema, {}), false);
 	assert.deepEqual(requestToCommand({ jsonrpc: "2.0", id: "1", method: "presence.hint", params }), {
 		type: "presence_hint",
 		...params,

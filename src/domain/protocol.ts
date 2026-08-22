@@ -18,18 +18,20 @@ export const MessageSendParamsSchema = Type.Object(
 );
 export const SubscribeParamsSchema = Type.Object({ event: Type.Literal("turn_end") }, { additionalProperties: false });
 export const EmptyParamsSchema = Type.Object({}, { additionalProperties: false });
+export const MAX_PRESENCE_HINT_FIELD_BYTES = 256;
+const PresenceHintTextSchema = Type.String({
+	minLength: 1,
+	maxLength: MAX_PRESENCE_HINT_FIELD_BYTES,
+	pattern: "^[^\\u0000]+$",
+});
 export const PresenceHintParamsSchema = Type.Object(
 	{
 		member: Type.Object(
-			{
-				identity: Type.String({ minLength: 1 }),
-				name: Type.String({ minLength: 1 }),
-				role: Type.String({ minLength: 1 }),
-			},
+			{ identity: PresenceHintTextSchema, name: PresenceHintTextSchema, role: PresenceHintTextSchema },
 			{ additionalProperties: false },
 		),
 		state: Type.Union([Type.Literal("online"), Type.Literal("offline")]),
-		instanceId: Type.String({ minLength: 1 }),
+		instanceId: PresenceHintTextSchema,
 	},
 	{ additionalProperties: false },
 );
@@ -68,6 +70,7 @@ export const AbortRequestSchema = Type.Object(
 	{ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: RpcIdSchema, method: Type.Literal("session.abort") },
 	{ additionalProperties: false },
 );
+export const PresenceHintResultSchema = Type.Object({ accepted: Type.Boolean() }, { additionalProperties: false });
 export const PresenceHintRequestSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSON_RPC_VERSION),
@@ -178,6 +181,7 @@ export type ClearRequest = Static<typeof ClearRequestSchema>;
 export type AbortRequest = Static<typeof AbortRequestSchema>;
 export type PresenceHintParams = Static<typeof PresenceHintParamsSchema>;
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
+export type PresenceHintResult = Static<typeof PresenceHintResultSchema>;
 export type MessageSendParams = Static<typeof MessageSendParamsSchema>;
 export type MessageSendPayload = MessagePayload;
 export type SubscribeParams = Static<typeof SubscribeParamsSchema>;
@@ -304,6 +308,13 @@ export interface ProtocolFailure {
 	message: string;
 	data?: { code?: string };
 }
+export function isPresenceHintParams(value: unknown): value is PresenceHintParams {
+	if (!Value.Check(PresenceHintParamsSchema, value)) return false;
+	const params = value as PresenceHintParams;
+	return [params.member.identity, params.member.name, params.member.role, params.instanceId].every(
+		(field) => field.trim() === field && Buffer.byteLength(field, "utf8") <= MAX_PRESENCE_HINT_FIELD_BYTES,
+	);
+}
 export function isRpcRequest(value: unknown): value is RpcRequest {
 	return Value.Check(RpcRequestSchema, value);
 }
@@ -327,7 +338,7 @@ export function methodResultSchema(method: string) {
 						: method === "event.subscribe"
 							? SubscribeResultSchema
 							: method === "presence.hint"
-								? EmptyResultSchema
+								? PresenceHintResultSchema
 								: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
@@ -433,7 +444,7 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 		};
 	}
 	if (request.method === "presence.hint") {
-		if (!Value.Check(PresenceHintParamsSchema, params)) return invalid("Invalid presence.hint params");
+		if (!isPresenceHintParams(params)) return invalid("Invalid presence.hint params");
 		return { type: "presence_hint", ...params, id: request.id } as RpcInboundCommand;
 	}
 	if (["session.status", "session.get_message", "session.clear", "session.abort"].includes(request.method)) {

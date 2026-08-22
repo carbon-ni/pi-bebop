@@ -101,6 +101,7 @@ export interface SocketProbeDependencies {
 	createConnection?: (socketPath: string) => { once(event: string, listener: () => void): unknown; destroy(): void };
 	setTimeout?: typeof globalThis.setTimeout;
 	clearTimeout?: typeof globalThis.clearTimeout;
+	timeoutMs?: number;
 }
 
 export function probeMemberEndpoint(socketPath: string, dependencies: SocketProbeDependencies = {}): Promise<boolean> {
@@ -117,7 +118,7 @@ export function probeMemberEndpoint(socketPath: string, dependencies: SocketProb
 			socket.destroy();
 			resolve(alive);
 		};
-		const timer = setTimer(() => finish(false), 300);
+		const timer = setTimer(() => finish(false), dependencies.timeoutMs ?? 300);
 		socket.once("connect", () => finish(true));
 		socket.once("error", () => finish(false));
 	});
