@@ -20,12 +20,43 @@ test("formats ordered initial online roster with current marker and explicit emp
 			[lead, bob, qa],
 			lead.identity,
 		),
-		"[crew] Online: lead (you), Bob (dev)",
+		"[crew] Online (2): lead (you), Bob (dev)",
 	);
 	assert.equal(
 		formatCrewPresenceRoster({ type: "roster", members: [] }, [lead], lead.identity),
-		"[crew] Online: lead (you)",
+		"[crew] Online (1): lead (you)",
 	);
+});
+
+test("keeps suspect visible while excluding offline and unknown peers", () => {
+	const effect = {
+		type: "roster" as const,
+		members: [
+			{ ...lead, status: "online" as const },
+			{ ...bob, status: "suspect" as const },
+			{ ...qa, status: "offline" as const },
+			{ identity: "unknown", name: "unknown", role: "qa", status: "unknown" as const },
+		],
+	};
+	assert.equal(
+		formatCrewPresenceRoster(effect, [lead, bob, qa, effect.members[3]!], lead.identity),
+		"[crew] Online (2): lead (you), Bob (dev)",
+	);
+});
+
+test("keeps current visible when it falls beyond the preview limit", () => {
+	const members = Array.from({ length: 5 }, (_, index) => ({
+		identity: String(index),
+		name: `member-${index}`,
+		role: "dev",
+	}));
+	const effect = {
+		type: "roster" as const,
+		members: members.map((member) => ({ ...member, status: "online" as const })),
+	};
+	const output = formatCrewPresenceRoster(effect, members, "4", 2);
+	assert.match(output, /Online \(5\): member-0 \(dev\), member-1 \(dev\), member-4 \(you\)/);
+	assert.match(output, /\+2 more; use \/crew members/);
 });
 
 test("formats joined and left once with local labels", () => {
@@ -47,6 +78,7 @@ test("bounds large roster and adds members hint only when truncated", () => {
 	}));
 	const effect = { type: "roster", members: members.map((member) => ({ ...member, status: "online" as const })) };
 	const output = formatCrewPresenceRoster(effect, members, "missing", CREW_PRESENCE_PREVIEW_LIMIT);
+	assert.match(output, /Online \(10\):/);
 	assert.match(output, /\+2 more; use \/crew members/);
 	assert.equal(
 		formatCrewPresenceRoster(
@@ -57,7 +89,7 @@ test("bounds large roster and adds members hint only when truncated", () => {
 			members.slice(0, 1),
 			"missing",
 		),
-		"[crew] Online: member-0 (dev)",
+		"[crew] Online (1): member-0 (dev)",
 	);
 });
 

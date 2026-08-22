@@ -21,11 +21,14 @@ test("registers crew delivery surfaces with the structured session tool", () => 
 	const flags: string[] = [];
 	const tools: string[] = [];
 	const commands: string[] = [];
+	const renderers: string[] = [];
 	const pi = {
 		registerFlag(name: string) {
 			flags.push(name);
 		},
-		registerMessageRenderer() {},
+		registerMessageRenderer(name: string) {
+			renderers.push(name);
+		},
 		registerTool(tool: { name: string }) {
 			tools.push(tool.name);
 		},
@@ -39,4 +42,5 @@ test("registers crew delivery surfaces with the structured session tool", () => 
 	assert.deepEqual(flags, ["crew", "crew-socket"]);
 	assert.deepEqual(tools, ["send_follow_up", "send_immediate", "send_to_session"]);
 	assert.deepEqual(commands, ["crew"]);
+	assert.equal(renderers.includes("crew-presence"), true);
 });
