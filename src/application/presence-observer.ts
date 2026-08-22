@@ -150,6 +150,7 @@ export function createPresenceObserver(
 			if (!active || !config.notifications || !hint.instanceId || hint.instanceId === instanceId) return false;
 			const member = members.find(
 				(candidate) =>
+					candidate.identity !== currentIdentity &&
 					candidate.identity === hint.member.identity &&
 					candidate.name === hint.member.name &&
 					candidate.role === hint.member.role,
