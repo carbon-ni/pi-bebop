@@ -1,0 +1,14 @@
+# Generated and dependency output
+dist/
+coverage/
+node_modules/
+package-lock.json
+
+# Shared agent/worktree state
+.tmp/
+plans/
+.pi/
+
+# Logs and local artifacts
+*.log
+.tmp-make-all.log

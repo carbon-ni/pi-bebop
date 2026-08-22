@@ -3,57 +3,72 @@
 # Validate with: fzz check
 
 on:
-  socket: .pi/funzzy.sock
-  debounce: 500ms
-  respect_gitignore: true
-  ignore:
-    - .tmp/**
-    - .pi/**
-    - node_modules/**
-    - coverage/**
-    - "**/*.log"
+    socket: .pi/funzzy.sock
+    debounce: 500ms
+    respect_gitignore: true
+    ignore:
+        - .tmp/**
+        - .pi/**
+        - node_modules/**
+        - coverage/**
+        - "**/*.log"
 
 execution:
-  concurrency: 2
-  output: show-on-failure
+    concurrency: 2
+    output: show-on-failure
+    recovery_policy: prompt
 
 jobs:
-  - name: test @quick
-    run: npm test
-    parallel: quick
-    change:
-      - src/**/*.ts
-      - package.json
-      - package-lock.json
-      - tsconfig.json
-    run_on_init: true
+    - name: test @quick
+      run: npm test
+      parallel: quick
+      change:
+          - src/**/*.ts
+          - package.json
+          - package-lock.json
+          - tsconfig.json
+      run_on_init: true
 
-  - name: lint @quick
-    run: npm run lint
-    parallel: quick
-    change:
-      - src/**/*.ts
-      - package.json
-      - package-lock.json
-      - tsconfig.json
-    run_on_init: true
+    - name: format @quick
+      run: npm run format:check
+      recovery: npm run format:write
+      parallel: quick
+      change:
+          - src/**/*.ts
+          - index.ts
+          - scripts/**/*.mjs
+          - package.json
+          - .watch.yaml
+          - .prettierrc.json
+          - tsconfig.json
+      run_on_init: true
 
-  - name: security audit @quick
-    run: npm audit --omit=dev --audit-level=moderate
-    change:
-      - package.json
-      - package-lock.json
-    run_on_init: true
+    - name: lint @quick
+      run: npm run lint
+      parallel: quick
+      change:
+          - src/**/*.ts
+          - package.json
+          - package-lock.json
+          - tsconfig.json
+      run_on_init: true
 
-  - name: quality gate @agent-final
-    run: make all
-    change:
-      - src/**/*.ts
-      - package.json
-      - package-lock.json
-      - tsconfig.json
-      - Makefile
-      - .watch.yaml
-      - README.md
-      - docs/**
-    run_on_init: true
+    - name: security audit @quick
+      run: npm audit --omit=dev --audit-level=moderate
+      change:
+          - package.json
+          - package-lock.json
+      run_on_init: true
+
+    - name: quality gate @agent-final
+      run: make all
+      change:
+          - src/**/*.ts
+          - package.json
+          - package-lock.json
+          - tsconfig.json
+          - Makefile
+          - .watch.yaml
+          - README.md
+          - docs/**
+      run_on_init: true
