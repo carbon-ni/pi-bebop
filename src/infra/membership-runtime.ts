@@ -88,7 +88,9 @@ export function createMembershipRuntime(dependencies: MembershipRuntimeDependenc
 			try {
 				member = resolveCrewMemberBySocketPath(manifest, socketPath);
 			} catch (error) {
-				return failure("member-not-found", `no configured crew member matches: ${socketPath}`, error);
+				const configured = manifest.members.map((candidate) => `${candidate.name}=${candidate.socket}`).join(", ");
+				const hint = configured ? ` Configured endpoints: ${configured}.` : "";
+				return failure("member-not-found", `no configured crew member matches: ${socketPath}.${hint}`, error);
 			}
 
 			const sameEndpoint = membership?.socketPath === socketPath;

@@ -8,6 +8,7 @@ import {
 	getCrewManifestPathFromSocketPath,
 	isTrustedCrewManifestPath,
 	readTrustedCrewManifest,
+	selectCrewSocketPath,
 	CrewManifestReadError,
 } from "./crew-manifest-store.ts";
 
@@ -25,6 +26,17 @@ before(async () => {
 after(async () => fs.rm(projectDir, { recursive: true, force: true }));
 
 describe("trusted crew manifest store", () => {
+	test("selects an absolute external-root endpoint without cwd fallback", () => {
+	const rootA = path.join(projectDir, "worktree-A");
+	const rootB = path.join(projectDir, "worktree-B");
+	assert.deepEqual(selectCrewSocketPath(`${rootB}/.pi/bebop/sockets/dev1.sock`, rootA), {
+		socketPath: `${rootB}/.pi/bebop/sockets/dev1.sock`,
+		manifestPath: `${rootB}/.pi/bebop/crew.json`,
+	});
+	assert.equal(selectCrewSocketPath(`${rootB}/.pi/other/sockets/dev1.sock`, rootA), null);
+	assert.equal(selectCrewSocketPath(`${rootB}/.pi/bebop/sockets/../dev1.sock`, rootA), null);
+});
+
 	test("uses Pi CONFIG_DIR_NAME for the project-local default", () => {
 		assert.equal(getDefaultCrewManifestPath(projectDir), path.join(projectDir, ".pi", "bebop", "crew.json"));
 		assert.equal(isTrustedCrewManifestPath(getDefaultCrewManifestPath(projectDir), projectDir), true);
