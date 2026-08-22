@@ -96,6 +96,12 @@ export function getMessageDisplayModel(
 	return { text, senderText: payload ? claimedOrigin(payload) : formatSenderInfo(senderInfo) };
 }
 
+export const renderCrewPresence: MessageRenderer = (message, _options, theme) => {
+	const box = new Box(1, 0, (t) => theme.bg("customMessageBg", t));
+	box.addChild(new Text(extractTextContent(message.content), 0, 0));
+	return box;
+};
+
 export const renderCrewRoster: MessageRenderer = (message, _options, theme) => {
 	const box = new Box(0, 0, (t) => theme.bg("customMessageBg", t));
 	box.addChild(

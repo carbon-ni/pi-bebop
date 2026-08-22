@@ -1,12 +1,13 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
-import { renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts";
+import { renderCrewPresence, renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts";
 import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/index.ts";
 import { registerSessionTool } from "./tools/send-to-session.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceLifecycleCoordinator } from "./application/presence-lifecycle.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
+import { emitCrewPresenceActivity } from "./application/presence-activity.ts";
 import { sendRpcCommand } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
@@ -55,6 +56,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
 	pi.registerMessageRenderer("crew-roster", renderCrewRoster);
+	pi.registerMessageRenderer("crew-presence", renderCrewPresence);
 
 	const state = createSocketState();
 	state.membershipRuntime = createMembershipRuntime({
@@ -79,6 +81,26 @@ export default function (pi: ExtensionAPI) {
 	};
 	const announceMembership = (message: string) => {
 		pi.sendMessage({ customType: "crew-status", content: message, display: true }, { triggerTurn: false });
+	};
+	const emitPresenceEffects = (effects: readonly import("./domain/index.ts").PresenceEffect[]) => {
+		const membership = state.membershipRuntime?.getMembership();
+		const members =
+			membership?.manifest.members.map((member) => ({
+				identity: member.socketPath,
+				name: member.name,
+				role: member.role,
+			})) ?? [];
+		emitCrewPresenceActivity(
+			effects,
+			membership
+				? {
+						members,
+						currentIdentity: membership.member.socketPath,
+						notifications: membership.manifest.presence.notifications,
+					}
+				: null,
+			(message, options) => pi.sendMessage(message, options),
+		);
 	};
 	const presenceCoordinator = createPresenceLifecycleCoordinator({
 		getMembership: () => {
@@ -120,12 +142,13 @@ export default function (pi: ExtensionAPI) {
 				send: async (endpoint, payload, timeout) => {
 					await sendRpcCommand(endpoint, { type: "presence_hint", ...payload }, { timeout });
 				},
-				onEffects: () => undefined,
+				onEffects: emitPresenceEffects,
 			});
 		},
 		onObserverChanged: (observer) => {
 			state.presenceObserver = observer;
 		},
+		onEffects: emitPresenceEffects,
 		reportFailure: (error) => console.error(`Crew presence failed: ${String(error)}`),
 	});
 	const stopPresence = async () => {

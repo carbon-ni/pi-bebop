@@ -1,4 +1,4 @@
-import type { PresenceMember } from "../domain/index.ts";
+import type { PresenceEffect, PresenceMember } from "../domain/index.ts";
 import type { PresenceObserver } from "./presence-observer.ts";
 
 export interface PresenceMembership {
@@ -19,6 +19,7 @@ export function createPresenceLifecycleCoordinator(deps: {
 	readonly createObserver: (membership: PresenceMembership) => PresenceObserver;
 	readonly reportFailure?: (error: unknown) => void;
 	readonly onObserverChanged?: (observer: PresenceObserver | undefined) => void;
+	readonly onEffects?: (effects: readonly PresenceEffect[]) => void;
 }): PresenceLifecycleCoordinator {
 	let observer: PresenceObserver | undefined;
 	let activeMember: PresenceMember | undefined;
