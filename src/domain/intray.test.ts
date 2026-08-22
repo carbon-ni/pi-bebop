@@ -39,7 +39,39 @@ import {
 	RpcTurnEndNotificationSchema,
 	TurnEndNotificationSchema,
 	ExtractedMessageSchema,
+	PresenceHintParamsSchema,
+	PresenceHintRequestSchema,
+	PresenceHintCommandSchema,
 } from "./index.ts";
+
+test("presence hint uses a strict claimed identity schema and round-trips through JSON-RPC", () => {
+	const params = {
+		member: { identity: "/crew/dev.sock", name: "dev", role: "developer" },
+		state: "online",
+		instanceId: "session-1",
+	} as const;
+	assert.equal(Value.Check(PresenceHintParamsSchema, params), true);
+	assert.equal(
+		Value.Check(PresenceHintParamsSchema, { ...params, member: { ...params.member, extra: true } }),
+		false,
+	);
+	assert.equal(
+		Value.Check(PresenceHintRequestSchema, { jsonrpc: "2.0", id: "1", method: "presence.hint", params }),
+		true,
+	);
+	assert.equal(Value.Check(PresenceHintCommandSchema, { type: "presence_hint", ...params }), true);
+	assert.deepEqual(requestToCommand({ jsonrpc: "2.0", id: "1", method: "presence.hint", params }), {
+		type: "presence_hint",
+		...params,
+		id: "1",
+	});
+	assert.deepEqual(commandToRequest({ type: "presence_hint", ...params }, "1"), {
+		jsonrpc: "2.0",
+		id: "1",
+		method: "presence.hint",
+		params,
+	});
+});
 
 test("JSON-RPC parser validates supported requests and maps methods", () => {
 	const result = parseRequest(
