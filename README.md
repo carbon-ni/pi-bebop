@@ -29,7 +29,7 @@ The project must be trusted by Pi before this manifest can be read. Trust is a p
 
 ### 2. Start one Pi session for each role
 
-This is why it is dysfunctional crew, they may or may not be there, by design. You can create a script to start the crew yourself.
+> This is why it is a dysfunctional crew, they may or may not be there, by design. You can create a script to start the crew yourself.
 
 In three terminals, from the same trusted project, start the sessions with their configured endpoint:
 
