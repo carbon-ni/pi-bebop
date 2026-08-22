@@ -4,6 +4,8 @@ import type { PresenceObserver } from "./presence-observer.ts";
 export interface PresenceMembership {
 	readonly member: PresenceMember;
 	readonly notifications: boolean;
+	readonly fingerprint: string;
+	readonly members: readonly PresenceMember[];
 }
 
 export interface PresenceLifecycleCoordinator {
@@ -16,9 +18,11 @@ export function createPresenceLifecycleCoordinator(deps: {
 	readonly getMembership: () => PresenceMembership | null;
 	readonly createObserver: (membership: PresenceMembership) => PresenceObserver;
 	readonly reportFailure?: (error: unknown) => void;
+	readonly onObserverChanged?: (observer: PresenceObserver | undefined) => void;
 }): PresenceLifecycleCoordinator {
 	let observer: PresenceObserver | undefined;
 	let activeMember: PresenceMember | undefined;
+	let activeFingerprint: string | undefined;
 	const report = (error: unknown) => deps.reportFailure?.(error);
 	const safeBroadcast = async (changed: PresenceMember, state: "online" | "offline") => {
 		if (!observer) return;
@@ -35,23 +39,29 @@ export function createPresenceLifecycleCoordinator(deps: {
 				await this.stop();
 				return;
 			}
-			if (observer && activeMember && activeMember.identity !== membership.member.identity) {
+			if (observer && activeMember && activeFingerprint !== membership.fingerprint) {
 				await safeBroadcast(activeMember, "offline");
 				observer.stop();
 				observer = undefined;
 				activeMember = undefined;
+				activeFingerprint = undefined;
+				deps.onObserverChanged?.(undefined);
 			}
 			if (observer) return;
 			try {
 				const next = deps.createObserver(membership);
 				observer = next;
 				activeMember = membership.member;
+				activeFingerprint = membership.fingerprint;
 				await next.start();
+				deps.onObserverChanged?.(next);
 			} catch (error) {
 				report(error);
 				observer?.stop();
 				observer = undefined;
 				activeMember = undefined;
+				activeFingerprint = undefined;
+				deps.onObserverChanged?.(undefined);
 			}
 		},
 		async stop() {
@@ -61,6 +71,8 @@ export function createPresenceLifecycleCoordinator(deps: {
 			observer.stop();
 			observer = undefined;
 			activeMember = undefined;
+			activeFingerprint = undefined;
+			deps.onObserverChanged?.(undefined);
 		},
 		broadcast: safeBroadcast,
 	};

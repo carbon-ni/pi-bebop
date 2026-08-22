@@ -84,6 +84,11 @@ export default function (pi: ExtensionAPI) {
 		getMembership: () => {
 			const membership = state.membershipRuntime?.getMembership();
 			if (!membership) return null;
+			const members = membership.manifest.members.map((member) => ({
+				identity: member.socketPath,
+				name: member.name,
+				role: member.role,
+			}));
 			return {
 				member: {
 					identity: membership.member.socketPath,
@@ -91,20 +96,17 @@ export default function (pi: ExtensionAPI) {
 					role: membership.member.role,
 				},
 				notifications: membership.manifest.presence.notifications,
+				members,
+				fingerprint: JSON.stringify({ members, notifications: membership.manifest.presence.notifications }),
 			};
 		},
 		createObserver: (membership) => {
-			const runtimeMembership = state.membershipRuntime!.getMembership()!;
 			const instanceId = state.context?.sessionManager.getSessionId() ?? "";
 			const observer = createPresenceObserver(
-				runtimeMembership.manifest.members.map((member) => ({
-					identity: member.socketPath,
-					name: member.name,
-					role: member.role,
-				})),
+				membership.members,
 				membership.member.identity,
 				instanceId,
-				runtimeMembership.manifest.presence,
+				{ notifications: membership.notifications },
 				{
 					scheduler: {
 						schedule: (delay, callback) => setTimeout(callback, delay),
@@ -122,13 +124,13 @@ export default function (pi: ExtensionAPI) {
 					onEffects: () => undefined,
 				},
 			);
-			state.presenceObserver = observer;
 			return observer;
+		},
+		onObserverChanged: (observer) => {
+			state.presenceObserver = observer;
 		},
 		reportFailure: (error) => console.error(`Crew presence failed: ${String(error)}`),
 	});
-	const broadcastPresence = async (changed: import("./domain/index.ts").CrewMember, status: "online" | "offline") =>
-		presenceCoordinator.broadcast({ identity: changed.socketPath, name: changed.name, role: changed.role }, status);
 	const stopPresence = async () => {
 		await presenceCoordinator.stop();
 		state.presenceObserver = undefined;
@@ -149,7 +151,6 @@ export default function (pi: ExtensionAPI) {
 			refreshStatus: () => refreshIntrayStatus(state),
 			refreshPresence,
 			stopPresence,
-			broadcastPresence,
 		},
 		"crew",
 	);
@@ -211,16 +212,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		const context = state.context;
-		const previousMembership = state.membershipRuntime?.getMembership();
 		await releaseMembershipBeforeCleanup({
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
 			leave: async () => state.membershipRuntime!.leave(),
 			onReleased: async () => {
-				try {
-					if (previousMembership) await broadcastPresence(previousMembership.member, "offline");
-				} finally {
-					stopPresence();
-				}
+				await stopPresence();
 			},
 			cleanup: async () => {
 				stopPresence();

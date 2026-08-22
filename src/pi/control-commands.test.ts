@@ -121,7 +121,7 @@ test("/crew join and leave use membership runtime without stopping base server",
 	});
 	assert.match(setupState.notifications[0]!, /dev \(developer\)/);
 	await setupState.getCommand().handler("join '.pi/bebop/sockets/dev.sock'", setupState.ctx);
-	assert.equal(presenceRefreshes, 1);
+	assert.equal(presenceRefreshes, 2);
 	assert.equal(setupState.ctx.sessionManager.getSessionName(), "local-name");
 	await setupState.getCommand().handler("status", setupState.ctx);
 	assert.match(setupState.messages[0]!.content, /Crew: .*crew\.json/);
@@ -443,16 +443,13 @@ test("/crew leave releases before broadcasting offline and stopping presence", a
 		setupState.state,
 		baseDeps({
 			membershipRuntime: runtime,
-			broadcastPresence: async () => {
-				events.push("offline");
-			},
 			stopPresence: () => {
 				events.push("stop");
 			},
 		}),
 	);
 	await setupState.getCommand().handler("leave", setupState.ctx);
-	assert.deepEqual(events, ["release", "offline", "stop"]);
+	assert.deepEqual(events, ["release", "stop"]);
 });
 
 test("/crew status and stop observe state and stop base resources", async () => {
