@@ -45,7 +45,7 @@ test("runs against a live Unix socket and waits for the assistant response", asy
 				if (command.method === "message.send") socket.write(JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { delivered: true, mode: "steer" } }) + "\n");
 				if (command.method === "event.subscribe") {
 					socket.write(JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { subscriptionId: command.id, event: "turn_end" } }) + "\n");
-					socket.write(JSON.stringify({ jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: command.id, message: { content: "answer" }, turnIndex: 2 } }) + "\n");
+					socket.write(JSON.stringify({ jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: command.id, message: { role: "assistant", content: "answer", timestamp: 1 }, turnIndex: 2 } }) + "\n");
 				}
 			}
 		});

@@ -54,7 +54,7 @@ test("createRpcServer dispatches parsed commands to handler", async () => {
 	});
 });
 
-test("rejects unknown methods, extra params, legacy envelopes, and malformed envelopes before dispatch", async () => {
+test("rejects unknown methods, extra params, non-RPC envelopes, and malformed envelopes before dispatch", async () => {
 	await withSocketServer(async (socketPath) => {
 		let dispatched = 0;
 		const server = await createRpcServer(socketPath, () => { dispatched += 1; });
@@ -75,21 +75,16 @@ test("rejects unknown methods, extra params, legacy envelopes, and malformed env
 test("createRpcServer returns parse errors without dispatching invalid commands", async () => {
 	await withSocketServer(async (socketPath) => {
 		let dispatched = false;
-		let parseErrorObserved = false;
 		const server = await createRpcServer(
 			socketPath,
 			() => {
 				dispatched = true;
-			},
-			() => {
-				parseErrorObserved = true;
 			},
 		);
 		try {
 			const response = await sendLine(socketPath, "{ nope");
 
 			assert.equal(dispatched, false);
-			assert.equal(parseErrorObserved, true);
 			assert.equal(JSON.parse(response).jsonrpc, "2.0");
 			assert.equal(JSON.parse(response).error.code, -32700);
 			assert.equal(JSON.parse(response).id, null);
@@ -109,7 +104,14 @@ test("writeResponse ignores closed socket write errors", () => {
 		},
 	} as unknown as RpcSocket;
 
-	assert.doesNotThrow(() => writeResponse(socket, { type: "response", command: "send", success: true }));
+	assert.doesNotThrow(() => writeResponse(socket, { type: "response", command: "send", success: true, id: "send-1", data: { delivered: true, mode: "steer" } }));
+});
+
+test("rejects a response without a correlated id instead of fabricating one", () => {
+	const writes: string[] = [];
+	const socket = { write(value: string) { writes.push(value); }, once() { return socket; } } as unknown as RpcSocket;
+	writeResponse(socket, { type: "response", command: "send", success: true, id: undefined as never, data: { delivered: true, mode: "steer" } });
+	assert.equal(JSON.parse(writes[0]!).error.code, -32600);
 });
 
 test("writeEvent ignores closed socket write errors", () => {
@@ -122,5 +124,5 @@ test("writeEvent ignores closed socket write errors", () => {
 		},
 	} as unknown as RpcSocket;
 
-	assert.doesNotThrow(() => writeEvent(socket, { type: "event", event: "turn_end", data: { message: "done" } }));
+	assert.doesNotThrow(() => writeEvent(socket, { type: "event", event: "turn_end", data: { message: { role: "assistant", content: "done", timestamp: 1 } }, subscriptionId: "sub-1" }));
 });

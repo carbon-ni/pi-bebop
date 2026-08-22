@@ -1,4 +1,4 @@
-import type { ResponsePolicy, ExtractedMessage } from "../domain/index.ts";
+import type { ResponsePolicy } from "../domain/index.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { DirectMessageError, sendDirectMessage } from "../application/direct-message.ts";
 
@@ -37,7 +37,7 @@ export async function sendMessageToSocket(request: SendMessageRequest, sendRpc: 
 		throw error;
 	}
 	if (wait === "turn_end") {
-		const lastMessage = result.message as ExtractedMessage | undefined;
+		const lastMessage = result.message;
 		if (!lastMessage) return { content: [{ type: "text", text: "Turn completed but no assistant message found" }], details: { turnIndex: result.turnIndex } };
 		return { content: [{ type: "text", text: lastMessage.content }], details: { message: lastMessage, turnIndex: result.turnIndex } };
 	}
