@@ -6,6 +6,7 @@ import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/ind
 import { registerSessionTool } from "./tools/send-to-session.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceObserver, PRESENCE_HINT_TIMEOUT_MS } from "./application/presence-observer.ts";
+import { createPresenceLifecycleCoordinator } from "./application/presence-lifecycle.ts";
 import { sendRpcCommand } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
@@ -79,51 +80,60 @@ export default function (pi: ExtensionAPI) {
 	const announceMembership = (message: string) => {
 		pi.sendMessage({ customType: "crew-status", content: message, display: true }, { triggerTurn: false });
 	};
-	const broadcastPresence = async (changed: import("./domain/index.ts").CrewMember, status: "online" | "offline") => {
-		await state.presenceObserver?.broadcast(
-			{ identity: changed.socketPath, name: changed.name, role: changed.role },
-			status,
-		);
-	};
-	const stopPresence = () => {
-		state.presenceObserver?.stop();
+	const presenceCoordinator = createPresenceLifecycleCoordinator({
+		getMembership: () => {
+			const membership = state.membershipRuntime?.getMembership();
+			if (!membership) return null;
+			return {
+				member: {
+					identity: membership.member.socketPath,
+					name: membership.member.name,
+					role: membership.member.role,
+				},
+				notifications: membership.manifest.presence.notifications,
+			};
+		},
+		createObserver: (membership) => {
+			const runtimeMembership = state.membershipRuntime!.getMembership()!;
+			const instanceId = state.context?.sessionManager.getSessionId() ?? "";
+			const observer = createPresenceObserver(
+				runtimeMembership.manifest.members.map((member) => ({
+					identity: member.socketPath,
+					name: member.name,
+					role: member.role,
+				})),
+				membership.member.identity,
+				instanceId,
+				runtimeMembership.manifest.presence,
+				{
+					scheduler: {
+						schedule: (delay, callback) => setTimeout(callback, delay),
+						cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+					},
+					probe: (identity, timeout) => probeMemberEndpoint(identity, { timeoutMs: timeout }),
+					sendHint: async (target, changed, stateValue) => {
+						const endpoint = await resolveMemberEndpoint(target.identity);
+						await sendRpcCommand(
+							endpoint,
+							{ type: "presence_hint", member: changed, state: stateValue, instanceId },
+							{ timeout: PRESENCE_HINT_TIMEOUT_MS },
+						);
+					},
+					onEffects: () => undefined,
+				},
+			);
+			state.presenceObserver = observer;
+			return observer;
+		},
+		reportFailure: (error) => console.error(`Crew presence failed: ${String(error)}`),
+	});
+	const broadcastPresence = async (changed: import("./domain/index.ts").CrewMember, status: "online" | "offline") =>
+		presenceCoordinator.broadcast({ identity: changed.socketPath, name: changed.name, role: changed.role }, status);
+	const stopPresence = async () => {
+		await presenceCoordinator.stop();
 		state.presenceObserver = undefined;
 	};
-	const refreshPresence = async () => {
-		stopPresence();
-		const membership = state.membershipRuntime?.getMembership();
-		if (!membership || !membership.manifest.presence.notifications) return;
-		const instanceId = state.context?.sessionManager.getSessionId();
-		if (!instanceId) return;
-		const observer = createPresenceObserver(
-			membership.manifest.members.map((member) => ({
-				identity: member.socketPath,
-				name: member.name,
-				role: member.role,
-			})),
-			membership.member.socketPath,
-			instanceId,
-			membership.manifest.presence,
-			{
-				scheduler: {
-					schedule: (delay, callback) => setTimeout(callback, delay),
-					cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-				},
-				probe: (identity, timeout) => probeMemberEndpoint(identity, { timeoutMs: timeout }),
-				sendHint: async (target, changed, stateValue) => {
-					const endpoint = await resolveMemberEndpoint(target.identity);
-					await sendRpcCommand(
-						endpoint,
-						{ type: "presence_hint", member: changed, state: stateValue, instanceId },
-						{ timeout: PRESENCE_HINT_TIMEOUT_MS },
-					);
-				},
-				onEffects: () => undefined,
-			},
-		);
-		state.presenceObserver = observer;
-		await observer.start();
-	};
+	const refreshPresence = () => presenceCoordinator.refresh();
 
 	registerSessionControlCommand(
 		pi,
