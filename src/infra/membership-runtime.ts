@@ -80,7 +80,8 @@ export function createMembershipRuntime(dependencies: MembershipRuntimeDependenc
 			try {
 				manifest = await dependencies.loadManifest(manifestPath);
 			} catch (error) {
-				return failure("manifest-load-failed", `failed to load crew manifest: ${manifestPath}`, error);
+				const reason = error instanceof Error ? error.message : "unknown manifest error";
+				return failure("manifest-load-failed", `failed to load crew manifest: ${manifestPath}: ${reason}`, error);
 			}
 
 			let member: CrewMember;

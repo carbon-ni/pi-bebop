@@ -5,6 +5,7 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
 	getDefaultCrewManifestPath,
+	getCrewManifestPathFromSocketPath,
 	isTrustedCrewManifestPath,
 	readTrustedCrewManifest,
 	CrewManifestReadError,
@@ -30,6 +31,16 @@ describe("trusted crew manifest store", () => {
 		assert.equal(isTrustedCrewManifestPath(path.join(projectDir, "crew.json"), projectDir), false);
 	});
 
+	test("accepts the exact compatibility layout and selects by socket path", async () => {
+	const legacyManifest = path.join(projectDir, ".pi", "crew", "crew.json");
+	await fs.mkdir(path.dirname(legacyManifest), { recursive: true });
+	await fs.writeFile(legacyManifest, JSON.stringify({ version: 1, members: [{ name: "legacy", role: "developer", socket: "sockets/legacy.sock" }] }));
+	assert.equal(getCrewManifestPathFromSocketPath(path.join(projectDir, ".pi", "bebop", "sockets", "dev.sock")), getDefaultCrewManifestPath(projectDir));
+	assert.equal(getCrewManifestPathFromSocketPath(path.join(projectDir, ".pi", "crew", "sockets", "legacy.sock")), legacyManifest);
+	assert.equal(isTrustedCrewManifestPath(legacyManifest, projectDir), true);
+	assert.equal((await readTrustedCrewManifest(legacyManifest, projectDir, () => true)).members[0].name, "legacy");
+	await assert.rejects(() => readTrustedCrewManifest(path.join(projectDir, ".pi", "other", "crew.json"), projectDir, () => true), (error: unknown) => error instanceof CrewManifestReadError && error.code === "untrusted-path");
+});
 	test("reads and parses only the trusted project-local manifest", async () => {
 		const manifest = await readTrustedCrewManifest(getDefaultCrewManifestPath(projectDir), projectDir, () => true);
 		assert.equal(manifest.members[0].role, "developer");
