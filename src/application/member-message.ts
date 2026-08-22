@@ -19,6 +19,8 @@ export interface MemberMessageRequest {
 }
 export interface MemberMessageCoordinator {
 	enqueue<T>(key: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T>;
+	/** Read-only diagnostic seam for deterministic lifecycle tests. */
+	pendingKeyCount(): number;
 }
 export interface MemberMessageDependencies {
 	readonly sendRpcCommand?: typeof sendRpcCommand;
@@ -33,6 +35,10 @@ export interface MemberMessageOutcome {
 
 class EndpointQueueCoordinator implements MemberMessageCoordinator {
 	private readonly tails = new Map<string, Promise<void>>();
+
+	pendingKeyCount(): number {
+		return this.tails.size;
+	}
 
 	enqueue<T>(key: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
 		const previous = this.tails.get(key) ?? Promise.resolve();
