@@ -75,14 +75,14 @@ CLI bridge (for shell scripts/background jobs):
   --send-session-mode <steer|follow_up> (optional, default: steer)
   --send-session-wait <turn_end|message_processed> (optional)
   --send-session-include-sender-info (optional, advanced; default: off)
-- Startup sends are one-way by default (no sender_info), which avoids reply attempts to short-lived 'pi -p' sender sessions.
+- Startup sends are one-way by default (no replyTo), which avoids reply attempts to short-lived 'pi -p' sender sessions.
 - If a script needs a response, use --send-session-wait turn_end and read stdout.
 - Example script usage (one-way):
   pi -p --intray --control-session "$PI_SESSION_ID" --send-session-message "Background task finished" --send-session-mode follow_up --send-session-wait message_processed
 - Example request/response usage:
   pi -p --intray --control-session "$PI_SESSION_ID" --send-session-message "What is the current time?" --send-session-wait turn_end
 
-Response modes are mutually exclusive: turn_end is synchronous and never adds callback metadata; use message_processed or off with reply_behavior="allow_reply" for callback chat. allow_reply includes one sender_info block so the recipient can call send_to_session with that identity. Use reply_behavior="end_conversation" for one-way asynchronous messages.`,
+Response modes are mutually exclusive: turn_end is synchronous and never adds replyTo; use message_processed or off with reply_behavior="allow_reply" for callback chat. allow_reply emits typed replyTo routing independently from claimed origin. Use reply_behavior="end_conversation" for one-way asynchronous messages.`,
 		parameters: Type.Object(
 			{
 				socketPath: Type.Optional(Type.String({ description: "Repository-local crew member socket path" })),
@@ -124,7 +124,7 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 				reply_behavior: Type.Optional(
 					Type.Union([Type.Literal("allow_reply"), Type.Literal("end_conversation")], {
 						description:
-							"Whether this message should include callback sender metadata. Omit for a mode-appropriate default; turn_end defaults to end_conversation.",
+							"Whether this message should include typed replyTo routing. Omit for a mode-appropriate default; turn_end defaults to end_conversation.",
 					}),
 				),
 			},
