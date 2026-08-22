@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
-import { renderSessionMessage } from "./pi/message-renderer.ts";
+import { renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts";
 import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/index.ts";
 import { registerSessionTool } from "./tools/send-to-session.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
@@ -51,6 +51,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
+	pi.registerMessageRenderer("crew-roster", renderCrewRoster);
 
 	const state = createSocketState();
 	state.membershipRuntime = createMembershipRuntime({

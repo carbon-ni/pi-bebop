@@ -57,6 +57,25 @@ legacy `{ type, ... }` envelope; JSON-RPC does not add authentication.
   then claims the member endpoint.
 - `/crew leave` releases only the current endpoint.
 - `/crew stop` releases membership before stopping Bebop's server.
+- `/crew members` renders the current membership's manifest roster directly, without
+  an `[intray-status]` or other custom header. It shows manifest path/count and
+  manifest-order rows containing configured member name, role, absolute project
+  socket path, and exactly `current`, `online`, or `offline`:
+
+  ```text
+  Crew: /project/.pi/bebop/crew.json
+  Members (3):
+  - lead (lead) — current — /project/.pi/bebop/sockets/lead.sock
+  - Bob (dev) — online — /project/.pi/bebop/sockets/Bob.sock
+  - Kelly (qa) — offline — /project/.pi/bebop/sockets/Kelly.sock
+  ```
+
+  Current identity is matched from membership without probing; non-current
+  endpoints are independently finite-time probed and failures render offline.
+  Global UUID destinations, generic aliases, and instructions are not exposed.
+  When unjoined it returns exactly `Crew not joined. Use /crew join <socket>.`;
+  it does not read a manifest or discover sessions, and does not trigger an
+  agent turn. Both `.pi/bebop` and `.pi/crew` use the same formatter.
 - Reload/resume restores active membership after revalidation. Shutdown always
   attempts endpoint release before server cleanup.
 

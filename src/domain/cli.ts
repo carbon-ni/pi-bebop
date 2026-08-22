@@ -1,13 +1,13 @@
 export const CONTROL_FLAG = "intray";
 export const CONTROL_SHORT_FLAG = "in";
 
-export type SessionControlAction = "join" | "leave" | "list" | "status" | "stop";
+export type SessionControlAction = "join" | "leave" | "members" | "status" | "stop";
 
 export type ParsedSessionControlAction =
 	| { action: Exclude<SessionControlAction, "join"> }
 	| { action: "join"; target: string };
 
-const SESSION_CONTROL_USAGE = "join <socket>|leave|list|status|stop";
+const SESSION_CONTROL_USAGE = "join <socket>|leave|members|status|stop";
 
 function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: string } {
 	const parts: string[] = [];
@@ -64,7 +64,7 @@ export function parseSessionControlAction(args: string): {
 		if (parts.length > 2) return { error: "Join accepts exactly one target." };
 		return { action, target: parts[1] };
 	}
-	if (action === "leave" || action === "list" || action === "status" || action === "stop") {
+	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
 		if (parts.length > 1) return { error: `Too many arguments. Use /intray ${SESSION_CONTROL_USAGE}.` };
 		return { action };
 	}

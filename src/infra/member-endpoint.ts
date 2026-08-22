@@ -97,6 +97,10 @@ async function createEndpoint(
 	}
 }
 
+export async function probeMemberEndpoint(socketPath: string): Promise<boolean> {
+	return defaultDependencies.isSocketAlive(socketPath);
+}
+
 export async function claimMemberEndpoint(
 	endpointPath: string,
 	globalSocketPath: string,
