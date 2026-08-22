@@ -73,8 +73,8 @@ test("startup revalidates supported membership with the current global socket", 
 	} as unknown as MembershipRuntime;
 	const startupContext = context();
 	const pi = piWithFlag(".pi/bebop/sockets/dev.sock");
-	assert.equal(await maybeHandleStartupSocketJoin(startupContext, pi, { socket: "intray-socket" }, runtime, "/tmp/global-first.sock"), true);
-	assert.equal(await maybeHandleStartupSocketJoin(startupContext, pi, { socket: "intray-socket" }, runtime, "/tmp/global-second.sock"), true);
+	assert.equal(await maybeHandleStartupSocketJoin(startupContext, pi, { socket: "crew-socket" }, runtime, "/tmp/global-first.sock"), true);
+	assert.equal(await maybeHandleStartupSocketJoin(startupContext, pi, { socket: "crew-socket" }, runtime, "/tmp/global-second.sock"), true);
 	assert.deepEqual(globalSockets, ["/tmp/global-first.sock", "/tmp/global-second.sock"]);
 });
 
@@ -88,7 +88,7 @@ test("untrusted or failed startup selection is explicit and does not create memb
 	const untrusted = await maybeHandleStartupSocketJoin(
 		context({ isProjectTrusted: () => false, hasUI: false }),
 		piWithFlag(".pi/bebop/sockets/dev.sock"),
-		{ socket: "intray-socket" },
+		{ socket: "crew-socket" },
 		runtime,
 		"/tmp/global.sock",
 	);
@@ -97,7 +97,7 @@ test("untrusted or failed startup selection is explicit and does not create memb
 	const failed = await maybeHandleStartupSocketJoin(
 		context(),
 		piWithFlag(".pi/bebop/sockets/dev.sock"),
-		{ socket: "intray-socket" },
+		{ socket: "crew-socket" },
 		runtime,
 		"/tmp/global.sock",
 	);

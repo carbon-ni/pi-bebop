@@ -88,9 +88,15 @@ export function createMembershipRuntime(dependencies: MembershipRuntimeDependenc
 			try {
 				member = resolveCrewMemberBySocketPath(manifest, socketPath);
 			} catch (error) {
-				const configured = manifest.members.map((candidate) => `${candidate.name}=${candidate.socketPath}`).join(", ");
-				const hint = configured ? ` Configured endpoints: ${configured}.` : "";
-				return failure("member-not-found", `no configured crew member matches: ${socketPath}.${hint}`, error);
+				const maxDisplayed = 3;
+				const configuredMembers = manifest.members.map((candidate) => `${candidate.name}=${candidate.socketPath}`);
+				const displayed = configuredMembers.slice(0, maxDisplayed).join(", ");
+				const omitted = configuredMembers.length - Math.min(configuredMembers.length, maxDisplayed);
+				const bounded = displayed ? ` Configured endpoints: ${displayed}${omitted > 0 ? `, ... (${omitted} omitted)` : ""}.` : "";
+				const requestedName = path.basename(socketPath);
+				const suggestion = manifest.members.find((candidate) => path.basename(candidate.socketPath) === `${requestedName}.sock`);
+				const suggestionText = suggestion ? ` Did you mean ${suggestion.socketPath}?` : "";
+				return failure("member-not-found", `no configured crew member matches: ${socketPath}.${bounded}${suggestionText}`, error);
 			}
 
 			const sameEndpoint = membership?.socketPath === socketPath;
