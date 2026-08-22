@@ -64,6 +64,7 @@ test("/crew join and leave use membership runtime without stopping base server",
 	const announcements: string[] = [];
 	const activation: string[] = [];
 	let refreshes = 0;
+	let presenceRefreshes = 0;
 	let currentMembership: MembershipRuntime["getMembership"] extends () => infer T ? T : never = null;
 	const runtime = {
 		join: async (request: unknown) => {
@@ -100,6 +101,9 @@ test("/crew join and leave use membership runtime without stopping base server",
 			refreshStatus: () => {
 				refreshes += 1;
 			},
+			refreshPresence: () => {
+				presenceRefreshes += 1;
+			},
 			ensureControlServer: async (_pi, state, ctx) => {
 				state.server = {} as never;
 				state.socketPath = "/tmp/global.sock";
@@ -116,6 +120,8 @@ test("/crew join and leave use membership runtime without stopping base server",
 		globalSocketPath: "/tmp/global.sock",
 	});
 	assert.match(setupState.notifications[0]!, /dev \(developer\)/);
+	await setupState.getCommand().handler("join '.pi/bebop/sockets/dev.sock'", setupState.ctx);
+	assert.equal(presenceRefreshes, 1);
 	assert.equal(setupState.ctx.sessionManager.getSessionName(), "local-name");
 	await setupState.getCommand().handler("status", setupState.ctx);
 	assert.match(setupState.messages[0]!.content, /Crew: .*crew\.json/);
@@ -123,13 +129,13 @@ test("/crew join and leave use membership runtime without stopping base server",
 	await setupState.getCommand().handler("leave", setupState.ctx);
 	assert.deepEqual(
 		calls.map(({ operation }) => operation),
-		["join", "leave"],
+		["join", "join", "leave"],
 	);
 	assert.equal(setupState.state.server !== null, true);
-	assert.deepEqual(persisted, [true, false]);
-	assert.equal(announcements.length, 2);
-	assert.deepEqual(activation, ["activate", "deactivate"]);
-	assert.equal(refreshes, 2);
+	assert.deepEqual(persisted, [true, true, false]);
+	assert.equal(announcements.length, 3);
+	assert.deepEqual(activation, ["activate", "activate", "deactivate"]);
+	assert.equal(refreshes, 3);
 });
 
 test("/crew join accepts both layouts and rejects arbitrary siblings before runtime join", async () => {

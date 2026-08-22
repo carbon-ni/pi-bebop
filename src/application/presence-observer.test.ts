@@ -89,6 +89,42 @@ test("reverse probe completion retains manifest order", async () => {
 	);
 });
 
+test("hint during initial scan waits for the complete ordered roster", async () => {
+	const pending: Array<{ identity: string; resolve: (online: boolean) => void }> = [];
+	const effects: unknown[] = [];
+	const observer = createPresenceObserver(
+		[lead, dev, qa],
+		lead.identity,
+		"self",
+		{ notifications: true },
+		{
+			scheduler: { schedule: (_d, cb) => cb, cancel: () => undefined },
+			probe: (identity) => new Promise<boolean>((resolve) => pending.push({ identity, resolve })),
+			sendHint: async () => undefined,
+			onEffects: (items) => effects.push(...items),
+		},
+	);
+	const started = observer.start();
+	assert.equal(observer.acceptHint({ member: dev, state: "online", instanceId: "peer" }), true);
+	pending.find((item) => item.identity === qa.identity)!.resolve(false);
+	pending.find((item) => item.identity === dev.identity)!.resolve(true);
+	await started;
+	assert.equal(pending.length, 3);
+	pending.find((item, index) => item.identity === dev.identity && index === 2)!.resolve(true);
+	await Promise.resolve();
+	assert.deepEqual(
+		(effects[0] as { members: PresenceMember[] }).members.map((item) => item.identity),
+		[dev.identity, qa.identity],
+	);
+	assert.equal(
+		effects.filter(
+			(effect) =>
+				(effect as { type?: string }).type === "joined" || (effect as { type?: string }).type === "left",
+		).length,
+		0,
+	);
+});
+
 test("hint validates claimed active identity, never mutates directly, and probes once", async () => {
 	const h = harness();
 	await h.observer.start();
@@ -186,6 +222,7 @@ test("missing current identity rejects start without probing or hints", async ()
 
 test("dequeued timer from old generation cannot scan or reschedule after restart", async () => {
 	const callbacks: Array<() => void> = [];
+	const cancelled: Array<() => void> = [];
 	let probes = 0;
 	const observer = createPresenceObserver(
 		[lead, dev],
@@ -198,7 +235,9 @@ test("dequeued timer from old generation cannot scan or reschedule after restart
 					callbacks.push(cb);
 					return cb;
 				},
-				cancel: () => undefined,
+				cancel: (handle) => {
+					cancelled.push(handle as () => void);
+				},
 			},
 			probe: async () => {
 				probes += 1;
@@ -216,7 +255,11 @@ test("dequeued timer from old generation cannot scan or reschedule after restart
 	old();
 	await Promise.resolve();
 	assert.equal(probes, afterRestart);
-	assert.equal(callbacks.length, 2);
+	observer.stop();
+	assert.equal(cancelled.at(-1), callbacks[1]);
+	callbacks[1]!();
+	await Promise.resolve();
+	assert.equal(probes, afterRestart);
 });
 
 test("disabled notifications create no probes, hints, effects, or timers", async () => {
