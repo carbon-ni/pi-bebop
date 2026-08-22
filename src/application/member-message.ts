@@ -112,15 +112,14 @@ export async function sendMemberMessage(
 		content: request.message,
 		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
 		origin,
+		...(request.sender === undefined ? {} : { replyTo: request.sender }),
 	};
 	if (!isMessagePayload(payload))
 		throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
 	const command: RpcCommand = {
 		type: "send",
-		message: payload.content,
-		...(payload.instructions === undefined ? {} : { instructions: payload.instructions }),
-		origin: payload.origin,
-		mode: intent === "immediate" ? "steer" : "follow_up",
+		payload,
+		delivery: intent,
 	};
 	const deliver = async (): Promise<MemberMessageOutcome> => {
 		const result = await dependencies.transport.send(endpoint, command, { signal: request.signal });

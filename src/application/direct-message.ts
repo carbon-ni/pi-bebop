@@ -1,4 +1,4 @@
-import { appendSenderMetadata, type ExtractedMessage, type RpcSendCommand } from "../domain/index.ts";
+import { isMessagePayload, type ExtractedMessage, type MessageOrigin, type RpcSendCommand } from "../domain/index.ts";
 import { sendRpcCommand, type RpcClientOptions } from "../infra/rpc-client.ts";
 
 export type DirectMessageWait = "turn_end" | "accepted";
@@ -10,7 +10,9 @@ export interface DirectMessageRequest {
 	readonly wait: DirectMessageWait;
 	readonly timeoutMs?: number;
 	readonly signal?: AbortSignal;
-	readonly sender?: { sessionId: string; sessionName?: string };
+	readonly instructions?: readonly string[];
+	readonly origin?: MessageOrigin;
+	readonly sender?: { sessionId: string; sessionName?: string }; // callback routing only
 	/** CLI callers require a response; Pi tool callers preserve historical no-response behavior. */
 	readonly requireAssistantResponse?: boolean;
 }
@@ -35,10 +37,18 @@ export async function sendDirectMessage(
 	request: DirectMessageRequest,
 	sendRpc: typeof sendRpcCommand = sendRpcCommand,
 ): Promise<DirectMessageResult> {
+	const payload = {
+		content: request.message,
+		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
+		...(request.origin === undefined ? {} : { origin: request.origin }),
+		...(request.sender === undefined ? {} : { replyTo: request.sender }),
+	};
+	if (!isMessagePayload(payload))
+		throw new DirectMessageError("remote-rejected", "Invalid structured message payload");
 	const command: RpcSendCommand = {
 		type: "send",
-		message: appendSenderMetadata(request.message, request.sender ?? null),
-		mode: request.mode,
+		payload,
+		delivery: request.mode === "steer" ? "immediate" : "follow_up",
 	};
 	const options: RpcClientOptions =
 		request.wait === "turn_end"

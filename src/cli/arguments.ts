@@ -5,6 +5,8 @@ export interface SendCliOptions {
 	command: "send";
 	socketPath: string;
 	message?: string;
+	instructions: string[];
+	origin?: { kind: "external"; label: string };
 	stdin: boolean;
 	mode: "steer" | "follow_up";
 	wait: "turn_end" | "accepted";
@@ -30,9 +32,11 @@ function duration(value: string): number {
 export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliOptions {
 	if (args[0] !== "send") throw new UsageError(`Invalid command '${args[0] ?? ""}'; valid command: send`);
 	const values = new Map<string, string>();
+	const instructions: string[] = [];
+	let origin: { kind: "external"; label: string } | undefined;
 	let stdin = false;
 	let full = false;
-	const valueFlags = new Set(["--socket", "--message", "--mode", "--wait", "--timeout", "--format"]);
+	const valueFlags = new Set(["--socket", "--message", "--mode", "--wait", "--timeout", "--format", "--instruction", "--from"]);
 	for (let index = 1; index < args.length; index += 1) {
 		const flag = args[index]!;
 		if (flag === "--stdin" || flag === "--full") {
@@ -44,8 +48,14 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 		}
 		if (!valueFlags.has(flag))
 			throw new UsageError(
-				`Unknown flag '${flag}'; valid flags: --socket, --message, --stdin, --mode, --wait, --timeout, --format, --full`,
+				`Unknown flag '${flag}'; valid flags: --socket, --message, --stdin, --instruction, --from, --mode, --wait, --timeout, --format, --full`,
 			);
+		if (flag === "--instruction") {
+			const value = args[++index];
+			if (value === undefined || value.startsWith("--")) throw new UsageError("Missing value for --instruction");
+			instructions.push(value);
+			continue;
+		}
 		if (values.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
 		const value = args[++index];
 		if (value === undefined || value.startsWith("--")) throw new UsageError(`Missing value for ${flag}`);
@@ -54,6 +64,11 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 	const socket = values.get("--socket");
 	if (!socket) throw new UsageError("Missing required --socket <path>");
 	const message = values.get("--message");
+	const from = values.get("--from");
+	if (from !== undefined) {
+		if (from.length === 0 || from.includes("\0")) throw new UsageError("--from must be non-empty and must not contain NUL");
+		origin = { kind: "external", label: from };
+	}
 	if (message !== undefined && stdin)
 		throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
 	if (message === undefined && !stdin)
@@ -72,6 +87,8 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 		command: "send",
 		socketPath: path.resolve(cwd, socket),
 		message,
+		instructions,
+		...(origin === undefined ? {} : { origin }),
 		stdin,
 		mode,
 		wait,

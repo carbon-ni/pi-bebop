@@ -187,23 +187,22 @@ export async function maybeHandleStartupControlSend(
 		return;
 	}
 
-	const senderInfo = includeSenderInfo
-		? (() => {
-				const senderSessionId = ctx.sessionManager.getSessionId();
-				const senderSessionName = ctx.sessionManager.getSessionName()?.trim();
-				return senderSessionId
-					? `\n\n<sender_info>${JSON.stringify({
-							sessionId: senderSessionId,
-							sessionName: senderSessionName || undefined,
-						})}</sender_info>`
-					: "";
-			})()
-		: "";
-
+	const senderSessionId = includeSenderInfo ? ctx.sessionManager.getSessionId() : undefined;
+	const senderSessionName = includeSenderInfo ? ctx.sessionManager.getSessionName()?.trim() : undefined;
 	const sendCommand: RpcSendCommand = {
 		type: "send",
-		message: message + senderInfo,
-		mode,
+		payload: {
+			content: message,
+			...(senderSessionId === undefined
+				? {}
+				: {
+						replyTo: {
+							sessionId: senderSessionId,
+							...(senderSessionName ? { sessionName: senderSessionName } : {}),
+						},
+					}),
+		},
+		delivery: mode === "steer" ? "immediate" : "follow_up",
 	};
 
 	try {
