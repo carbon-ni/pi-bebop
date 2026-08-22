@@ -235,6 +235,7 @@ export async function handleCommand(
 		const customMessage = {
 			customType: SESSION_MESSAGE_TYPE,
 			content: message,
+			details: { messagePayload: payload },
 			display: true,
 		};
 

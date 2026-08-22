@@ -49,7 +49,12 @@ test("JSON-RPC parser validates supported requests and maps methods", () => {
 		}),
 	);
 	assert.equal(result.error, undefined);
-	assert.deepEqual(requestToCommand(result.request!), { type: "send", message: "hello", mode: "steer", id: "1" });
+	assert.deepEqual(requestToCommand(result.request!), {
+		type: "send",
+		payload: { content: "hello" },
+		delivery: "immediate",
+		id: "1",
+	});
 	assert.equal("code" in requestToCommand({ jsonrpc: "2.0", id: "2", method: "unknown" }), true);
 });
 
@@ -86,9 +91,9 @@ test("command schemas accept valid optional fields and reject invalid or extra f
 		[
 			"send with mode and id",
 			MessageSendCommandSchema,
-			{ type: "send", message: "x", mode: "follow_up", id: "send-1" },
+			{ type: "send", payload: { content: "x" }, delivery: "follow_up", id: "send-1" },
 		],
-		["send without optional fields", MessageSendCommandSchema, { type: "send", message: "x" }],
+		["send without optional fields", MessageSendCommandSchema, { type: "send", payload: { content: "x" } }],
 		["subscribe with id", SubscribeCommandSchema, { type: "subscribe", event: "turn_end", id: 1 }],
 		["subscribe without id", SubscribeCommandSchema, { type: "subscribe", event: "turn_end" }],
 		["status", StatusCommandSchema, { type: "status" }],
@@ -98,9 +103,15 @@ test("command schemas accept valid optional fields and reject invalid or extra f
 	];
 	for (const [name, schema, value] of valid) assert.equal(Value.Check(schema, value), true, name);
 	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send" }), false);
-	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send", message: "x", mode: "later" }), false);
-	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send", message: 1 }), false);
-	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send", message: "x", extra: true }), false);
+	assert.equal(
+		Value.Check(MessageSendCommandSchema, { type: "send", payload: { content: "x" }, delivery: "later" }),
+		false,
+	);
+	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send", payload: { content: 1 } }), false);
+	assert.equal(
+		Value.Check(MessageSendCommandSchema, { type: "send", payload: { content: "x" }, extra: true }),
+		false,
+	);
 	assert.equal(Value.Check(SubscribeCommandSchema, { type: "subscribe", event: "other" }), false);
 	assert.equal(Value.Check(SubscribeCommandSchema, { type: "subscribe", event: "turn_end", extra: true }), false);
 	assert.equal(Value.Check(StatusCommandSchema, { type: "status", id: null }), false);
@@ -108,8 +119,8 @@ test("command schemas accept valid optional fields and reject invalid or extra f
 
 test("command and request mappings round-trip through their strict schemas", () => {
 	const commands = [
-		{ type: "send", message: "x" },
-		{ type: "send", message: "x", mode: "follow_up", id: "send-1" },
+		{ type: "send", payload: { content: "x" } },
+		{ type: "send", payload: { content: "x" }, delivery: "follow_up", id: "send-1" },
 		{ type: "subscribe", event: "turn_end", id: 2 },
 		{ type: "status" },
 		{ type: "get_message" },
@@ -149,7 +160,7 @@ test("command and request mappings round-trip through their strict schemas", () 
 		);
 		assert.deepEqual(requestToCommand(request), {
 			...command,
-			...(command.type === "send" && command.mode === undefined ? { mode: "follow_up" } : {}),
+			...(command.type === "send" ? { delivery: command.delivery ?? "follow_up" } : {}),
 			id: command.id ?? `roundtrip-${i}`,
 		});
 	}

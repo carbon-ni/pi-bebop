@@ -6,7 +6,9 @@ import {
 	MAX_MESSAGE_INSTRUCTIONS,
 	MAX_MESSAGE_INSTRUCTION_BYTES,
 	MAX_MESSAGE_PAYLOAD_BYTES,
+	MAX_MESSAGE_ORIGIN_FIELD_BYTES,
 	MessagePayloadSchema,
+	messagePayloadUtf8Bytes,
 	isMessagePayload,
 	type MessagePayload,
 } from "./message-payload.ts";
@@ -33,6 +35,9 @@ test("rejects ambiguous, malformed, empty, NUL, and extra payload fields", () =>
 		{ content: "\0" },
 		{ content: "   " },
 		{ content: "x", instructions: ["   "] },
+		{ content: "x", instructions: [1] },
+		{ content: "x", origin: { kind: "crew", name: 1, role: "dev" } },
+		{ content: "x", origin: { kind: "external", label: 1 } },
 		{ content: "x", origin: { kind: "crew", name: " Bob ", role: "dev" } },
 		{ content: "x", instructions: [] },
 		{ content: "x", instructions: ["\0"] },
@@ -49,7 +54,8 @@ test("rejects ambiguous, malformed, empty, NUL, and extra payload fields", () =>
 });
 
 test("enforces deterministic byte and aggregate limits", () => {
-	assert.equal(isMessagePayload({ content: "x".repeat(MAX_MESSAGE_CONTENT_BYTES) }), true);
+	assert.equal(Value.Check(MessagePayloadSchema, { content: "x".repeat(MAX_MESSAGE_CONTENT_BYTES) }), true);
+	assert.equal(isMessagePayload({ content: "x".repeat(MAX_MESSAGE_CONTENT_BYTES - 100) }), true);
 	assert.equal(isMessagePayload({ content: "😀".repeat(Math.ceil(MAX_MESSAGE_CONTENT_BYTES / 4) + 1) }), false);
 	assert.equal(isMessagePayload({ content: "x", instructions: Array(MAX_MESSAGE_INSTRUCTIONS).fill("i") }), true);
 	assert.equal(
@@ -57,10 +63,49 @@ test("enforces deterministic byte and aggregate limits", () => {
 		false,
 	);
 	assert.equal(isMessagePayload({ content: "x", instructions: ["i".repeat(MAX_MESSAGE_INSTRUCTION_BYTES)] }), true);
+	assert.equal(isMessagePayload({ content: "x", instructions: [" first\n"] }), true);
 	assert.equal(isMessagePayload({ content: "x", replyTo: { sessionId: "s", sessionName: "name" } }), true);
+	assert.equal(
+		isMessagePayload({
+			content: "x",
+			origin: { kind: "crew", name: "😀".repeat(MAX_MESSAGE_ORIGIN_FIELD_BYTES / 4), role: "dev" },
+		}),
+		true,
+	);
+	assert.equal(
+		isMessagePayload({
+			content: "x",
+			origin: { kind: "crew", name: "😀".repeat(MAX_MESSAGE_ORIGIN_FIELD_BYTES / 4 + 1), role: "dev" },
+		}),
+		false,
+	);
+	assert.equal(
+		isMessagePayload({
+			content: "x",
+			origin: { kind: "external", label: "😀".repeat(MAX_MESSAGE_ORIGIN_FIELD_BYTES / 4) },
+		}),
+		true,
+	);
+	const originPayload = {
+		content: "x",
+		instructions: ["i"],
+		origin: { kind: "crew" as const, name: "Bob", role: "dev" },
+	};
+	assert.equal(messagePayloadUtf8Bytes(originPayload) < MAX_MESSAGE_PAYLOAD_BYTES, true);
 	assert.equal(
 		isMessagePayload({ content: "x", instructions: ["i".repeat(MAX_MESSAGE_INSTRUCTION_BYTES + 1)] }),
 		false,
 	);
 	assert.equal(isMessagePayload({ content: "x".repeat(MAX_MESSAGE_PAYLOAD_BYTES), instructions: ["i"] }), false);
+	let low = 1;
+	let high = MAX_MESSAGE_CONTENT_BYTES;
+	while (low < high) {
+		const candidate = Math.ceil((low + high) / 2);
+		const probe = { ...originPayload, content: "x".repeat(candidate) };
+		if (messagePayloadUtf8Bytes(probe) <= MAX_MESSAGE_PAYLOAD_BYTES) low = candidate;
+		else high = candidate - 1;
+	}
+	const nearLimit = { ...originPayload, content: "x".repeat(low) };
+	assert.equal(isMessagePayload(nearLimit), true);
+	assert.equal(isMessagePayload({ ...nearLimit, content: `${nearLimit.content}${"x".repeat(100)}` }), false);
 });
