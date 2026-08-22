@@ -66,8 +66,8 @@
 	"scripts": {
 		"build": "node scripts/build.mjs",
 		"typecheck": "tsc --noEmit",
-		"typecheck:test": "tsc --noEmit -p tsconfig.tests.json",
-		"lint": "npm run typecheck && npm run typecheck:test",
+		"typecheck:presence-tests": "tsc --noEmit -p tsconfig.tests.json",
+		"lint": "npm run typecheck && npm run typecheck:presence-tests",
 		"prepack": "npm run build",
 		"verify:package": "node scripts/verify-package.mjs",
 		"pretest": "npm run build",
