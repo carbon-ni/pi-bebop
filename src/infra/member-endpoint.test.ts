@@ -47,6 +47,23 @@ describe("member endpoint ownership", () => {
 		}
 	});
 
+	test("protects live foreign links and reclaims stale links in both layouts", async () => {
+	for (const layout of ["bebop", "crew"]) {
+		const endpoint = path.join(root, "project", ".pi", layout, "sockets", "dev.sock");
+		const foreignSocket = path.join(root, "global", `${layout}-foreign.sock`);
+		const currentSocket = path.join(root, "global", `${layout}-current.sock`);
+		const server = await socketServer(foreignSocket);
+		await fs.mkdir(path.dirname(endpoint), { recursive: true }); await fs.symlink(foreignSocket, endpoint);
+		try {
+			await assert.rejects(() => claimMemberEndpoint(endpoint, currentSocket), (error: unknown) => error instanceof MemberEndpointError && error.code === "live-foreign");
+			assert.equal(await fs.readlink(endpoint), foreignSocket);
+			await fs.unlink(endpoint); await fs.symlink(path.join(root, "missing", `${layout}-stale.sock`), endpoint);
+			assert.deepEqual(await claimMemberEndpoint(endpoint, currentSocket), { claimed: true, idempotent: false });
+			assert.equal(await fs.readlink(endpoint), currentSocket);
+		} finally { await closeServer(server, foreignSocket); await fs.rm(endpoint, { force: true }); }
+	}
+});
+
 	test("rejects a live foreign endpoint without modifying it", async () => {
 		const endpoint = path.join(root, "foreign", "dev.sock");
 		const foreignSocket = path.join(root, "global", "foreign.sock");
