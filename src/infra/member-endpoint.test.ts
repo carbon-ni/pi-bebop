@@ -1,12 +1,41 @@
+import { EventEmitter } from "node:events";
 import { promises as fs } from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { claimMemberEndpoint, MemberEndpointError, releaseMemberEndpoint } from "./member-endpoint.ts";
+import {
+	claimMemberEndpoint,
+	MemberEndpointError,
+	probeMemberEndpoint,
+	releaseMemberEndpoint,
+} from "./member-endpoint.ts";
 
 let root: string;
+
+test("member probe returns true, false on connection errors, and false on timeout with cleanup", async () => {
+	for (const outcome of ["connect", "error", "timeout"] as const) {
+		const socket = new EventEmitter() as EventEmitter & { destroy: () => void };
+		let destroyed = false;
+		socket.destroy = () => {
+			destroyed = true;
+		};
+		let timer: (() => void) | undefined;
+		const result = probeMemberEndpoint("/configured/member.sock", {
+			createConnection: () => socket,
+			setTimeout: (callback) => {
+				timer = callback as () => void;
+				return 1 as never;
+			},
+			clearTimeout: () => undefined,
+		});
+		if (outcome === "connect" || outcome === "error") socket.emit(outcome);
+		else timer!();
+		assert.equal(await result, outcome === "connect");
+		assert.equal(destroyed, true);
+	}
+});
 
 async function socketServer(socketPath: string): Promise<net.Server> {
 	const server = net.createServer();

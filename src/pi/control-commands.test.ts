@@ -43,7 +43,7 @@ function baseDeps(overrides: Partial<ControlCommandDeps> = {}): ControlCommandDe
 	};
 }
 
-test("intray command completions expose only the consolidated command surface", () => {
+test("intray command completions expose only the consolidated command surface", async () => {
 	const setupState = setup();
 	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps());
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
@@ -51,6 +51,10 @@ test("intray command completions expose only the consolidated command surface", 
 	);
 	assert.deepEqual(values, ["join", "leave", "members", "status", "stop"]);
 	assert.match((setupState.getCommand() as any).description, /crew members/i);
+	await setupState.getCommand().handler("list", setupState.ctx);
+	assert.deepEqual(setupState.notifications, [
+		"Unknown intray action: list. Use join <socket>|leave|members|status|stop.",
+	]);
 });
 
 test("/intray join and leave use membership runtime without stopping base server", async () => {
@@ -361,22 +365,23 @@ test("/crew members renders the manifest roster in order and never probes curren
 		}),
 	} as never;
 	const probes: string[] = [];
+	const pending = new Map<string, (value: boolean) => void>();
 	registerSessionControlCommand(
 		setupState.pi,
 		setupState.state,
 		baseDeps({
 			probeMemberEndpoint: async (path) => {
 				probes.push(path);
-				if (path.includes("lead")) {
-					await new Promise((resolve) => setTimeout(resolve, 10));
-					return true;
-				}
-				throw new Error("stale endpoint");
+				return await new Promise<boolean>((resolve) => pending.set(path, resolve));
 			},
 		}),
 	);
-	await setupState.getCommand().handler("members", setupState.ctx);
-	assert.deepEqual(probes.sort(), [members[0]!.socketPath, members[2]!.socketPath].sort());
+	const listing = setupState.getCommand().handler("members", setupState.ctx);
+	await Promise.resolve();
+	assert.deepEqual(probes, [members[0]!.socketPath, members[2]!.socketPath]);
+	pending.get(members[2]!.socketPath)!(false);
+	pending.get(members[0]!.socketPath)!(true);
+	await listing;
 	assert.equal(setupState.messages[0]!.customType, "crew-roster");
 	assert.equal(
 		setupState.messages[0]!.content,

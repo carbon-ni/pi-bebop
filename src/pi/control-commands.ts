@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { formatCrewList, parseSessionControlAction, type SessionControlAction } from "../domain/index.ts";
+import { formatCrewRoster, parseSessionControlAction, type SessionControlAction } from "../domain/index.ts";
 import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
 import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import type { MembershipRuntime, Membership } from "../infra/membership-runtime.ts";
@@ -33,7 +33,7 @@ function renderStatus(state: SocketState): string {
 	return `Intray ${status}${crew}`;
 }
 
-export async function renderCrewList(
+export async function renderCrewRoster(
 	state: SocketState,
 	dependencies: Pick<ControlCommandDeps, "probeMemberEndpoint"> = {},
 ): Promise<string> {
@@ -59,7 +59,7 @@ export async function renderCrewList(
 			}
 		}),
 	);
-	return formatCrewList(membership.manifestPath, rows);
+	return formatCrewRoster(membership.manifestPath, rows);
 }
 
 export function registerSessionControlCommand(
@@ -142,7 +142,7 @@ export function registerSessionControlCommand(
 					return;
 				}
 				case "members": {
-					const content = await renderCrewList(state, deps);
+					const content = await renderCrewRoster(state, deps);
 					pi.sendMessage({ customType: "crew-roster", content, display: true }, { triggerTurn: false });
 					return;
 				}

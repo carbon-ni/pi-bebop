@@ -13,7 +13,7 @@
 		"src/application/member-message.ts",
 		"src/domain/branch-alias.ts",
 		"src/domain/cli.ts",
-		"src/domain/crew-list.ts",
+		"src/domain/crew-roster.ts",
 		"src/domain/crew-manifest.ts",
 		"src/domain/index.ts",
 		"src/domain/messages.ts",

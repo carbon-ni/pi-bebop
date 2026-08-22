@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatCrewList } from "./index.ts";
+import { formatCrewRoster } from "./index.ts";
 
 test("formats rows in supplied manifest order without instructions or global targets", () => {
 	assert.equal(
-		formatCrewList("/project/.pi/crew/crew.json", [
+		formatCrewRoster("/project/.pi/crew/crew.json", [
 			{
 				member: {
 					name: "lead",
