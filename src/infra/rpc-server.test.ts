@@ -6,7 +6,7 @@ import path from "node:path";
 import net from "node:net";
 
 import { closeRpcServer, createRpcServer, writeEvent, writeResponse } from "./rpc-server.ts";
-import type { RpcCommand } from "../domain/index.ts";
+import type { RpcInboundCommand } from "../domain/index.ts";
 import type { RpcSocket } from "./rpc-server.ts";
 
 async function withSocketServer(run: (socketPath: string) => Promise<void>): Promise<void> {
@@ -38,7 +38,7 @@ async function sendLine(socketPath: string, line: string): Promise<string> {
 
 test("createRpcServer dispatches parsed commands to handler", async () => {
 	await withSocketServer(async (socketPath) => {
-		let received: RpcCommand | undefined;
+		let received: RpcInboundCommand | undefined;
 		const server = await createRpcServer(socketPath, (command, socket) => {
 			received = command;
 			writeResponse(socket, { type: "response", command: command.type, success: true, id: command.id, data: { message: null } });
@@ -59,13 +59,23 @@ test("rejects unknown methods, extra params, non-RPC envelopes, and malformed en
 		let dispatched = 0;
 		const server = await createRpcServer(socketPath, () => { dispatched += 1; });
 		try {
-			for (const [line, code] of [
+			const invalidRequests: Array<[string, number]> = [
+				["{ nope", -32700],
+				[JSON.stringify({ jsonrpc: "1.0", id: "version", method: "session.status" }), -32600],
+				[JSON.stringify({ jsonrpc: "2.0", method: "session.status" }), -32600],
+				[JSON.stringify({ jsonrpc: "2.0", id: "extra", method: "session.status", extra: true }), -32600],
 				[JSON.stringify({ jsonrpc: "2.0", id: "unknown", method: "no.such" }), -32601],
-				[JSON.stringify({ jsonrpc: "2.0", id: "params", method: "message.send", params: { message: "x", extra: true } }), -32602],
+				[JSON.stringify({ jsonrpc: "2.0", id: "null", method: "message.send", params: null }), -32602],
+				[JSON.stringify({ jsonrpc: "2.0", id: "type", method: "message.send", params: { message: 1 } }), -32602],
+				[JSON.stringify({ jsonrpc: "2.0", id: "enum", method: "message.send", params: { message: "x", mode: "later" } }), -32602],
+				[JSON.stringify({ jsonrpc: "2.0", id: "extra-params", method: "message.send", params: { message: "x", extra: true } }), -32602],
+				[JSON.stringify({ jsonrpc: "2.0", id: "missing", method: "message.send", params: {} }), -32602],
+				[JSON.stringify({ jsonrpc: "2.0", id: "oversized", method: "message.send", params: { message: "x".repeat(1_000_001) } }), -32602],
 				[JSON.stringify({ type: "send", message: "x" }), -32600],
-			]) {
+			];
+			for (const [line, code] of invalidRequests) {
 				const response = JSON.parse(await sendLine(socketPath, line));
-				assert.equal(response.jsonrpc, "2.0"); assert.equal(response.error.code, code); assert.equal(response.id === null || response.id === "unknown" || response.id === "params", true);
+				assert.equal(response.jsonrpc, "2.0"); assert.equal(response.error.code, code);
 			}
 			assert.equal(dispatched, 0);
 		} finally { await closeRpcServer(server); }
@@ -112,6 +122,23 @@ test("rejects a response without a correlated id instead of fabricating one", ()
 	const socket = { write(value: string) { writes.push(value); }, once() { return socket; } } as unknown as RpcSocket;
 	writeResponse(socket, { type: "response", command: "send", success: true, id: undefined as never, data: { delivered: true, mode: "steer" } });
 	assert.equal(JSON.parse(writes[0]!).error.code, -32600);
+});
+
+test("rejects invalid method results and unknown commands without writing invalid success payloads", () => {
+	const writes: string[] = [];
+	const socket = { write(value: string) { writes.push(value); }, once() { return socket; } } as unknown as RpcSocket;
+	writeResponse(socket, { type: "response", command: "status", success: true, id: "status-1", data: { status: "not-a-status" } as never });
+	assert.equal(writes.length, 1);
+	assert.equal(JSON.parse(writes[0]!).error.code, -32603);
+	writeResponse(socket, { type: "response", command: "unknown", success: true, id: "unknown-1", data: {} });
+	assert.equal(JSON.parse(writes[1]!).error.data.code, "unknown-command");
+});
+
+test("rejects invalid turn-end events before writing", () => {
+	const writes: string[] = [];
+	const socket = { write(value: string) { writes.push(value); }, once() { return socket; } } as unknown as RpcSocket;
+	assert.throws(() => writeEvent(socket, { type: "event", event: "turn_end", subscriptionId: "sub-1", data: { message: { role: "assistant", content: "missing timestamp" } as never } }));
+	assert.equal(writes.length, 0);
 });
 
 test("writeEvent ignores closed socket write errors", () => {

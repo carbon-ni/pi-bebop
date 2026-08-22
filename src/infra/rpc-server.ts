@@ -1,5 +1,5 @@
 import * as net from "node:net";
-import { buildErrorResponse, buildResultResponse, buildTurnEndNotification, parseRequest, requestToCommand, RPC_ERROR, serializeProtocolMessage, type RpcCommand, type RpcInboundCommand, type RpcId, type RpcCommandResponse, type RpcTurnEndNotification } from "../domain/index.ts";
+import { buildErrorResponse, buildResultResponse, buildTurnEndNotification, parseRequest, requestToCommand, RPC_ERROR, serializeProtocolMessage, type RpcInboundCommand, type RpcId, type RpcCommandResponse, type RpcTurnEndNotification } from "../domain/index.ts";
 
 export type RpcSocket = Pick<net.Socket, "write" | "once">;
 export type RpcServer = Pick<net.Server, "close">;
@@ -13,10 +13,20 @@ export function writeWireResponse(socket: RpcSocket, id: RpcId, method: string, 
 }
 export function writeWireError(socket: RpcSocket, id: RpcId | null, code: number, message: string, data?: { code?: string }): void { write(socket, buildErrorResponse(id, code, message, data)); }
 
-const methodForCommand: Record<RpcCommand["type"], string> = { status: "session.status", send: "message.send", get_message: "session.get_message", clear: "session.clear", abort: "session.abort", subscribe: "event.subscribe" };
+function methodForCommand(command: string): string | undefined {
+	switch (command) {
+		case "status": return "session.status";
+		case "send": return "message.send";
+		case "get_message": return "session.get_message";
+		case "clear": return "session.clear";
+		case "abort": return "session.abort";
+		case "subscribe": return "event.subscribe";
+		default: return undefined;
+	}
+}
 export function writeResponse(socket: RpcSocket, response: RpcCommandResponse): void {
 	if (typeof response.id !== "string" && typeof response.id !== "number") { writeWireError(socket, null, RPC_ERROR.invalidRequest, "Response requires a correlated request id"); return; }
-	const method = methodForCommand[response.command as RpcCommand["type"]];
+	const method = methodForCommand(response.command);
 	if (!method) { writeWireError(socket, response.id, RPC_ERROR.internal, "Unknown command", { code: "unknown-command" }); return; }
 	if (response.success) writeWireResponse(socket, response.id, method, response.data);
 	else writeWireError(socket, response.id, RPC_ERROR.internal, response.error ?? "Internal error");

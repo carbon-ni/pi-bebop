@@ -35,7 +35,10 @@ try {
 	if (cliError?.code !== 2 || !/Invalid --wait/.test(cliError.stdout ?? "")) throw new Error("Installed CLI verification failed");
 	const extension = await execFile(process.execPath, ["--input-type=module", "-e", "const resolved = await import.meta.resolve('./node_modules/pi-bebop/dist/extension.js'); if (!resolved.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(resolved); const loaded = await import('file://' + process.cwd() + '/node_modules/pi-bebop/dist/extension.js'); if (typeof loaded.default !== 'function') throw new Error('extension entrypoint missing'); const toon = await import('@toon-format/toon'); if (!toon.encode) throw new Error('runtime dependency missing'); const peer = await import.meta.resolve('@earendil-works/pi-coding-agent'); if (!peer.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(peer);"], { cwd: consumerDir, env: environment });
 	if (extension.stderr) process.stderr.write(extension.stderr);
-	console.log(`Package verification passed in isolated consumer: ${consumerDir}`);
+	const host = await execFile(process.env.PI_BIN ?? "pi", ["--no-extensions", "--extension", path.join(packageRoot, "dist/extension.js"), "--help"], { cwd: consumerDir, env: { ...environment, PI_OFFLINE: "1" } });
+	if (!host.stdout.includes("--crew-socket")) throw new Error("Pi host loader did not register --crew-socket");
+	if (/Failed to load extension|Type\\.(Recursive|Composite) is not a function|Unknown option: --crew-socket/.test(host.stderr + host.stdout)) throw new Error(`Pi host extension load failed: ${host.stderr}${host.stdout}`);
+	console.log(`Package verification passed in isolated consumer and Pi host loader: ${consumerDir}`);
 } finally {
 	await rm(archiveDir, { recursive: true, force: true });
 	await rm(consumerDir, { recursive: true, force: true });
