@@ -11,6 +11,11 @@ test("parses direct send defaults and resolves a relative socket", () => {
 	});
 });
 
+test("resolves both supported direct endpoint layouts", () => {
+	assert.equal(parseCliArguments(["send", "--socket", ".pi/bebop/sockets/dev.sock", "--message", "x"], cwd).socketPath, "/project/.pi/bebop/sockets/dev.sock");
+	assert.equal(parseCliArguments(["send", "--socket", ".pi/crew/sockets/dev.sock", "--message", "x"], cwd).socketPath, "/project/.pi/crew/sockets/dev.sock");
+});
+
 test("parses stdin, enum, duration, format, and full options", () => {
 	const parsed = parseCliArguments(["send", "--socket", "/tmp/dev.sock", "--stdin", "--mode", "follow_up", "--wait", "accepted", "--timeout", "1500ms", "--format", "json", "--full"], cwd);
 	assert.equal(parsed.stdin, true);
