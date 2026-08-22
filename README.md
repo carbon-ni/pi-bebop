@@ -62,6 +62,15 @@ preview. JSON and TOON always include `ok`, `target`, `status`, and response/err
 data; exit status is 0 for success, 1 for operational failures, and 2 for
 invalid usage. The CLI never attaches callback metadata.
 
+Release/package verification is intentionally separate from quick tests because it installs a pinned consumer dependency set and may require network or a warm npm cache:
+
+```bash
+make package-verify
+# equivalent: npm run verify:package
+```
+
+The quick test suite only packs/extracts locally and runs the bundled CLI; it does not perform registry IO.
+
 A Unix socket is a local capability. The effective boundary is permission to
 traverse its parent directories and connect to the socket (subject to the
 platform's Unix-socket permissions), not secrecy of the path. Path knowledge
