@@ -7,35 +7,24 @@ import {
 	normalizeMode,
 	normalizeWaitUntil,
 	isSessionControlRequested,
-	parseCommand,
+	parseRequest,
+	requestToCommand,
 	parseSessionControlAction,
 	resolveResponsePolicy,
 } from "./index.ts";
 
-test("parseCommand accepts surviving RPC commands", () => {
-	const result = parseCommand(JSON.stringify({ type: "send", message: "hello", mode: "steer" }));
+test("JSON-RPC parser validates supported requests and maps methods", () => {
+	const result = parseRequest(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "message.send", params: { message: "hello", mode: "steer" } }));
 	assert.equal(result.error, undefined);
-	assert.deepEqual(result.command, { type: "send", message: "hello", mode: "steer" });
-	assert.deepEqual(parseCommand(JSON.stringify({ type: "status" })).command, { type: "status" });
+	assert.deepEqual(requestToCommand(result.request!), { type: "send", message: "hello", mode: "steer", id: "1" });
+	assert.equal("code" in requestToCommand({ jsonrpc: "2.0", id: "2", method: "unknown" }), true);
 });
 
-test("parseCommand rejects malformed JSON", () => {
-	const result = parseCommand("{ nope");
-
-	assert.equal(result.command, undefined);
-	assert.match(result.error ?? "", /JSON|property|parse|Expected/i);
-});
-
-test("parseCommand rejects missing command type", () => {
-	const result = parseCommand(JSON.stringify({ message: "hello" }));
-
-	assert.equal(result.command, undefined);
-	assert.equal(result.error, "Missing command type");
-});
-
-test("parseCommand rejects non-object JSON values", () => {
-	assert.deepEqual(parseCommand("null"), { error: "Invalid command" });
-	assert.deepEqual(parseCommand('"send"'), { error: "Invalid command" });
+test("JSON-RPC parser returns standard failures for malformed and legacy envelopes", () => {
+	assert.equal(parseRequest("{ nope").error?.code, -32700);
+	assert.equal(parseRequest(JSON.stringify({ type: "send", message: "hello" })).error?.code, -32600);
+	const extra = parseRequest(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "message.send", params: { message: "x", extra: true } })).request!;
+	assert.equal("code" in requestToCommand(extra), true);
 });
 
 test("session ids and aliases reject path traversal", () => {

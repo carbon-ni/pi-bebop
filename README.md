@@ -46,6 +46,17 @@ For an existing session, join a crew endpoint with:
 Use `/crew status`, `/crew leave`, or `/crew stop` to inspect or release the
 current identity.
 
+## Socket wire contract
+
+Bebop sockets use newline-delimited JSON-RPC 2.0. The legacy `{ type, ... }`
+envelope is no longer accepted. Requests use methods such as `message.send`,
+`session.status`, and `event.subscribe`, with non-null correlated string or
+integer IDs. Responses contain exactly one `result` or `error`; malformed JSON,
+invalid envelopes, unknown methods, and invalid params return standard codes
+`-32700` through `-32603` without invoking session handlers. `session.turn_end`
+is a one-shot notification carrying its subscription ID. JSON-RPC provides no
+authentication; Unix socket permissions remain the security boundary.
+
 ## Direct socket messaging from a shell
 
 The package also installs `pi-bebop`, which targets one endpoint directly. It does

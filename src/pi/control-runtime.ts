@@ -4,7 +4,7 @@ import { createAliasSymlink, ensureControlDir, getAliasNames, removeAliasesForSo
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
 import { closeRpcServer, createRpcServer, writeEvent, writeResponse, type RpcServer, type RpcSocket } from "../infra/rpc-server.ts";
 import { updateProcessSessionEnv } from "../infra/session-env.ts";
-import { createProjectBranchAlias, createSequentialProjectBranchAlias, getFirstEntryId, getLastAssistantMessage, isSafeAlias, type RpcCommand, SESSION_MESSAGE_TYPE } from "../domain/index.ts";
+import { createProjectBranchAlias, createSequentialProjectBranchAlias, getFirstEntryId, getLastAssistantMessage, isSafeAlias, type RpcCommand, type RpcId, SESSION_MESSAGE_TYPE } from "../domain/index.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 
 // ============================================================================
@@ -104,7 +104,7 @@ export async function handleCommand(
 	command: RpcCommand,
 	socket: RpcSocket,
 ): Promise<void> {
-	const id = "id" in command && typeof command.id === "string" ? command.id : undefined;
+	const id: RpcId | undefined = "id" in command && (typeof command.id === "string" || typeof command.id === "number") ? command.id : undefined;
 	const respond = (success: boolean, commandName: string, data?: unknown, error?: string) => {
 		if (state.context) {
 			void syncAlias(state, state.context);
@@ -130,14 +130,14 @@ export async function handleCommand(
 	// Abort
 	if (command.type === "abort") {
 		ctx.abort();
-		respond(true, "abort");
+		respond(true, "abort", {});
 		return;
 	}
 
 	// Subscribe to turn_end
 	if (command.type === "subscribe") {
 		if (command.event === "turn_end") {
-			const subscriptionId = id ?? `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+			const subscriptionId = id === undefined ? `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` : String(id);
 			state.turnEndSubscriptions.push({ socket, subscriptionId });
 
 			const cleanup = () => {

@@ -18,7 +18,7 @@ async function socketServer(socketPath: string, messages: string[]): Promise<net
 	return createRpcServer(socketPath, async (command, socket) => {
 		if (command.type !== "send") return;
 		messages.push(command.message);
-		writeResponse(socket, { type: "response", command: "send", success: true, data: { accepted: true } });
+		writeResponse(socket, { type: "response", command: "send", success: true, id: command.id, data: { delivered: true, mode: "steer" } });
 	});
 }
 

@@ -41,11 +41,11 @@ test("runs against a live Unix socket and waits for the assistant response", asy
 				const [line, rest] = buffer.split(/\n(.*)/s);
 				buffer = rest ?? "";
 				if (!line) continue;
-				const command = JSON.parse(line) as { type: string };
-				if (command.type === "send") socket.write('{"type":"response","command":"send","success":true}\n');
-				if (command.type === "subscribe") {
-					socket.write('{"type":"response","command":"subscribe","success":true}\n');
-					socket.write('{"type":"event","event":"turn_end","data":{"message":{"content":"answer"},"turnIndex":2}}\n');
+				const command = JSON.parse(line) as { method: string; id: string };
+				if (command.method === "message.send") socket.write(JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { delivered: true, mode: "steer" } }) + "\n");
+				if (command.method === "event.subscribe") {
+					socket.write(JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { subscriptionId: command.id, event: "turn_end" } }) + "\n");
+					socket.write(JSON.stringify({ jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: command.id, message: { content: "answer" }, turnIndex: 2 } }) + "\n");
 				}
 			}
 		});
@@ -123,14 +123,14 @@ test("uses injected output for selected-format usage errors", async () => {
 
 test("covers accepted, rejection, timeout, exact multiline stdin, and no sender metadata", async () => {
 	await withEndpoint((command, socket) => {
-		if (command.type === "send") socket.write('{"type":"response","command":"send","success":true,"data":{"delivered":true}}\n');
+		if (command.method === "message.send") socket.write(JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { delivered: true, mode: "steer" } }) + "\n");
 	}, async (socketPath, messages) => {
 		const input = new PassThrough(); input.end("line one\nline two\n"); const output = new PassThrough(); let text = ""; output.setEncoding("utf8"); output.on("data", (chunk) => { text += chunk; });
 		assert.equal(await runCli(["send", "--socket", socketPath, "--stdin", "--wait", "accepted", "--format", "json"], root, input, output), 0);
 		assert.equal(JSON.parse(text).status, "accepted");
-		assert.equal(messages[0]?.message, "line one\nline two\n"); assert.equal((messages[0]?.message as string).includes("sender_info"), false);
+		assert.equal((messages[0]?.params as { message?: string })?.message, "line one\nline two\n"); assert.equal(((messages[0]?.params as { message?: string })?.message ?? "").includes("sender_info"), false);
 	});
-	await withEndpoint((command, socket) => { if (command.type === "send") socket.write('{"type":"response","command":"send","success":false,"error":"busy"}\n'); }, async (socketPath) => {
+	await withEndpoint((command, socket) => { if (command.method === "message.send") socket.write(JSON.stringify({ jsonrpc: "2.0", id: command.id, error: { code: 5000, message: "busy" } }) + "\n"); }, async (socketPath) => {
 		const output = new PassThrough(); let text = ""; output.setEncoding("utf8"); output.on("data", (chunk) => { text += chunk; });
 		assert.equal(await runCli(["send", "--socket", socketPath, "--message", "x", "--wait", "accepted", "--format", "json"], root, process.stdin, output), 1); assert.equal(JSON.parse(text).ok, false);
 	});
@@ -141,7 +141,7 @@ test("covers accepted, rejection, timeout, exact multiline stdin, and no sender 
 });
 
 test("delivers through symlinked bebop and crew endpoint layouts", async () => {
-	await withEndpoint((command, socket) => { if (command.type === "send") socket.write('{"type":"response","command":"send","success":true,"data":{"delivered":true}}\n'); }, async (socketPath) => {
+	await withEndpoint((command, socket) => { if (command.method === "message.send") socket.write(JSON.stringify({ jsonrpc: "2.0", id: command.id, result: { delivered: true, mode: "steer" } }) + "\n"); }, async (socketPath) => {
 		const project = await mkdtemp(path.join(tmpdir(), "bebop-layout-"));
 		try {
 			for (const layout of ["bebop", "crew"]) {
