@@ -1,0 +1,13 @@
+{
+  "name": "pi-bebop-release-consumer",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "@sinclair/typebox": "0.34.50",
+    "@toon-format/toon": "4.1.1",
+    "typebox": "1.1.38"
+  }
+}
