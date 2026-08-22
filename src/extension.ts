@@ -50,7 +50,6 @@ export default function (pi: ExtensionAPI) {
 		disableControlServer: (currentState, ctx) => disableControlServer(currentState, ctx, pi),
 		ensureControlServer: (api, currentState, ctx) => ensureControlServer(api, currentState, ctx),
 		membershipRuntime: state.membershipRuntime,
-		getCrewManifestPathFromSocketPath,
 		persistMembership,
 		announceMembership,
 		activateMembershipTool: () => activateMembershipTool(pi),
