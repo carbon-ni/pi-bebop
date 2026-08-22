@@ -1,7 +1,7 @@
 ---
 id: TASK-0028
 title: Define deterministic crew presence state
-status: todo
+status: doing
 depends_on: [TASK-0022]
 priority: high
 tags: [crew, presence, domain, determinism]

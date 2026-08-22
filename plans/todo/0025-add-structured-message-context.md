@@ -1,7 +1,7 @@
 ---
 id: TASK-0025
 title: Add structured message context
-status: todo
+status: doing
 depends_on: [TASK-0024, TASK-0031]
 priority: high
 tags: [messaging, instructions, origin, schema, crew]
@@ -28,7 +28,7 @@ Extend `message.send` params with a structured payload:
     "name": "Bob",
     "role": "dev"
   },
-  "mode": "steer"
+  "delivery": "immediate"
 }
 ```
 

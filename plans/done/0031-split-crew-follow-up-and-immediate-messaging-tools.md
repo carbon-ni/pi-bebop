@@ -1,7 +1,7 @@
 ---
 id: TASK-0031
 title: Split crew follow-up and immediate messaging tools
-status: todo
+status: done
 depends_on: [TASK-0024]
 priority: high
 tags: [crew, messaging, tools, ux]
