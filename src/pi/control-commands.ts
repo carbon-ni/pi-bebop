@@ -122,9 +122,14 @@ export function registerSessionControlCommand(
 					deps.persistMembership?.(true, result.membership);
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
-					if (previousMembership && previousMembership.socketPath !== result.membership.socketPath)
-						await deps.broadcastPresence?.(previousMembership.member, "offline");
-					await deps.refreshPresence?.();
+					const sameMembership =
+						previousMembership?.socketPath === result.membership.socketPath &&
+						previousMembership.member.name === result.membership.member.name &&
+						previousMembership.member.role === result.membership.member.role;
+					if (!sameMembership) {
+						if (previousMembership) await deps.broadcastPresence?.(previousMembership.member, "offline");
+						await deps.refreshPresence?.();
+					}
 					deps.announceMembership?.(joinedMessage);
 					notify(ctx, joinedMessage);
 					return;

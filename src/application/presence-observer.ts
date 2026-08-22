@@ -42,6 +42,7 @@ export function createPresenceObserver(
 	let starting: Promise<void> | undefined;
 	let scanPromise: Promise<void> | undefined;
 	const revisions = new Map<string, number>();
+	const pendingHints: PresenceMember[] = [];
 	let state = createInitialPresenceState(members, currentIdentity, config);
 	const peers = () => members.filter((member) => member.identity !== currentIdentity);
 	const isActive = (token: number) => active && token === generation;
@@ -85,14 +86,28 @@ export function createPresenceObserver(
 			});
 			state = reduced.state;
 			if (reduced.effects.length > 0) dependencies.onEffects(reduced.effects);
+			for (const member of pendingHints.splice(0)) void probeHint(member, token);
 		}
 	};
 	const schedule = (token: number) => {
-		if (isActive(token) && timer === undefined)
-			timer = dependencies.scheduler.schedule(PRESENCE_RECONCILE_INTERVAL_MS, () => {
-				timer = undefined;
-				void reconcile(token);
-			});
+		if (!isActive(token) || timer !== undefined) return;
+		let handle!: unknown;
+		handle = dependencies.scheduler.schedule(PRESENCE_RECONCILE_INTERVAL_MS, () => {
+			if (timer !== handle || generation !== token || !active) return;
+			timer = undefined;
+			void reconcile(token);
+		});
+		timer = handle;
+	};
+	const probeHint = (member: PresenceMember, token: number) => {
+		const revision = (revisions.get(member.identity) ?? 0) + 1;
+		revisions.set(member.identity, revision);
+		void dependencies
+			.probe(member.identity, PRESENCE_PROBE_TIMEOUT_MS)
+			.then((online) => {
+				if (isActive(token)) applyObservation(member, online, revision);
+			})
+			.catch(() => undefined);
 	};
 	const reconcile = async (requestedToken?: number) => {
 		if (!active || (requestedToken !== undefined && requestedToken !== generation)) return;
@@ -140,15 +155,8 @@ export function createPresenceObserver(
 			);
 			if (!member) return false;
 			const token = generation;
-			const revision = (revisions.get(member.identity) ?? 0) + 1;
-			revisions.set(member.identity, revision);
-			void dependencies
-				.probe(member.identity, PRESENCE_PROBE_TIMEOUT_MS)
-				.then((online) => {
-					if (!isActive(token)) return;
-					applyObservation(member, online, revision);
-				})
-				.catch(() => undefined);
+			if (!state.initialScanComplete) pendingHints.push(member);
+			else probeHint(member, token);
 			return true;
 		},
 		stop() {
