@@ -11,6 +11,8 @@ export interface DirectMessageRequest {
 	readonly timeoutMs?: number;
 	readonly signal?: AbortSignal;
 	readonly sender?: { sessionId: string; sessionName?: string };
+	/** CLI callers require a response; Pi tool callers preserve historical no-response behavior. */
+	readonly requireAssistantResponse?: boolean;
 }
 
 export class DirectMessageError extends Error {
@@ -45,7 +47,8 @@ export async function sendDirectMessage(
 	if (!result.response.success) throw new DirectMessageError("remote-rejected", result.response.error ?? "Remote endpoint rejected the message");
 	if (request.wait === "accepted") return { status: "accepted", data: result.response.data };
 	if (result.event?.message === undefined) {
-		throw new DirectMessageError("missing-assistant-response", "Turn completed without an assistant response");
+		if (request.requireAssistantResponse) throw new DirectMessageError("missing-assistant-response", "Turn completed without an assistant response");
+		return { status: "completed", ...(result.event?.turnIndex === undefined ? {} : { turnIndex: result.event.turnIndex }) };
 	}
 	return {
 		status: "completed",

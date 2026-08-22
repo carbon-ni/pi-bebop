@@ -14,30 +14,40 @@ export function errorCode(error: unknown): string {
 	return "offline";
 }
 
-function usage(error: UsageError): number {
-	process.stdout.write(`${error.message}\n`);
+function requestedFormat(args: string[]): "toon" | "json" | "text" {
+	const index = args.indexOf("--format");
+	const value = index >= 0 ? args[index + 1] : undefined;
+	return value === "json" || value === "text" ? value : "toon";
+}
+
+function usage(error: UsageError, output: NodeJS.WritableStream, format: "toon" | "json" | "text"): number {
+	const result: CliResult = { ok: false, target: "", status: "usage", error: { code: "usage", message: error.message } };
+	output.write(`${format === "text" ? error.message : renderCliResult(result, format, false)}\n`);
 	return 2;
 }
 
 export async function runCli(args: string[], cwd = process.cwd(), input = process.stdin, output = process.stdout): Promise<number> {
 	let options: SendCliOptions;
-	try { options = parseCliArguments(args, cwd); } catch (error) { return usage(error as UsageError); }
+	try { options = parseCliArguments(args, cwd); } catch (error) { return usage(error as UsageError, output, requestedFormat(args)); }
 	let message = options.message;
 	const controller = new AbortController();
-	const abort = () => controller.abort(Object.assign(new Error("Operation aborted"), { name: "AbortError" }));
+	const abortError = Object.assign(new Error("Operation aborted"), { name: "AbortError" });
+	const abort = () => controller.abort(abortError);
 	process.once("SIGINT", abort);
 	try {
 		if (options.stdin) {
 			message = await new Promise<string>((resolve, reject) => {
 				let data = "";
-				input.setEncoding("utf8");
-				input.on("data", (chunk) => { data += chunk; });
-				input.once("end", () => resolve(data));
-				input.once("error", reject);
+				const onData = (chunk: string) => { data += chunk; };
+				const cleanup = () => { input.off("data", onData); input.off("end", onEnd); input.off("error", onError); controller.signal.removeEventListener("abort", onAbort); };
+				const onEnd = () => { cleanup(); resolve(data); };
+				const onError = (error: Error) => { cleanup(); reject(error); };
+				const onAbort = () => { cleanup(); input.destroy(); reject(abortError); };
+				input.setEncoding("utf8"); input.on("data", onData); input.once("end", onEnd); input.once("error", onError); controller.signal.addEventListener("abort", onAbort, { once: true });
 			});
-			if (message.length === 0) return usage(new UsageError("--stdin received empty input; provide UTF-8 message content"));
+			if (message.length === 0) return usage(new UsageError("--stdin received empty input; provide UTF-8 message content"), output, options.format);
 		}
-		const result = await sendDirectMessage({ socketPath: options.socketPath, message: message!, mode: options.mode, wait: options.wait, timeoutMs: options.timeoutMs, signal: controller.signal });
+		const result = await sendDirectMessage({ socketPath: options.socketPath, message: message!, mode: options.mode, wait: options.wait, timeoutMs: options.timeoutMs, signal: controller.signal, requireAssistantResponse: true });
 		const outputResult: CliResult = { ok: true, target: options.socketPath, status: result.status, response: result.message?.content, data: result.data, turnIndex: result.turnIndex };
 		output.write(`${renderCliResult(outputResult, options.format, options.full)}\n`);
 		return 0;
@@ -52,5 +62,5 @@ export async function runCli(args: string[], cwd = process.cwd(), input = proces
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-	runCli(process.argv.slice(2)).then((code) => { process.exitCode = code; }).catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : "CLI failure"}\n`); process.exitCode = 1; });
+	runCli(process.argv.slice(2)).then((code) => { process.exit(code); }).catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : "CLI failure"}\n`); process.exit(1); });
 }
