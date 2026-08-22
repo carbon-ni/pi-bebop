@@ -1,24 +1,44 @@
-import { rename, rm } from "node:fs/promises";
+import { access, rename, rm } from "node:fs/promises";
 
-export async function atomicSwapDirectory(staging, dist, backup) {
+async function uniqueBackupPath(base, accessImpl = access) {
+	for (let index = 0; ; index += 1) {
+		const candidate = index === 0 ? base : `${base}-${index}`;
+		try {
+			await accessImpl(candidate);
+		} catch (error) {
+			if (error?.code === "ENOENT") return candidate;
+			throw error;
+		}
+	}
+}
+
+export async function atomicSwapDirectory(staging, dist, backupBase, operations = {}) {
+	const renameImpl = operations.rename ?? rename;
+	const rmImpl = operations.rm ?? rm;
+	const accessImpl = operations.access ?? access;
+	const backup = await uniqueBackupPath(backupBase, accessImpl);
 	let moved = false;
+	let restored = false;
 	try {
 		try {
-			await rename(dist, backup);
+			await renameImpl(dist, backup);
 		} catch (error) {
 			if (error?.code !== "ENOENT") throw error;
 		}
 		try {
-			await rename(staging, dist);
+			await renameImpl(staging, dist);
 			moved = true;
 		} catch (error) {
-			await rename(backup, dist).catch(() => undefined);
+			try {
+				await renameImpl(backup, dist);
+				restored = true;
+			} catch (restoreError) {
+				throw new Error(`Build install failed; recovery backup retained at ${backup}`, { cause: restoreError });
+			}
 			throw error;
 		}
-		await rm(backup, { recursive: true, force: true });
 	} finally {
-		if (!moved) await rename(backup, dist).catch(() => undefined);
-		await rm(backup, { recursive: true, force: true });
-		await rm(staging, { recursive: true, force: true });
+		if (restored || moved) await rmImpl(backup, { recursive: true, force: true });
+		await rmImpl(staging, { recursive: true, force: true });
 	}
 }

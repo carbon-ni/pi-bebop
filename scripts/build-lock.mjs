@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const DEFAULT_LOCK_TIMEOUT_MS = 30_000;
@@ -22,7 +22,12 @@ export async function acquireBuildLock(
 	while (true) {
 		try {
 			await mkdir(lockPath);
-			await writeFile(join(lockPath, "owner"), `${process.pid}\n${Date.now()}\n`, "utf8");
+			try {
+				await writeFile(join(lockPath, "owner"), `${process.pid}\n${Date.now()}\n`, "utf8");
+			} catch (error) {
+				await rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
+				throw error;
+			}
 			return async () => rm(lockPath, { recursive: true, force: true });
 		} catch (error) {
 			if (error?.code !== "EEXIST") throw error;
@@ -34,12 +39,17 @@ export async function acquireBuildLock(
 			}
 			const pid = Number(owner?.[0]);
 			const created = Number(owner?.[1]);
+			let lockAge = Number.POSITIVE_INFINITY;
+			try {
+				lockAge = Date.now() - (await stat(lockPath)).mtimeMs;
+			} catch (statError) {
+				if (statError?.code !== "ENOENT") throw statError;
+			}
+			const stale = lockAge > staleMs;
 			if (
-				Number.isInteger(pid) &&
-				pid > 0 &&
-				Number.isFinite(created) &&
-				Date.now() - created > staleMs &&
-				!processAlive(pid)
+				stale &&
+				((Number.isInteger(pid) && pid > 0 && Number.isFinite(created) && !processAlive(pid)) ||
+					(!Number.isInteger(pid) && !Number.isFinite(created)))
 			) {
 				await rm(lockPath, { recursive: true, force: true });
 				continue;
