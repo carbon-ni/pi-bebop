@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Value } from "@sinclair/typebox/value";
 
 import {
 	isSafeAlias,
@@ -11,6 +12,10 @@ import {
 	requestToCommand,
 	parseSessionControlAction,
 	resolveResponsePolicy,
+	MessageSendParamsSchema, SubscribeParamsSchema, EmptyParamsSchema,
+	MessageSendRequestSchema, SubscribeRequestSchema, StatusRequestSchema, GetMessageRequestSchema, ClearRequestSchema, AbortRequestSchema,
+	StatusResultSchema, SendResultSchema, GetMessageResultSchema, ClearResultSchema, SubscribeResultSchema, EmptyResultSchema,
+	RpcErrorSchema, TurnEndNotificationSchema, ExtractedMessageSchema,
 } from "./index.ts";
 
 test("JSON-RPC parser validates supported requests and maps methods", () => {
@@ -20,11 +25,65 @@ test("JSON-RPC parser validates supported requests and maps methods", () => {
 	assert.equal("code" in requestToCommand({ jsonrpc: "2.0", id: "2", method: "unknown" }), true);
 });
 
-test("JSON-RPC parser returns standard failures for malformed and legacy envelopes", () => {
+test("JSON-RPC parser returns standard failures for malformed and non-RPC envelopes", () => {
 	assert.equal(parseRequest("{ nope").error?.code, -32700);
 	assert.equal(parseRequest(JSON.stringify({ type: "send", message: "hello" })).error?.code, -32600);
 	const extra = parseRequest(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "message.send", params: { message: "x", extra: true } })).request!;
 	assert.equal("code" in requestToCommand(extra), true);
+});
+
+test("method parameter schemas accept only their exact valid shapes", () => {
+	const cases: Array<[string, Parameters<typeof Value.Check>[0], unknown]> = [
+		["message.send", MessageSendParamsSchema, { message: "hello", mode: "steer" }],
+		["event.subscribe", SubscribeParamsSchema, { event: "turn_end" }],
+		["session.status", EmptyParamsSchema, {}],
+		["session.get_message", EmptyParamsSchema, {}],
+		["session.clear", EmptyParamsSchema, {}],
+		["session.abort", EmptyParamsSchema, {}],
+	];
+	for (const [method, schema, value] of cases) assert.equal(Value.Check(schema, value), true, method);
+	assert.equal(Value.Check(MessageSendParamsSchema, { message: "" }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { message: "x", mode: "later" }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { message: "x", extra: true }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { message: "x".repeat(1_000_001) }), false);
+	assert.equal(Value.Check(SubscribeParamsSchema, { event: null }), false);
+	assert.equal(Value.Check(EmptyParamsSchema, { extra: true }), false);
+});
+
+test("method request schemas reject invalid envelopes and required fields", () => {
+	const valid: Array<[string, unknown]> = [
+		["message.send", { jsonrpc: "2.0", id: "1", method: "message.send", params: { message: "x" } }],
+		["event.subscribe", { jsonrpc: "2.0", id: 1, method: "event.subscribe", params: { event: "turn_end" } }],
+		["session.status", { jsonrpc: "2.0", id: "s", method: "session.status" }],
+		["session.get_message", { jsonrpc: "2.0", id: "g", method: "session.get_message" }],
+		["session.clear", { jsonrpc: "2.0", id: "c", method: "session.clear" }],
+		["session.abort", { jsonrpc: "2.0", id: "a", method: "session.abort" }],
+	];
+	const schemas = [MessageSendRequestSchema, SubscribeRequestSchema, StatusRequestSchema, GetMessageRequestSchema, ClearRequestSchema, AbortRequestSchema];
+	for (let i = 0; i < valid.length; i += 1) assert.equal(Value.Check(schemas[i], valid[i][1]), true, valid[i][0]);
+	assert.equal(Value.Check(MessageSendRequestSchema, { jsonrpc: "1.0", id: "1", method: "message.send", params: { message: "x" } }), false);
+	assert.equal(Value.Check(MessageSendRequestSchema, { jsonrpc: "2.0", method: "message.send", params: { message: "x" } }), false);
+	assert.equal(Value.Check(MessageSendRequestSchema, { jsonrpc: "2.0", id: "1", method: "message.send", params: { message: "x", extra: true } }), false);
+	assert.equal(Value.Check(StatusRequestSchema, { jsonrpc: "2.0", id: "s", method: "session.status", params: {} }), false);
+	assert.equal(Value.Check(MessageSendRequestSchema, { type: "send", message: "x" }), false);
+});
+
+test("method result, error, event, and extracted-message schemas accept only contract values", () => {
+	const extracted = { role: "assistant", content: "done", timestamp: 1 };
+	const cases: Array<[string, Parameters<typeof Value.Check>[0], unknown]> = [
+		["status", StatusResultSchema, { status: "online" }], ["send", SendResultSchema, { delivered: true, mode: "steer" }],
+		["get_message", GetMessageResultSchema, { message: extracted }], ["clear", ClearResultSchema, { cleared: true }],
+		["subscribe", SubscribeResultSchema, { subscriptionId: "sub-1", event: "turn_end" }], ["abort", EmptyResultSchema, {}],
+		["error", RpcErrorSchema, { code: -32602, message: "Invalid params" }],
+		["event", TurnEndNotificationSchema, { jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: "sub-1", message: extracted, turnIndex: 1 } }],
+		["message", ExtractedMessageSchema, extracted],
+	];
+	for (const [name, schema, value] of cases) assert.equal(Value.Check(schema, value), true, name);
+	assert.equal(Value.Check(StatusResultSchema, { status: "invalid" }), false);
+	assert.equal(Value.Check(GetMessageResultSchema, { message: { content: "done" } }), false);
+	assert.equal(Value.Check(RpcErrorSchema, { code: "bad", message: "x" }), false);
+	assert.equal(Value.Check(TurnEndNotificationSchema, { jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: "" } }), false);
+	assert.equal(Value.Check(ExtractedMessageSchema, { role: "assistant", content: "x", timestamp: "now" }), false);
 });
 
 test("session ids and aliases reject path traversal", () => {

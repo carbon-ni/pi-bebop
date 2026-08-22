@@ -1,6 +1,6 @@
 import * as net from "node:net";
 import { randomUUID } from "node:crypto";
-import { commandToRequest, isMethodResult, isRpcResponse, isSubscribeResult, isTurnEndNotification, serializeRequest, type ExtractedMessage, type RpcCommand, type RpcCommandResponse, type RpcId, type RpcSubscribeCommand, type RpcWireResponse } from "../domain/index.ts";
+import { commandToRequest, isMethodResult, isRpcResponse, isSubscribeResult, isTurnEndNotification, serializeRequest, type ExtractedMessage, type RpcCommand, type RpcCommandResponse, type RpcId, type RpcWireResponse } from "../domain/index.ts";
 
 export interface RpcClientOptions { timeout?: number; waitForEvent?: "turn_end"; signal?: AbortSignal; }
 export class RpcProtocolError extends Error { readonly code: string; constructor(code: string, message: string) { super(`${code}: ${message}`); this.name = "RpcProtocolError"; this.code = code; } }
@@ -16,7 +16,7 @@ export async function sendRpcCommand(socketPath: string, command: RpcCommand, op
 	const requestId = command.id ?? nextId();
 	const request = commandToRequest(command, requestId);
 	const subscriptionId = nextId();
-	const subscribeRequest = waitForEvent === "turn_end" ? commandToRequest({ type: "subscribe", event: "turn_end", id: subscriptionId } as RpcSubscribeCommand, subscriptionId) : undefined;
+	const subscribeRequest = waitForEvent === "turn_end" ? commandToRequest({ type: "subscribe", event: "turn_end", id: subscriptionId }, subscriptionId) : undefined;
 	return new Promise((resolve, reject) => {
 		if (signal?.aborted) { reject(getAbortError(signal)); return; }
 		const socket = net.createConnection(socketPath); socket.setEncoding("utf8");
@@ -38,9 +38,9 @@ export async function sendRpcCommand(socketPath: string, command: RpcCommand, op
 					settle(undefined, { response: primaryResponse, event: { message: value.params.message ?? undefined, turnIndex: value.params.turnIndex } }); return;
 				}
 				if (!isRpcResponse(value)) { settle(new RpcProtocolError("malformed-response", "Malformed JSON-RPC response envelope")); return; }
-				if (value.id !== requestId && (!subscribeRequest || value.id !== subscriptionId)) { settle(new RpcProtocolError("mismatched-id", "JSON-RPC response id did not match request")); return; }
-				if (seenIds.has(value.id as RpcId)) { settle(new RpcProtocolError("duplicate-id", "Duplicate JSON-RPC response id")); return; }
-				seenIds.add(value.id as RpcId);
+				if (value.id === null || (value.id !== requestId && (!subscribeRequest || value.id !== subscriptionId))) { settle(new RpcProtocolError("mismatched-id", "JSON-RPC response id did not match request")); return; }
+				if (seenIds.has(value.id)) { settle(new RpcProtocolError("duplicate-id", "Duplicate JSON-RPC response id")); return; }
+				seenIds.add(value.id);
 				const isPrimary = value.id === requestId;
 				if ("error" in value) { settle(new RpcProtocolError("remote-error", value.error.message)); return; }
 				const method = isPrimary ? request.method : "event.subscribe";

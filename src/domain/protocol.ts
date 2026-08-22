@@ -1,17 +1,13 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { ExtractedMessageSchema, type ExtractedMessage } from "./messages.ts";
 
 export const JSON_RPC_VERSION = "2.0" as const;
 export const RpcIdSchema = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
-export const JsonValueSchema = Type.Recursive((JsonValue) => Type.Union([
-	Type.Null(), Type.Boolean(), Type.Number(), Type.String(), Type.Array(JsonValue), Type.Record(Type.String(), JsonValue),
-]));
+// Keep the transport schema compatible with the TypeBox API exposed by Pi's peer floor.
+// Method-specific payloads are strict; unknown methods may carry only an object params bag.
+export const UnknownMethodParamsSchema = Type.Union([Type.Null(), Type.Object({}, { additionalProperties: true })]);
 
-export const ExtractedMessageSchema = Type.Object({
-	role: Type.Union([Type.Literal("user"), Type.Literal("assistant")]),
-	content: Type.String(),
-	timestamp: Type.Number(),
-}, { additionalProperties: false });
 export const MessageSendParamsSchema = Type.Object({ message: Type.String({ minLength: 1, maxLength: 1_000_000 }), mode: Type.Optional(Type.Union([Type.Literal("steer"), Type.Literal("follow_up")])), }, { additionalProperties: false });
 export const SubscribeParamsSchema = Type.Object({ event: Type.Literal("turn_end") }, { additionalProperties: false });
 export const EmptyParamsSchema = Type.Object({}, { additionalProperties: false });
@@ -23,10 +19,10 @@ export const GetMessageRequestSchema = Type.Object({ jsonrpc: Type.Literal(JSON_
 export const ClearRequestSchema = Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: RpcIdSchema, method: Type.Literal("session.clear") }, { additionalProperties: false });
 export const AbortRequestSchema = Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: RpcIdSchema, method: Type.Literal("session.abort") }, { additionalProperties: false });
 export const KnownRequestSchema = Type.Union([MessageSendRequestSchema, SubscribeRequestSchema, StatusRequestSchema, GetMessageRequestSchema, ClearRequestSchema, AbortRequestSchema]);
-export const GenericRequestSchema = Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: RpcIdSchema, method: Type.String({ minLength: 1 }), params: Type.Optional(JsonValueSchema) }, { additionalProperties: false });
+export const GenericRequestSchema = Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: RpcIdSchema, method: Type.String({ minLength: 1 }), params: Type.Optional(UnknownMethodParamsSchema) }, { additionalProperties: false });
 export const RpcRequestSchema = Type.Union([KnownRequestSchema, GenericRequestSchema]);
 
-export const RpcErrorSchema = Type.Object({ code: Type.Integer(), message: Type.String(), data: Type.Optional(JsonValueSchema) }, { additionalProperties: false });
+export const RpcErrorSchema = Type.Object({ code: Type.Integer(), message: Type.String(), data: Type.Optional(Type.Object({ code: Type.Optional(Type.String()) }, { additionalProperties: false })) }, { additionalProperties: false });
 export const ResponseIdSchema = Type.Union([RpcIdSchema, Type.Null()]);
 export const StatusResultSchema = Type.Object({ status: Type.Union([Type.Literal("stopped"), Type.Literal("online"), Type.Literal("joined")]) }, { additionalProperties: false });
 export const SendResultSchema = Type.Object({ delivered: Type.Literal(true), mode: Type.Optional(Type.Union([Type.Literal("direct"), Type.Literal("steer"), Type.Literal("follow_up")])) }, { additionalProperties: false });
@@ -34,23 +30,36 @@ export const GetMessageResultSchema = Type.Object({ message: Type.Union([Extract
 export const ClearResultSchema = Type.Object({ cleared: Type.Literal(true), alreadyAtRoot: Type.Optional(Type.Boolean()), targetId: Type.Optional(Type.String()) }, { additionalProperties: false });
 export const SubscribeResultSchema = Type.Object({ subscriptionId: Type.String({ minLength: 1 }), event: Type.Literal("turn_end") }, { additionalProperties: false });
 export const EmptyResultSchema = Type.Object({}, { additionalProperties: false });
+export const RpcMethodResultSchema = Type.Union([StatusResultSchema, SendResultSchema, GetMessageResultSchema, ClearResultSchema, SubscribeResultSchema, EmptyResultSchema]);
 export const RpcResponseSchema = Type.Union([
-	Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: ResponseIdSchema, result: StatusResultSchema }, { additionalProperties: false }),
-	Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: ResponseIdSchema, result: SendResultSchema }, { additionalProperties: false }),
-	Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: ResponseIdSchema, result: GetMessageResultSchema }, { additionalProperties: false }),
-	Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: ResponseIdSchema, result: ClearResultSchema }, { additionalProperties: false }),
-	Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: ResponseIdSchema, result: SubscribeResultSchema }, { additionalProperties: false }),
-	Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: ResponseIdSchema, result: EmptyResultSchema }, { additionalProperties: false }),
+	Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: ResponseIdSchema, result: RpcMethodResultSchema }, { additionalProperties: false }),
 	Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: ResponseIdSchema, error: RpcErrorSchema }, { additionalProperties: false }),
 ]);
 export const TurnEndNotificationSchema = Type.Object({ jsonrpc: Type.Literal(JSON_RPC_VERSION), method: Type.Literal("session.turn_end"), params: Type.Object({ subscriptionId: Type.String({ minLength: 1 }), message: Type.Optional(Type.Union([ExtractedMessageSchema, Type.Null()])), turnIndex: Type.Optional(Type.Integer()) }, { additionalProperties: false }) }, { additionalProperties: false });
 
-export type JsonValue = Static<typeof JsonValueSchema>;
 export type RpcId = Static<typeof RpcIdSchema>;
 export type RpcRequest = Static<typeof RpcRequestSchema>;
+export type MessageSendRequest = Static<typeof MessageSendRequestSchema>;
+export type SubscribeRequest = Static<typeof SubscribeRequestSchema>;
+export type StatusRequest = Static<typeof StatusRequestSchema>;
+export type GetMessageRequest = Static<typeof GetMessageRequestSchema>;
+export type ClearRequest = Static<typeof ClearRequestSchema>;
+export type AbortRequest = Static<typeof AbortRequestSchema>;
+export type MessageSendParams = Static<typeof MessageSendParamsSchema>;
+export type SubscribeParams = Static<typeof SubscribeParamsSchema>;
+export type StatusParams = Static<typeof EmptyParamsSchema>;
+export type GetMessageParams = Static<typeof EmptyParamsSchema>;
+export type ClearParams = Static<typeof EmptyParamsSchema>;
+export type AbortParams = Static<typeof EmptyParamsSchema>;
+export type StatusResult = Static<typeof StatusResultSchema>;
+export type SendResult = Static<typeof SendResultSchema>;
+export type GetMessageResult = Static<typeof GetMessageResultSchema>;
+export type ClearResult = Static<typeof ClearResultSchema>;
+export type SubscribeResult = Static<typeof SubscribeResultSchema>;
+export type AbortResult = Static<typeof EmptyResultSchema>;
 export type RpcError = Static<typeof RpcErrorSchema>;
 export type RpcWireResponse = Static<typeof RpcResponseSchema>;
-export type RpcMethodResult = Static<typeof StatusResultSchema> | Static<typeof SendResultSchema> | Static<typeof GetMessageResultSchema> | Static<typeof ClearResultSchema> | Static<typeof SubscribeResultSchema> | Static<typeof EmptyResultSchema>;
+export type RpcMethodResult = Static<typeof RpcMethodResultSchema>;
 export type RpcNotification = Static<typeof TurnEndNotificationSchema>;
 export type RpcCommand = Static<typeof MessageSendCommandSchema> | Static<typeof SubscribeCommandSchema> | Static<typeof StatusCommandSchema> | Static<typeof GetMessageCommandSchema> | Static<typeof ClearCommandSchema> | Static<typeof AbortCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
@@ -64,15 +73,15 @@ export type AbortCommand = Static<typeof AbortCommandSchema>;
 export type RpcSendCommand = MessageSendCommand;
 export type RpcSubscribeCommand = SubscribeCommand;
 
-export const MessageSendCommandSchema = Type.Object({ type: Type.Literal("send"), message: Type.String({ minLength: 1, maxLength: 1_000_000 }), mode: Type.Optional(Type.Union([Type.Literal("steer"), Type.Literal("follow_up")])), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
-export const SubscribeCommandSchema = Type.Object({ type: Type.Literal("subscribe"), event: Type.Literal("turn_end"), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
+export const MessageSendCommandSchema = Type.Intersect([Type.Object({ type: Type.Literal("send") }), MessageSendParamsSchema, Type.Object({ id: Type.Optional(RpcIdSchema) })]);
+export const SubscribeCommandSchema = Type.Intersect([Type.Object({ type: Type.Literal("subscribe") }), SubscribeParamsSchema, Type.Object({ id: Type.Optional(RpcIdSchema) })]);
 export const StatusCommandSchema = Type.Object({ type: Type.Literal("status"), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
 export const GetMessageCommandSchema = Type.Object({ type: Type.Literal("get_message"), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
 export const ClearCommandSchema = Type.Object({ type: Type.Literal("clear"), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
 export const AbortCommandSchema = Type.Object({ type: Type.Literal("abort"), id: Type.Optional(RpcIdSchema) }, { additionalProperties: false });
 
 export const RPC_ERROR = { parse: -32700, invalidRequest: -32600, methodNotFound: -32601, invalidParams: -32602, internal: -32603 } as const;
-export const RpcCommandResponseSchema = Type.Object({ type: Type.Literal("response"), command: Type.String({ minLength: 1 }), success: Type.Boolean(), error: Type.Optional(Type.String()), data: Type.Optional(Type.Union([StatusResultSchema, SendResultSchema, GetMessageResultSchema, ClearResultSchema, SubscribeResultSchema, EmptyResultSchema])), id: RpcIdSchema }, { additionalProperties: false });
+export const RpcCommandResponseSchema = Type.Object({ type: Type.Literal("response"), command: Type.String({ minLength: 1 }), success: Type.Boolean(), error: Type.Optional(Type.String()), data: Type.Optional(RpcMethodResultSchema), id: RpcIdSchema }, { additionalProperties: false });
 export const RpcTurnEndNotificationSchema = Type.Object({ type: Type.Literal("event"), event: Type.Literal("turn_end"), data: Type.Optional(Type.Object({ message: Type.Optional(Type.Union([ExtractedMessageSchema, Type.Null()])), turnIndex: Type.Optional(Type.Integer()) }, { additionalProperties: false })), subscriptionId: Type.String({ minLength: 1 }) }, { additionalProperties: false });
 export type RpcCommandResponse = Static<typeof RpcCommandResponseSchema>;
 export type RpcTurnEndNotification = Static<typeof RpcTurnEndNotificationSchema>;
@@ -83,20 +92,20 @@ export function isTurnEndNotification(value: unknown): value is RpcNotification 
 export function methodResultSchema(method: string) {
 	return method === "session.status" ? StatusResultSchema : method === "message.send" ? SendResultSchema : method === "session.get_message" ? GetMessageResultSchema : method === "session.clear" ? ClearResultSchema : method === "session.abort" ? EmptyResultSchema : method === "event.subscribe" ? SubscribeResultSchema : undefined;
 }
-export function isMethodResult(method: string, value: unknown): boolean { const schema = methodResultSchema(method); return schema ? Value.Check(schema, value) : false; }
+export function isMethodResult(method: string, value: unknown): value is RpcMethodResult { const schema = methodResultSchema(method); return schema ? Value.Check(schema, value) : false; }
 export function isSubscribeResult(value: unknown): value is Static<typeof SubscribeResultSchema> { return Value.Check(SubscribeResultSchema, value); }
 export function isGetMessageResult(value: unknown): value is Static<typeof GetMessageResultSchema> { return Value.Check(GetMessageResultSchema, value); }
 export function isExtractedMessage(value: unknown): value is Static<typeof ExtractedMessageSchema> { return Value.Check(ExtractedMessageSchema, value); }
 export function isClearResult(value: unknown): value is Static<typeof ClearResultSchema> { return Value.Check(ClearResultSchema, value); }
 export function buildResultResponse(id: RpcId, method: string, result: unknown): RpcWireResponse | ProtocolFailure {
 	if (!isMethodResult(method, result)) return { code: RPC_ERROR.internal, message: "Invalid method result", data: { code: "invalid-result" } };
-	return { jsonrpc: JSON_RPC_VERSION, id, result } as RpcWireResponse;
+	return { jsonrpc: JSON_RPC_VERSION, id, result };
 }
-export function buildErrorResponse(id: RpcId | null, code: number, message: string, data?: JsonValue): RpcWireResponse {
-	return { jsonrpc: JSON_RPC_VERSION, id, error: { code, message, ...(data === undefined ? {} : { data }) } } as RpcWireResponse;
+export function buildErrorResponse(id: RpcId | null, code: number, message: string, data?: { code?: string }): RpcWireResponse {
+	return { jsonrpc: JSON_RPC_VERSION, id, error: { code, message, ...(data === undefined ? {} : { data }) } };
 }
-export function buildTurnEndNotification(subscriptionId: string, message: Static<typeof ExtractedMessageSchema> | null, turnIndex?: number): RpcNotification {
-	const value = { jsonrpc: JSON_RPC_VERSION, method: "session.turn_end" as const, params: { subscriptionId, ...(message === undefined ? {} : { message }), ...(turnIndex === undefined ? {} : { turnIndex }) } };
+export function buildTurnEndNotification(subscriptionId: string, message: ExtractedMessage | null, turnIndex?: number): RpcNotification {
+	const value: RpcNotification = { jsonrpc: JSON_RPC_VERSION, method: "session.turn_end", params: { subscriptionId, message, ...(turnIndex === undefined ? {} : { turnIndex }) } };
 	if (!isTurnEndNotification(value)) throw new Error("Invalid turn-end notification");
 	return value;
 }
@@ -106,10 +115,12 @@ export function serializeProtocolMessage(value: RpcWireResponse | RpcNotificatio
 	return `${JSON.stringify(value)}\n`;
 }
 export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
-	const map: Record<RpcCommand["type"], string> = { send: "message.send", get_message: "session.get_message", clear: "session.clear", abort: "session.abort", subscribe: "event.subscribe", status: "session.status" };
-	if (command.type === "send") return { jsonrpc: JSON_RPC_VERSION, id, method: map.send, params: { message: command.message, ...(command.mode ? { mode: command.mode } : {}) } };
-	if (command.type === "subscribe") return { jsonrpc: JSON_RPC_VERSION, id, method: map.subscribe, params: { event: command.event } };
-	return { jsonrpc: JSON_RPC_VERSION, id, method: map[command.type] } as RpcRequest;
+	if (command.type === "send") return { jsonrpc: JSON_RPC_VERSION, id, method: "message.send", params: { message: command.message, ...(command.mode ? { mode: command.mode } : {}) } };
+	if (command.type === "subscribe") return { jsonrpc: JSON_RPC_VERSION, id, method: "event.subscribe", params: { event: command.event } };
+	if (command.type === "status") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.status" };
+	if (command.type === "get_message") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.get_message" };
+	if (command.type === "clear") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.clear" };
+	return { jsonrpc: JSON_RPC_VERSION, id, method: "session.abort" };
 }
 export function requestToCommand(request: RpcRequest): RpcInboundCommand | ProtocolFailure {
 	const params = "params" in request ? request.params : undefined;
@@ -117,7 +128,10 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 	if (request.method === "message.send") return Value.Check(MessageSendParamsSchema, params) ? { type: "send", message: params.message, mode: params.mode, id: request.id } : invalid("Invalid message.send params");
 	if (["session.status", "session.get_message", "session.clear", "session.abort"].includes(request.method)) {
 		if (params !== undefined) return invalid(`Invalid ${request.method} params`);
-		return { type: request.method.slice("session.".length) as "status" | "get_message" | "clear" | "abort", id: request.id } as RpcInboundCommand;
+		if (request.method === "session.status") return { type: "status", id: request.id };
+		if (request.method === "session.get_message") return { type: "get_message", id: request.id };
+		if (request.method === "session.clear") return { type: "clear", id: request.id };
+		return { type: "abort", id: request.id };
 	}
 	if (request.method === "event.subscribe") return Value.Check(SubscribeParamsSchema, params) ? { type: "subscribe", event: "turn_end", id: request.id } : invalid("Invalid event.subscribe params");
 	return { code: RPC_ERROR.methodNotFound, message: `Method not found: ${request.method}`, data: { code: "method-not-found" } };
