@@ -74,7 +74,7 @@ test("Pi composition covers startup, restore, reload/role switch, leave, stop, s
 	);
 });
 
-test("Pi composition notifications false and failed cleanup produce no activity", async () => {
+test("Pi composition notifications false produces zero observer and message activity", async () => {
 	let membership: PresenceMembership | null = { ...makeMembership(lead, "off"), notifications: false };
 	let starts = 0;
 	let sends = 0;
