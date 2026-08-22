@@ -204,29 +204,31 @@ test("rejects ambiguous roles before RPC and aborts queued follow-ups before del
 	assert.equal(calls, 1);
 });
 
-test("cleans a failed queue tail and isolates a role-switched endpoint queue", async () => {
+test("cleans failed tails and isolates a role-switched endpoint while the old queue is blocked", async () => {
 	const coordinator = createMemberMessageCoordinator();
-	let calls = 0;
-	const failedThenOk = setup(
-		async (_path, command) => {
-			calls += 1;
-			if (calls === 1) throw new Error("target shutdown");
+	let releaseOld!: () => void;
+	let oldStarted!: () => void;
+	const oldStartedPromise = new Promise<void>((resolve) => {
+		oldStarted = resolve;
+	});
+	const paths: string[] = [];
+	const oldTools = setup(
+		async (endpoint, command) => {
+			paths.push(endpoint);
+			oldStarted();
+			await new Promise<void>((resolve) => {
+				releaseOld = resolve;
+			});
 			return ack(command.mode === "steer" ? "steered" : "queued");
 		},
 		true,
 		membership,
 		{ coordinator },
 	);
-	const first = failedThenOk
+	const oldPending = oldTools
 		.get("send_follow_up")!
-		.execute("call", { member: "qa", message: "fails" }, undefined, undefined, undefined);
-	const second = failedThenOk
-		.get("send_follow_up")!
-		.execute("call", { member: "qa", message: "recovers" }, undefined, undefined, undefined);
-	const results = await Promise.all([first, second]);
-	assert.equal(results[0].isError, true);
-	assert.equal(results[1].isError, undefined);
-	assert.equal(calls, 2);
+		.execute("call", { member: "qa", message: "old" }, undefined, undefined, undefined);
+	await oldStartedPromise;
 	const switchedMembership = {
 		...membership,
 		manifest: {
@@ -236,20 +238,50 @@ test("cleans a failed queue tail and isolates a role-switched endpoint queue", a
 			),
 		},
 	};
-	const paths: string[] = [];
-	const switched = setup(
-		async (path) => {
-			paths.push(path);
+	let newCompleted = false;
+	const newTools = setup(
+		async (endpoint) => {
+			paths.push(endpoint);
+			newCompleted = true;
 			return ack("queued");
 		},
 		true,
 		switchedMembership,
-		{ coordinator: createMemberMessageCoordinator() },
+		{ coordinator },
 	);
-	await switched
+	const newResult = await newTools
 		.get("send_follow_up")!
-		.execute("call", { member: "qa", message: "new endpoint" }, undefined, undefined, undefined);
-	assert.deepEqual(paths, ["/other/qa.sock"]);
+		.execute("call", { member: "qa", message: "new" }, undefined, undefined, undefined);
+	assert.equal(newResult.isError, undefined);
+	assert.equal(newCompleted, true);
+	assert.deepEqual(paths, ["/project/.pi/bebop/sockets/qa.sock", "/other/qa.sock"]);
+	releaseOld();
+	await oldPending;
+	assert.equal(coordinator.pendingKeyCount(), 0);
+
+	const failureCoordinator = createMemberMessageCoordinator();
+	let failureCalls = 0;
+	const recovery = setup(
+		async (_endpoint, command) => {
+			failureCalls += 1;
+			if (failureCalls === 1) throw new Error("target shutdown");
+			return ack(command.mode === "steer" ? "steered" : "queued");
+		},
+		true,
+		membership,
+		{ coordinator: failureCoordinator },
+	);
+	const failed = recovery
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "fails" }, undefined, undefined, undefined);
+	const recovered = recovery
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "recovers" }, undefined, undefined, undefined);
+	const results = await Promise.all([failed, recovered]);
+	assert.equal(results[0].isError, true);
+	assert.equal(results[1].isError, undefined);
+	assert.equal(failureCalls, 2);
+	assert.equal(failureCoordinator.pendingKeyCount(), 0);
 });
 
 test("rejects response waiting and preserves membership target errors without RPC", async () => {
