@@ -9,6 +9,7 @@ const qa: PresenceMember = { identity: "/crew/qa.sock", name: "qa", role: "qa" }
 function harness(notifications = true) {
 	const timers: Array<() => void> = [];
 	const probes: string[] = [];
+	const timeouts: number[] = [];
 	const effects: unknown[] = [];
 	const hints: string[] = [];
 	const answers = new Map<string, boolean>();
@@ -28,17 +29,18 @@ function harness(notifications = true) {
 					if (index >= 0) timers.splice(index, 1);
 				},
 			},
-			probe: async (identity) => {
+			probe: async (identity, timeout) => {
 				probes.push(identity);
+				timeouts.push(timeout);
 				return answers.get(identity) ?? true;
 			},
-			sendHint: async (member, state) => {
-				hints.push(`${member.identity}:${state}`);
+			sendHint: async (target, changed, state) => {
+				hints.push(`${target.identity}<-${changed.identity}:${state}`);
 			},
 			onEffects: (items) => effects.push(...items),
 		},
 	);
-	return { observer, timers, probes, effects, hints, answers };
+	return { observer, timers, probes, timeouts, effects, hints, answers };
 }
 
 test("initial scan probes non-current concurrently, emits ordered roster, and hints peers", async () => {
@@ -47,12 +49,19 @@ test("initial scan probes non-current concurrently, emits ordered roster, and hi
 	h.answers.set(qa.identity, false);
 	await h.observer.start();
 	assert.deepEqual(h.probes, [dev.identity, qa.identity]);
+	assert.deepEqual(h.timeouts, [500, 500]);
 	assert.deepEqual(
 		(h.effects[0] as { members: PresenceMember[] }).members.map((m) => m.identity),
 		[dev.identity, qa.identity],
 	);
-	assert.deepEqual(h.hints.sort(), [`${dev.identity}:online`, `${qa.identity}:online`].sort());
+	assert.deepEqual(
+		h.hints.sort(),
+		[`${dev.identity}<-${lead.identity}:online`, `${qa.identity}<-${lead.identity}:online`].sort(),
+	);
 	assert.equal(h.timers.length, 1);
+	const probesBeforeDuplicate = h.probes.length;
+	await h.observer.start();
+	assert.equal(h.probes.length, probesBeforeDuplicate);
 });
 
 test("hint validates claimed active identity, never mutates directly, and probes once", async () => {
@@ -89,16 +98,40 @@ test("unknown identity and mismatched role are no-ops", async () => {
 	assert.deepEqual(h.probes, []);
 });
 
-test("stale in-flight reconciliation is ignored after stop and timer is cancelled", async () => {
-	let resolveProbe!: (value: boolean) => void;
-	const h = harness();
-	const probe = h.observer;
-	await probe.start();
-	const before = probe.getState();
-	probe.stop();
-	assert.equal(h.timers.length, 0);
-	assert.equal(before, probe.getState());
-	resolveProbe?.(false);
+test("stale in-flight reconciliation and hint are ignored after stop", async () => {
+	const timers: Array<() => void> = [];
+	const pending: Array<(value: boolean) => void> = [];
+	const effects: unknown[] = [];
+	const observer = createPresenceObserver(
+		[lead, dev],
+		lead.identity,
+		"self",
+		{ notifications: true },
+		{
+			scheduler: {
+				schedule: (_delay, callback) => {
+					timers.push(callback);
+					return callback;
+				},
+				cancel: () => undefined,
+			},
+			probe: async () => await new Promise<boolean>((resolve) => pending.push(resolve)),
+			sendHint: async () => undefined,
+			onEffects: (items) => effects.push(...items),
+		},
+	);
+	const started = observer.start();
+	assert.equal(pending.length, 1);
+	observer.stop();
+	pending[0]!(false);
+	await started;
+	assert.equal(timers.length, 0);
+	assert.equal(observer.acceptHint({ member: dev, state: "online", instanceId: "peer" }), false);
+	assert.deepEqual(effects, []);
+	await observer.reconcile();
+	assert.deepEqual(effects, []);
+	observer.stop();
+	observer.stop();
 });
 
 test("disabled notifications create no probes, hints, effects, or timers", async () => {
@@ -109,6 +142,30 @@ test("disabled notifications create no probes, hints, effects, or timers", async
 	assert.deepEqual(h.effects, []);
 	assert.deepEqual(h.timers, []);
 	assert.equal(h.observer.acceptHint({ member: dev, state: "online", instanceId: "peer" }), false);
+});
+
+test("offline broadcast targets every peer with changed current member and isolates failures", async () => {
+	const h = harness();
+	const sent: string[] = [];
+	const observer = createPresenceObserver(
+		[lead, dev, qa],
+		lead.identity,
+		"self",
+		{ notifications: true },
+		{
+			scheduler: { schedule: (_d, cb) => cb, cancel: () => undefined },
+			probe: async () => true,
+			sendHint: async (target, changed, state) => {
+				sent.push(`${target.identity}<-${changed.identity}:${state}`);
+				if (target.identity === qa.identity) throw new Error("slow peer");
+			},
+			onEffects: () => undefined,
+		},
+	);
+	await observer.start();
+	sent.length = 0;
+	await observer.broadcast(lead, "offline");
+	assert.deepEqual(sent, [`${dev.identity}<-${lead.identity}:offline`, `${qa.identity}<-${lead.identity}:offline`]);
 });
 
 test("reconciliation probe failures are isolated and later scans remain available", async () => {

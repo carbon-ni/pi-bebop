@@ -79,11 +79,17 @@ export default function (pi: ExtensionAPI) {
 	const announceMembership = (message: string) => {
 		pi.sendMessage({ customType: "crew-status", content: message, display: true }, { triggerTurn: false });
 	};
+	const broadcastPresence = async (changed: import("./domain/index.ts").CrewMember, status: "online" | "offline") => {
+		await state.presenceObserver?.broadcast(
+			{ identity: changed.socketPath, name: changed.name, role: changed.role },
+			status,
+		);
+	};
 	const stopPresence = () => {
 		state.presenceObserver?.stop();
 		state.presenceObserver = undefined;
 	};
-	const refreshPresence = () => {
+	const refreshPresence = async () => {
 		stopPresence();
 		const membership = state.membershipRuntime?.getMembership();
 		if (!membership || !membership.manifest.presence.notifications) return;
@@ -103,12 +109,12 @@ export default function (pi: ExtensionAPI) {
 					schedule: (delay, callback) => setTimeout(callback, delay),
 					cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 				},
-				probe: (identity, timeout) => probeMemberEndpoint(identity),
-				sendHint: async (member, stateValue) => {
-					const endpoint = await resolveMemberEndpoint(member.identity);
+				probe: (identity, timeout) => probeMemberEndpoint(identity, { timeoutMs: timeout }),
+				sendHint: async (target, changed, stateValue) => {
+					const endpoint = await resolveMemberEndpoint(target.identity);
 					await sendRpcCommand(
 						endpoint,
-						{ type: "presence_hint", member, state: stateValue, instanceId },
+						{ type: "presence_hint", member: changed, state: stateValue, instanceId },
 						{ timeout: 500 },
 					);
 				},
@@ -116,7 +122,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		);
 		state.presenceObserver = observer;
-		void observer.start();
+		await observer.start();
 	};
 
 	registerSessionControlCommand(
@@ -133,6 +139,7 @@ export default function (pi: ExtensionAPI) {
 			refreshStatus: () => refreshIntrayStatus(state),
 			refreshPresence,
 			stopPresence,
+			broadcastPresence,
 		},
 		"crew",
 	);
@@ -160,7 +167,7 @@ export default function (pi: ExtensionAPI) {
 			const membership = state.membershipRuntime.getMembership();
 			if (joined && membership) {
 				activateMembershipTool(pi);
-				refreshPresence();
+				await refreshPresence();
 				persistMembership(true, membership);
 				announceMembership(
 					`Crew joined ${membership.member.name} (${membership.member.role}) at ${membership.socketPath}`,

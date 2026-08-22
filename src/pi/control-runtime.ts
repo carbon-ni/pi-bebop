@@ -156,7 +156,7 @@ export async function handleCommand(
 				state: command.state,
 				instanceId: command.instanceId,
 			}) ?? false;
-		respond(true, "presence_hint", {}, accepted ? undefined : "Presence hint ignored");
+		respond(true, "presence_hint", { accepted });
 		return;
 	}
 

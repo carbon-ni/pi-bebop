@@ -410,6 +410,45 @@ test("/crew members while unjoined gives exact guidance without probing", async 
 	assert.deepEqual(setupState.messages[0]!.options, { triggerTurn: false });
 });
 
+test("/crew leave releases before broadcasting offline and stopping presence", async () => {
+	const setupState = setup();
+	const events: string[] = [];
+	const current = {
+		manifestPath: "/project/.pi/bebop/crew.json",
+		socketPath: "/project/.pi/bebop/sockets/dev.sock",
+		globalSocketPath: "/global.sock",
+		member: {
+			name: "dev",
+			role: "developer",
+			socket: "sockets/dev.sock",
+			socketPath: "/project/.pi/bebop/sockets/dev.sock",
+		},
+		manifest: { version: 1, presence: { notifications: true }, members: [] },
+	} as never;
+	const runtime = {
+		getMembership: () => current,
+		leave: async () => {
+			events.push("release");
+			return { ok: true, left: true };
+		},
+	} as never;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			broadcastPresence: async () => {
+				events.push("offline");
+			},
+			stopPresence: () => {
+				events.push("stop");
+			},
+		}),
+	);
+	await setupState.getCommand().handler("leave", setupState.ctx);
+	assert.deepEqual(events, ["release", "offline", "stop"]);
+});
+
 test("/crew status and stop observe state and stop base resources", async () => {
 	const setupState = setup();
 	const calls: string[] = [];

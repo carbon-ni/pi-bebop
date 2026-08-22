@@ -59,14 +59,15 @@ export async function releaseMembershipBeforeCleanup(deps: {
 	readonly leave: () => Promise<unknown>;
 	readonly cleanup: () => Promise<void>;
 	readonly reportFailure: (message: string) => void;
-	readonly onReleased?: () => void;
+	readonly onReleased?: () => void | Promise<void>;
 }): Promise<void> {
 	try {
 		if (deps.hasMembership) {
 			const result = await deps.leave();
 			if (result && typeof result === "object" && "error" in result && result.error instanceof Error)
 				throw result.error;
-			if (result && typeof result === "object" && "left" in result && result.left === true) deps.onReleased?.();
+			if (result && typeof result === "object" && "left" in result && result.left === true)
+				await deps.onReleased?.();
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

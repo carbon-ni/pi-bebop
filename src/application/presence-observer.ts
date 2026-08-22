@@ -8,7 +8,6 @@ import {
 
 export const PRESENCE_RECONCILE_INTERVAL_MS = 5_000;
 export const PRESENCE_PROBE_TIMEOUT_MS = 500;
-export const PRESENCE_OFFLINE_FAILURE_THRESHOLD = 2;
 
 export interface PresenceScheduler {
 	schedule(delayMs: number, callback: () => void): unknown;
@@ -17,12 +16,13 @@ export interface PresenceScheduler {
 export interface PresenceObserverDependencies {
 	scheduler: PresenceScheduler;
 	probe(identity: string, timeoutMs: number): Promise<boolean>;
-	sendHint(member: PresenceMember, state: "online" | "offline"): Promise<void>;
+	sendHint(target: PresenceMember, changed: PresenceMember, state: "online" | "offline"): Promise<void>;
 	onEffects(effects: readonly PresenceEffect[]): void;
 }
 export interface PresenceObserver {
 	start(): Promise<void>;
 	reconcile(): Promise<void>;
+	broadcast(changed: PresenceMember, state: "online" | "offline"): Promise<void>;
 	acceptHint(hint: { member: PresenceMember; state: "online" | "offline"; instanceId: string }): boolean;
 	stop(): void;
 	getState(): PresenceState;
@@ -36,14 +36,19 @@ export function createPresenceObserver(
 	dependencies: PresenceObserverDependencies,
 ): PresenceObserver {
 	let generation = 0;
+	let active = false;
 	let timer: unknown;
+	let starting: Promise<void> | undefined;
 	let state = createInitialPresenceState(members, currentIdentity, config);
-	const activeMembers = () => members.filter((member) => member.identity !== currentIdentity);
-	const isCurrentGeneration = (value: number) => value === generation;
-	const applyScan = async (scanGeneration: number): Promise<void> => {
-		const targets = activeMembers();
+	const peers = () => members.filter((member) => member.identity !== currentIdentity);
+	const isActive = (token: number) => active && token === generation;
+	const broadcast = async (changed: PresenceMember, status: "online" | "offline") => {
+		if (!config.notifications) return;
+		await Promise.allSettled(peers().map((target) => dependencies.sendHint(target, changed, status)));
+	};
+	const scan = async (token: number) => {
 		const results = await Promise.all(
-			targets.map(async (member) => {
+			peers().map(async (member) => {
 				try {
 					return { member, online: await dependencies.probe(member.identity, PRESENCE_PROBE_TIMEOUT_MS) };
 				} catch {
@@ -51,7 +56,7 @@ export function createPresenceObserver(
 				}
 			}),
 		);
-		if (!isCurrentGeneration(scanGeneration)) return;
+		if (!isActive(token)) return;
 		for (const result of results) {
 			const reduced = reducePresence(state, {
 				members,
@@ -71,28 +76,36 @@ export function createPresenceObserver(
 			if (reduced.effects.length > 0) dependencies.onEffects(reduced.effects);
 		}
 	};
-	const scheduleNext = () => {
-		if (config.notifications && isCurrentGeneration(generation))
+	const schedule = (token: number) => {
+		if (isActive(token))
 			timer = dependencies.scheduler.schedule(PRESENCE_RECONCILE_INTERVAL_MS, () => void reconcile());
 	};
 	const reconcile = async () => {
-		const scanGeneration = generation;
-		await applyScan(scanGeneration);
-		if (isCurrentGeneration(scanGeneration)) scheduleNext();
+		if (!active) return;
+		const token = generation;
+		await scan(token);
+		schedule(token);
 	};
 	return {
 		async start() {
-			if (!config.notifications) return;
+			if (!config.notifications || active) return;
+			active = true;
 			generation += 1;
-			await reconcile();
-			if (isCurrentGeneration(generation)) {
-				for (const member of activeMembers())
-					void dependencies.sendHint(member, "online").catch(() => undefined);
-			}
+			const token = generation;
+			starting = reconcile()
+				.then(async () => {
+					if (isActive(token))
+						await broadcast(members.find((member) => member.identity === currentIdentity)!, "online");
+				})
+				.finally(() => {
+					starting = undefined;
+				});
+			await starting;
 		},
 		reconcile,
+		broadcast,
 		acceptHint(hint) {
-			if (!config.notifications || hint.instanceId === instanceId || !hint.instanceId) return false;
+			if (!active || !config.notifications || !hint.instanceId || hint.instanceId === instanceId) return false;
 			const member = members.find(
 				(candidate) =>
 					candidate.identity === hint.member.identity &&
@@ -100,24 +113,25 @@ export function createPresenceObserver(
 					candidate.role === hint.member.role,
 			);
 			if (!member) return false;
-			const hintGeneration = generation;
+			const token = generation;
 			void dependencies
 				.probe(member.identity, PRESENCE_PROBE_TIMEOUT_MS)
 				.then((online) => {
-					if (isCurrentGeneration(hintGeneration)) {
-						const reduced = reducePresence(state, {
-							members,
-							currentMemberIdentity: currentIdentity,
-							event: { type: "observation", memberIdentity: member.identity, online },
-						});
-						state = reduced.state;
-						if (reduced.effects.length > 0) dependencies.onEffects(reduced.effects);
-					}
+					if (!isActive(token)) return;
+					const reduced = reducePresence(state, {
+						members,
+						currentMemberIdentity: currentIdentity,
+						event: { type: "observation", memberIdentity: member.identity, online },
+					});
+					state = reduced.state;
+					if (reduced.effects.length > 0) dependencies.onEffects(reduced.effects);
 				})
 				.catch(() => undefined);
 			return true;
 		},
 		stop() {
+			if (!active) return;
+			active = false;
 			generation += 1;
 			if (timer !== undefined) dependencies.scheduler.cancel(timer);
 			timer = undefined;
