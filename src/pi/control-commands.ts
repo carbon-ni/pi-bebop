@@ -17,8 +17,7 @@ export type ControlCommandDeps = {
 	deactivateMembershipTool?: () => void;
 	refreshStatus?: () => void;
 	refreshPresence?: () => void | Promise<void>;
-	stopPresence?: () => void;
-	broadcastPresence?: (member: Membership["member"], state: "online" | "offline") => Promise<void>;
+	stopPresence?: () => void | Promise<void>;
 };
 
 const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop"];
@@ -108,7 +107,6 @@ export function registerSessionControlCommand(
 					}
 					const socketPath = selection.socketPath;
 					const manifestPath = selection.manifestPath;
-					const previousMembership = membership.getMembership();
 					const result = await membership.join({
 						manifestPath,
 						socketPath,
@@ -122,14 +120,7 @@ export function registerSessionControlCommand(
 					deps.persistMembership?.(true, result.membership);
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
-					const sameMembership =
-						previousMembership?.socketPath === result.membership.socketPath &&
-						previousMembership.member.name === result.membership.member.name &&
-						previousMembership.member.role === result.membership.member.role;
-					if (!sameMembership) {
-						if (previousMembership) await deps.broadcastPresence?.(previousMembership.member, "offline");
-						await deps.refreshPresence?.();
-					}
+					await deps.refreshPresence?.();
 					deps.announceMembership?.(joinedMessage);
 					notify(ctx, joinedMessage);
 					return;
@@ -147,13 +138,7 @@ export function registerSessionControlCommand(
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
-							try {
-								await deps.broadcastPresence?.(previousMembership!.member, "offline");
-							} catch {
-								// Presence broadcast is best-effort; release must still complete.
-							} finally {
-								deps.stopPresence?.();
-							}
+							await deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
 						}
 						notify(ctx, result.left ? "Crew membership released" : "Crew not joined");
@@ -181,14 +166,7 @@ export function registerSessionControlCommand(
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
-							try {
-								if (previousMembership)
-									await deps.broadcastPresence?.(previousMembership.member, "offline");
-							} catch {
-								// Presence broadcast is best-effort; cleanup must still complete.
-							} finally {
-								deps.stopPresence?.();
-							}
+							await deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
 						},
 						reportFailure: (message) => notify(ctx, message, "warning"),

@@ -6,6 +6,12 @@ import type { PresenceMember } from "../domain/index.ts";
 
 const a: PresenceMember = { identity: "/a", name: "a", role: "dev" };
 const b: PresenceMember = { identity: "/b", name: "b", role: "qa" };
+const makeMembership = (member: PresenceMember, fingerprint = member.identity): PresenceMembership => ({
+	member,
+	notifications: true,
+	fingerprint,
+	members: [a, b],
+});
 function fake(log: string[], failStart = false, failBroadcast = false): PresenceObserver {
 	return {
 		start: async () => {
@@ -26,7 +32,7 @@ function fake(log: string[], failStart = false, failBroadcast = false): Presence
 }
 
 test("refresh is idempotent and role switch orders old offline, stop, new start", async () => {
-	let membership: PresenceMembership | null = { member: a, notifications: true };
+	let membership: PresenceMembership | null = makeMembership(a);
 	const log: string[] = [];
 	const coordinator = createPresenceLifecycleCoordinator({
 		getMembership: () => membership,
@@ -36,7 +42,20 @@ test("refresh is idempotent and role switch orders old offline, stop, new start"
 	await coordinator.refresh();
 	await coordinator.refresh();
 	assert.deepEqual(log, ["start"]);
-	membership = { member: b, notifications: true };
+	membership = makeMembership(b);
+	await coordinator.refresh();
+	assert.deepEqual(log, ["start", "broadcast:offline", "stop", "start"]);
+});
+
+test("same identity with changed fingerprint replaces observer", async () => {
+	let current = makeMembership(a, "v1");
+	const log: string[] = [];
+	const coordinator = createPresenceLifecycleCoordinator({
+		getMembership: () => current,
+		createObserver: () => fake(log),
+	});
+	await coordinator.refresh();
+	current = makeMembership(a, "v2");
 	await coordinator.refresh();
 	assert.deepEqual(log, ["start", "broadcast:offline", "stop", "start"]);
 });
@@ -50,7 +69,7 @@ test("refresh, broadcast, and stop failures are isolated and cleanup continues",
 		reportFailure: () => log.push("failure"),
 	});
 	await coordinator.refresh();
-	membership = { member: b, notifications: true };
+	membership = makeMembership(b);
 	await coordinator.refresh();
 	await coordinator.stop();
 	assert.deepEqual(log, [
@@ -63,7 +82,7 @@ test("refresh, broadcast, and stop failures are isolated and cleanup continues",
 		"failure",
 		"stop",
 	]);
-	membership = { member: a, notifications: false };
+	membership = { ...makeMembership(a), notifications: false };
 	const startsBeforeDisabled = log.filter((item) => item === "start").length;
 	await coordinator.refresh();
 	assert.equal(log.filter((item) => item === "start").length, startsBeforeDisabled); // disabled refresh does not construct or start another observer
@@ -72,7 +91,7 @@ test("refresh, broadcast, and stop failures are isolated and cleanup continues",
 test("disabled membership constructs no observer", async () => {
 	let created = 0;
 	const coordinator = createPresenceLifecycleCoordinator({
-		getMembership: () => ({ member: a, notifications: false }),
+		getMembership: () => ({ ...makeMembership(a), notifications: false }),
 		createObserver: () => {
 			created++;
 			return fake([]);
