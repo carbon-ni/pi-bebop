@@ -76,8 +76,8 @@ export async function renderSessionList(
 	return rows.length > 0 ? `Intray sessions:\n${rows.join("\n")}` : "No live intray sessions.";
 }
 
-export function registerSessionControlCommand(pi: ExtensionAPI, state: SocketState, deps: ControlCommandDeps): void {
-	pi.registerCommand("intray", {
+export function registerSessionControlCommand(pi: ExtensionAPI, state: SocketState, deps: ControlCommandDeps, commandName = "crew"): void {
+	pi.registerCommand(commandName, {
 		description: "Join, leave, list, status, or stop intray",
 		getArgumentCompletions: (prefix) => {
 			const matches = ACTIONS.filter((action) => action.startsWith(prefix.trim()));
@@ -93,8 +93,7 @@ export function registerSessionControlCommand(pi: ExtensionAPI, state: SocketSta
 
 			switch (parsed.action) {
 				case "join": {
-					const ensureServer = deps.ensureControlServer ?? ensureControlServer;
-					await ensureServer(pi, state, ctx);
+					if (deps.ensureControlServer) await deps.ensureControlServer(pi, state, ctx);
 					if (!ctx.isProjectTrusted()) {
 						notify(ctx, "Intray join failed: project is not trusted", "error");
 						return;
