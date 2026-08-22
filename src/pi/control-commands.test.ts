@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import type { LiveSessionInfo } from "../infra/control-store.ts";
 import { createSocketState } from "./control-runtime.ts";
 import { registerSessionControlCommand, type ControlCommandDeps } from "./control-commands.ts";
 import { createMembershipRuntime, type MembershipRuntime } from "../infra/membership-runtime.ts";
@@ -16,13 +15,13 @@ function setup() {
 		  }
 		| undefined;
 	const notifications: string[] = [];
-	const messages: Array<{ content: string; options?: unknown }> = [];
+	const messages: Array<{ content: string; customType?: string; options?: unknown }> = [];
 	const pi = {
 		registerCommand: (_name: string, definition: typeof command) => {
 			command = definition;
 		},
-		sendMessage: (message: { content: string }, options?: unknown) =>
-			messages.push({ content: message.content, options }),
+		sendMessage: (message: { content: string; customType?: string }, options?: unknown) =>
+			messages.push({ content: message.content, customType: message.customType, options }),
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		hasUI: true,
@@ -34,13 +33,6 @@ function setup() {
 	const state = createSocketState();
 	return { pi, ctx, state, notifications, messages, getCommand: () => command! };
 }
-
-const liveSession = (sessionId: string, name?: string): LiveSessionInfo => ({
-	sessionId,
-	name,
-	aliases: name ? [name] : [],
-	socketPath: `/tmp/${sessionId}.sock`,
-});
 
 function baseDeps(overrides: Partial<ControlCommandDeps> = {}): ControlCommandDeps {
 	return {
@@ -57,7 +49,8 @@ test("intray command completions expose only the consolidated command surface", 
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
 		({ value }) => value,
 	);
-	assert.deepEqual(values, ["join", "leave", "list", "status", "stop"]);
+	assert.deepEqual(values, ["join", "leave", "members", "status", "stop"]);
+	assert.match((setupState.getCommand() as any).description, /crew members/i);
 });
 
 test("/intray join and leave use membership runtime without stopping base server", async () => {
@@ -346,37 +339,69 @@ test("/intray join reports trust and runtime failures without claiming", async (
 	assert.deepEqual(failed.notifications, ["Intray join failed: claim failed"]);
 });
 
-test("/intray list works while stopped and probes live sessions in parallel", async () => {
+test("/crew members renders the manifest roster in order and never probes current", async () => {
 	const setupState = setup();
-	let activeProbes = 0;
-	let maxProbes = 0;
+	const members = [
+		{ name: "lead", role: "lead", socket: "sockets/lead.sock", socketPath: "/project/.pi/bebop/sockets/lead.sock" },
+		{ name: "Bob", role: "dev", socket: "sockets/Bob.sock", socketPath: "/project/.pi/bebop/sockets/Bob.sock" },
+		{
+			name: "Kelly",
+			role: "qa",
+			socket: "sockets/Kelly.sock",
+			socketPath: "/project/.pi/bebop/sockets/Kelly.sock",
+		},
+	];
+	setupState.state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: members[1]!.socketPath,
+			globalSocketPath: "/global/uuid.sock",
+			member: members[1],
+			manifest: { version: 1, members },
+		}),
+	} as never;
+	const probes: string[] = [];
 	registerSessionControlCommand(
 		setupState.pi,
 		setupState.state,
 		baseDeps({
-			getLiveSessions: async () => [liveSession("one", "one"), liveSession("two", "two")],
-			sendRpcCommand: async (path) => {
-				activeProbes += 1;
-				maxProbes = Math.max(maxProbes, activeProbes);
-				await new Promise((resolve) => setTimeout(resolve, 5));
-				activeProbes -= 1;
-				return {
-					response: {
-						type: "response",
-						command: "status",
-						success: true,
-						data: { status: path.includes("one") ? "online" : "joined" },
-					},
-				};
+			probeMemberEndpoint: async (path) => {
+				probes.push(path);
+				if (path.includes("lead")) {
+					await new Promise((resolve) => setTimeout(resolve, 10));
+					return true;
+				}
+				throw new Error("stale endpoint");
 			},
 		}),
 	);
+	await setupState.getCommand().handler("members", setupState.ctx);
+	assert.deepEqual(probes.sort(), [members[0]!.socketPath, members[2]!.socketPath].sort());
+	assert.equal(setupState.messages[0]!.customType, "crew-roster");
+	assert.equal(
+		setupState.messages[0]!.content,
+		"Crew: /project/.pi/bebop/crew.json\nMembers (3):\n- lead (lead) — online — /project/.pi/bebop/sockets/lead.sock\n- Bob (dev) — current — /project/.pi/bebop/sockets/Bob.sock\n- Kelly (qa) — offline — /project/.pi/bebop/sockets/Kelly.sock",
+	);
+	assert.equal(setupState.messages[0]!.content.includes("global/uuid"), false);
+	assert.deepEqual(setupState.messages[0]!.options, { triggerTurn: false });
+});
 
-	await setupState.getCommand().handler("list", setupState.ctx);
-	assert.equal(maxProbes, 2);
-	assert.equal(setupState.messages.length, 1);
-	assert.match(setupState.messages[0]!.content, /one.*online/s);
-	assert.match(setupState.messages[0]!.content, /two.*joined/s);
+test("/crew members while unjoined gives exact guidance without probing", async () => {
+	const setupState = setup();
+	let probes = 0;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			probeMemberEndpoint: async () => {
+				probes += 1;
+				return true;
+			},
+		}),
+	);
+	await setupState.getCommand().handler("members", setupState.ctx);
+	assert.equal(setupState.messages[0]!.content, "Crew not joined. Use /crew join <socket>.");
+	assert.equal(probes, 0);
 	assert.deepEqual(setupState.messages[0]!.options, { triggerTurn: false });
 });
 

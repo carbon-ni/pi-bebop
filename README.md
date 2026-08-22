@@ -53,9 +53,25 @@ For an existing session, join a crew endpoint with:
 /crew join .pi/bebop/sockets/lead.sock
 ```
 
-Use `/crew status`, `/crew leave`, or `/crew stop` to inspect or release the
-current identity. The configured socket name is authoritative (including
-extensionless names); `dev` is not silently changed to `dev.sock`.
+Use `/crew members` to inspect the authoritative roster for the active membership. It renders directly (without an `[intray-status]` or other custom header), in manifest order:
+
+```text
+Crew: /project/.pi/bebop/crew.json
+Members (3):
+- lead (lead) — current — /project/.pi/bebop/sockets/lead.sock
+- Bob (dev) — online — /project/.pi/bebop/sockets/Bob.sock
+- Kelly (qa) — offline — /project/.pi/bebop/sockets/Kelly.sock
+```
+
+Rows show configured project socket paths and exactly `current`, `online`, or
+`offline`; global UUID destinations, aliases, and full instructions are never
+shown. The current member is identified from membership without probing it;
+other endpoints are probed independently. If not joined, `/crew members` prints
+`Crew not joined. Use /crew join <socket>.` and performs no discovery. List
+output is displayed without starting an agent turn. Use `/crew status`,
+`/crew leave`, or `/crew stop` to inspect or release the current identity. The
+configured socket name is authoritative (including extensionless names); `dev`
+is not silently changed to `dev.sock`.
 
 Selections may target another trusted worktree from the current project. Both
 startup and runtime commands use the manifest adjacent to the absolute endpoint

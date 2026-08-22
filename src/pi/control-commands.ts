@@ -1,9 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { parseSessionControlAction, type SessionControlAction } from "../domain/index.ts";
-import { getLiveSessions, type LiveSessionInfo } from "../infra/control-store.ts";
+import { formatCrewList, parseSessionControlAction, type SessionControlAction } from "../domain/index.ts";
+import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
 import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
-import { getSocketPath } from "../infra/intray-paths.ts";
-import { sendRpcCommand } from "../infra/rpc-client.ts";
 import type { MembershipRuntime, Membership } from "../infra/membership-runtime.ts";
 import { deriveIntrayStatus, ensureControlServer, type SocketState } from "./control-runtime.ts";
 import { releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
@@ -11,9 +9,7 @@ import { releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
 export type ControlCommandDeps = {
 	ensureControlServer?: typeof ensureControlServer;
 	disableControlServer(state: SocketState, ctx: ExtensionContext | null): Promise<void>;
-	getLiveSessions?: typeof getLiveSessions;
-	sendRpcCommand?: typeof sendRpcCommand;
-	getSocketPath?: typeof getSocketPath;
+	probeMemberEndpoint?: (socketPath: string) => Promise<boolean>;
 	membershipRuntime?: MembershipRuntime;
 	persistMembership?: (active: boolean, membership: Membership) => void;
 	announceMembership?: (message: string) => void;
@@ -22,7 +18,7 @@ export type ControlCommandDeps = {
 	refreshStatus?: () => void;
 };
 
-const ACTIONS: SessionControlAction[] = ["join", "leave", "list", "status", "stop"];
+const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop"];
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
 	if (ctx.hasUI) ctx.ui.notify(message, level);
@@ -37,44 +33,33 @@ function renderStatus(state: SocketState): string {
 	return `Intray ${status}${crew}`;
 }
 
-async function getSessionStatus(
-	session: LiveSessionInfo,
-	currentSessionId: string,
+export async function renderCrewList(
 	state: SocketState,
-	sendRpc: typeof sendRpcCommand,
-	resolveSocketPath: typeof getSocketPath,
+	dependencies: Pick<ControlCommandDeps, "probeMemberEndpoint"> = {},
 ): Promise<string> {
-	if (session.sessionId === currentSessionId)
-		return deriveIntrayStatus(Boolean(state.server), Boolean(state.membershipRuntime?.getMembership()));
-	try {
-		const result = await sendRpc(resolveSocketPath(session.sessionId), { type: "status" }, { timeout: 500 });
-		if (!result.response.success) return "online";
-		const data = result.response.data as { status?: string } | undefined;
-		return data?.status ?? "online";
-	} catch {
-		return "online";
-	}
-}
-
-export async function renderSessionList(
-	state: SocketState,
-	ctx: ExtensionContext,
-	dependencies: Pick<ControlCommandDeps, "getLiveSessions" | "sendRpcCommand" | "getSocketPath"> = {},
-): Promise<string> {
-	const listSessions = dependencies.getLiveSessions ?? getLiveSessions;
-	const sendRpc = dependencies.sendRpcCommand ?? sendRpcCommand;
-	const resolveSocketPath = dependencies.getSocketPath ?? getSocketPath;
-	const sessions = await listSessions();
-	const currentSessionId = ctx.sessionManager.getSessionId();
+	const membership = state.membershipRuntime?.getMembership();
+	if (!membership) return "Crew not joined. Use /crew join <socket>.";
+	const probe = dependencies.probeMemberEndpoint ?? probeMemberEndpoint;
+	const current = membership.member;
 	const rows = await Promise.all(
-		sessions.map(async (session) => {
-			const aliases = session.aliases.length > 0 ? ` (${session.aliases.join(", ")})` : "";
-			const current = session.sessionId === currentSessionId ? " (current)" : "";
-			const status = await getSessionStatus(session, currentSessionId, state, sendRpc, resolveSocketPath);
-			return `- ${session.sessionId}${aliases} — ${status}${current}`;
+		membership.manifest.members.map(async (member) => {
+			if (
+				member.name === current.name &&
+				member.role === current.role &&
+				member.socketPath === current.socketPath
+			)
+				return { member, status: "current" as const };
+			try {
+				return {
+					member,
+					status: (await probe(member.socketPath)) ? ("online" as const) : ("offline" as const),
+				};
+			} catch {
+				return { member, status: "offline" as const };
+			}
 		}),
 	);
-	return rows.length > 0 ? `Intray sessions:\n${rows.join("\n")}` : "No live intray sessions.";
+	return formatCrewList(membership.manifestPath, rows);
 }
 
 export function registerSessionControlCommand(
@@ -84,7 +69,7 @@ export function registerSessionControlCommand(
 	commandName = "crew",
 ): void {
 	pi.registerCommand(commandName, {
-		description: "Join, leave, list, status, or stop intray",
+		description: "Join, inspect crew members, leave, show status, or stop Bebop",
 		getArgumentCompletions: (prefix) => {
 			const matches = ACTIONS.filter((action) => action.startsWith(prefix.trim()));
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
@@ -156,9 +141,9 @@ export function registerSessionControlCommand(
 					}
 					return;
 				}
-				case "list": {
-					const content = await renderSessionList(state, ctx, deps);
-					pi.sendMessage({ customType: "intray-status", content, display: true }, { triggerTurn: false });
+				case "members": {
+					const content = await renderCrewList(state, deps);
+					pi.sendMessage({ customType: "crew-roster", content, display: true }, { triggerTurn: false });
 					return;
 				}
 				case "status":

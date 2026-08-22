@@ -96,6 +96,16 @@ export function getMessageDisplayModel(
 	return { text, senderText: payload ? claimedOrigin(payload) : formatSenderInfo(senderInfo) };
 }
 
+export const renderCrewRoster: MessageRenderer = (message, _options, theme) => {
+	const box = new Box(0, 0, (t) => theme.bg("customMessageBg", t));
+	box.addChild(
+		new Markdown(extractTextContent(message.content), 0, 0, getMarkdownTheme(), {
+			color: (value: string) => theme.fg("customMessageText", value),
+		}),
+	);
+	return box;
+};
+
 export const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => {
 	const { text, senderText } = getMessageDisplayModel(message, expanded);
 
