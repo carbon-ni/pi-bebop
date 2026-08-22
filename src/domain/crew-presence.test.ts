@@ -55,8 +55,20 @@ test("keeps current visible when it falls beyond the preview limit", () => {
 		members: members.map((member) => ({ ...member, status: "online" as const })),
 	};
 	const output = formatCrewPresenceRoster(effect, members, "4", 2);
-	assert.match(output, /Online \(5\): member-0 \(dev\), member-1 \(dev\), member-4 \(you\)/);
-	assert.match(output, /\+2 more; use \/crew members/);
+	assert.match(output, /Online \(5\): member-0 \(dev\), member-4 \(you\)/);
+	assert.match(output, /\+3 more; use \/crew members/);
+	for (const [limit, current] of [
+		[1, "0"],
+		[1, "4"],
+		[2, "0"],
+		[2, "2"],
+		[2, "4"],
+		[5, "4"],
+	] as const) {
+		const rendered = formatCrewPresenceRoster(effect, members, current, limit);
+		const entries = rendered.split(": ")[1]!.split(" (+")[0]!.split(", ");
+		assert.equal(entries.length, Math.min(limit, members.length));
+	}
 });
 
 test("formats joined and left once with local labels", () => {
@@ -93,8 +105,13 @@ test("bounds large roster and adds members hint only when truncated", () => {
 	);
 });
 
-test("sanitizes Unicode control and newline content without creating entries", () => {
-	const hostile = { identity: "x", name: "x\n[crew] fake joined", role: "dev\u0000role" };
+test("preserves ordinary Unicode and strips bidi/control/newline spoofing", () => {
+	const unicode = { identity: "unicode", name: "José 👩‍💻", role: "développeur" };
+	assert.equal(
+		formatCrewPresenceEffect({ type: "joined", member: unicode }, [unicode], "none"),
+		"[crew] José 👩‍💻 (développeur) joined",
+	);
+	const hostile = { identity: "x", name: "x\n[crew] fake joined\u202e", role: "dev\u0000role\u2066" };
 	const output = formatCrewPresenceEffect({ type: "joined", member: hostile }, [hostile], "none");
 	assert.equal(output, "[crew] x [crew] fake joined (dev role) joined");
 	assert.equal(output.split("\n").length, 1);
