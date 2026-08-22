@@ -1,7 +1,7 @@
 ---
 id: TASK-0023
 title: Add direct socket messaging CLI
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, cli, rpc, automation]
@@ -22,7 +22,7 @@ pi-bebop send \
   --message "Review the current changes"
 ```
 
-The member endpoint is already a filesystem capability: the CLI should not require a crew manifest, active Pi membership, or project trust. Operating-system access to the Unix socket remains the authorization boundary. This intentionally sends to one endpoint, not to a role resolved from a manifest.
+The member endpoint is already a local capability: the CLI should not require a crew manifest, active Pi membership, or project trust. A caller who can successfully connect to the Unix socket can send protocol commands; there is currently no application-level authentication. The implementation must verify and document directory/socket permission behavior on supported operating systems rather than assuming path knowledge alone grants access. This intentionally sends to one endpoint, not to a role resolved from a manifest.
 
 The first version should support:
 
@@ -42,8 +42,10 @@ External CLI calls have no live sender session, so they must not attach `sender_
 2. Extract the runtime-independent direct-message operation from the registered tool adapter so the Pi tool and CLI share RPC semantics without importing each other's presentation layer.
 3. Add a thin CLI composition root that validates all arguments before filesystem or socket IO, handles signals, maps errors to stable exit codes, and renders only at the output boundary.
 4. Publish a `pi-bebop` package `bin` entry whose installed artifact runs with plain Node and production dependencies only; add a deterministic build/prepack path rather than requiring global `tsx`.
-5. Add an integration test against a temporary Unix socket and an installed/built CLI artifact.
-6. Document shell, stdin, immediate acknowledgement, synchronous response, and output-format examples.
+5. Add an explicit package file allowlist so release archives exclude `.pi`, `.tmp`, plans, editor fixtures, databases, and other repository-local state.
+6. Add an integration test against a temporary Unix socket and an installed/built CLI artifact.
+7. Verify Unix socket/directory access behavior on supported platforms and document that connect permission—not path secrecy—is the boundary.
+8. Document shell, stdin, immediate acknowledgement, synchronous response, and output-format examples.
 
 ## Output and exit contract
 
@@ -64,10 +66,11 @@ External CLI calls have no live sender session, so they must not attach `sender_
 - [ ] Offline sockets, permission denial, RPC rejection, malformed response, timeout, and missing assistant response produce distinct actionable errors.
 - [ ] Unknown flags and invalid enum/duration values return exit `2` before socket IO.
 - [ ] Default TOON output is deterministic and specification-compatible; JSON is semantically equivalent and text remains concise.
-- [ ] The CLI never adds callback sender metadata and documentation states that filesystem socket permissions are the authorization boundary.
+- [ ] The CLI never adds callback sender metadata; tests and documentation accurately define who can connect based on directory/socket permissions on supported platforms.
 - [ ] Both `.pi/bebop/sockets/*` and `.pi/crew/sockets/*` work because targeting is direct; no manifest fallback or role lookup is introduced.
 - [ ] The existing `send_to_member` and `send_to_session` behavior remains unchanged and uses the shared direct-message operation.
 - [ ] Package installation exposes `pi-bebop`; the built executable runs under plain Node without development dependencies.
+- [ ] `npm pack --dry-run` contains only intentional runtime, type, license, and documentation files—no `.pi`, `.tmp`, database, log, plan, or nested fixture state.
 - [ ] Focused parser, renderer, transport, integration, packaging, unhappy-path, and truncation tests pass, followed by the final watcher gate.
 
 ## Out of scope
