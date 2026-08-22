@@ -8,11 +8,14 @@ import {
 } from "../application/member-message.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
-const parameters = Type.Object({
-	member: Type.String({ minLength: 1, description: "Crew member name or unique role" }),
-	message: Type.String({ minLength: 1, description: "Message to send" }),
-	wait_for: Type.Optional(Type.Union([Type.Literal("accepted"), Type.Literal("response")])),
-});
+const parameters = Type.Object(
+	{
+		member: Type.String({ minLength: 1, description: "Crew member name or unique role" }),
+		message: Type.String({ minLength: 1, description: "Message to send" }),
+		wait_for: Type.Optional(Type.Union([Type.Literal("accepted"), Type.Literal("response")])),
+	},
+	{ additionalProperties: false },
+);
 const MAX_OUTPUT = 500;
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean; details: unknown };

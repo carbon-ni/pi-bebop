@@ -17,9 +17,13 @@ export interface MemberMessageRequest {
 	readonly signal?: AbortSignal;
 	readonly sender?: { sessionId: string; sessionName?: string };
 }
+export interface MemberMessageCoordinator {
+	enqueue<T>(key: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T>;
+}
 export interface MemberMessageDependencies {
 	readonly sendRpcCommand?: typeof sendRpcCommand;
 	readonly resolveEndpoint?: (socketPath: string) => Promise<string>;
+	readonly coordinator?: MemberMessageCoordinator;
 }
 export interface MemberMessageOutcome {
 	readonly target: CrewMember;
@@ -27,7 +31,33 @@ export interface MemberMessageOutcome {
 	readonly disposition: "direct" | "queued" | "steered";
 }
 
-const followUpQueues = new Map<string, Promise<void>>();
+class EndpointQueueCoordinator implements MemberMessageCoordinator {
+	private readonly tails = new Map<string, Promise<void>>();
+
+	enqueue<T>(key: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+		const previous = this.tails.get(key) ?? Promise.resolve();
+		const run = async () => {
+			if (signal?.aborted) throw Object.assign(new Error("Operation aborted"), { name: "AbortError" });
+			return operation();
+		};
+		const current = previous.catch(() => undefined).then(run);
+		const tail = current.then(
+			() => undefined,
+			() => undefined,
+		);
+		this.tails.set(key, tail);
+		void tail.then(() => {
+			if (this.tails.get(key) === tail) this.tails.delete(key);
+		});
+		return current;
+	}
+}
+
+export function createMemberMessageCoordinator(): MemberMessageCoordinator {
+	return new EndpointQueueCoordinator();
+}
+
+const defaultCoordinator = createMemberMessageCoordinator();
 
 export class MemberMessageError extends Error {
 	readonly code: string;
@@ -88,14 +118,5 @@ export async function sendMemberMessage(
 		return { target, deliveryId: result.response.data.deliveryId, disposition: result.response.data.disposition };
 	};
 	if (request.intent === "immediate") return deliver();
-	const previous = followUpQueues.get(endpoint) ?? Promise.resolve();
-	const current = previous.catch(() => undefined).then(deliver);
-	followUpQueues.set(
-		endpoint,
-		current.then(
-			() => undefined,
-			() => undefined,
-		),
-	);
-	return current;
+	return (dependencies.coordinator ?? defaultCoordinator).enqueue(endpoint, deliver, request.signal);
 }
