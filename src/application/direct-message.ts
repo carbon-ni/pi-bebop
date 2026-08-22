@@ -14,8 +14,8 @@ export interface DirectMessageRequest {
 }
 
 export class DirectMessageError extends Error {
-	readonly code: "remote-rejected" | "missing-response";
-	constructor(code: "remote-rejected" | "missing-response", message: string) {
+	readonly code: "remote-rejected" | "missing-assistant-response";
+	constructor(code: "remote-rejected" | "missing-assistant-response", message: string) {
 		super(message);
 		this.name = "DirectMessageError";
 		this.code = code;
@@ -44,9 +44,12 @@ export async function sendDirectMessage(
 	const result = await sendRpc(request.socketPath, command, options);
 	if (!result.response.success) throw new DirectMessageError("remote-rejected", result.response.error ?? "Remote endpoint rejected the message");
 	if (request.wait === "accepted") return { status: "accepted", data: result.response.data };
+	if (result.event?.message === undefined) {
+		throw new DirectMessageError("missing-assistant-response", "Turn completed without an assistant response");
+	}
 	return {
 		status: "completed",
-		...(result.event?.message === undefined ? {} : { message: result.event.message }),
+		message: result.event.message,
 		...(result.event?.turnIndex === undefined ? {} : { turnIndex: result.event.turnIndex }),
 	};
 }

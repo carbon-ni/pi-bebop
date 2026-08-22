@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { runCli } from "./main.ts";
+import { errorCode, runCli } from "./main.ts";
 
 test("runs against a live Unix socket and waits for the assistant response", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-"));
@@ -41,4 +41,21 @@ test("runs against a live Unix socket and waits for the assistant response", asy
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(dir, { recursive: true, force: true });
 	}
+});
+
+test("renders stdin read failures in the selected structured format", async () => {
+	const input = new PassThrough();
+	const output = new PassThrough();
+	let text = "";
+	output.setEncoding("utf8");
+	output.on("data", (chunk) => { text += chunk; });
+	const pending = runCli(["send", "--socket", "/offline.sock", "--stdin", "--format", "json"], process.cwd(), input, output);
+	input.emit("error", Object.assign(new Error("stdin closed"), { code: "EIO" }));
+	assert.equal(await pending, 1);
+	assert.deepEqual(JSON.parse(text), { ok: false, target: "/offline.sock", status: "error", error: { code: "offline", message: "stdin closed" } });
+});
+
+test("distinguishes permission denial from an offline endpoint", () => {
+	assert.equal(errorCode(Object.assign(new Error("denied"), { code: "EACCES" })), "permission-denied");
+	assert.equal(errorCode(Object.assign(new Error("missing"), { code: "ENOENT" })), "offline");
 });

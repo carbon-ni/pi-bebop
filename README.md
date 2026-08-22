@@ -67,7 +67,8 @@ traverse its parent directories and connect to the socket (subject to the
 platform's Unix-socket permissions), not secrecy of the path. Path knowledge
 alone is not an authentication mechanism. Direct targeting supports both
 `.pi/bebop/sockets/*` and `.pi/crew/sockets/*`; no manifest or role lookup is
-performed.
+performed. Malformed RPC payload classification remains a transport concern
+tracked for TASK-0024; this CLI currently reports the shared transport timeout.
 
 ## Role-based messaging
 
