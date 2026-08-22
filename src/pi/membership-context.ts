@@ -1,0 +1,36 @@
+import type { Membership } from "../infra/membership-runtime.ts";
+
+export const MEMBERSHIP_ENTRY_TYPE = "intray-membership";
+export const MEMBERSHIP_CONTEXT_MARKER = "## Current intray crew identity";
+
+export interface PersistedMembershipState {
+	readonly active: boolean;
+	readonly socketPath: string;
+	readonly manifestPath?: string;
+}
+
+export function getLatestMembershipState(entries: readonly unknown[]): PersistedMembershipState | null {
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index] as { type?: string; customType?: string; data?: unknown };
+		if (entry.type !== "custom" || entry.customType !== MEMBERSHIP_ENTRY_TYPE || !entry.data || typeof entry.data !== "object") continue;
+		const data = entry.data as Partial<PersistedMembershipState>;
+		if (typeof data.active !== "boolean" || typeof data.socketPath !== "string") continue;
+		return { active: data.active, socketPath: data.socketPath, manifestPath: typeof data.manifestPath === "string" ? data.manifestPath : undefined };
+	}
+	return null;
+}
+
+export function membershipStateFromRuntime(membership: Membership, active = true): PersistedMembershipState {
+	return { active, socketPath: membership.socketPath, manifestPath: membership.manifestPath };
+}
+
+export function formatMembershipContext(membership: Membership): string {
+	const members = membership.manifest.members.map((member) => `${member.name} (${member.role})`).join(", ");
+	const instructions = membership.member.instructions ? `\nRole instructions: ${membership.member.instructions}` : "";
+	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}${instructions}`;
+}
+
+export function appendMembershipContext(systemPrompt: string, membership: Membership | null): string {
+	if (!membership || systemPrompt.includes(MEMBERSHIP_CONTEXT_MARKER)) return systemPrompt;
+	return `${systemPrompt}\n\n${formatMembershipContext(membership)}`;
+}

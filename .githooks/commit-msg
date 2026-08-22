@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -eu
+
+message_file="$1"
+subject="$(head -n 1 "$message_file")"
+
+case "$subject" in
+  feat:*|feat\(*\):*|fix:*|fix\(*\):*|docs:*|docs\(*\):*|test:*|test\(*\):*|chore:*|chore\(*\):*|refactor:*|refactor\(*\):*)
+    exit 0
+    ;;
+  *)
+    echo "Commit subject must start with one of: feat, fix, docs, test, chore, refactor" >&2
+    echo "Example: test: colocate test files with source" >&2
+    exit 1
+    ;;
+esac

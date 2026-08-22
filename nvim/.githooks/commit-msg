@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+set -eu
+
+subject=$(head -n 1 "$1")
+case "$subject" in
+  feat:*|fix:*|docs:*|test:*|refactor:*|chore:*|ci:*) exit 0 ;;
+  *)
+    echo "Commit subject must start with one of: feat:, fix:, docs:, test:, refactor:, chore:, ci:" >&2
+    exit 1
+    ;;
+esac
