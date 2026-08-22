@@ -374,6 +374,26 @@ test("rejects failed subscription responses", async () => {
 	);
 });
 
+test("accepts strict presence hint acknowledgements true and false", async () => {
+	for (const accepted of [true, false])
+		await withSocketServer(
+			(socket) =>
+				lines(socket, (request) => {
+					if (request.method === "presence.hint")
+						send(socket, { jsonrpc: "2.0", id: request.id, result: { accepted } });
+				}),
+			async (socketPath) => {
+				const result = await sendRpcCommand(socketPath, {
+					type: "presence_hint",
+					member: { identity: "/crew/dev.sock", name: "dev", role: "developer" },
+					state: "online",
+					instanceId: "peer",
+				});
+				assert.deepEqual(result.response.data, { accepted });
+			},
+		);
+});
+
 test("rejects malformed presence hint acknowledgements", async () => {
 	await withSocketServer(
 		(socket) =>
