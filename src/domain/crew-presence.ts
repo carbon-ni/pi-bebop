@@ -1,4 +1,4 @@
-import type { PresenceEffect, PresenceMember, PresenceStatus } from "./presence.ts";
+import type { PresenceEffect, PresenceMember } from "./presence.ts";
 
 export const CREW_PRESENCE_PREVIEW_LIMIT = 8;
 export const CREW_PRESENCE_CUSTOM_TYPE = "crew-presence";
@@ -25,15 +25,18 @@ export function formatCrewPresenceRoster(
 	previewLimit = CREW_PRESENCE_PREVIEW_LIMIT,
 ): string {
 	const statuses = new Map(effect.members.map((member) => [member.identity, member.status]));
-	const online = configuredMembers.filter(
-		(member) =>
-			member.identity === currentIdentity ||
-			statuses.get(member.identity) === ("online" satisfies PresenceStatus),
-	);
-	const visible = online.slice(0, Math.max(1, previewLimit));
-	const omitted = Math.max(0, online.length - visible.length);
+	const online = configuredMembers.filter((member) => {
+		const status = statuses.get(member.identity);
+		return member.identity === currentIdentity || status === "online" || status === "suspect";
+	});
+	const total = online.length;
+	const limit = Math.max(1, previewLimit);
+	let visible = online.slice(0, limit);
+	const current = online.find((member) => member.identity === currentIdentity);
+	if (current && !visible.some((member) => member.identity === currentIdentity)) visible = [...visible, current];
+	const omitted = Math.max(0, total - visible.length);
 	const suffix = omitted > 0 ? ` (+${omitted} more; use /crew members)` : "";
-	return `[crew] Online: ${visible.map((member) => label(member, currentIdentity)).join(", ") || "none"}${suffix}`;
+	return `[crew] Online (${total}): ${visible.map((member) => label(member, currentIdentity)).join(", ") || "none"}${suffix}`;
 }
 
 export function formatCrewPresenceTransition(

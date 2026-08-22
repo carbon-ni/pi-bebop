@@ -14,6 +14,16 @@ export function emitCrewPresenceActivity(
 ): void {
 	if (!membership || !membership.notifications) return;
 	for (const effect of effects) {
+		if (
+			effect.type !== "roster" &&
+			!membership.members.some(
+				(member) =>
+					member.identity === effect.member.identity &&
+					member.name === effect.member.name &&
+					member.role === effect.member.role,
+			)
+		)
+			continue;
 		send(
 			{
 				customType: "crew-presence",

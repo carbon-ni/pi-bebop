@@ -148,7 +148,6 @@ export default function (pi: ExtensionAPI) {
 		onObserverChanged: (observer) => {
 			state.presenceObserver = observer;
 		},
-		onEffects: emitPresenceEffects,
 		reportFailure: (error) => console.error(`Crew presence failed: ${String(error)}`),
 	});
 	const stopPresence = async () => {
