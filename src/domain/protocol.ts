@@ -1,6 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { ExtractedMessageSchema, type ExtractedMessage } from "./messages.ts";
+import { MessagePayloadSchema, isMessagePayload, type MessagePayload } from "./message-payload.ts";
 
 export const JSON_RPC_VERSION = "2.0" as const;
 export const RpcIdSchema = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
@@ -10,7 +11,7 @@ export const UnknownMethodParamsSchema = Type.Union([Type.Null(), Type.Object({}
 
 export const MessageSendParamsSchema = Type.Object(
 	{
-		content: Type.String({ minLength: 1, maxLength: 1_000_000 }),
+		...MessagePayloadSchema.properties,
 		delivery: Type.Optional(Type.Union([Type.Literal("follow_up"), Type.Literal("immediate")])),
 	},
 	{ additionalProperties: false },
@@ -151,6 +152,7 @@ export type GetMessageRequest = Static<typeof GetMessageRequestSchema>;
 export type ClearRequest = Static<typeof ClearRequestSchema>;
 export type AbortRequest = Static<typeof AbortRequestSchema>;
 export type MessageSendParams = Static<typeof MessageSendParamsSchema>;
+export type MessageSendPayload = MessagePayload;
 export type SubscribeParams = Static<typeof SubscribeParamsSchema>;
 export type StatusParams = Static<typeof EmptyParamsSchema>;
 export type GetMessageParams = Static<typeof EmptyParamsSchema>;
@@ -364,8 +366,12 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 export function requestToCommand(request: RpcRequest): RpcInboundCommand | ProtocolFailure {
 	const params = "params" in request ? request.params : undefined;
 	const invalid = (message: string): ProtocolFailure => ({ code: RPC_ERROR.invalidParams, message });
-	if (request.method === "message.send")
-		return Value.Check(MessageSendParamsSchema, params)
+	if (request.method === "message.send") {
+		const rawParams = params && typeof params === "object" ? (params as Record<string, unknown>) : undefined;
+		const payload = rawParams
+			? { content: rawParams.content, instructions: rawParams.instructions, origin: rawParams.origin }
+			: undefined;
+		return Value.Check(MessageSendParamsSchema, params) && isMessagePayload(payload)
 			? {
 					type: "send",
 					message: params.content,
@@ -373,6 +379,7 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 					id: request.id,
 				}
 			: invalid("Invalid message.send params");
+	}
 	if (["session.status", "session.get_message", "session.clear", "session.abort"].includes(request.method)) {
 		if (params !== undefined) return invalid(`Invalid ${request.method} params`);
 		if (request.method === "session.status") return { type: "status", id: request.id };
