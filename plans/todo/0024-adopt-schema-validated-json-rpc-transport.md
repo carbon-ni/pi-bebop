@@ -47,14 +47,14 @@ Schemas are the source of truth: derive TypeScript types from maintained runtime
 - [ ] Every inbound request is valid JSON-RPC 2.0 with a supported method, correctly typed ID, and schema-valid params before handler execution.
 - [ ] Every response echoes the request ID and contains exactly one of `result` or `error`; clients reject mismatched IDs.
 - [ ] All method params and results have exported runtime schemas and derived TypeScript types with no handwritten duplicate shape.
-- [ ] Unknown methods, unknown/extra params, missing required fields, wrong types, invalid enums, nulls, oversized values, malformed JSON, and invalid envelopes return deterministic standard errors without side effects.
+- [ ] Unknown methods, unknown/extra params and envelope keys, missing required fields, wrong types, invalid enums, nulls, oversized values, malformed JSON, invalid `jsonrpc`, and invalid envelopes return deterministic standard errors with explicit proof of zero handler/session side effects.
 - [ ] One-shot `event.subscribe` returns a subscription ID and emits one schema-valid `session.turn_end` notification correlated to that subscription.
-- [ ] Concurrent send/subscription requests cannot consume each other's responses or events.
-- [ ] Client validation reports malformed responses/notifications immediately and never leaks stack traces or raw dependency errors.
+- [ ] Concurrent requests with out-of-order responses cannot consume each other's results; duplicate/mismatched IDs and unsolicited or wrong-subscription notifications fail deterministically.
+- [ ] Client validation rejects invalid `jsonrpc`, unknown envelope keys, invalid notification IDs, result-plus-error, result-without-error, duplicate/mismatched IDs, and malformed responses/notifications immediately without leaking stack traces or raw dependency errors.
 - [ ] Existing status, send, get-message, clear, abort, timeout, abort-signal, and turn-end behavior remains covered through the new protocol.
 - [ ] The CLI and registered tools use the same generated protocol types and client; no adapter constructs raw JSON-RPC envelopes independently.
 - [ ] Migration is atomic: production code accepts only the JSON-RPC contract, with the breaking wire change documented.
-- [ ] Unix socket framing and access policy remain unchanged; JSON-RPC does not claim to add authentication.
+- [ ] Unix socket framing and access policy remain unchanged; JSON-RPC does not claim to add authentication, and transport provenance remains separate from caller-supplied method payloads so TASK-0025 cannot infer authority from raw origin fields.
 - [ ] Focused schema, parser, server, client, concurrency, and integration tests pass, followed by coverage/risk analysis and the final watcher gate.
 
 ## Out of scope
