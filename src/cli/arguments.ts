@@ -19,7 +19,8 @@ export class UsageError extends Error {
 
 function duration(value: string): number {
 	const match = /^(\d+)(ms|s|m)$/.exec(value);
-	if (!match || Number(match[1]) < 1) throw new UsageError(`Invalid --timeout '${value}'; use a positive duration such as 500ms, 30s, or 5m`);
+	if (!match || Number(match[1]) < 1)
+		throw new UsageError(`Invalid --timeout '${value}'; use a positive duration such as 500ms, 30s, or 5m`);
 	const multiplier = match[2] === "m" ? 60000 : match[2] === "s" ? 1000 : 1;
 	const result = Number(match[1]) * multiplier;
 	if (!Number.isSafeInteger(result)) throw new UsageError(`Invalid --timeout '${value}'; duration is too large`);
@@ -35,11 +36,16 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 	for (let index = 1; index < args.length; index += 1) {
 		const flag = args[index]!;
 		if (flag === "--stdin" || flag === "--full") {
-			if ((flag === "--stdin" && stdin) || (flag === "--full" && full)) throw new UsageError(`Duplicate flag: ${flag}`);
-			if (flag === "--stdin") stdin = true; else full = true;
+			if ((flag === "--stdin" && stdin) || (flag === "--full" && full))
+				throw new UsageError(`Duplicate flag: ${flag}`);
+			if (flag === "--stdin") stdin = true;
+			else full = true;
 			continue;
 		}
-		if (!valueFlags.has(flag)) throw new UsageError(`Unknown flag '${flag}'; valid flags: --socket, --message, --stdin, --mode, --wait, --timeout, --format, --full`);
+		if (!valueFlags.has(flag))
+			throw new UsageError(
+				`Unknown flag '${flag}'; valid flags: --socket, --message, --stdin, --mode, --wait, --timeout, --format, --full`,
+			);
 		if (values.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
 		const value = args[++index];
 		if (value === undefined || value.startsWith("--")) throw new UsageError(`Missing value for ${flag}`);
@@ -48,14 +54,29 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 	const socket = values.get("--socket");
 	if (!socket) throw new UsageError("Missing required --socket <path>");
 	const message = values.get("--message");
-	if (message !== undefined && stdin) throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
-	if (message === undefined && !stdin) throw new UsageError("Missing message source; use --message <text> or --stdin");
+	if (message !== undefined && stdin)
+		throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
+	if (message === undefined && !stdin)
+		throw new UsageError("Missing message source; use --message <text> or --stdin");
 	if (message !== undefined && message.length === 0) throw new UsageError("--message must not be empty");
 	const mode = values.get("--mode") ?? "steer";
-	if (mode !== "steer" && mode !== "follow_up") throw new UsageError(`Invalid --mode '${mode}'; valid alternatives: steer, follow_up`);
+	if (mode !== "steer" && mode !== "follow_up")
+		throw new UsageError(`Invalid --mode '${mode}'; valid alternatives: steer, follow_up`);
 	const wait = values.get("--wait") ?? "turn_end";
-	if (wait !== "turn_end" && wait !== "accepted") throw new UsageError(`Invalid --wait '${wait}'; valid alternatives: turn_end, accepted`);
+	if (wait !== "turn_end" && wait !== "accepted")
+		throw new UsageError(`Invalid --wait '${wait}'; valid alternatives: turn_end, accepted`);
 	const format = values.get("--format") ?? "toon";
-	if (format !== "toon" && format !== "json" && format !== "text") throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	return { command: "send", socketPath: path.resolve(cwd, socket), message, stdin, mode, wait, timeoutMs: duration(values.get("--timeout") ?? "5m"), format, full };
+	if (format !== "toon" && format !== "json" && format !== "text")
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
+	return {
+		command: "send",
+		socketPath: path.resolve(cwd, socket),
+		message,
+		stdin,
+		mode,
+		wait,
+		timeoutMs: duration(values.get("--timeout") ?? "5m"),
+		format,
+		full,
+	};
 }

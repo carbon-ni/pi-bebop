@@ -14,7 +14,10 @@ export function appendSenderMetadata(message: string, senderInfo?: SenderInfo | 
 		sessionId,
 		sessionName: senderInfo.sessionName?.trim() || undefined,
 	});
-	const sanitizedMessage = message.replace(SENDER_INFO_BLOCK_PATTERN, "").replace(SENDER_INFO_TAG_PATTERN, "").trimEnd();
+	const sanitizedMessage = message
+		.replace(SENDER_INFO_BLOCK_PATTERN, "")
+		.replace(SENDER_INFO_TAG_PATTERN, "")
+		.trimEnd();
 
 	return `${sanitizedMessage}\n\n<sender_info>${senderInfoPayload}</sender_info>`;
 }

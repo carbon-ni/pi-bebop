@@ -34,14 +34,20 @@ test("getMessagesSinceLastPrompt returns user prompt and following assistant mes
 });
 
 test("getMessagesSinceLastPrompt returns empty when no user prompt exists", () => {
-	assert.deepEqual(getMessagesSinceLastPrompt([
-		{ type: "message", message: { role: "assistant", content: [text("answer")], timestamp: 1 } },
-	]), []);
+	assert.deepEqual(
+		getMessagesSinceLastPrompt([
+			{ type: "message", message: { role: "assistant", content: [text("answer")], timestamp: 1 } },
+		]),
+		[],
+	);
 });
 
 test("getFirstEntryId prefers root entry", () => {
-	assert.equal(getFirstEntryId([
-		{ id: "child", parentId: "root" },
-		{ id: "root", parentId: null },
-	]), "root");
+	assert.equal(
+		getFirstEntryId([
+			{ id: "child", parentId: "root" },
+			{ id: "root", parentId: null },
+		]),
+		"root",
+	);
 });

@@ -15,9 +15,7 @@ interface IntrayConfig {
  *
  * The `read` parameter enables dependency injection for testing.
  */
-export function isIntrayEnabledByConfig(
-	read: (path: string) => string = (p) => readFileSync(p, "utf-8"),
-): boolean {
+export function isIntrayEnabledByConfig(read: (path: string) => string = (p) => readFileSync(p, "utf-8")): boolean {
 	try {
 		const raw = read(CONFIG_PATH);
 		const config: IntrayConfig = JSON.parse(raw);

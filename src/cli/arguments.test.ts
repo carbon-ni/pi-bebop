@@ -6,18 +6,48 @@ const cwd = "/project";
 
 test("parses direct send defaults and resolves a relative socket", () => {
 	assert.deepEqual(parseCliArguments(["send", "--socket", ".pi/bebop/sockets/dev.sock", "--message", "hello"], cwd), {
-		command: "send", socketPath: "/project/.pi/bebop/sockets/dev.sock", message: "hello", stdin: false,
-		mode: "steer", wait: "turn_end", timeoutMs: 300000, format: "toon", full: false,
+		command: "send",
+		socketPath: "/project/.pi/bebop/sockets/dev.sock",
+		message: "hello",
+		stdin: false,
+		mode: "steer",
+		wait: "turn_end",
+		timeoutMs: 300000,
+		format: "toon",
+		full: false,
 	});
 });
 
 test("resolves both supported direct endpoint layouts", () => {
-	assert.equal(parseCliArguments(["send", "--socket", ".pi/bebop/sockets/dev.sock", "--message", "x"], cwd).socketPath, "/project/.pi/bebop/sockets/dev.sock");
-	assert.equal(parseCliArguments(["send", "--socket", ".pi/crew/sockets/dev.sock", "--message", "x"], cwd).socketPath, "/project/.pi/crew/sockets/dev.sock");
+	assert.equal(
+		parseCliArguments(["send", "--socket", ".pi/bebop/sockets/dev.sock", "--message", "x"], cwd).socketPath,
+		"/project/.pi/bebop/sockets/dev.sock",
+	);
+	assert.equal(
+		parseCliArguments(["send", "--socket", ".pi/crew/sockets/dev.sock", "--message", "x"], cwd).socketPath,
+		"/project/.pi/crew/sockets/dev.sock",
+	);
 });
 
 test("parses stdin, enum, duration, format, and full options", () => {
-	const parsed = parseCliArguments(["send", "--socket", "/tmp/dev.sock", "--stdin", "--mode", "follow_up", "--wait", "accepted", "--timeout", "1500ms", "--format", "json", "--full"], cwd);
+	const parsed = parseCliArguments(
+		[
+			"send",
+			"--socket",
+			"/tmp/dev.sock",
+			"--stdin",
+			"--mode",
+			"follow_up",
+			"--wait",
+			"accepted",
+			"--timeout",
+			"1500ms",
+			"--format",
+			"json",
+			"--full",
+		],
+		cwd,
+	);
 	assert.equal(parsed.stdin, true);
 	assert.equal(parsed.timeoutMs, 1500);
 	assert.equal(parsed.format, "json");

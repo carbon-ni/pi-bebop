@@ -15,10 +15,16 @@ try {
 	await cp(path.join(fixture, "package.json"), path.join(consumerDir, "package.json"));
 	await cp(path.join(fixture, "package-lock.json"), path.join(consumerDir, "package-lock.json"));
 	console.log("Installing committed, integrity-pinned release consumer fixture (network/cache required)...");
-	await execFile("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: consumerDir, env: environment });
+	await execFile("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], {
+		cwd: consumerDir,
+		env: environment,
+	});
 
 	const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root, env: environment });
-	const archiveName = packed.stdout.trim().split("\n").find((line) => line.endsWith(".tgz"));
+	const archiveName = packed.stdout
+		.trim()
+		.split("\n")
+		.find((line) => line.endsWith(".tgz"));
 	if (!archiveName) throw new Error("npm pack did not produce an archive");
 	const packageRoot = path.join(consumerDir, "node_modules", "pi-bebop");
 	await mkdir(packageRoot, { recursive: true });
@@ -26,18 +32,46 @@ try {
 
 	const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json")));
 	if (manifest.main !== "./dist/extension.js") throw new Error("Installed extension entrypoint is not configured");
-	const testedTypebox = JSON.parse(await readFile(path.join(consumerDir, "node_modules", "typebox", "package.json"))).version;
-	if (testedTypebox !== "1.1.38" || manifest.peerDependencies.typebox !== ">=1.1.38 <1.2.0") throw new Error(`TypeBox fixture/range mismatch: ${testedTypebox}`);
+	const testedTypebox = JSON.parse(
+		await readFile(path.join(consumerDir, "node_modules", "typebox", "package.json")),
+	).version;
+	if (testedTypebox !== "1.1.38" || manifest.peerDependencies.typebox !== ">=1.1.38 <1.2.0")
+		throw new Error(`TypeBox fixture/range mismatch: ${testedTypebox}`);
 
 	const cli = path.join(packageRoot, "dist/cli/main.js");
 	let cliError;
-	try { await execFile(process.execPath, [cli, "send", "--socket", "/x", "--message", "x", "--wait", "invalid"], { cwd: consumerDir, env: environment }); } catch (error) { cliError = error; }
-	if (cliError?.code !== 2 || !/Invalid --wait/.test(cliError.stdout ?? "")) throw new Error("Installed CLI verification failed");
-	const extension = await execFile(process.execPath, ["--input-type=module", "-e", "const resolved = await import.meta.resolve('./node_modules/pi-bebop/dist/extension.js'); if (!resolved.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(resolved); const loaded = await import('file://' + process.cwd() + '/node_modules/pi-bebop/dist/extension.js'); if (typeof loaded.default !== 'function') throw new Error('extension entrypoint missing'); const toon = await import('@toon-format/toon'); if (!toon.encode) throw new Error('runtime dependency missing'); const peer = await import.meta.resolve('@earendil-works/pi-coding-agent'); if (!peer.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(peer);"], { cwd: consumerDir, env: environment });
+	try {
+		await execFile(process.execPath, [cli, "send", "--socket", "/x", "--message", "x", "--wait", "invalid"], {
+			cwd: consumerDir,
+			env: environment,
+		});
+	} catch (error) {
+		cliError = error;
+	}
+	if (cliError?.code !== 2 || !/Invalid --wait/.test(cliError.stdout ?? ""))
+		throw new Error("Installed CLI verification failed");
+	const extension = await execFile(
+		process.execPath,
+		[
+			"--input-type=module",
+			"-e",
+			"const resolved = await import.meta.resolve('./node_modules/pi-bebop/dist/extension.js'); if (!resolved.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(resolved); const loaded = await import('file://' + process.cwd() + '/node_modules/pi-bebop/dist/extension.js'); if (typeof loaded.default !== 'function') throw new Error('extension entrypoint missing'); const toon = await import('@toon-format/toon'); if (!toon.encode) throw new Error('runtime dependency missing'); const peer = await import.meta.resolve('@earendil-works/pi-coding-agent'); if (!peer.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(peer);",
+		],
+		{ cwd: consumerDir, env: environment },
+	);
 	if (extension.stderr) process.stderr.write(extension.stderr);
-	const host = await execFile(process.env.PI_BIN ?? "pi", ["--no-extensions", "--extension", path.join(packageRoot, "dist/extension.js"), "--help"], { cwd: consumerDir, env: { ...environment, PI_OFFLINE: "1" } });
+	const host = await execFile(
+		process.env.PI_BIN ?? "pi",
+		["--no-extensions", "--extension", path.join(packageRoot, "dist/extension.js"), "--help"],
+		{ cwd: consumerDir, env: { ...environment, PI_OFFLINE: "1" } },
+	);
 	if (!host.stdout.includes("--crew-socket")) throw new Error("Pi host loader did not register --crew-socket");
-	if (/Failed to load extension|Type\\.(Recursive|Composite) is not a function|Unknown option: --crew-socket/.test(host.stderr + host.stdout)) throw new Error(`Pi host extension load failed: ${host.stderr}${host.stdout}`);
+	if (
+		/Failed to load extension|Type\\.(Recursive|Composite) is not a function|Unknown option: --crew-socket/.test(
+			host.stderr + host.stdout,
+		)
+	)
+		throw new Error(`Pi host extension load failed: ${host.stderr}${host.stdout}`);
 	console.log(`Package verification passed in isolated consumer and Pi host loader: ${consumerDir}`);
 } finally {
 	await rm(archiveDir, { recursive: true, force: true });

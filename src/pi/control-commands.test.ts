@@ -9,12 +9,20 @@ import { createMembershipRuntime, type MembershipRuntime } from "../infra/member
 import { parseCrewManifest } from "../domain/index.ts";
 
 function setup() {
-	let command: { handler: (args: string, ctx: ExtensionContext) => Promise<void>; getArgumentCompletions: (prefix: string) => unknown } | undefined;
+	let command:
+		| {
+				handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+				getArgumentCompletions: (prefix: string) => unknown;
+		  }
+		| undefined;
 	const notifications: string[] = [];
 	const messages: Array<{ content: string; options?: unknown }> = [];
 	const pi = {
-		registerCommand: (_name: string, definition: typeof command) => { command = definition; },
-		sendMessage: (message: { content: string }, options?: unknown) => messages.push({ content: message.content, options }),
+		registerCommand: (_name: string, definition: typeof command) => {
+			command = definition;
+		},
+		sendMessage: (message: { content: string }, options?: unknown) =>
+			messages.push({ content: message.content, options }),
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		hasUI: true,
@@ -46,7 +54,9 @@ function baseDeps(overrides: Partial<ControlCommandDeps> = {}): ControlCommandDe
 test("intray command completions expose only the consolidated command surface", () => {
 	const setupState = setup();
 	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps());
-	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(({ value }) => value);
+	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
+		({ value }) => value,
+	);
 	assert.deepEqual(values, ["join", "leave", "list", "status", "stop"]);
 });
 
@@ -61,32 +71,63 @@ test("/intray join and leave use membership runtime without stopping base server
 	const runtime = {
 		join: async (request: unknown) => {
 			calls.push({ operation: "join", value: request });
-			currentMembership = { manifestPath: "/project/.pi/bebop/crew.json", socketPath: "/project/.pi/bebop/sockets/dev.sock", globalSocketPath: "/tmp/global.sock", member: { name: "dev", role: "developer", socket: "sockets/dev.sock", socketPath: "/project/.pi/bebop/sockets/dev.sock" } };
+			currentMembership = {
+				manifestPath: "/project/.pi/bebop/crew.json",
+				socketPath: "/project/.pi/bebop/sockets/dev.sock",
+				globalSocketPath: "/tmp/global.sock",
+				member: {
+					name: "dev",
+					role: "developer",
+					socket: "sockets/dev.sock",
+					socketPath: "/project/.pi/bebop/sockets/dev.sock",
+				},
+			};
 			return { ok: true, membership: currentMembership, idempotent: false };
 		},
-		leave: async () => { calls.push({ operation: "leave" }); currentMembership = null; return { ok: true, left: true }; },
+		leave: async () => {
+			calls.push({ operation: "leave" });
+			currentMembership = null;
+			return { ok: true, left: true };
+		},
 		getMembership: () => currentMembership,
 	} as unknown as MembershipRuntime;
-	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({
-		membershipRuntime: runtime,
-		persistMembership: (active) => persisted.push(active),
-		announceMembership: (message) => announcements.push(message),
-		activateMembershipTool: () => activation.push("activate"),
-		deactivateMembershipTool: () => activation.push("deactivate"),
-		refreshStatus: () => { refreshes += 1; },
-		ensureControlServer: async (_pi, state, ctx) => { state.server = {} as never; state.socketPath = "/tmp/global.sock"; state.context = ctx; },
-	}));
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			persistMembership: (active) => persisted.push(active),
+			announceMembership: (message) => announcements.push(message),
+			activateMembershipTool: () => activation.push("activate"),
+			deactivateMembershipTool: () => activation.push("deactivate"),
+			refreshStatus: () => {
+				refreshes += 1;
+			},
+			ensureControlServer: async (_pi, state, ctx) => {
+				state.server = {} as never;
+				state.socketPath = "/tmp/global.sock";
+				state.context = ctx;
+			},
+		}),
+	);
 
 	await setupState.getCommand().handler("join '.pi/bebop/sockets/dev.sock'", setupState.ctx);
 	assert.equal(calls[0]?.operation, "join");
-	assert.deepEqual(calls[0]?.value, { manifestPath: "/project/.pi/bebop/crew.json", socketPath: "/project/.pi/bebop/sockets/dev.sock", globalSocketPath: "/tmp/global.sock" });
+	assert.deepEqual(calls[0]?.value, {
+		manifestPath: "/project/.pi/bebop/crew.json",
+		socketPath: "/project/.pi/bebop/sockets/dev.sock",
+		globalSocketPath: "/tmp/global.sock",
+	});
 	assert.match(setupState.notifications[0]!, /dev \(developer\)/);
 	assert.equal(setupState.ctx.sessionManager.getSessionName(), "local-name");
 	await setupState.getCommand().handler("status", setupState.ctx);
 	assert.match(setupState.messages[0]!.content, /Crew: .*crew\.json/);
 	assert.match(setupState.messages[0]!.content, /Endpoint: .*dev\.sock/);
 	await setupState.getCommand().handler("leave", setupState.ctx);
-	assert.deepEqual(calls.map(({ operation }) => operation), ["join", "leave"]);
+	assert.deepEqual(
+		calls.map(({ operation }) => operation),
+		["join", "leave"],
+	);
 	assert.equal(setupState.state.server !== null, true);
 	assert.deepEqual(persisted, [true, false]);
 	assert.equal(announcements.length, 2);
@@ -96,15 +137,60 @@ test("/intray join and leave use membership runtime without stopping base server
 
 test("/crew join accepts both layouts and rejects arbitrary siblings before runtime join", async () => {
 	for (const layout of ["bebop", "crew"]) {
-		const state = setup(); let joins = 0;
-		const runtime = { join: async () => { joins += 1; return { ok: true, membership: { member: { name: "dev", role: "developer" }, socketPath: `/project/.pi/${layout}/sockets/dev.sock` }, idempotent: false }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
-		registerSessionControlCommand(state.pi, state.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/tmp/global.sock"; current.context = ctx; } }));
+		const state = setup();
+		let joins = 0;
+		const runtime = {
+			join: async () => {
+				joins += 1;
+				return {
+					ok: true,
+					membership: {
+						member: { name: "dev", role: "developer" },
+						socketPath: `/project/.pi/${layout}/sockets/dev.sock`,
+					},
+					idempotent: false,
+				};
+			},
+			leave: async () => ({ ok: true, left: false }),
+			getMembership: () => null,
+		} as unknown as MembershipRuntime;
+		registerSessionControlCommand(
+			state.pi,
+			state.state,
+			baseDeps({
+				membershipRuntime: runtime,
+				ensureControlServer: async (_pi, current, ctx) => {
+					current.server = {} as never;
+					current.socketPath = "/tmp/global.sock";
+					current.context = ctx;
+				},
+			}),
+		);
 		await state.getCommand().handler(`join .pi/${layout}/sockets/dev.sock`, state.ctx);
 		assert.equal(joins, 1);
 	}
-	const rejected = setup(); let joins = 0;
-	const runtime = { join: async () => { joins += 1; return { ok: false, error: new Error("must not join") }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
-	registerSessionControlCommand(rejected.pi, rejected.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/tmp/global.sock"; current.context = ctx; } }));
+	const rejected = setup();
+	let joins = 0;
+	const runtime = {
+		join: async () => {
+			joins += 1;
+			return { ok: false, error: new Error("must not join") };
+		},
+		leave: async () => ({ ok: true, left: false }),
+		getMembership: () => null,
+	} as unknown as MembershipRuntime;
+	registerSessionControlCommand(
+		rejected.pi,
+		rejected.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			ensureControlServer: async (_pi, current, ctx) => {
+				current.server = {} as never;
+				current.socketPath = "/tmp/global.sock";
+				current.context = ctx;
+			},
+		}),
+	);
 	await rejected.getCommand().handler("join .pi/other/sockets/dev.sock", rejected.ctx);
 	assert.equal(joins, 0);
 	assert.match(rejected.notifications[0]!, /untrusted crew manifest path/);
@@ -114,27 +200,98 @@ test("/crew join selects the external-root manifest for both layouts", async () 
 	for (const layout of ["bebop", "crew"]) {
 		const state = setup();
 		let request: unknown;
-		const runtime = { join: async (value: unknown) => { request = value; return { ok: true, membership: { member: { name: "dev1", role: "developer" }, socketPath: `/root-B/.pi/${layout}/sockets/dev1.sock` }, idempotent: false }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
-		registerSessionControlCommand(state.pi, state.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/root-B/.pi/bebop/sockets/global.sock"; current.context = ctx; } }));
+		const runtime = {
+			join: async (value: unknown) => {
+				request = value;
+				return {
+					ok: true,
+					membership: {
+						member: { name: "dev1", role: "developer" },
+						socketPath: `/root-B/.pi/${layout}/sockets/dev1.sock`,
+					},
+					idempotent: false,
+				};
+			},
+			leave: async () => ({ ok: true, left: false }),
+			getMembership: () => null,
+		} as unknown as MembershipRuntime;
+		registerSessionControlCommand(
+			state.pi,
+			state.state,
+			baseDeps({
+				membershipRuntime: runtime,
+				ensureControlServer: async (_pi, current, ctx) => {
+					current.server = {} as never;
+					current.socketPath = "/root-B/.pi/bebop/sockets/global.sock";
+					current.context = ctx;
+				},
+			}),
+		);
 		await state.getCommand().handler(`join /root-B/.pi/${layout}/sockets/dev1.sock`, state.ctx);
-		assert.deepEqual(request, { manifestPath: `/root-B/.pi/${layout}/crew.json`, socketPath: `/root-B/.pi/${layout}/sockets/dev1.sock`, globalSocketPath: "/root-B/.pi/bebop/sockets/global.sock" });
+		assert.deepEqual(request, {
+			manifestPath: `/root-B/.pi/${layout}/crew.json`,
+			socketPath: `/root-B/.pi/${layout}/sockets/dev1.sock`,
+			globalSocketPath: "/root-B/.pi/bebop/sockets/global.sock",
+		});
 	}
 });
 
 test("/crew join rejects unsupported and unconfigured endpoints without joining", async () => {
-	for (const target of ["/root-B/.pi/other/sockets/dev.sock", "/root-B/.pi/bebop/member.sock", "/root-B/.pi/bebop/sockets/../dev.sock"]) {
-		const state = setup(); let joins = 0;
-		const runtime = { join: async () => { joins += 1; return { ok: false, error: new Error("must not claim") }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
-		registerSessionControlCommand(state.pi, state.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/tmp/global.sock"; current.context = ctx; } }));
+	for (const target of [
+		"/root-B/.pi/other/sockets/dev.sock",
+		"/root-B/.pi/bebop/member.sock",
+		"/root-B/.pi/bebop/sockets/../dev.sock",
+	]) {
+		const state = setup();
+		let joins = 0;
+		const runtime = {
+			join: async () => {
+				joins += 1;
+				return { ok: false, error: new Error("must not claim") };
+			},
+			leave: async () => ({ ok: true, left: false }),
+			getMembership: () => null,
+		} as unknown as MembershipRuntime;
+		registerSessionControlCommand(
+			state.pi,
+			state.state,
+			baseDeps({
+				membershipRuntime: runtime,
+				ensureControlServer: async (_pi, current, ctx) => {
+					current.server = {} as never;
+					current.socketPath = "/tmp/global.sock";
+					current.context = ctx;
+				},
+			}),
+		);
 		await state.getCommand().handler(`join ${target}`, state.ctx);
 		assert.equal(joins, 0, target);
 	}
-	const state = setup(); let claims = 0;
+	const state = setup();
+	let claims = 0;
 	const runtime = createMembershipRuntime({
-		loadManifest: async () => parseCrewManifest({ version: 1, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] }, "/root-B/.pi/bebop/crew.json"),
-		claimEndpoint: (async () => { claims += 1; return { idempotent: false }; }) as never,
+		loadManifest: async () =>
+			parseCrewManifest(
+				{ version: 1, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] },
+				"/root-B/.pi/bebop/crew.json",
+			),
+		claimEndpoint: (async () => {
+			claims += 1;
+			return { idempotent: false };
+		}) as never,
 	});
-	registerSessionControlCommand(state.pi, state.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/tmp/global.sock"; current.context = ctx; } }));
+	registerSessionControlCommand(
+		state.pi,
+		state.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			ensureControlServer: async (_pi, current, ctx) => {
+				current.server = {} as never;
+				current.socketPath = "/tmp/global.sock";
+				current.context = ctx;
+			},
+		}),
+	);
 	await state.getCommand().handler("join /root-B/.pi/bebop/sockets/unknown.sock", state.ctx);
 	assert.equal(claims, 0);
 });
@@ -143,15 +300,26 @@ test("/intray join reports trust and runtime failures without claiming", async (
 	const untrusted = setup();
 	let joins = 0;
 	const runtime = {
-		join: async () => { joins += 1; return { ok: true, membership: undefined, idempotent: false }; },
+		join: async () => {
+			joins += 1;
+			return { ok: true, membership: undefined, idempotent: false };
+		},
 		leave: async () => ({ ok: true, left: false }),
 		getMembership: () => null,
 	} as unknown as MembershipRuntime;
 	(untrusted.ctx as unknown as { isProjectTrusted: () => boolean }).isProjectTrusted = () => false;
-	registerSessionControlCommand(untrusted.pi, untrusted.state, baseDeps({
-		membershipRuntime: runtime,
-		ensureControlServer: async (_pi, state, ctx) => { state.server = {} as never; state.socketPath = "/tmp/global.sock"; state.context = ctx; },
-	}));
+	registerSessionControlCommand(
+		untrusted.pi,
+		untrusted.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			ensureControlServer: async (_pi, state, ctx) => {
+				state.server = {} as never;
+				state.socketPath = "/tmp/global.sock";
+				state.context = ctx;
+			},
+		}),
+	);
 	await untrusted.getCommand().handler("join /tmp/project/.pi/bebop/sockets/dev.sock", untrusted.ctx);
 	assert.equal(joins, 0);
 	assert.deepEqual(untrusted.notifications, ["Intray join failed: project is not trusted"]);
@@ -162,10 +330,18 @@ test("/intray join reports trust and runtime failures without claiming", async (
 		leave: async () => ({ ok: true, left: false }),
 		getMembership: () => null,
 	} as unknown as MembershipRuntime;
-	registerSessionControlCommand(failed.pi, failed.state, baseDeps({
-		membershipRuntime: failingRuntime,
-		ensureControlServer: async (_pi, state, ctx) => { state.server = {} as never; state.socketPath = "/tmp/global.sock"; state.context = ctx; },
-	}));
+	registerSessionControlCommand(
+		failed.pi,
+		failed.state,
+		baseDeps({
+			membershipRuntime: failingRuntime,
+			ensureControlServer: async (_pi, state, ctx) => {
+				state.server = {} as never;
+				state.socketPath = "/tmp/global.sock";
+				state.context = ctx;
+			},
+		}),
+	);
 	await failed.getCommand().handler("join .pi/bebop/sockets/dev.sock", failed.ctx);
 	assert.deepEqual(failed.notifications, ["Intray join failed: claim failed"]);
 });
@@ -174,16 +350,27 @@ test("/intray list works while stopped and probes live sessions in parallel", as
 	const setupState = setup();
 	let activeProbes = 0;
 	let maxProbes = 0;
-	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({
-		getLiveSessions: async () => [liveSession("one", "one"), liveSession("two", "two")],
-		sendRpcCommand: async (path) => {
-			activeProbes += 1;
-			maxProbes = Math.max(maxProbes, activeProbes);
-			await new Promise((resolve) => setTimeout(resolve, 5));
-			activeProbes -= 1;
-			return { response: { type: "response", command: "status", success: true, data: { status: path.includes("one") ? "online" : "joined" } } };
-		},
-	}));
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			getLiveSessions: async () => [liveSession("one", "one"), liveSession("two", "two")],
+			sendRpcCommand: async (path) => {
+				activeProbes += 1;
+				maxProbes = Math.max(maxProbes, activeProbes);
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				activeProbes -= 1;
+				return {
+					response: {
+						type: "response",
+						command: "status",
+						success: true,
+						data: { status: path.includes("one") ? "online" : "joined" },
+					},
+				};
+			},
+		}),
+	);
 
 	await setupState.getCommand().handler("list", setupState.ctx);
 	assert.equal(maxProbes, 2);
@@ -198,12 +385,21 @@ test("/intray status and stop observe state and stop base resources", async () =
 	const calls: string[] = [];
 	const runtime = {
 		getMembership: () => null,
-		leave: async () => { calls.push("leave"); return { ok: true, left: false }; },
+		leave: async () => {
+			calls.push("leave");
+			return { ok: true, left: false };
+		},
 	} as unknown as MembershipRuntime;
-	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({
-		membershipRuntime: runtime,
-		disableControlServer: async () => { calls.push("stop"); },
-	}));
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			disableControlServer: async () => {
+				calls.push("stop");
+			},
+		}),
+	);
 
 	await setupState.getCommand().handler("status", setupState.ctx);
 	assert.equal(setupState.messages[0]?.content, "Intray stopped");
@@ -222,14 +418,24 @@ test("/intray stop releases and persists active crew membership before cleanup",
 	let currentMembership: unknown = { member: { name: "dev", role: "developer" } };
 	const runtime = {
 		getMembership: () => currentMembership,
-		leave: async () => { calls.push("leave"); currentMembership = null; return { ok: true, left: true }; },
+		leave: async () => {
+			calls.push("leave");
+			currentMembership = null;
+			return { ok: true, left: true };
+		},
 	} as unknown as MembershipRuntime;
-	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({
-		membershipRuntime: runtime,
-		persistMembership: (active) => persisted.push(active),
-		deactivateMembershipTool: () => activation.push("deactivate"),
-		disableControlServer: async () => { calls.push("stop"); },
-	}));
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			persistMembership: (active) => persisted.push(active),
+			deactivateMembershipTool: () => activation.push("deactivate"),
+			disableControlServer: async () => {
+				calls.push("stop");
+			},
+		}),
+	);
 
 	await setupState.getCommand().handler("stop", setupState.ctx);
 	assert.deepEqual(calls, ["leave", "stop"]);

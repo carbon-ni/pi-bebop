@@ -44,7 +44,8 @@ async function getSessionStatus(
 	sendRpc: typeof sendRpcCommand,
 	resolveSocketPath: typeof getSocketPath,
 ): Promise<string> {
-	if (session.sessionId === currentSessionId) return deriveIntrayStatus(Boolean(state.server), Boolean(state.membershipRuntime?.getMembership()));
+	if (session.sessionId === currentSessionId)
+		return deriveIntrayStatus(Boolean(state.server), Boolean(state.membershipRuntime?.getMembership()));
 	try {
 		const result = await sendRpc(resolveSocketPath(session.sessionId), { type: "status" }, { timeout: 500 });
 		if (!result.response.success) return "online";
@@ -65,16 +66,23 @@ export async function renderSessionList(
 	const resolveSocketPath = dependencies.getSocketPath ?? getSocketPath;
 	const sessions = await listSessions();
 	const currentSessionId = ctx.sessionManager.getSessionId();
-	const rows = await Promise.all(sessions.map(async (session) => {
-		const aliases = session.aliases.length > 0 ? ` (${session.aliases.join(", ")})` : "";
-		const current = session.sessionId === currentSessionId ? " (current)" : "";
-		const status = await getSessionStatus(session, currentSessionId, state, sendRpc, resolveSocketPath);
-		return `- ${session.sessionId}${aliases} — ${status}${current}`;
-	}));
+	const rows = await Promise.all(
+		sessions.map(async (session) => {
+			const aliases = session.aliases.length > 0 ? ` (${session.aliases.join(", ")})` : "";
+			const current = session.sessionId === currentSessionId ? " (current)" : "";
+			const status = await getSessionStatus(session, currentSessionId, state, sendRpc, resolveSocketPath);
+			return `- ${session.sessionId}${aliases} — ${status}${current}`;
+		}),
+	);
 	return rows.length > 0 ? `Intray sessions:\n${rows.join("\n")}` : "No live intray sessions.";
 }
 
-export function registerSessionControlCommand(pi: ExtensionAPI, state: SocketState, deps: ControlCommandDeps, commandName = "crew"): void {
+export function registerSessionControlCommand(
+	pi: ExtensionAPI,
+	state: SocketState,
+	deps: ControlCommandDeps,
+	commandName = "crew",
+): void {
 	pi.registerCommand(commandName, {
 		description: "Join, leave, list, status, or stop intray",
 		getArgumentCompletions: (prefix) => {
@@ -103,12 +111,20 @@ export function registerSessionControlCommand(pi: ExtensionAPI, state: SocketSta
 					state.membershipRuntime = membership;
 					const selection = selectCrewSocketPath(parsed.target!, ctx.cwd);
 					if (!selection) {
-						notify(ctx, `Intray join failed: untrusted crew manifest path for socket ${parsed.target!}; use .pi/bebop or .pi/crew sockets`, "error");
+						notify(
+							ctx,
+							`Intray join failed: untrusted crew manifest path for socket ${parsed.target!}; use .pi/bebop or .pi/crew sockets`,
+							"error",
+						);
 						return;
 					}
 					const socketPath = selection.socketPath;
 					const manifestPath = selection.manifestPath;
-					const result = await membership.join({ manifestPath, socketPath, globalSocketPath: state.socketPath });
+					const result = await membership.join({
+						manifestPath,
+						socketPath,
+						globalSocketPath: state.socketPath,
+					});
 					if ("error" in result) {
 						notify(ctx, `Intray join failed: ${result.error.message}`, "error");
 						return;
@@ -146,7 +162,10 @@ export function registerSessionControlCommand(pi: ExtensionAPI, state: SocketSta
 					return;
 				}
 				case "status":
-					pi.sendMessage({ customType: "intray-status", content: renderStatus(state), display: true }, { triggerTurn: false });
+					pi.sendMessage(
+						{ customType: "intray-status", content: renderStatus(state), display: true },
+						{ triggerTurn: false },
+					);
 					return;
 				case "stop": {
 					const previousMembership = membership?.getMembership();

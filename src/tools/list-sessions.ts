@@ -7,9 +7,14 @@ export function registerListSessionsTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "list_sessions",
 		label: "List Sessions",
-		description: "List live sessions that expose an intray socket, including session-name and git-branch aliases when available. Optionally filter by part of the session id, session name, or alias. Use this for discovery only; for the current session id in shell/bash use $PI_SESSION_ID.",
+		description:
+			"List live sessions that expose an intray socket, including session-name and git-branch aliases when available. Optionally filter by part of the session id, session name, or alias. Use this for discovery only; for the current session id in shell/bash use $PI_SESSION_ID.",
 		parameters: Type.Object({
-			search: Type.Optional(Type.String({ description: "Case-insensitive text to match against session id, session name, or aliases" })),
+			search: Type.Optional(
+				Type.String({
+					description: "Case-insensitive text to match against session id, session name, or aliases",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const search = params.search?.trim();
@@ -18,7 +23,12 @@ export function registerListSessionsTool(pi: ExtensionAPI): void {
 
 			if (sessions.length === 0) {
 				return {
-					content: [{ type: "text", text: search ? `No live sessions found matching "${search}".` : "No live sessions found." }],
+					content: [
+						{
+							type: "text",
+							text: search ? `No live sessions found matching "${search}".` : "No live sessions found.",
+						},
+					],
 					details: { sessions: [], search: search ?? null },
 				};
 			}
@@ -29,7 +39,12 @@ export function registerListSessionsTool(pi: ExtensionAPI): void {
 			});
 
 			return {
-				content: [{ type: "text", text: `${search ? `Live sessions matching "${search}"` : "Live sessions"}:\n${lines.join("\n")}` }],
+				content: [
+					{
+						type: "text",
+						text: `${search ? `Live sessions matching "${search}"` : "Live sessions"}:\n${lines.join("\n")}`,
+					},
+				],
 				details: { sessions, search: search ?? null },
 			};
 		},

@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseMembershipServerMode, prepareMembershipServer, releaseMembershipBeforeCleanup, restorePersistedMembership } from "./membership-lifecycle.ts";
+import {
+	chooseMembershipServerMode,
+	prepareMembershipServer,
+	releaseMembershipBeforeCleanup,
+	restorePersistedMembership,
+} from "./membership-lifecycle.ts";
 import { MEMBERSHIP_ENTRY_TYPE, getLatestMembershipState } from "./membership-context.ts";
 
 const membership = { member: { name: "dev", role: "developer" }, socketPath: "/crew/dev.sock" } as never;
@@ -10,13 +15,53 @@ function persisted(active: boolean) {
 }
 
 test("persisted restore and explicit startup selection use ensure-only server mode", async () => {
-	assert.equal(chooseMembershipServerMode({ controlRequested: false, configEnabled: false, startupSocketSelected: false, persistedMembershipActive: true }), "ensure");
-	assert.equal(chooseMembershipServerMode({ controlRequested: false, configEnabled: false, startupSocketSelected: true, persistedMembershipActive: false }), "ensure");
-	assert.equal(chooseMembershipServerMode({ controlRequested: true, configEnabled: false, startupSocketSelected: false, persistedMembershipActive: false }), "enable");
-	assert.equal(chooseMembershipServerMode({ controlRequested: false, configEnabled: false, startupSocketSelected: false, persistedMembershipActive: false }), "disable");
+	assert.equal(
+		chooseMembershipServerMode({
+			controlRequested: false,
+			configEnabled: false,
+			startupSocketSelected: false,
+			persistedMembershipActive: true,
+		}),
+		"ensure",
+	);
+	assert.equal(
+		chooseMembershipServerMode({
+			controlRequested: false,
+			configEnabled: false,
+			startupSocketSelected: true,
+			persistedMembershipActive: false,
+		}),
+		"ensure",
+	);
+	assert.equal(
+		chooseMembershipServerMode({
+			controlRequested: true,
+			configEnabled: false,
+			startupSocketSelected: false,
+			persistedMembershipActive: false,
+		}),
+		"enable",
+	);
+	assert.equal(
+		chooseMembershipServerMode({
+			controlRequested: false,
+			configEnabled: false,
+			startupSocketSelected: false,
+			persistedMembershipActive: false,
+		}),
+		"disable",
+	);
 	let ensured = false;
 	let enabled = false;
-	await prepareMembershipServer("ensure", { ensure: async () => { ensured = true; }, enable: async () => { enabled = true; }, disable: async () => undefined });
+	await prepareMembershipServer("ensure", {
+		ensure: async () => {
+			ensured = true;
+		},
+		enable: async () => {
+			enabled = true;
+		},
+		disable: async () => undefined,
+	});
 	assert.equal(ensured, true);
 	assert.equal(enabled, false);
 });
@@ -38,15 +83,29 @@ test("restores active membership, skips inactive and startup-overridden selectio
 	const announcements: string[] = [];
 	const failures: string[] = [];
 	const deps = {
-		runtime: { join: async () => { joins += 1; return { ok: true, membership }; } },
+		runtime: {
+			join: async () => {
+				joins += 1;
+				return { ok: true, membership };
+			},
+		},
 		globalSocketPath: "/crew/global.sock",
 		manifestPathForSocket: () => "/crew/crew.json",
 		announce: (message: string) => announcements.push(message),
 		reportFailure: (message: string) => failures.push(message),
 	};
-	assert.equal(await restorePersistedMembership({ ...deps, persisted: persisted(true), startupSocketSelected: false }), true);
-	assert.equal(await restorePersistedMembership({ ...deps, persisted: persisted(false), startupSocketSelected: false }), false);
-	assert.equal(await restorePersistedMembership({ ...deps, persisted: persisted(true), startupSocketSelected: true }), false);
+	assert.equal(
+		await restorePersistedMembership({ ...deps, persisted: persisted(true), startupSocketSelected: false }),
+		true,
+	);
+	assert.equal(
+		await restorePersistedMembership({ ...deps, persisted: persisted(false), startupSocketSelected: false }),
+		false,
+	);
+	assert.equal(
+		await restorePersistedMembership({ ...deps, persisted: persisted(true), startupSocketSelected: true }),
+		false,
+	);
 	assert.equal(joins, 1);
 	assert.equal(announcements.length, 1);
 	assert.deepEqual(failures, []);
@@ -55,8 +114,17 @@ test("restores active membership, skips inactive and startup-overridden selectio
 test("restores persisted external-root membership without rebasing to cwd", async () => {
 	let request: unknown;
 	const restored = await restorePersistedMembership({
-		runtime: { join: async (value) => { request = value; return { ok: true, membership }; } },
-		persisted: { active: true, socketPath: "/root-B/.pi/crew/sockets/dev1.sock", manifestPath: "/root-B/.pi/crew/crew.json" },
+		runtime: {
+			join: async (value) => {
+				request = value;
+				return { ok: true, membership };
+			},
+		},
+		persisted: {
+			active: true,
+			socketPath: "/root-B/.pi/crew/sockets/dev1.sock",
+			manifestPath: "/root-B/.pi/crew/crew.json",
+		},
 		startupSocketSelected: false,
 		globalSocketPath: "/root-B/.pi/crew/sockets/local-global.sock",
 		manifestPathForSocket: () => "/cwd/.pi/bebop/crew.json",
@@ -64,14 +132,23 @@ test("restores persisted external-root membership without rebasing to cwd", asyn
 		reportFailure: assert.fail,
 	});
 	assert.equal(restored, true);
-	assert.deepEqual(request, { manifestPath: "/root-B/.pi/crew/crew.json", socketPath: "/root-B/.pi/crew/sockets/dev1.sock", globalSocketPath: "/root-B/.pi/crew/sockets/local-global.sock" });
+	assert.deepEqual(request, {
+		manifestPath: "/root-B/.pi/crew/crew.json",
+		socketPath: "/root-B/.pi/crew/sockets/dev1.sock",
+		globalSocketPath: "/root-B/.pi/crew/sockets/local-global.sock",
+	});
 });
 
 test("failed or unavailable restore reports failure without creating identity", async () => {
 	let joins = 0;
 	const failures: string[] = [];
 	const restored = await restorePersistedMembership({
-		runtime: { join: async () => { joins += 1; return { ok: false, error: new Error("endpoint is occupied") }; } },
+		runtime: {
+			join: async () => {
+				joins += 1;
+				return { ok: false, error: new Error("endpoint is occupied") };
+			},
+		},
 		persisted: persisted(true),
 		startupSocketSelected: false,
 		globalSocketPath: "/crew/global.sock",
@@ -90,7 +167,9 @@ test("shutdown cleanup runs even when membership release fails and reports the f
 	await releaseMembershipBeforeCleanup({
 		hasMembership: true,
 		leave: async () => ({ ok: false, error: new Error("release failed") }),
-		cleanup: async () => { cleanup += 1; },
+		cleanup: async () => {
+			cleanup += 1;
+		},
 		reportFailure: (message) => failures.push(message),
 	});
 	assert.equal(cleanup, 1);
@@ -102,8 +181,12 @@ test("shutdown cleanup reports thrown release failures and still cleans up", asy
 	const failures: string[] = [];
 	await releaseMembershipBeforeCleanup({
 		hasMembership: true,
-		leave: async () => { throw new Error("release threw"); },
-		cleanup: async () => { cleanup += 1; },
+		leave: async () => {
+			throw new Error("release threw");
+		},
+		cleanup: async () => {
+			cleanup += 1;
+		},
 		reportFailure: (message) => failures.push(message),
 	});
 	assert.equal(cleanup, 1);

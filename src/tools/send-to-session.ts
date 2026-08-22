@@ -25,7 +25,11 @@ export interface SessionToolDependencies {
 // Tool: send_to_session
 // ============================================================================
 
-export function registerSessionTool(pi: ExtensionAPI, state: SessionToolState, dependencies: SessionToolDependencies = {}): void {
+export function registerSessionTool(
+	pi: ExtensionAPI,
+	state: SessionToolState,
+	dependencies: SessionToolDependencies = {},
+): void {
 	const sendRpc = dependencies.sendRpcCommand ?? sendRpcCommand;
 
 	pi.registerTool({
@@ -94,14 +98,16 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 			),
 			reply_behavior: Type.Optional(
 				Type.Union([Type.Literal("allow_reply"), Type.Literal("end_conversation")], {
-					description: "Whether this message should include callback sender metadata. Omit for a mode-appropriate default; turn_end defaults to end_conversation.",
+					description:
+						"Whether this message should include callback sender metadata. Omit for a mode-appropriate default; turn_end defaults to end_conversation.",
 				}),
 			),
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			const action = params.action ?? "send";
 			const waitUntil = params.wait_until ?? "turn_end";
-			const responsePolicy = action === "send" ? resolveResponsePolicy(waitUntil, params.reply_behavior) : undefined;
+			const responsePolicy =
+				action === "send" ? resolveResponsePolicy(waitUntil, params.reply_behavior) : undefined;
 			if (responsePolicy && "error" in responsePolicy) {
 				return {
 					content: [{ type: "text", text: responsePolicy.error }],
@@ -113,23 +119,37 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 			const executionContext = (_ctx as ExtensionContext | undefined) ?? state.context;
 			let target: Awaited<ReturnType<typeof resolveSessionTarget>>;
 			try {
-				target = await (dependencies.resolveSessionTarget ?? resolveSessionTarget)({
-					socketPath: params.socketPath,
-					sessionId: params.sessionId,
-					sessionName: params.sessionName,
-					cwd: executionContext?.cwd ?? process.cwd(),
-					isProjectTrusted: () => executionContext?.isProjectTrusted?.() === true,
-					currentSessionId: state.context?.sessionManager.getSessionId(),
-				}, {
-					resolveAlias: resolveSessionIdFromAlias,
-					loadManifest: dependencies.loadCrewManifest ?? (async (manifestPath) => {
-						const projectRoot = path.resolve(path.dirname(manifestPath), "..", "..");
-						return readTrustedCrewManifest(manifestPath, projectRoot, () => executionContext?.isProjectTrusted?.() === true);
-					}),
-					readlink: dependencies.readlink,
-				});
+				target = await (dependencies.resolveSessionTarget ?? resolveSessionTarget)(
+					{
+						socketPath: params.socketPath,
+						sessionId: params.sessionId,
+						sessionName: params.sessionName,
+						cwd: executionContext?.cwd ?? process.cwd(),
+						isProjectTrusted: () => executionContext?.isProjectTrusted?.() === true,
+						currentSessionId: state.context?.sessionManager.getSessionId(),
+					},
+					{
+						resolveAlias: resolveSessionIdFromAlias,
+						loadManifest:
+							dependencies.loadCrewManifest ??
+							(async (manifestPath) => {
+								const projectRoot = path.resolve(path.dirname(manifestPath), "..", "..");
+								return readTrustedCrewManifest(
+									manifestPath,
+									projectRoot,
+									() => executionContext?.isProjectTrusted?.() === true,
+								);
+							}),
+						readlink: dependencies.readlink,
+					},
+				);
 			} catch (error) {
-				const message = error instanceof SessionTargetError ? error.message : error instanceof Error ? error.message : "Unable to resolve target";
+				const message =
+					error instanceof SessionTargetError
+						? error.message
+						: error instanceof Error
+							? error.message
+							: "Unable to resolve target";
 				return { content: [{ type: "text", text: message }], isError: true, details: { error: message } };
 			}
 
@@ -149,7 +169,12 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 							details: result,
 						};
 					}
-					if (!isGetMessageResult(result.response.data)) return { content: [{ type: "text", text: "Failed: invalid get_message result" }], isError: true, details: result };
+					if (!isGetMessageResult(result.response.data))
+						return {
+							content: [{ type: "text", text: "Failed: invalid get_message result" }],
+							isError: true,
+							details: result,
+						};
 					const data = result.response.data;
 					if (!data.message) {
 						return {
@@ -167,12 +192,19 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 					const result = await sendRpc(socketPath, { type: "clear" }, { timeout: 10000, signal });
 					if (!result.response.success) {
 						return {
-							content: [{ type: "text", text: `Failed to clear: ${result.response.error ?? "unknown error"}` }],
+							content: [
+								{ type: "text", text: `Failed to clear: ${result.response.error ?? "unknown error"}` },
+							],
 							isError: true,
 							details: result,
 						};
 					}
-					if (!isClearResult(result.response.data)) return { content: [{ type: "text", text: "Failed: invalid clear result" }], isError: true, details: result };
+					if (!isClearResult(result.response.data))
+						return {
+							content: [{ type: "text", text: "Failed: invalid clear result" }],
+							isError: true,
+							details: result,
+						};
 					const data = result.response.data;
 					const msg = data.alreadyAtRoot ? "Session already at root" : "Session cleared";
 					return {
@@ -191,19 +223,29 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 				}
 
 				const senderSessionName = state.context?.sessionManager.getSessionName()?.trim();
-				return await sendMessageToSocket({
-					socketPath,
-					message: params.message,
-					mode: params.mode ?? "steer",
-					policy: policy!,
-					signal,
-					displayTarget: displayTarget || targetSessionId || "session",
-					sender: senderSessionId ? { sessionId: senderSessionId, sessionName: senderSessionName || undefined } : undefined,
-				}, sendRpc);
+				return await sendMessageToSocket(
+					{
+						socketPath,
+						message: params.message,
+						mode: params.mode ?? "steer",
+						policy: policy!,
+						signal,
+						displayTarget: displayTarget || targetSessionId || "session",
+						sender: senderSessionId
+							? { sessionId: senderSessionId, sessionName: senderSessionName || undefined }
+							: undefined,
+					},
+					sendRpc,
+				);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "Unknown error";
 				return {
-					content: [{ type: "text", text: `${params.socketPath ? "Member endpoint offline" : "Failed"}: ${message}` }],
+					content: [
+						{
+							type: "text",
+							text: `${params.socketPath ? "Member endpoint offline" : "Failed"}: ${message}`,
+						},
+					],
 					isError: true,
 					details: { error: message },
 				};
@@ -238,11 +280,7 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 				// Handle multi-line messages
 				const firstLine = preview.split("\n")[0];
 				const hasMore = preview.includes("\n") || msg.length > 80;
-				return new Text(
-					header + "\n  " + theme.fg("dim", `"${firstLine}${hasMore ? "..." : ""}"`),
-					0,
-					0,
-				);
+				return new Text(header + "\n  " + theme.fg("dim", `"${firstLine}${hasMore ? "..." : ""}"`), 0, 0);
 			}
 
 			return new Text(header, 0, 0);
@@ -254,7 +292,10 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 
 			// Error case
 			if (isError || details?.error) {
-				const errorMsg = (details?.error as string) || result.content[0]?.type === "text" ? (result.content[0] as { type: "text"; text: string }).text : "Unknown error";
+				const errorMsg =
+					(details?.error as string) || result.content[0]?.type === "text"
+						? (result.content[0] as { type: "text"; text: string }).text
+						: "Unknown error";
 				return new Text(theme.fg("error", "✗ ") + theme.fg("error", errorMsg), 0, 0);
 			}
 
@@ -265,7 +306,8 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 
 			// get_message or turn_end result with message
 			if (hasMessage) {
-				if (!isExtractedMessage(details.message)) return new Text(theme.fg("error", "✗ Invalid message payload"), 0, 0);
+				if (!isExtractedMessage(details.message))
+					return new Text(theme.fg("error", "✗ Invalid message payload"), 0, 0);
 				const message = details.message;
 				const icon = theme.fg("success", "✓");
 
@@ -282,9 +324,7 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 				}
 
 				// Collapsed view - show preview
-				const preview = message.content.length > 200
-					? message.content.slice(0, 200) + "..."
-					: message.content;
+				const preview = message.content.length > 200 ? message.content.slice(0, 200) + "..." : message.content;
 				const lines = preview.split("\n").slice(0, 5);
 				let text = icon + theme.fg("muted", " Message received");
 				if (hasTurnIndex) text += theme.fg("dim", ` (turn #${details.turnIndex})`);
@@ -319,4 +359,3 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 		},
 	});
 }
-

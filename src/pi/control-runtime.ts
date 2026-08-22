@@ -1,10 +1,31 @@
 import type { ExtensionAPI, ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { getSocketPath } from "../infra/intray-paths.ts";
-import { createAliasSymlink, ensureControlDir, getAliasNames, removeAliasesForSocket, removeSocket } from "../infra/control-store.ts";
+import {
+	createAliasSymlink,
+	ensureControlDir,
+	getAliasNames,
+	removeAliasesForSocket,
+	removeSocket,
+} from "../infra/control-store.ts";
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
-import { closeRpcServer, createRpcServer, writeEvent, writeResponse, type RpcServer, type RpcSocket } from "../infra/rpc-server.ts";
+import {
+	closeRpcServer,
+	createRpcServer,
+	writeEvent,
+	writeResponse,
+	type RpcServer,
+	type RpcSocket,
+} from "../infra/rpc-server.ts";
 import { updateProcessSessionEnv } from "../infra/session-env.ts";
-import { createProjectBranchAlias, createSequentialProjectBranchAlias, getFirstEntryId, getLastAssistantMessage, isSafeAlias, type RpcInboundCommand, SESSION_MESSAGE_TYPE } from "../domain/index.ts";
+import {
+	createProjectBranchAlias,
+	createSequentialProjectBranchAlias,
+	getFirstEntryId,
+	getLastAssistantMessage,
+	isSafeAlias,
+	type RpcInboundCommand,
+	SESSION_MESSAGE_TYPE,
+} from "../domain/index.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 
 // ============================================================================
@@ -48,7 +69,9 @@ async function getBranchAlias(currentAliases: string[]): Promise<string | null> 
 }
 
 async function getSessionAliases(ctx: ExtensionContext, currentAliases: string[]): Promise<string[]> {
-	const aliases = [getSessionAlias(ctx), await getBranchAlias(currentAliases)].filter((alias): alias is string => Boolean(alias));
+	const aliases = [getSessionAlias(ctx), await getBranchAlias(currentAliases)].filter((alias): alias is string =>
+		Boolean(alias),
+	);
 	return Array.from(new Set(aliases));
 }
 
@@ -80,7 +103,8 @@ async function syncAlias(state: SocketState, ctx: ExtensionContext): Promise<voi
 
 	try {
 		const aliases = await getSessionAliases(ctx, state.aliases);
-		if (aliases.length === state.aliases.length && aliases.every((alias, index) => alias === state.aliases[index])) return;
+		if (aliases.length === state.aliases.length && aliases.every((alias, index) => alias === state.aliases[index]))
+			return;
 
 		const sessionId = ctx.sessionManager.getSessionId();
 		await removeAliasesForSocket(state.socketPath);
@@ -247,10 +271,7 @@ async function startControlServer(pi: ExtensionAPI, state: SocketState, ctx: Ext
 
 	state.context = ctx;
 	state.socketPath = socketPath;
-	state.server = await createRpcServer(
-		socketPath,
-		(command, socket) => handleCommand(pi, state, command, socket),
-	);
+	state.server = await createRpcServer(socketPath, (command, socket) => handleCommand(pi, state, command, socket));
 	state.aliases = [];
 	await syncAlias(state, ctx);
 }
@@ -301,7 +322,11 @@ export async function enableControlServer(pi: ExtensionAPI, state: SocketState, 
 	await ensureControlServer(pi, state, ctx);
 }
 
-export async function disableControlServer(state: SocketState, ctx: ExtensionContext | null, pi?: ExtensionAPI): Promise<void> {
+export async function disableControlServer(
+	state: SocketState,
+	ctx: ExtensionContext | null,
+	pi?: ExtensionAPI,
+): Promise<void> {
 	stopAliasTimer(state);
 	updateStatus(ctx, state, false);
 	updateSessionEnv(ctx, false);

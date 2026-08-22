@@ -1,11 +1,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
-import {
-	DEFAULT_CREW_MANIFEST_FILE,
-	parseCrewManifest,
-	type CrewManifest,
-} from "../domain/index.ts";
+import { DEFAULT_CREW_MANIFEST_FILE, parseCrewManifest, type CrewManifest } from "../domain/index.ts";
 
 const BEBOP_DIR_NAME = "bebop";
 const COMPATIBILITY_DIR_NAME = "crew";
@@ -35,7 +31,7 @@ export function selectCrewSocketPath(rawSocketPath: string, cwd: string): CrewSo
 	const socketsDir = path.dirname(socketPath);
 	const layoutDir = path.dirname(socketsDir);
 	if (path.basename(socketsDir) !== "sockets") return null;
-	if (!CREW_LAYOUTS.includes(path.basename(layoutDir) as typeof CREW_LAYOUTS[number])) return null;
+	if (!CREW_LAYOUTS.includes(path.basename(layoutDir) as (typeof CREW_LAYOUTS)[number])) return null;
 	const piDir = path.dirname(layoutDir);
 	if (path.basename(piDir) !== CONFIG_DIR_NAME) return null;
 	return { socketPath, manifestPath: path.join(layoutDir, DEFAULT_CREW_MANIFEST_FILE) };
@@ -49,7 +45,10 @@ export function getCrewManifestPathFromSocketPath(socketPath: string): string {
 	const normalized = path.resolve(socketPath);
 	const socketsDir = path.dirname(normalized);
 	const layoutDir = path.dirname(socketsDir);
-	if (path.basename(socketsDir) === "sockets" && CREW_LAYOUTS.includes(path.basename(layoutDir) as typeof CREW_LAYOUTS[number])) {
+	if (
+		path.basename(socketsDir) === "sockets" &&
+		CREW_LAYOUTS.includes(path.basename(layoutDir) as (typeof CREW_LAYOUTS)[number])
+	) {
 		return path.join(layoutDir, DEFAULT_CREW_MANIFEST_FILE);
 	}
 	return path.resolve(socketsDir, "..", DEFAULT_CREW_MANIFEST_FILE);
@@ -75,16 +74,30 @@ export async function readTrustedCrewManifest(
 	readFile: ReadManifestFile = (filePath, encoding) => fs.readFile(filePath, encoding),
 ): Promise<CrewManifest> {
 	const trusted = typeof isProjectTrusted === "function" ? isProjectTrusted() : isProjectTrusted;
-	if (!trusted) throw new CrewManifestReadError("untrusted-project", "cannot read crew manifest from an untrusted project");
+	if (!trusted)
+		throw new CrewManifestReadError("untrusted-project", "cannot read crew manifest from an untrusted project");
 	const normalizedPath = path.resolve(manifestPath);
 	if (!isTrustedCrewManifestPath(normalizedPath, projectRoot)) {
-		throw new CrewManifestReadError("untrusted-path", `crew manifest is not trusted project-local configuration: ${manifestPath}`);
+		throw new CrewManifestReadError(
+			"untrusted-path",
+			`crew manifest is not trusted project-local configuration: ${manifestPath}`,
+		);
 	}
 	let contents: string;
-	try { contents = await readFile(normalizedPath, "utf8"); }
-	catch (error) { throw new CrewManifestReadError("read-failed", `failed to read crew manifest: ${normalizedPath}`, { cause: error }); }
+	try {
+		contents = await readFile(normalizedPath, "utf8");
+	} catch (error) {
+		throw new CrewManifestReadError("read-failed", `failed to read crew manifest: ${normalizedPath}`, {
+			cause: error,
+		});
+	}
 	let input: unknown;
-	try { input = JSON.parse(contents); }
-	catch (error) { throw new CrewManifestReadError("invalid-json", `invalid JSON in crew manifest: ${normalizedPath}`, { cause: error }); }
+	try {
+		input = JSON.parse(contents);
+	} catch (error) {
+		throw new CrewManifestReadError("invalid-json", `invalid JSON in crew manifest: ${normalizedPath}`, {
+			cause: error,
+		});
+	}
 	return parseCrewManifest(input, normalizedPath);
 }

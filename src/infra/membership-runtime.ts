@@ -1,14 +1,6 @@
 import * as path from "node:path";
-import {
-	resolveCrewMemberBySocketPath,
-	type CrewManifest,
-	type CrewMember,
-} from "../domain/index.ts";
-import {
-	claimMemberEndpoint,
-	releaseMemberEndpoint,
-	type MemberEndpointDependencies,
-} from "./member-endpoint.ts";
+import { resolveCrewMemberBySocketPath, type CrewManifest, type CrewMember } from "../domain/index.ts";
+import { claimMemberEndpoint, releaseMemberEndpoint, type MemberEndpointDependencies } from "./member-endpoint.ts";
 
 export interface Membership {
 	readonly manifestPath: string;
@@ -52,7 +44,9 @@ export interface JoinMembershipRequest {
 }
 
 export type MembershipFailure = { readonly ok: false; readonly error: MembershipRuntimeError };
-export type JoinMembershipResult = { readonly ok: true; readonly membership: Membership; readonly idempotent: boolean } | MembershipFailure;
+export type JoinMembershipResult =
+	| { readonly ok: true; readonly membership: Membership; readonly idempotent: boolean }
+	| MembershipFailure;
 export type LeaveMembershipResult = { readonly ok: true; readonly left: boolean } | MembershipFailure;
 
 export interface MembershipRuntime {
@@ -61,7 +55,11 @@ export interface MembershipRuntime {
 	getMembership(): Membership | null;
 }
 
-function failure(code: MembershipRuntimeErrorCode, message: string, cause?: unknown): { ok: false; error: MembershipRuntimeError } {
+function failure(
+	code: MembershipRuntimeErrorCode,
+	message: string,
+	cause?: unknown,
+): { ok: false; error: MembershipRuntimeError } {
 	return { ok: false, error: new MembershipRuntimeError(code, message, cause) };
 }
 
@@ -81,7 +79,11 @@ export function createMembershipRuntime(dependencies: MembershipRuntimeDependenc
 				manifest = await dependencies.loadManifest(manifestPath);
 			} catch (error) {
 				const reason = error instanceof Error ? error.message : "unknown manifest error";
-				return failure("manifest-load-failed", `failed to load crew manifest: ${manifestPath}: ${reason}`, error);
+				return failure(
+					"manifest-load-failed",
+					`failed to load crew manifest: ${manifestPath}: ${reason}`,
+					error,
+				);
 			}
 
 			let member: CrewMember;
@@ -89,14 +91,24 @@ export function createMembershipRuntime(dependencies: MembershipRuntimeDependenc
 				member = resolveCrewMemberBySocketPath(manifest, socketPath);
 			} catch (error) {
 				const maxDisplayed = 3;
-				const configuredMembers = manifest.members.map((candidate) => `${candidate.name}=${candidate.socketPath}`);
+				const configuredMembers = manifest.members.map(
+					(candidate) => `${candidate.name}=${candidate.socketPath}`,
+				);
 				const displayed = configuredMembers.slice(0, maxDisplayed).join(", ");
 				const omitted = configuredMembers.length - Math.min(configuredMembers.length, maxDisplayed);
-				const bounded = displayed ? ` Configured endpoints: ${displayed}${omitted > 0 ? `, ... (${omitted} omitted)` : ""}.` : "";
+				const bounded = displayed
+					? ` Configured endpoints: ${displayed}${omitted > 0 ? `, ... (${omitted} omitted)` : ""}.`
+					: "";
 				const requestedName = path.basename(socketPath);
-				const suggestion = manifest.members.find((candidate) => path.basename(candidate.socketPath) === `${requestedName}.sock`);
+				const suggestion = manifest.members.find(
+					(candidate) => path.basename(candidate.socketPath) === `${requestedName}.sock`,
+				);
 				const suggestionText = suggestion ? ` Did you mean ${suggestion.socketPath}?` : "";
-				return failure("member-not-found", `no configured crew member matches: ${socketPath}.${bounded}${suggestionText}`, error);
+				return failure(
+					"member-not-found",
+					`no configured crew member matches: ${socketPath}.${bounded}${suggestionText}`,
+					error,
+				);
 			}
 
 			const sameEndpoint = membership?.socketPath === socketPath;
@@ -119,12 +131,24 @@ export function createMembershipRuntime(dependencies: MembershipRuntimeDependenc
 
 			const previousMembership = membership;
 			try {
-				await release(previousMembership.socketPath, previousMembership.globalSocketPath, dependencies.endpointDependencies);
+				await release(
+					previousMembership.socketPath,
+					previousMembership.globalSocketPath,
+					dependencies.endpointDependencies,
+				);
 			} catch (error) {
 				try {
-					await release(nextMembership.socketPath, nextMembership.globalSocketPath, dependencies.endpointDependencies);
+					await release(
+						nextMembership.socketPath,
+						nextMembership.globalSocketPath,
+						dependencies.endpointDependencies,
+					);
 				} catch (rollbackError) {
-					return failure("rollback-failed", "failed to release old endpoint and roll back new endpoint", rollbackError);
+					return failure(
+						"rollback-failed",
+						"failed to release old endpoint and roll back new endpoint",
+						rollbackError,
+					);
 				}
 				return failure("switch-release-failed", "failed to release previous crew member endpoint", error);
 			}

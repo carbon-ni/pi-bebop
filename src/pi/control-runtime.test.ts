@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { activateMembershipTool, createSocketState, deactivateMembershipTool, deriveIntrayStatus, disableControlServer, formatIntrayFooter, handleCommand, refreshIntrayStatus } from "./control-runtime.ts";
+import {
+	activateMembershipTool,
+	createSocketState,
+	deactivateMembershipTool,
+	deriveIntrayStatus,
+	disableControlServer,
+	formatIntrayFooter,
+	handleCommand,
+	refreshIntrayStatus,
+} from "./control-runtime.ts";
 
 function createThrowingContext(message: string): unknown {
 	return {
@@ -16,7 +25,12 @@ function createThrowingContext(message: string): unknown {
 
 test("membership tool activation preserves unrelated tools and is idempotent", () => {
 	let active = ["read", "send_to_session"];
-	const pi = { getActiveTools: () => active, setActiveTools: (tools: string[]) => { active = tools; } } as never;
+	const pi = {
+		getActiveTools: () => active,
+		setActiveTools: (tools: string[]) => {
+			active = tools;
+		},
+	} as never;
 	activateMembershipTool(pi);
 	activateMembershipTool(pi);
 	assert.deepEqual(active, ["read", "send_to_session", "send_to_member"]);
@@ -39,7 +53,12 @@ test("membership transitions refresh the footer online to joined to online", () 
 	state.context = {
 		hasUI: true,
 		sessionManager: { getSessionId: () => "session" },
-		ui: { setStatus: (_key: string, value?: string) => { if (value) statuses.push(value); }, theme: { fg: (_color: string, value: string) => value } },
+		ui: {
+			setStatus: (_key: string, value?: string) => {
+				if (value) statuses.push(value);
+			},
+			theme: { fg: (_color: string, value: string) => value },
+		},
 	} as never;
 	state.membershipRuntime = { getMembership: () => null } as never;
 	refreshIntrayStatus(state);

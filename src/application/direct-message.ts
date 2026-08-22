@@ -40,15 +40,28 @@ export async function sendDirectMessage(
 		message: appendSenderMetadata(request.message, request.sender ?? null),
 		mode: request.mode,
 	};
-	const options: RpcClientOptions = request.wait === "turn_end"
-		? { ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }), waitForEvent: "turn_end", signal: request.signal }
-		: { ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }), signal: request.signal };
+	const options: RpcClientOptions =
+		request.wait === "turn_end"
+			? {
+					...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }),
+					waitForEvent: "turn_end",
+					signal: request.signal,
+				}
+			: { ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }), signal: request.signal };
 	const result = await sendRpc(request.socketPath, command, options);
-	if (!result.response.success) throw new DirectMessageError("remote-rejected", result.response.error ?? "Remote endpoint rejected the message");
+	if (!result.response.success)
+		throw new DirectMessageError(
+			"remote-rejected",
+			result.response.error ?? "Remote endpoint rejected the message",
+		);
 	if (request.wait === "accepted") return { status: "accepted", data: result.response.data };
 	if (result.event?.message === undefined) {
-		if (request.requireAssistantResponse) throw new DirectMessageError("missing-assistant-response", "Turn completed without an assistant response");
-		return { status: "completed", ...(result.event?.turnIndex === undefined ? {} : { turnIndex: result.event.turnIndex }) };
+		if (request.requireAssistantResponse)
+			throw new DirectMessageError("missing-assistant-response", "Turn completed without an assistant response");
+		return {
+			status: "completed",
+			...(result.event?.turnIndex === undefined ? {} : { turnIndex: result.event.turnIndex }),
+		};
 	}
 	return {
 		status: "completed",
