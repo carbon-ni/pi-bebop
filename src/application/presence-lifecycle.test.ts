@@ -32,6 +32,23 @@ function fake(log: string[], failStart = false, failBroadcast = false, failStop 
 	};
 }
 
+test("startup, persisted restore, reload, leave, stop, and shutdown share one ordered composition", async () => {
+	let current: PresenceMembership | null = makeMembership(a);
+	const log: string[] = [];
+	const coordinator = createPresenceLifecycleCoordinator({
+		getMembership: () => current,
+		createObserver: () => fake(log),
+	});
+	await coordinator.refresh(); // startup socket join
+	await coordinator.refresh(); // persisted restore/idempotent reload
+	current = makeMembership(b, "replacement");
+	await coordinator.refresh(); // reload/replacement
+	current = null;
+	await coordinator.stop(); // leave/stop/session shutdown
+	await coordinator.stop(); // cleanup is idempotent
+	assert.deepEqual(log, ["start", "broadcast:offline", "stop", "start", "broadcast:offline", "stop"]);
+});
+
 test("refresh is idempotent and role switch orders old offline, stop, new start", async () => {
 	let membership: PresenceMembership | null = makeMembership(a);
 	const log: string[] = [];
@@ -100,6 +117,24 @@ test("refresh, broadcast, and stop failures are isolated and cleanup continues",
 	const startsBeforeDisabled = log.filter((item) => item === "start").length;
 	await coordinator.refresh();
 	assert.equal(log.filter((item) => item === "start").length, startsBeforeDisabled); // disabled refresh does not construct or start another observer
+});
+
+test("start failure is isolated and leaves no observer for later cleanup", async () => {
+	let current = makeMembership(a);
+	const log: string[] = [];
+	let created = 0;
+	const coordinator = createPresenceLifecycleCoordinator({
+		getMembership: () => current,
+		createObserver: () => {
+			created++;
+			return fake(log, true);
+		},
+		reportFailure: () => log.push("failure"),
+	});
+	await coordinator.refresh();
+	await coordinator.stop();
+	assert.equal(created, 1);
+	assert.deepEqual(log, ["start", "failure", "stop"]);
 });
 
 test("throwing stop is isolated and clears public observer publication", async () => {

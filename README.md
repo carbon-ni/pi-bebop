@@ -69,7 +69,15 @@ shown. The current member is identified from membership without probing it;
 other endpoints are probed independently. If not joined, `/crew members` prints
 `Crew not joined. Use /crew join <socket>.` and performs no discovery. List
 output is displayed without starting an agent turn. Use `/crew status`,
-`/crew leave`, or `/crew stop` to inspect or release the current identity. The
+`/crew leave`, or `/crew stop` to inspect or release the current identity.
+
+Presence activity is enabled by default for joined manifests and appears as
+chat-only `[crew]` activity (`triggerTurn: false`); disable it with
+`"presence": { "notifications": false }`. Online means reachable at the last
+observation, not idle or available. Initial reconciliation runs immediately,
+then every 5 seconds; peer hints are best-effort and a crash can take two
+failed observations to render as left. `/crew members` remains the authoritative
+reachable roster, including when activity is disabled. The
 configured socket name is authoritative (including extensionless names); `dev`
 is not silently changed to `dev.sock`.
 
