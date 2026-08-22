@@ -1,49 +1,39 @@
-import { buildSync } from "esbuild";
-import { mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { build } from "esbuild";
+import { fileURLToPath } from "node:url";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { acquireBuildLock } from "./build-lock.mjs";
+import { atomicSwapDirectory } from "./build-swap.mjs";
 
-const dist = new URL("../dist/", import.meta.url).pathname;
-const root = dirname(dist);
-const lock = join(root, ".bebop-build.lock");
-mkdirSync(root, { recursive: true });
-const lockHeld = process.env.BEBOP_BUILD_LOCK_HELD === "1";
-if (!lockHeld)
-	while (true) {
-		try {
-			mkdirSync(lock);
-			break;
-		} catch {
-			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
-		}
-	}
-const staging = mkdtempSync(join(root, ".bebop-build-"));
+const root = dirname(fileURLToPath(import.meta.url));
+const projectRoot = dirname(root);
+const dist = join(projectRoot, "dist");
+const lockPath = join(projectRoot, ".bebop-build.lock");
+const release = await acquireBuildLock(lockPath);
+let staging;
+
 try {
-	mkdirSync(join(staging, "cli"), { recursive: true });
-	buildSync({
-		entryPoints: ["src/cli/main.ts"],
+	staging = await mkdtemp(join(projectRoot, ".bebop-build-"));
+	await mkdir(join(staging, "cli"), { recursive: true });
+	await build({
+		entryPoints: [join(projectRoot, "src/cli/main.ts")],
 		bundle: true,
 		platform: "node",
 		format: "esm",
 		outfile: join(staging, "cli/main.js"),
 	});
-	buildSync({
-		entryPoints: ["src/extension.ts"],
+	await build({
+		entryPoints: [join(projectRoot, "src/extension.ts")],
 		bundle: true,
 		platform: "node",
 		format: "esm",
 		external: ["@earendil-works/*", "@sinclair/typebox", "typebox"],
 		outfile: join(staging, "extension.js"),
 	});
-	const backup = join(root, `.previous-dist-${process.pid}`);
-	rmSync(backup, { recursive: true, force: true });
-	try {
-		renameSync(dist, backup);
-	} catch {
-		// The first build may be creating dist for the first time.
-	}
-	renameSync(staging, dist);
-	rmSync(backup, { recursive: true, force: true });
+	await atomicSwapDirectory(staging, dist, `${dist}.backup-${process.pid}`);
+	staging = undefined;
 } finally {
-	rmSync(staging, { recursive: true, force: true });
-	if (!lockHeld) rmSync(lock, { recursive: true, force: true });
+	// atomicSwapDirectory owns staging/backup cleanup; this removes staging if compilation failed.
+	if (staging) await rm(staging, { recursive: true, force: true });
+	await release();
 }
