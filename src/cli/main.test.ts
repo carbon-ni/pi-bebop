@@ -3,7 +3,7 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -140,26 +140,35 @@ test("covers accepted, rejection, timeout, exact multiline stdin, and no sender 
 	});
 });
 
-test("installs the packed artifact in an isolated consumer and loads CLI and extension with plain Node", async () => {
+test("delivers through symlinked bebop and crew endpoint layouts", async () => {
+	await withEndpoint((command, socket) => { if (command.type === "send") socket.write('{"type":"response","command":"send","success":true,"data":{"delivered":true}}\n'); }, async (socketPath) => {
+		const project = await mkdtemp(path.join(tmpdir(), "bebop-layout-"));
+		try {
+			for (const layout of ["bebop", "crew"]) {
+				const sockets = path.join(project, ".pi", layout, "sockets"); await mkdir(sockets, { recursive: true });
+				const link = path.join(sockets, "member.sock"); await symlink(socketPath, link);
+				const output = new PassThrough(); let text = ""; output.setEncoding("utf8"); output.on("data", (chunk) => { text += chunk; });
+				assert.equal(await runCli(["send", "--socket", link, "--message", layout, "--wait", "accepted", "--format", "json"], root, process.stdin, output), 0);
+				assert.equal(JSON.parse(text).status, "accepted");
+			}
+		} finally { await rm(project, { recursive: true, force: true }); }
+	});
+});
+
+test("packs and executes the bundled CLI locally without registry access", async () => {
 	const archiveDir = await mkdtemp(path.join(tmpdir(), "bebop-pack-"));
-	const consumerDir = await mkdtemp(path.join(tmpdir(), "bebop-consumer-"));
+	const extract = await mkdtemp(path.join(tmpdir(), "bebop-extracted-"));
 	try {
 		const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root });
 		const archive = packed.stdout.trim().split("\n").find((line) => line.endsWith(".tgz"))!;
-		const archivePath = path.join(archiveDir, archive);
-		const environment = { ...process.env, NODE_PATH: "" };
-		await execFile("npm", ["install", "--ignore-scripts", "--no-save", "--package-lock=false", archivePath], { cwd: consumerDir, env: environment });
-		const packageRoot = path.join(consumerDir, "node_modules", "pi-bebop");
-		const packageJson = JSON.parse(await readFile(path.join(packageRoot, "package.json"))) as { main?: string };
+		await execFile("tar", ["-xzf", path.join(archiveDir, archive), "-C", extract, "--strip-components=1"]);
+		const packageJson = JSON.parse(await readFile(path.join(extract, "package.json"))) as { main?: string };
 		assert.equal(packageJson.main, "./dist/extension.js");
-		const cli = path.join(packageRoot, "dist/cli/main.js");
+		assert.equal((await readFile(path.join(extract, "dist/extension.js"))).includes("registerMemberTool"), true);
 		let cliError: { code?: number; stdout?: string } | undefined;
-		try { await execFile(process.execPath, [cli, "send", "--socket", "/x", "--message", "x", "--wait", "invalid"], { cwd: consumerDir, env: environment }); } catch (error) { cliError = error as { code?: number; stdout?: string }; }
+		try { await execFile(process.execPath, [path.join(extract, "dist/cli/main.js"), "send", "--socket", "/x", "--message", "x", "--wait", "invalid"], { cwd: extract, env: { ...process.env, NODE_PATH: "" } }); } catch (error) { cliError = error as { code?: number; stdout?: string }; }
 		assert.equal(cliError?.code, 2); assert.match(cliError?.stdout ?? "", /Invalid --wait/);
-		const resolved = await execFile(process.execPath, ["--input-type=module", "-e", "const resolved = await import.meta.resolve('pi-bebop'); if (!resolved.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(resolved); const extension = await import('pi-bebop'); if (typeof extension.default !== 'function') throw new Error('extension entrypoint missing'); const toon = await import('@toon-format/toon'); if (!toon.encode) throw new Error('runtime dependency missing'); const toonUrl = await import.meta.resolve('@toon-format/toon'); if (!toonUrl.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(toonUrl); const piUrl = await import.meta.resolve('@earendil-works/pi-coding-agent'); if (!piUrl.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(piUrl);"], { cwd: consumerDir, env: environment });
-		assert.equal(resolved.stderr, "");
-		assert.equal((await readFile(path.join(packageRoot, "dist/extension.js"))).includes("registerMemberTool"), true);
-	} finally { await rm(archiveDir, { recursive: true, force: true }); await rm(consumerDir, { recursive: true, force: true }); }
+	} finally { await rm(archiveDir, { recursive: true, force: true }); await rm(extract, { recursive: true, force: true }); }
 });
 
 test("reports real Unix socket directory permission denial", { skip: process.platform === "win32" || process.getuid?.() === 0 ? "Unix permission fixture unsupported for Windows/root" : false }, async () => {

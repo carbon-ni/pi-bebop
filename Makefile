@@ -1,4 +1,4 @@
-.PHONY: all typecheck lint test security-check hooks-install hooks-uninstall
+.PHONY: all typecheck lint test security-check package-verify hooks-install hooks-uninstall
 
 all: lint test security-check
 
@@ -10,6 +10,9 @@ lint:
 
 test:
 	npm test
+
+package-verify:
+	npm run verify:package
 
 security-check:
 	# Pi is a peer dependency; audit only the extension's production dependency tree.
