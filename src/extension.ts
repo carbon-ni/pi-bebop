@@ -3,6 +3,9 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import { renderSessionMessage } from "./pi/message-renderer.ts";
 import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/index.ts";
+import { createMemberMessageCoordinator } from "./application/member-message.ts";
+import { sendRpcCommand } from "./infra/rpc-client.ts";
+import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -51,8 +54,13 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	registerSendFollowUpTool(pi, state);
-	registerSendImmediateTool(pi, state);
+	const memberMessageDependencies = {
+		transport: { send: sendRpcCommand },
+		resolveEndpoint: resolveMemberEndpoint,
+		coordinator: createMemberMessageCoordinator(),
+	};
+	registerSendFollowUpTool(pi, state, memberMessageDependencies);
+	registerSendImmediateTool(pi, state, memberMessageDependencies);
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};

@@ -1,7 +1,4 @@
-import { promises as fs } from "node:fs";
-import * as path from "node:path";
-import { appendSenderMetadata, isSendResult, type RpcCommand } from "../domain/index.ts";
-import { sendRpcCommand } from "../infra/rpc-client.ts";
+import { appendSenderMetadata, isSendResult, type RpcCommand, type RpcCommandResponse } from "../domain/index.ts";
 
 type CrewMember = { name: string; role: string; socketPath: string };
 type CrewMembership = { member: CrewMember; socketPath: string; manifest: { members: readonly CrewMember[] } };
@@ -12,10 +9,17 @@ export interface MemberMessageRequest {
 	readonly membership: CrewMembership | null;
 	readonly member: string;
 	readonly message: string;
-	readonly intent: MemberDeliveryIntent;
+	readonly intent?: MemberDeliveryIntent;
 	readonly waitFor?: MemberWaitFor;
 	readonly signal?: AbortSignal;
 	readonly sender?: { sessionId: string; sessionName?: string };
+}
+export interface MemberMessageTransport {
+	send(
+		endpoint: string,
+		command: RpcCommand,
+		options: { signal?: AbortSignal },
+	): Promise<{ response: RpcCommandResponse }>;
 }
 export interface MemberMessageCoordinator {
 	enqueue<T>(key: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T>;
@@ -23,9 +27,9 @@ export interface MemberMessageCoordinator {
 	pendingKeyCount(): number;
 }
 export interface MemberMessageDependencies {
-	readonly sendRpcCommand?: typeof sendRpcCommand;
-	readonly resolveEndpoint?: (socketPath: string) => Promise<string>;
-	readonly coordinator?: MemberMessageCoordinator;
+	readonly transport: MemberMessageTransport;
+	readonly resolveEndpoint: (socketPath: string) => Promise<string>;
+	readonly coordinator: MemberMessageCoordinator;
 }
 export interface MemberMessageOutcome {
 	readonly target: CrewMember;
@@ -63,23 +67,12 @@ export function createMemberMessageCoordinator(): MemberMessageCoordinator {
 	return new EndpointQueueCoordinator();
 }
 
-const defaultCoordinator = createMemberMessageCoordinator();
-
 export class MemberMessageError extends Error {
 	readonly code: string;
 	constructor(code: string, message: string) {
 		super(message);
 		this.name = "MemberMessageError";
 		this.code = code;
-	}
-}
-
-async function resolveMemberEndpoint(socketPath: string): Promise<string> {
-	try {
-		const target = await fs.readlink(socketPath);
-		return path.resolve(path.dirname(socketPath), target);
-	} catch {
-		return socketPath;
 	}
 }
 
@@ -98,31 +91,30 @@ function resolveTarget(membership: CrewMembership, memberName: string): CrewMemb
 
 export async function sendMemberMessage(
 	request: MemberMessageRequest,
-	dependencies: MemberMessageDependencies = {},
+	dependencies: MemberMessageDependencies,
 ): Promise<MemberMessageOutcome> {
 	if (!request.membership) throw new MemberMessageError("not-joined", "Not joined to a crew");
+	const intent = request.intent ?? "follow_up";
 	if (request.waitFor === "response")
 		throw new MemberMessageError(
 			"response-correlation-unsupported",
 			"wait_for=response is unavailable: Pi turn events cannot prove delivery-level response correlation",
 		);
 	const target = resolveTarget(request.membership, request.member.trim());
-	const sendRpc = dependencies.sendRpcCommand ?? sendRpcCommand;
-	const resolveEndpoint = dependencies.resolveEndpoint ?? resolveMemberEndpoint;
-	const endpoint = await resolveEndpoint(target.socketPath);
+	const endpoint = await dependencies.resolveEndpoint(target.socketPath);
 	const command: RpcCommand = {
 		type: "send",
 		message: appendSenderMetadata(request.message, request.sender ?? null),
-		mode: request.intent === "immediate" ? "steer" : "follow_up",
+		mode: intent === "immediate" ? "steer" : "follow_up",
 	};
 	const deliver = async (): Promise<MemberMessageOutcome> => {
-		const result = await sendRpc(endpoint, command, { signal: request.signal });
+		const result = await dependencies.transport.send(endpoint, command, { signal: request.signal });
 		if (!result.response.success)
 			throw new MemberMessageError("remote-rejected", result.response.error ?? "Member rejected message");
 		if (!isSendResult(result.response.data))
 			throw new MemberMessageError("invalid-ack", "Member returned an invalid delivery acknowledgement");
 		return { target, deliveryId: result.response.data.deliveryId, disposition: result.response.data.disposition };
 	};
-	if (request.intent === "immediate") return deliver();
-	return (dependencies.coordinator ?? defaultCoordinator).enqueue(endpoint, deliver, request.signal);
+	if (intent === "immediate") return deliver();
+	return dependencies.coordinator.enqueue(endpoint, deliver, request.signal);
 }
