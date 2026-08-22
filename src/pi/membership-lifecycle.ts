@@ -49,7 +49,7 @@ export async function restorePersistedMembership(deps: MembershipRestoreDeps): P
 		return false;
 	}
 	deps.announce(
-		`Intray restored ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
+		`Crew restored ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
 	);
 	return true;
 }
@@ -70,7 +70,7 @@ export async function releaseMembershipBeforeCleanup(deps: {
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		deps.reportFailure(`Intray membership release failed: ${message}`);
+		deps.reportFailure(`Crew membership release failed: ${message}`);
 	} finally {
 		await deps.cleanup();
 	}

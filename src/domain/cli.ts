@@ -60,15 +60,15 @@ export function parseSessionControlAction(args: string): {
 
 	const action = parts[0];
 	if (action === "join") {
-		if (parts.length === 1) return { error: "Missing target. Use /intray join <socket>." };
+		if (parts.length === 1) return { error: "Missing target. Use /crew join <socket>." };
 		if (parts.length > 2) return { error: "Join accepts exactly one target." };
 		return { action, target: parts[1] };
 	}
 	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
-		if (parts.length > 1) return { error: `Too many arguments. Use /intray ${SESSION_CONTROL_USAGE}.` };
+		if (parts.length > 1) return { error: `Too many arguments. Use /crew ${SESSION_CONTROL_USAGE}.` };
 		return { action };
 	}
-	return { error: `Unknown intray action: ${action}. Use ${SESSION_CONTROL_USAGE}.` };
+	return { error: `Unknown crew action: ${action}. Use /crew ${SESSION_CONTROL_USAGE}.` };
 }
 
 export function normalizeMode(raw: string): "steer" | "follow_up" | null {
