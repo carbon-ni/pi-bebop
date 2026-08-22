@@ -8,6 +8,7 @@ import {
 	removeSocket,
 } from "../infra/control-store.ts";
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
+import { isMessagePayload, renderMessagePayload } from "../domain/index.ts";
 import {
 	closeRpcServer,
 	createRpcServer,
@@ -223,12 +224,16 @@ export async function handleCommand(
 
 	// Send message
 	if (command.type === "send") {
-		const message = command.message;
-		if (typeof message !== "string" || message.trim().length === 0) {
-			respond(false, "send", undefined, "Missing message");
+		const payload = {
+			content: command.message,
+			...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+			...(command.origin === undefined ? {} : { origin: command.origin }),
+		};
+		if (!isMessagePayload(payload)) {
+			respond(false, "send", undefined, "Invalid structured message payload");
 			return;
 		}
-
+		const message = renderMessagePayload(payload);
 		const mode = command.mode ?? "follow_up";
 		const isIdle = ctx.isIdle();
 		const customMessage = {
