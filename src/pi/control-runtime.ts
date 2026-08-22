@@ -224,17 +224,13 @@ export async function handleCommand(
 
 	// Send message
 	if (command.type === "send") {
-		const payload = {
-			content: command.message,
-			...(command.instructions === undefined ? {} : { instructions: command.instructions }),
-			...(command.origin === undefined ? {} : { origin: command.origin }),
-		};
+		const payload = command.payload;
 		if (!isMessagePayload(payload)) {
 			respond(false, "send", undefined, "Invalid structured message payload");
 			return;
 		}
 		const message = renderMessagePayload(payload);
-		const mode = command.mode ?? "follow_up";
+		const mode = command.delivery ?? "follow_up";
 		const isIdle = ctx.isIdle();
 		const customMessage = {
 			customType: SESSION_MESSAGE_TYPE,

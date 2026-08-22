@@ -31,12 +31,18 @@ test("rejects ambiguous, malformed, empty, NUL, and extra payload fields", () =>
 		{},
 		{ content: "" },
 		{ content: "\0" },
+		{ content: "   " },
+		{ content: "x", instructions: ["   "] },
+		{ content: "x", origin: { kind: "crew", name: " Bob ", role: "dev" } },
 		{ content: "x", instructions: [] },
 		{ content: "x", instructions: ["\0"] },
 		{ content: "x", origin: { kind: "crew", name: "Bob", role: "dev", trusted: true } },
 		{ content: "x", origin: { kind: "crew", name: "", role: "dev" } },
 		{ content: "x", origin: { kind: "external", label: "" } },
 		{ content: "x", origin: { kind: "unknown", label: "x" } },
+		{ content: "x", origin: { kind: "crew", name: "Bob", role: "\0" } },
+		{ content: "x", replyTo: { sessionId: "   " } },
+		{ content: "x", replyTo: { sessionId: "s", sessionName: 2 } },
 		{ content: "x", extra: true },
 	];
 	for (const value of invalid) assert.equal(isMessagePayload(value), false, JSON.stringify(value));
@@ -51,6 +57,7 @@ test("enforces deterministic byte and aggregate limits", () => {
 		false,
 	);
 	assert.equal(isMessagePayload({ content: "x", instructions: ["i".repeat(MAX_MESSAGE_INSTRUCTION_BYTES)] }), true);
+	assert.equal(isMessagePayload({ content: "x", replyTo: { sessionId: "s", sessionName: "name" } }), true);
 	assert.equal(
 		isMessagePayload({ content: "x", instructions: ["i".repeat(MAX_MESSAGE_INSTRUCTION_BYTES + 1)] }),
 		false,

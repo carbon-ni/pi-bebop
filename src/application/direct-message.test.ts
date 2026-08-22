@@ -15,11 +15,44 @@ test("sends exact message without sender metadata and returns an accepted result
 	);
 	assert.deepEqual(call, {
 		path: "/x",
-		command: { type: "send", message: "private\ntext", mode: "steer" },
+		command: { type: "send", payload: { content: "private\ntext" }, delivery: "immediate" },
 		options: { timeout: 123, signal: undefined },
 	});
-	assert.doesNotMatch((call!.command as { message: string }).message, /sender_info/);
+	assert.equal((call!.command as { payload: { content: string } }).payload.content, "private\ntext");
+	assert.equal(JSON.stringify(call!.command).includes("sender_info"), false);
 	assert.deepEqual(result, { status: "accepted", data: { delivered: true } });
+});
+
+test("keeps callback routing separate from claimed origin", async () => {
+	const calls: RpcCommand[] = [];
+	const send = async (_path: string, command: RpcCommand) => {
+		calls.push(command);
+		return { response: { type: "response", command: "send", success: true, data: { delivered: true } } };
+	};
+	await sendDirectMessage(
+		{
+			socketPath: "/x",
+			message: "hello",
+			mode: "steer",
+			wait: "accepted",
+			origin: { kind: "external", label: "CI" },
+		},
+		send,
+	);
+	await sendDirectMessage(
+		{
+			socketPath: "/x",
+			message: "hello",
+			mode: "steer",
+			wait: "accepted",
+			origin: { kind: "external", label: "CI" },
+			sender: { sessionId: "s" },
+		},
+		send,
+	);
+	assert.deepEqual(calls[0]?.payload.origin, calls[1]?.payload.origin);
+	assert.equal(calls[0]?.payload.replyTo, undefined);
+	assert.deepEqual(calls[1]?.payload.replyTo, { sessionId: "s" });
 });
 
 test("rejects turn completion without an assistant response as an operational error", async () => {
