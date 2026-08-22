@@ -9,7 +9,8 @@ owns its crew socket transport, project-local membership, and role-based
 Formatting is pinned to Prettier 3.6.2. Run `npm run format:write` to apply the
 configured formatting scope, then `npm run format:check` to verify it. The full
 `make all` quality gate also checks package dependency-key uniqueness and the
-exact Prettier pin before typechecking, tests, security, and build. Generated
+exact Prettier pin before typechecking, build, tests, and security. `npm test`
+rebuilds `dist/` first so standalone tests never depend on stale generated output. Generated
 output, dependency locks, plans, and shared agent state are intentionally
 excluded from formatting.
 
