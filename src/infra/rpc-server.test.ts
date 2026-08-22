@@ -110,6 +110,46 @@ test("rejects unknown methods, extra params, non-RPC envelopes, and malformed en
 					-32602,
 				],
 				[JSON.stringify({ type: "send", message: "x" }), -32600],
+				[
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: "hint-whitespace",
+						method: "presence.hint",
+						params: {
+							member: { identity: " /crew/dev.sock ", name: "dev", role: "developer" },
+							state: "online",
+							instanceId: "peer",
+						},
+					}),
+					-32602,
+				],
+				[
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: "hint-nul",
+						method: "presence.hint",
+						params: {
+							member: { identity: "/crew/dev.sock", name: "dev\u0000", role: "developer" },
+							state: "online",
+							instanceId: "peer",
+						},
+					}),
+					-32602,
+				],
+				[
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: "hint-extra",
+						method: "presence.hint",
+						params: {
+							member: { identity: "/crew/dev.sock", name: "dev", role: "developer" },
+							state: "online",
+							instanceId: "peer",
+							extra: true,
+						},
+					}),
+					-32602,
+				],
 			];
 			for (const [line, code] of invalidRequests) {
 				const response = JSON.parse(await sendLine(socketPath, line));

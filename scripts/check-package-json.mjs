@@ -12,8 +12,8 @@ if (duplicates.length > 0) throw new Error(`Duplicate devDependency keys: ${[...
 if (packageJson.devDependencies?.prettier !== "3.6.2") throw new Error("Prettier must remain pinned exactly at 3.6.2");
 if (!new Set(["npm run build", "node scripts/build-for-test.mjs"]).has(packageJson.scripts?.pretest))
 	throw new Error("pretest must build the current artifacts before tests");
-if (packageJson.scripts?.["typecheck:test"] !== "tsc --noEmit -p tsconfig.tests.json")
-	throw new Error("typecheck:test must compile the checked-in test tsconfig");
-if (packageJson.scripts?.lint !== "npm run typecheck && npm run typecheck:test")
-	throw new Error("lint must include production and test typechecks");
+if (packageJson.scripts?.["typecheck:presence-tests"] !== "tsc --noEmit -p tsconfig.tests.json")
+	throw new Error("typecheck:presence-tests must compile the checked-in presence test tsconfig");
+if (packageJson.scripts?.lint !== "npm run typecheck && npm run typecheck:presence-tests")
+	throw new Error("lint must include production and presence test typechecks");
 console.log("package.json dependency keys and exact Prettier pin are valid");
