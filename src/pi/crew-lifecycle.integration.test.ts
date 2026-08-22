@@ -41,8 +41,9 @@ async function setupCrew() {
 	return { root, manifestPath, sockets, globals, async cleanup() { await fs.rm(root, { recursive: true, force: true }); } };
 }
 
-test("supports both canonical and compatibility layouts for join and restore", async (t) => {
-	for (const layout of ["bebop", "crew"]) {
+test("publishes exactly one real external endpoint for every supported layout", async (t) => {
+	const layouts = [{ layout: "bebop" }, { layout: "crew" }];
+	for (const { layout } of layouts) {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), `intray-${layout}-`));
 		const manifestPath = path.join(root, ".pi", layout, "crew.json");
 		const socketPath = path.join(root, ".pi", layout, "sockets", "lead.sock");
@@ -64,6 +65,7 @@ test("supports both canonical and compatibility layouts for join and restore", a
 		assert.equal(joined.ok, true);
 		assert.equal(joined.ok && joined.membership.manifestPath, manifestPath);
 		assert.deepEqual(claimPaths, [socketPath]);
+		assert.equal(claimPaths.length, 1);
 		assert.equal((await fs.readlink(socketPath)), globalSocketPath);
 		const restoredRuntime = createMembershipRuntime({ loadManifest: (selected) => readTrustedCrewManifest(selected, root, () => true) });
 		const restored = await restorePersistedMembership({ runtime: restoredRuntime, persisted: getLatestMembershipState([{ type: "custom", customType: MEMBERSHIP_ENTRY_TYPE, data: { active: true, socketPath, manifestPath } }]), startupSocketSelected: false, globalSocketPath, manifestPathForSocket: () => manifestPath, announce: () => undefined, reportFailure: assert.fail });
