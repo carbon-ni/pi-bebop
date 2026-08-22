@@ -145,11 +145,13 @@ test("bounds many-member guidance and suggests the exact configured endpoint", a
 
 test("claims an initially absent external-root configured endpoint", async () => {
 	let claimed: string | undefined;
+	let claimCalls = 0;
 	const manifest = parseCrewManifest({ version: 1, members: [{ name: "dev1", role: "developer", socket: "sockets/dev1.sock" }] }, "/root-B/.pi/crew/crew.json");
-	const runtime = createMembershipRuntime({ loadManifest: async () => manifest, claimEndpoint: (async (socketPath: string) => { claimed = socketPath; return { idempotent: false }; }) as never });
+	const runtime = createMembershipRuntime({ loadManifest: async () => manifest, claimEndpoint: (async (socketPath: string) => { claimCalls += 1; claimed = socketPath; return { idempotent: false }; }) as never });
 	const result = await runtime.join({ manifestPath: "/root-B/.pi/crew/crew.json", socketPath: "/root-B/.pi/crew/sockets/dev1.sock", globalSocketPath: "/tmp/global.sock" });
 	assert.equal(result.ok, true);
 	assert.equal(claimed, "/root-B/.pi/crew/sockets/dev1.sock");
+	assert.equal(claimCalls, 1);
 });
 
 test("unknown member and malformed manifest fail without claiming", async () => {
