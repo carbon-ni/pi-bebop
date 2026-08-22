@@ -20,6 +20,7 @@ execution:
 jobs:
   - name: test @quick
     run: npm test
+    parallel: quick
     change:
       - src/**/*.ts
       - package.json
@@ -29,6 +30,7 @@ jobs:
 
   - name: lint @quick
     run: npm run lint
+    parallel: quick
     change:
       - src/**/*.ts
       - package.json
