@@ -72,6 +72,15 @@ maps to queued delivery while busy; immediate is opt-in and maps to steering
 active work. Both return schema-validated `deliveryId`/disposition
 acknowledgements without subscribing to global `turn_end`. Response waiting is
 rejected because Pi lifecycle events cannot prove delivery-level correlation.
+All sends share the strict domain `MessagePayload` (`content`, ordered
+`instructions`, claimed `origin`, and optional callback-only `replyTo`). The wire
+uses `delivery`; legacy `mode` is not a wire field. Crew origin is derived at
+execute time from current membership, while direct `--from` attribution is
+explicitly external and unverified. `replyTo` is independent of origin and is
+omitted for synchronous/no-reply sends. The recipient receives canonical JSON
+context plus typed `details.messagePayload`; the UI displays origin,
+instructions, and content but hides reply routing.
+
 The tools are active only while joined to a crew. A live endpoint owned by
 another session is never overwritten; stale endpoints can be reclaimed.
 

@@ -92,6 +92,9 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 					description: "Ordered user-level instructions",
 				}),
 			),
+			from: Type.Optional(
+				Type.String({ minLength: 1, description: "Claimed external label; unavailable when joined" }),
+			),
 			mode: Type.Optional(
 				Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], {
 					description: "Delivery mode for send: steer (immediate) or follow_up (after task)",
@@ -231,12 +234,22 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 				}
 
 				const senderSessionName = state.context?.sessionManager.getSessionName()?.trim();
+				const currentCrewOrigin = dependencies.getCurrentCrewOrigin?.();
+				if (currentCrewOrigin && params.from !== undefined) {
+					return {
+						content: [{ type: "text", text: "Cannot override joined crew origin with --from" }],
+						isError: true,
+						details: { error: "origin-override" },
+					};
+				}
 				return await sendMessageToSocket(
 					{
 						socketPath,
 						message: params.message,
 						instructions: params.instructions,
-						origin: dependencies.getCurrentCrewOrigin?.(),
+						origin:
+							currentCrewOrigin ??
+							(params.from === undefined ? undefined : { kind: "external", label: params.from }),
 						mode: params.mode ?? "steer",
 						policy: policy!,
 						signal,
