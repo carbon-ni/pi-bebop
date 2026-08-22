@@ -23,12 +23,57 @@ test("correlates send and subscription responses then accepts the matching turn 
 		if (request.method === "message.send") send(socket, { jsonrpc: "2.0", id: request.id, result: { delivered: true, mode: "steer" } });
 		if (request.method === "event.subscribe") {
 			send(socket, { jsonrpc: "2.0", id: request.id, result: { subscriptionId: String(request.id), event: "turn_end" } });
-			setTimeout(() => send(socket, { jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: String(request.id), message: { content: "done" }, turnIndex: 3 } }), 1);
+			setTimeout(() => send(socket, { jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: String(request.id), message: { role: "assistant", content: "done", timestamp: 1 }, turnIndex: 3 } }), 1);
 		}
 	}), async (socketPath) => {
 		const result = await sendRpcCommand(socketPath, { type: "send", message: "hello" }, { waitForEvent: "turn_end", timeout: 100 });
 		assert.equal(result.event?.message?.content, "done");
 	});
+});
+
+test("requires primary response and matching subscription acknowledgement in either response order", async () => {
+	for (const reverse of [false, true]) {
+		await withSocketServer((socket) => {
+			const requests: Record<string, unknown>[] = [];
+			lines(socket, (request) => {
+				requests.push(request); if (requests.length !== 2) return;
+				const primary = requests.find((item) => item.method === "message.send")!;
+				const subscribe = requests.find((item) => item.method === "event.subscribe")!;
+				const frames = [
+					{ jsonrpc: "2.0", id: primary.id, result: { delivered: true, mode: "steer" } },
+					{ jsonrpc: "2.0", id: subscribe.id, result: { subscriptionId: String(subscribe.id), event: "turn_end" } },
+					{ jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: String(subscribe.id), message: { role: "assistant", content: "done", timestamp: 1 }, turnIndex: 1 } },
+				];
+				for (const frame of reverse ? [frames[1], frames[0], frames[2]] : frames) send(socket, frame);
+			});
+		}, async (socketPath) => {
+			const result = await sendRpcCommand(socketPath, { type: "send", message: "x" }, { waitForEvent: "turn_end", timeout: 1000 });
+			assert.equal(result.event?.message?.content, "done");
+		});
+	}
+});
+
+test("rejects a turn notification before either required response or acknowledgement", async () => {
+	for (const order of ["before-primary", "before-ack"] as const) {
+		await withSocketServer((socket) => {
+			const requests: Record<string, unknown>[] = [];
+			lines(socket, (request) => {
+				requests.push(request); if (requests.length !== 2) return;
+				const primary = requests.find((item) => item.method === "message.send")!;
+				const subscribe = requests.find((item) => item.method === "event.subscribe")!;
+				const primaryFrame = { jsonrpc: "2.0", id: primary.id, result: { delivered: true, mode: "steer" } };
+				const ackFrame = { jsonrpc: "2.0", id: subscribe.id, result: { subscriptionId: String(subscribe.id), event: "turn_end" } };
+				const event = { jsonrpc: "2.0", method: "session.turn_end", params: { subscriptionId: String(subscribe.id), message: null } };
+				for (const frame of order === "before-primary" ? [ackFrame, event, primaryFrame] : [primaryFrame, event, ackFrame]) send(socket, frame);
+			});
+		}, async (socketPath) => {
+			await assert.rejects(() => sendRpcCommand(socketPath, { type: "send", message: "x" }, { waitForEvent: "turn_end", timeout: 1000 }), /out-of-order-(ack|response)/i);
+		});
+	}
+});
+
+test("rejects a subscription acknowledgement with the wrong subscription id", async () => {
+	await withSocketServer((socket) => lines(socket, (request) => { if (request.method === "message.send") send(socket, { jsonrpc: "2.0", id: request.id, result: { delivered: true, mode: "steer" } }); if (request.method === "event.subscribe") send(socket, { jsonrpc: "2.0", id: request.id, result: { subscriptionId: "other", event: "turn_end" } }); }), async (socketPath) => { await assert.rejects(() => sendRpcCommand(socketPath, { type: "send", message: "x" }, { waitForEvent: "turn_end", timeout: 1000 }), /mismatched-subscription-id/i); });
 });
 
 test("rejects remote JSON-RPC errors without waiting for notifications", async () => {

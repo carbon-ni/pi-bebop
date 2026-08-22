@@ -4,7 +4,7 @@ import { createAliasSymlink, ensureControlDir, getAliasNames, removeAliasesForSo
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
 import { closeRpcServer, createRpcServer, writeEvent, writeResponse, type RpcServer, type RpcSocket } from "../infra/rpc-server.ts";
 import { updateProcessSessionEnv } from "../infra/session-env.ts";
-import { createProjectBranchAlias, createSequentialProjectBranchAlias, getFirstEntryId, getLastAssistantMessage, isSafeAlias, type RpcCommand, type RpcId, SESSION_MESSAGE_TYPE } from "../domain/index.ts";
+import { createProjectBranchAlias, createSequentialProjectBranchAlias, getFirstEntryId, getLastAssistantMessage, isSafeAlias, type RpcInboundCommand, SESSION_MESSAGE_TYPE } from "../domain/index.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 
 // ============================================================================
@@ -101,10 +101,10 @@ async function syncAlias(state: SocketState, ctx: ExtensionContext): Promise<voi
 export async function handleCommand(
 	pi: ExtensionAPI,
 	state: SocketState,
-	command: RpcCommand,
+	command: RpcInboundCommand,
 	socket: RpcSocket,
 ): Promise<void> {
-	const id: RpcId | undefined = "id" in command && (typeof command.id === "string" || typeof command.id === "number") ? command.id : undefined;
+	const id = command.id;
 	const respond = (success: boolean, commandName: string, data?: unknown, error?: string) => {
 		if (state.context) {
 			void syncAlias(state, state.context);
@@ -137,7 +137,7 @@ export async function handleCommand(
 	// Subscribe to turn_end
 	if (command.type === "subscribe") {
 		if (command.event === "turn_end") {
-			const subscriptionId = id === undefined ? `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` : String(id);
+			const subscriptionId = String(id);
 			state.turnEndSubscriptions.push({ socket, subscriptionId });
 
 			const cleanup = () => {
@@ -250,9 +250,6 @@ async function startControlServer(pi: ExtensionAPI, state: SocketState, ctx: Ext
 	state.server = await createRpcServer(
 		socketPath,
 		(command, socket) => handleCommand(pi, state, command, socket),
-		() => {
-			if (state.context) void syncAlias(state, state.context);
-		},
 	);
 	state.aliases = [];
 	await syncAlias(state, ctx);

@@ -6,7 +6,7 @@ import { Type } from "@sinclair/typebox";
 import { readTrustedCrewManifest } from "../infra/crew-manifest-store.ts";
 import { resolveSessionIdFromAlias } from "../infra/control-store.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
-import { resolveResponsePolicy, type ExtractedMessage } from "../domain/index.ts";
+import { isClearResult, isExtractedMessage, isGetMessageResult, resolveResponsePolicy } from "../domain/index.ts";
 import { resolveSessionTarget, SessionTargetError } from "./session-target.ts";
 import { sendMessageToSocket } from "./send-message.ts";
 
@@ -149,8 +149,9 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 							details: result,
 						};
 					}
-					const data = result.response.data as { message?: ExtractedMessage };
-					if (!data?.message) {
+					if (!isGetMessageResult(result.response.data)) return { content: [{ type: "text", text: "Failed: invalid get_message result" }], isError: true, details: result };
+					const data = result.response.data;
+					if (!data.message) {
 						return {
 							content: [{ type: "text", text: "No assistant message found in session" }],
 							details: result,
@@ -171,8 +172,9 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 							details: result,
 						};
 					}
-					const data = result.response.data as { cleared?: boolean; alreadyAtRoot?: boolean };
-					const msg = data?.alreadyAtRoot ? "Session already at root" : "Session cleared";
+					if (!isClearResult(result.response.data)) return { content: [{ type: "text", text: "Failed: invalid clear result" }], isError: true, details: result };
+					const data = result.response.data;
+					const msg = data.alreadyAtRoot ? "Session already at root" : "Session cleared";
 					return {
 						content: [{ type: "text", text: msg }],
 						details: data,
@@ -263,7 +265,8 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 
 			// get_message or turn_end result with message
 			if (hasMessage) {
-				const message = details.message as ExtractedMessage;
+				if (!isExtractedMessage(details.message)) return new Text(theme.fg("error", "✗ Invalid message payload"), 0, 0);
+				const message = details.message;
 				const icon = theme.fg("success", "✓");
 
 				if (expanded) {
