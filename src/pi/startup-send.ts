@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getCrewManifestPathFromSocketPath } from "../infra/crew-manifest-store.ts";
+import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 import { getSocketPath } from "../infra/intray-paths.ts";
 import { isSocketAlive, resolveSessionIdFromAlias } from "../infra/control-store.ts";
@@ -108,11 +108,12 @@ export async function maybeHandleStartupSocketJoin(
 ): Promise<boolean> {
 	const rawSocket = getStringFlag(pi, flags.socket);
 	if (!rawSocket) return false;
-	const socketPath = normalizeStartupSocketPath(rawSocket, ctx.cwd);
-	if (!socketPath) {
-		reportStartupControlSend(ctx, `Invalid --${flags.socket}: expected a socket path.`, "error");
+	const selection = selectCrewSocketPath(rawSocket, ctx.cwd);
+	if (!selection) {
+		reportStartupControlSend(ctx, `Invalid --${flags.socket}: expected a .pi/bebop or .pi/crew sockets path.`, "error");
 		return false;
 	}
+	const { socketPath, manifestPath } = selection;
 	if (!ctx.isProjectTrusted()) {
 		reportStartupControlSend(ctx, "Intray startup join failed: project is not trusted", "error");
 		return false;
@@ -122,7 +123,6 @@ export async function maybeHandleStartupSocketJoin(
 		return false;
 	}
 
-	const manifestPath = getCrewManifestPathFromSocketPath(socketPath);
 	const result = await membershipRuntime.join({
 		manifestPath,
 		socketPath,

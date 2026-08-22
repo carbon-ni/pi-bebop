@@ -23,6 +23,24 @@ export class CrewManifestReadError extends Error {
 	}
 }
 
+export type CrewSocketSelection = { readonly socketPath: string; readonly manifestPath: string };
+
+/** Resolve only the two supported project-local crew layouts. */
+export function selectCrewSocketPath(rawSocketPath: string, cwd: string): CrewSocketSelection | null {
+	const value = rawSocketPath.trim();
+	if (!value || value === "@") return null;
+	const withoutPrefix = value.startsWith("@") ? value.slice(1) : value;
+	if (withoutPrefix.split(/[\\/]+/).includes("..")) return null;
+	const socketPath = path.resolve(cwd, withoutPrefix);
+	const socketsDir = path.dirname(socketPath);
+	const layoutDir = path.dirname(socketsDir);
+	if (path.basename(socketsDir) !== "sockets") return null;
+	if (!CREW_LAYOUTS.includes(path.basename(layoutDir) as typeof CREW_LAYOUTS[number])) return null;
+	const piDir = path.dirname(layoutDir);
+	if (path.basename(piDir) !== CONFIG_DIR_NAME) return null;
+	return { socketPath, manifestPath: path.join(layoutDir, DEFAULT_CREW_MANIFEST_FILE) };
+}
+
 export function getDefaultCrewManifestPath(projectRoot: string): string {
 	return path.resolve(projectRoot, CONFIG_DIR_NAME, BEBOP_DIR_NAME, DEFAULT_CREW_MANIFEST_FILE);
 }
@@ -57,27 +75,16 @@ export async function readTrustedCrewManifest(
 	readFile: ReadManifestFile = (filePath, encoding) => fs.readFile(filePath, encoding),
 ): Promise<CrewManifest> {
 	const trusted = typeof isProjectTrusted === "function" ? isProjectTrusted() : isProjectTrusted;
-	if (!trusted) {
-		throw new CrewManifestReadError("untrusted-project", "cannot read crew manifest from an untrusted project");
-	}
-
+	if (!trusted) throw new CrewManifestReadError("untrusted-project", "cannot read crew manifest from an untrusted project");
 	const normalizedPath = path.resolve(manifestPath);
 	if (!isTrustedCrewManifestPath(normalizedPath, projectRoot)) {
 		throw new CrewManifestReadError("untrusted-path", `crew manifest is not trusted project-local configuration: ${manifestPath}`);
 	}
-
 	let contents: string;
-	try {
-		contents = await readFile(normalizedPath, "utf8");
-	} catch (error) {
-		throw new CrewManifestReadError("read-failed", `failed to read crew manifest: ${normalizedPath}`, { cause: error });
-	}
-
+	try { contents = await readFile(normalizedPath, "utf8"); }
+	catch (error) { throw new CrewManifestReadError("read-failed", `failed to read crew manifest: ${normalizedPath}`, { cause: error }); }
 	let input: unknown;
-	try {
-		input = JSON.parse(contents);
-	} catch (error) {
-		throw new CrewManifestReadError("invalid-json", `invalid JSON in crew manifest: ${normalizedPath}`, { cause: error });
-	}
+	try { input = JSON.parse(contents); }
+	catch (error) { throw new CrewManifestReadError("invalid-json", `invalid JSON in crew manifest: ${normalizedPath}`, { cause: error }); }
 	return parseCrewManifest(input, normalizedPath);
 }

@@ -1,8 +1,7 @@
-import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { parseSessionControlAction, type SessionControlAction } from "../domain/index.ts";
 import { getLiveSessions, type LiveSessionInfo } from "../infra/control-store.ts";
-import { getCrewManifestPathFromSocketPath, isTrustedCrewManifestPath } from "../infra/crew-manifest-store.ts";
+import { getCrewManifestPathFromSocketPath, selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import { getSocketPath } from "../infra/intray-paths.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import type { MembershipRuntime, Membership } from "../infra/membership-runtime.ts";
@@ -103,12 +102,13 @@ export function registerSessionControlCommand(pi: ExtensionAPI, state: SocketSta
 						return;
 					}
 					state.membershipRuntime = membership;
-					const socketPath = path.resolve(ctx.cwd, parsed.target!);
-					const manifestPath = (deps.getCrewManifestPathFromSocketPath ?? getCrewManifestPathFromSocketPath)(socketPath);
-					if (!isTrustedCrewManifestPath(manifestPath, ctx.cwd)) {
-						notify(ctx, `Intray join failed: untrusted crew manifest path ${manifestPath}; use .pi/bebop or .pi/crew sockets`, "error");
+					const selection = selectCrewSocketPath(parsed.target!, ctx.cwd);
+					if (!selection) {
+						notify(ctx, `Intray join failed: untrusted crew manifest path for socket ${parsed.target!}; use .pi/bebop or .pi/crew sockets`, "error");
 						return;
 					}
+					const socketPath = selection.socketPath;
+					const manifestPath = (deps.getCrewManifestPathFromSocketPath ?? getCrewManifestPathFromSocketPath)(socketPath);
 					const result = await membership.join({ manifestPath, socketPath, globalSocketPath: state.socketPath });
 					if ("error" in result) {
 						notify(ctx, `Intray join failed: ${result.error.message}`, "error");

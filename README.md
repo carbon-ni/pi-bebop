@@ -44,7 +44,18 @@ For an existing session, join a crew endpoint with:
 ```
 
 Use `/crew status`, `/crew leave`, or `/crew stop` to inspect or release the
-current identity.
+current identity. The configured socket name is authoritative (including
+extensionless names); `dev` is not silently changed to `dev.sock`.
+
+Selections may target another trusted worktree from the current project. Both
+startup and runtime commands use the manifest adjacent to the absolute endpoint
+and never consult the current working tree's manifest:
+
+```bash
+pi --crew-socket /worktree-B/.pi/bebop/sockets/dev1.sock
+# in an existing session:
+/crew join /worktree-B/.pi/crew/sockets/dev1.sock
+```
 
 ## Socket wire contract
 
