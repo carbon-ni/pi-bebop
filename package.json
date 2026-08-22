@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Independent crew management for Pi agents",
   "type": "module",
-  "main": "./index.ts",
+  "main": "./dist/extension.js",
   "bin": {
     "pi-bebop": "./dist/cli/main.js"
   },
@@ -45,17 +45,18 @@
     "src/tools/send-to-session.ts",
     "src/tools/session-target.ts",
     "dist/cli/main.js",
+    "dist/extension.js",
     "README.md",
     "docs",
     "LICENSE"
   ],
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./dist/extension.js"
     ]
   },
   "scripts": {
-    "build": "esbuild src/cli/main.ts --bundle --platform=node --format=esm --outfile=dist/cli/main.js",
+    "build": "esbuild src/cli/main.ts --bundle --platform=node --format=esm --outfile=dist/cli/main.js && esbuild src/extension.ts --bundle --platform=node --format=esm --external:@earendil-works/* --external:@sinclair/typebox --external:typebox --outfile=dist/extension.js",
     "typecheck": "tsc --noEmit",
     "lint": "npm run typecheck",
     "prepack": "npm run build",

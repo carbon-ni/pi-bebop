@@ -61,6 +61,6 @@ export async function runCli(args: string[], cwd = process.cwd(), input = proces
 	}
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1]?.replaceAll("\\\\", "/").endsWith("/dist/cli/main.js") && import.meta.url.endsWith("/dist/cli/main.js")) {
 	runCli(process.argv.slice(2)).then((code) => { process.exitCode = code; }).catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : "CLI failure"}\n`); process.exitCode = 1; });
 }

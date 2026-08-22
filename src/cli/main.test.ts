@@ -3,7 +3,7 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -95,17 +95,22 @@ test("runs the built CLI artifact under plain Node", async () => {
 	assert.match(stdout, /Invalid --wait/);
 });
 
-test("aborts a held-open stdin read on SIGINT and exits cleanly", async () => {
+test("aborts a held-open stdin read on SIGINT within a bounded deadline", async () => {
 	const script = path.resolve("dist/cli/main.js");
 	const child = spawn(process.execPath, [script, "send", "--socket", "/offline.sock", "--stdin", "--format", "json"], { stdio: ["pipe", "pipe", "pipe"] });
 	let stdout = "";
 	child.stdout.setEncoding("utf8"); child.stdout.on("data", (chunk) => { stdout += chunk; });
+	const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	child.kill("SIGINT");
-	const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
-	assert.equal(exit.code, 1);
-	assert.equal(exit.signal, null);
-	assert.equal(JSON.parse(stdout).error.code, "aborted");
+	let timer: NodeJS.Timeout | undefined;
+	try {
+		const exit = await Promise.race([exitPromise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("CLI did not exit after SIGINT deadline")), 3000); })]);
+		assert.equal(exit.code, 1); assert.equal(exit.signal, null); assert.equal(JSON.parse(stdout).error.code, "aborted");
+	} catch (error) {
+		child.kill("SIGKILL"); await exitPromise;
+		throw error;
+	} finally { if (timer) clearTimeout(timer); }
 });
 
 test("uses injected output for selected-format usage errors", async () => {
@@ -135,19 +140,26 @@ test("covers accepted, rejection, timeout, exact multiline stdin, and no sender 
 	});
 });
 
-test("packs and loads the extension entrypoint alongside the plain-Node CLI", async () => {
-	const dir = await mkdtemp(path.join(root, ".tmp", "bebop-pack-"));
+test("installs the packed artifact in an isolated consumer and loads CLI and extension with plain Node", async () => {
+	const archiveDir = await mkdtemp(path.join(tmpdir(), "bebop-pack-"));
+	const consumerDir = await mkdtemp(path.join(tmpdir(), "bebop-consumer-"));
 	try {
-		await mkdir(dir, { recursive: true });
-		const packed = await execFile("npm", ["pack", "--pack-destination", dir], { cwd: root });
+		const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root });
 		const archive = packed.stdout.trim().split("\n").find((line) => line.endsWith(".tgz"))!;
-		const extract = path.join(dir, "package"); await mkdir(extract);
-		await execFile("tar", ["-xzf", path.join(dir, archive), "-C", extract, "--strip-components=1"]);
-		assert.equal((await readFile(path.join(extract, "index.ts"))).includes("src/extension.ts"), true);
-		assert.equal((await readFile(path.join(extract, "src/extension.ts"))).includes("registerMemberTool"), true);
-		assert.equal((await readFile(path.join(extract, "dist/cli/main.js"))).includes("function runCli"), true);
-		await execFile(process.execPath, ["--import", "tsx", "-e", "import(process.argv[1])", path.join(extract, "index.ts")], { cwd: root });
-	} finally { await rm(dir, { recursive: true, force: true }); }
+		const archivePath = path.join(archiveDir, archive);
+		const environment = { ...process.env, NODE_PATH: "" };
+		await execFile("npm", ["install", "--ignore-scripts", "--no-save", "--package-lock=false", archivePath], { cwd: consumerDir, env: environment });
+		const packageRoot = path.join(consumerDir, "node_modules", "pi-bebop");
+		const packageJson = JSON.parse(await readFile(path.join(packageRoot, "package.json"))) as { main?: string };
+		assert.equal(packageJson.main, "./dist/extension.js");
+		const cli = path.join(packageRoot, "dist/cli/main.js");
+		let cliError: { code?: number; stdout?: string } | undefined;
+		try { await execFile(process.execPath, [cli, "send", "--socket", "/x", "--message", "x", "--wait", "invalid"], { cwd: consumerDir, env: environment }); } catch (error) { cliError = error as { code?: number; stdout?: string }; }
+		assert.equal(cliError?.code, 2); assert.match(cliError?.stdout ?? "", /Invalid --wait/);
+		const resolved = await execFile(process.execPath, ["--input-type=module", "-e", "const resolved = await import.meta.resolve('pi-bebop'); if (!resolved.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(resolved); const extension = await import('pi-bebop'); if (typeof extension.default !== 'function') throw new Error('extension entrypoint missing'); const toon = await import('@toon-format/toon'); if (!toon.encode) throw new Error('runtime dependency missing'); const toonUrl = await import.meta.resolve('@toon-format/toon'); if (!toonUrl.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(toonUrl); const piUrl = await import.meta.resolve('@earendil-works/pi-coding-agent'); if (!piUrl.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(piUrl);"], { cwd: consumerDir, env: environment });
+		assert.equal(resolved.stderr, "");
+		assert.equal((await readFile(path.join(packageRoot, "dist/extension.js"))).includes("registerMemberTool"), true);
+	} finally { await rm(archiveDir, { recursive: true, force: true }); await rm(consumerDir, { recursive: true, force: true }); }
 });
 
 test("reports real Unix socket directory permission denial", { skip: process.platform === "win32" || process.getuid?.() === 0 ? "Unix permission fixture unsupported for Windows/root" : false }, async () => {
