@@ -132,11 +132,11 @@ export async function maybeHandleStartupSocketJoin(
 	}
 	const { socketPath, manifestPath } = selection;
 	if (!ctx.isProjectTrusted()) {
-		reportStartupControlSend(ctx, "Intray startup join failed: project is not trusted", "error");
+		reportStartupControlSend(ctx, "Crew startup join failed: project is not trusted", "error");
 		return false;
 	}
 	if (!membershipRuntime || !globalSocketPath) {
-		reportStartupControlSend(ctx, "Intray startup join failed: membership runtime is unavailable", "error");
+		reportStartupControlSend(ctx, "Crew startup join failed: membership runtime is unavailable", "error");
 		return false;
 	}
 
@@ -146,12 +146,12 @@ export async function maybeHandleStartupSocketJoin(
 		globalSocketPath,
 	});
 	if ("error" in result) {
-		reportStartupControlSend(ctx, `Intray startup join failed: ${result.error.message}`, "error");
+		reportStartupControlSend(ctx, `Crew startup join failed: ${result.error.message}`, "error");
 		return false;
 	}
 	reportStartupControlSend(
 		ctx,
-		`Intray joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
+		`Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
 	);
 	return true;
 }

@@ -43,7 +43,7 @@ function baseDeps(overrides: Partial<ControlCommandDeps> = {}): ControlCommandDe
 	};
 }
 
-test("intray command completions expose only the consolidated command surface", async () => {
+test("crew command completions expose only the consolidated command surface", async () => {
 	const setupState = setup();
 	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps());
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
@@ -53,11 +53,11 @@ test("intray command completions expose only the consolidated command surface", 
 	assert.match((setupState.getCommand() as any).description, /crew members/i);
 	await setupState.getCommand().handler("list", setupState.ctx);
 	assert.deepEqual(setupState.notifications, [
-		"Unknown intray action: list. Use join <socket>|leave|members|status|stop.",
+		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop.",
 	]);
 });
 
-test("/intray join and leave use membership runtime without stopping base server", async () => {
+test("/crew join and leave use membership runtime without stopping base server", async () => {
 	const setupState = setup();
 	const calls: Array<{ operation: string; value?: unknown }> = [];
 	const persisted: boolean[] = [];
@@ -293,7 +293,7 @@ test("/crew join rejects unsupported and unconfigured endpoints without joining"
 	assert.equal(claims, 0);
 });
 
-test("/intray join reports trust and runtime failures without claiming", async () => {
+test("/crew join reports trust and runtime failures without claiming", async () => {
 	const untrusted = setup();
 	let joins = 0;
 	const runtime = {
@@ -319,7 +319,7 @@ test("/intray join reports trust and runtime failures without claiming", async (
 	);
 	await untrusted.getCommand().handler("join /tmp/project/.pi/bebop/sockets/dev.sock", untrusted.ctx);
 	assert.equal(joins, 0);
-	assert.deepEqual(untrusted.notifications, ["Intray join failed: project is not trusted"]);
+	assert.deepEqual(untrusted.notifications, ["Crew join failed: project is not trusted"]);
 
 	const failed = setup();
 	const failingRuntime = {
@@ -340,7 +340,7 @@ test("/intray join reports trust and runtime failures without claiming", async (
 		}),
 	);
 	await failed.getCommand().handler("join .pi/bebop/sockets/dev.sock", failed.ctx);
-	assert.deepEqual(failed.notifications, ["Intray join failed: claim failed"]);
+	assert.deepEqual(failed.notifications, ["Crew join failed: claim failed"]);
 });
 
 test("/crew members renders the manifest roster in order and never probes current", async () => {
@@ -410,7 +410,7 @@ test("/crew members while unjoined gives exact guidance without probing", async 
 	assert.deepEqual(setupState.messages[0]!.options, { triggerTurn: false });
 });
 
-test("/intray status and stop observe state and stop base resources", async () => {
+test("/crew status and stop observe state and stop base resources", async () => {
 	const setupState = setup();
 	const calls: string[] = [];
 	const runtime = {
@@ -432,15 +432,15 @@ test("/intray status and stop observe state and stop base resources", async () =
 	);
 
 	await setupState.getCommand().handler("status", setupState.ctx);
-	assert.equal(setupState.messages[0]?.content, "Intray stopped");
+	assert.equal(setupState.messages[0]?.content, "Crew stopped");
 	assert.deepEqual(setupState.messages[0]?.options, { triggerTurn: false });
 
 	await setupState.getCommand().handler("stop", setupState.ctx);
 	assert.deepEqual(calls, ["stop"]);
-	assert.deepEqual(setupState.notifications, ["Intray stopped"]);
+	assert.deepEqual(setupState.notifications, ["Bebop stopped"]);
 });
 
-test("/intray stop releases and persists active crew membership before cleanup", async () => {
+test("/crew stop releases and persists active crew membership before cleanup", async () => {
 	const setupState = setup();
 	const calls: string[] = [];
 	const persisted: boolean[] = [];

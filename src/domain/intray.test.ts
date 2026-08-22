@@ -394,19 +394,19 @@ test("parseSessionControlAction accepts the exact crew command surface", () => {
 test("parseSessionControlAction rejects removed direct actions and invalid arity", () => {
 	for (const action of ["listen", "connect", "disconnect"]) {
 		assert.deepEqual(parseSessionControlAction(action), {
-			error: `Unknown intray action: ${action}. Use join <socket>|leave|members|status|stop.`,
+			error: `Unknown crew action: ${action}. Use /crew join <socket>|leave|members|status|stop.`,
 		});
 	}
 	assert.deepEqual(parseSessionControlAction("start"), {
-		error: "Unknown intray action: start. Use join <socket>|leave|members|status|stop.",
+		error: "Unknown crew action: start. Use /crew join <socket>|leave|members|status|stop.",
 	});
 	assert.deepEqual(parseSessionControlAction("join"), {
-		error: "Missing target. Use /intray join <socket>.",
+		error: "Missing target. Use /crew join <socket>.",
 	});
 	assert.deepEqual(parseSessionControlAction("join /tmp/a.sock /tmp/b.sock"), {
 		error: "Join accepts exactly one target.",
 	});
 	assert.deepEqual(parseSessionControlAction("status now"), {
-		error: "Too many arguments. Use /intray join <socket>|leave|members|status|stop.",
+		error: "Too many arguments. Use /crew join <socket>|leave|members|status|stop.",
 	});
 });

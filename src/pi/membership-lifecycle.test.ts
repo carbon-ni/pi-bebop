@@ -173,7 +173,7 @@ test("shutdown cleanup runs even when membership release fails and reports the f
 		reportFailure: (message) => failures.push(message),
 	});
 	assert.equal(cleanup, 1);
-	assert.deepEqual(failures, ["Intray membership release failed: release failed"]);
+	assert.deepEqual(failures, ["Crew membership release failed: release failed"]);
 });
 
 test("shutdown cleanup reports thrown release failures and still cleans up", async () => {
@@ -190,5 +190,5 @@ test("shutdown cleanup reports thrown release failures and still cleans up", asy
 		reportFailure: (message) => failures.push(message),
 	});
 	assert.equal(cleanup, 1);
-	assert.deepEqual(failures, ["Intray membership release failed: release threw"]);
+	assert.deepEqual(failures, ["Crew membership release failed: release threw"]);
 });

@@ -30,7 +30,7 @@ function renderStatus(state: SocketState): string {
 	const crew = membership
 		? `\nCrew: ${membership.manifestPath}\nMember: ${membership.member.name} (${membership.member.role})\nEndpoint: ${membership.socketPath}`
 		: "";
-	return `Intray ${status}${crew}`;
+	return `Crew ${status}${crew}`;
 }
 
 export async function renderCrewRoster(
@@ -86,11 +86,11 @@ export function registerSessionControlCommand(
 				case "join": {
 					if (deps.ensureControlServer) await deps.ensureControlServer(pi, state, ctx);
 					if (!ctx.isProjectTrusted()) {
-						notify(ctx, "Intray join failed: project is not trusted", "error");
+						notify(ctx, "Crew join failed: project is not trusted", "error");
 						return;
 					}
 					if (!membership || !state.socketPath) {
-						notify(ctx, "Intray join failed: membership runtime is unavailable", "error");
+						notify(ctx, "Crew join failed: membership runtime is unavailable", "error");
 						return;
 					}
 					state.membershipRuntime = membership;
@@ -98,7 +98,7 @@ export function registerSessionControlCommand(
 					if (!selection) {
 						notify(
 							ctx,
-							`Intray join failed: untrusted crew manifest path for socket ${parsed.target!}; use .pi/bebop or .pi/crew sockets`,
+							`Crew join failed: untrusted crew manifest path for socket ${parsed.target!}; use .pi/bebop or .pi/crew sockets`,
 							"error",
 						);
 						return;
@@ -111,10 +111,10 @@ export function registerSessionControlCommand(
 						globalSocketPath: state.socketPath,
 					});
 					if ("error" in result) {
-						notify(ctx, `Intray join failed: ${result.error.message}`, "error");
+						notify(ctx, `Crew join failed: ${result.error.message}`, "error");
 						return;
 					}
-					const joinedMessage = `Intray joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`;
+					const joinedMessage = `Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`;
 					deps.persistMembership?.(true, result.membership);
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
@@ -124,20 +124,20 @@ export function registerSessionControlCommand(
 				}
 				case "leave": {
 					if (!membership) {
-						notify(ctx, "Intray leave failed: membership runtime is unavailable", "error");
+						notify(ctx, "Crew leave failed: membership runtime is unavailable", "error");
 						return;
 					}
 					const previousMembership = membership.getMembership();
 					const result = await membership.leave();
-					if ("error" in result) notify(ctx, `Intray leave failed: ${result.error.message}`, "error");
+					if ("error" in result) notify(ctx, `Crew leave failed: ${result.error.message}`, "error");
 					else {
 						if (result.left) {
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
-							deps.announceMembership?.("Intray crew membership released");
+							deps.announceMembership?.("Crew membership released");
 						}
-						notify(ctx, result.left ? "Intray crew membership released" : "Intray not joined");
+						notify(ctx, result.left ? "Crew membership released" : "Crew not joined");
 					}
 					return;
 				}
@@ -148,7 +148,7 @@ export function registerSessionControlCommand(
 				}
 				case "status":
 					pi.sendMessage(
-						{ customType: "intray-status", content: renderStatus(state), display: true },
+						{ customType: "crew-status", content: renderStatus(state), display: true },
 						{ triggerTurn: false },
 					);
 					return;
@@ -162,11 +162,11 @@ export function registerSessionControlCommand(
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
-							deps.announceMembership?.("Intray crew membership released");
+							deps.announceMembership?.("Crew membership released");
 						},
 						reportFailure: (message) => notify(ctx, message, "warning"),
 					});
-					notify(ctx, "Intray stopped");
+					notify(ctx, "Bebop stopped");
 					return;
 				}
 			}
