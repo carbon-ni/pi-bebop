@@ -203,14 +203,8 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 	const qaResult = await send("qa", "please verify lifecycle");
 	assert.equal(developerResult?.isError, undefined);
 	assert.equal(qaResult?.isError, undefined);
-	assert.match(
-		developerMessages[0],
-		/^please implement fix\n\n<sender_info>\{"sessionId":"orchestrator","sessionName":"lead"\}<\/sender_info>$/,
-	);
-	assert.match(
-		qaMessages[0],
-		/^please verify lifecycle\n\n<sender_info>\{"sessionId":"orchestrator","sessionName":"lead"\}<\/sender_info>$/,
-	);
+	assert.equal(developerMessages[0], "please implement fix");
+	assert.equal(qaMessages[0], "please verify lifecycle");
 
 	// A live foreign owner is never stolen; a stale symlink is reclaimed.
 	const foreign = path.join(crew.sockets, "developer.sock");
