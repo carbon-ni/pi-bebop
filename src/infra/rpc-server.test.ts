@@ -142,6 +142,19 @@ test("createRpcServer returns parse errors without dispatching invalid commands"
 	});
 });
 
+test("writeResponse serializes strict presence hint acknowledgements", () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	writeResponse(socket, {
+		type: "response",
+		command: "presence_hint",
+		success: true,
+		data: { accepted: true },
+		id: "hint",
+	});
+	assert.deepEqual(JSON.parse(writes[0]!), { jsonrpc: "2.0", id: "hint", result: { accepted: true } });
+});
+
 test("writeResponse ignores closed socket write errors", () => {
 	const socket = {
 		write() {

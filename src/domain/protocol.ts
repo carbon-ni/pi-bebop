@@ -143,6 +143,7 @@ export const RpcMethodResultSchema = Type.Union([
 	GetMessageResultSchema,
 	ClearResultSchema,
 	SubscribeResultSchema,
+	PresenceHintResultSchema,
 	EmptyResultSchema,
 ]);
 export const RpcResponseSchema = Type.Union([

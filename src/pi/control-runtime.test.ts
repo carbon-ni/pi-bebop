@@ -130,6 +130,33 @@ test("characterizes idle direct and busy follow-up or immediate delivery disposi
 	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true, deliverAs: "steer" });
 });
 
+test("presence handler returns accepted true and false without exposing observer state", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const state = createSocketState();
+	state.context = { hasUI: false, sessionManager: { getSessionId: () => "session" } } as never;
+	const member = { identity: "/crew/dev.sock", name: "dev", role: "developer" } as const;
+	const makeObserver = (accepted: boolean) => ({ acceptHint: () => accepted }) as never;
+	for (const accepted of [true, false]) {
+		state.presenceObserver = makeObserver(accepted);
+		await handleCommand(
+			{} as never,
+			state,
+			{ type: "presence_hint", member, state: "online", instanceId: "peer", id: String(accepted) },
+			socket,
+		);
+		assert.deepEqual(JSON.parse(writes.at(-1)!), { jsonrpc: "2.0", id: String(accepted), result: { accepted } });
+	}
+	state.presenceObserver = undefined;
+	await handleCommand(
+		{} as never,
+		state,
+		{ type: "presence_hint", member, state: "online", instanceId: "peer", id: "none" },
+		socket,
+	);
+	assert.deepEqual(JSON.parse(writes.at(-1)!), { jsonrpc: "2.0", id: "none", result: { accepted: false } });
+});
+
 test("disableControlServer clears the base server status", async () => {
 	const state = createSocketState();
 	const staleContext = createThrowingContext("This extension ctx is stale after session replacement or reload");

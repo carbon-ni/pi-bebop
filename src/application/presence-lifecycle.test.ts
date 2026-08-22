@@ -75,7 +75,7 @@ test("same roster with a different current identity replaces observer", async ()
 });
 
 test("refresh, broadcast, and stop failures are isolated and cleanup continues", async () => {
-	let membership: PresenceMembership | null = { member: a, notifications: true };
+	let membership: PresenceMembership | null = makeMembership(a);
 	const log: string[] = [];
 	const coordinator = createPresenceLifecycleCoordinator({
 		getMembership: () => membership,
