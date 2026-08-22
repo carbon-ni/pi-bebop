@@ -206,7 +206,9 @@ test("method result, error, event, and extracted-message schemas accept only con
 	const extracted = { role: "assistant", content: "done", timestamp: 1 };
 	const cases: Array<[string, Parameters<typeof Value.Check>[0], unknown]> = [
 		["status", StatusResultSchema, { status: "online" }],
-		["send", SendResultSchema, { deliveryId: "delivery-1", disposition: "steered" }],
+		["send direct", SendResultSchema, { deliveryId: "delivery-1", disposition: "direct" }],
+		["send queued", SendResultSchema, { deliveryId: "delivery-2", disposition: "queued" }],
+		["send steered", SendResultSchema, { deliveryId: "delivery-3", disposition: "steered" }],
 		["get_message", GetMessageResultSchema, { message: extracted }],
 		["clear", ClearResultSchema, { cleared: true }],
 		["subscribe", SubscribeResultSchema, { subscriptionId: "sub-1", event: "turn_end" }],
@@ -225,6 +227,19 @@ test("method result, error, event, and extracted-message schemas accept only con
 	];
 	for (const [name, schema, value] of cases) assert.equal(Value.Check(schema, value), true, name);
 	assert.equal(Value.Check(StatusResultSchema, { status: "invalid" }), false);
+	const invalidSendResults = [
+		{ deliveryId: "", disposition: "direct" },
+		{ deliveryId: 1, disposition: "direct" },
+		{ disposition: "direct" },
+		{ deliveryId: "delivery-1", disposition: "invalid" },
+		{ deliveryId: "delivery-1", disposition: 1 },
+		{ deliveryId: "delivery-1" },
+		{ deliveryId: "delivery-1", disposition: "direct", extra: true },
+		null,
+		"delivery-1",
+	];
+	for (const value of invalidSendResults)
+		assert.equal(Value.Check(SendResultSchema, value), false, "invalid send result");
 	assert.equal(Value.Check(GetMessageResultSchema, { message: { content: "done" } }), false);
 	assert.equal(Value.Check(RpcErrorSchema, { code: "bad", message: "x" }), false);
 	assert.equal(

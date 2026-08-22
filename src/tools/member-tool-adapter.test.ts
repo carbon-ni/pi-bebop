@@ -310,14 +310,25 @@ test("cleans failed tails and isolates a role-switched endpoint while the old qu
 	assert.equal(failureCoordinator.pendingKeyCount(), 0);
 });
 
-test("classifies invalid acknowledgements, remote rejection, and true offline errors", async () => {
-	const invalid = setup(async () => ({
-		response: { type: "response", command: "send", success: true, id: "invalid", data: {} },
-	}));
-	const invalidResult = await invalid
-		.get("send_follow_up")!
-		.execute("call", { member: "qa", message: "x" }, undefined, undefined, undefined);
-	assert.equal(invalidResult.details.error, "invalid-ack");
+test("classifies every representative invalid acknowledgement, remote rejection, and true offline error", async () => {
+	const invalidValues = [
+		{},
+		{ deliveryId: "", disposition: "direct" },
+		{ deliveryId: "delivery-1", disposition: "invalid" },
+		{ deliveryId: "delivery-1", disposition: "direct", extra: true },
+		{ deliveryId: 1, disposition: "direct" },
+		null,
+	];
+	for (const [index, data] of invalidValues.entries()) {
+		const invalid = setup(async () => ({
+			response: { type: "response", command: "send", success: true, id: `invalid-${index}`, data },
+		}));
+		const invalidResult = await invalid
+			.get("send_follow_up")!
+			.execute("call", { member: "qa", message: "x" }, undefined, undefined, undefined);
+		assert.equal(invalidResult.details.error, "invalid-ack", `invalid acknowledgement ${index}`);
+		assert.equal(invalidResult.isError, true, `invalid acknowledgement ${index}`);
+	}
 	const remote = setup(async () => ({
 		response: { type: "response", command: "send", success: false, id: "remote", error: "busy" },
 	}));
