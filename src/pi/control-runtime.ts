@@ -28,6 +28,7 @@ import {
 	SESSION_MESSAGE_TYPE,
 } from "../domain/index.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
+import type { PresenceObserver } from "../application/presence-observer.ts";
 
 // ============================================================================
 // Subscription Management
@@ -46,6 +47,7 @@ export interface SocketState {
 	aliasTimer: ReturnType<typeof setInterval> | null;
 	turnEndSubscriptions: TurnEndSubscription[];
 	membershipRuntime: MembershipRuntime | null;
+	presenceObserver?: PresenceObserver;
 }
 
 // ============================================================================
@@ -146,6 +148,17 @@ export async function handleCommand(
 	}
 
 	void syncAlias(state, ctx);
+
+	if (command.type === "presence_hint") {
+		const accepted =
+			state.presenceObserver?.acceptHint({
+				member: command.member,
+				state: command.state,
+				instanceId: command.instanceId,
+			}) ?? false;
+		respond(true, "presence_hint", {}, accepted ? undefined : "Presence hint ignored");
+		return;
+	}
 
 	if (command.type === "status") {
 		respond(true, "status", {

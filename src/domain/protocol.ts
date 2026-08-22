@@ -18,6 +18,21 @@ export const MessageSendParamsSchema = Type.Object(
 );
 export const SubscribeParamsSchema = Type.Object({ event: Type.Literal("turn_end") }, { additionalProperties: false });
 export const EmptyParamsSchema = Type.Object({}, { additionalProperties: false });
+export const PresenceHintParamsSchema = Type.Object(
+	{
+		member: Type.Object(
+			{
+				identity: Type.String({ minLength: 1 }),
+				name: Type.String({ minLength: 1 }),
+				role: Type.String({ minLength: 1 }),
+			},
+			{ additionalProperties: false },
+		),
+		state: Type.Union([Type.Literal("online"), Type.Literal("offline")]),
+		instanceId: Type.String({ minLength: 1 }),
+	},
+	{ additionalProperties: false },
+);
 
 export const MessageSendRequestSchema = Type.Object(
 	{
@@ -53,6 +68,15 @@ export const AbortRequestSchema = Type.Object(
 	{ jsonrpc: Type.Literal(JSON_RPC_VERSION), id: RpcIdSchema, method: Type.Literal("session.abort") },
 	{ additionalProperties: false },
 );
+export const PresenceHintRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("presence.hint"),
+		params: PresenceHintParamsSchema,
+	},
+	{ additionalProperties: false },
+);
 export const KnownRequestSchema = Type.Union([
 	MessageSendRequestSchema,
 	SubscribeRequestSchema,
@@ -60,6 +84,7 @@ export const KnownRequestSchema = Type.Union([
 	GetMessageRequestSchema,
 	ClearRequestSchema,
 	AbortRequestSchema,
+	PresenceHintRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
 	{
@@ -151,6 +176,8 @@ export type StatusRequest = Static<typeof StatusRequestSchema>;
 export type GetMessageRequest = Static<typeof GetMessageRequestSchema>;
 export type ClearRequest = Static<typeof ClearRequestSchema>;
 export type AbortRequest = Static<typeof AbortRequestSchema>;
+export type PresenceHintParams = Static<typeof PresenceHintParamsSchema>;
+export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
 export type MessageSendParams = Static<typeof MessageSendParamsSchema>;
 export type MessageSendPayload = MessagePayload;
 export type SubscribeParams = Static<typeof SubscribeParamsSchema>;
@@ -176,7 +203,8 @@ export type RpcCommand =
 	| Static<typeof StatusCommandSchema>
 	| Static<typeof GetMessageCommandSchema>
 	| Static<typeof ClearCommandSchema>
-	| Static<typeof AbortCommandSchema>;
+	| Static<typeof AbortCommandSchema>
+	| Static<typeof PresenceHintCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
 	| RequiredId<Static<typeof MessageSendCommandSchema>>
@@ -184,13 +212,15 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof StatusCommandSchema>>
 	| RequiredId<Static<typeof GetMessageCommandSchema>>
 	| RequiredId<Static<typeof ClearCommandSchema>>
-	| RequiredId<Static<typeof AbortCommandSchema>>;
+	| RequiredId<Static<typeof AbortCommandSchema>>
+	| RequiredId<Static<typeof PresenceHintCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type SubscribeCommand = Static<typeof SubscribeCommandSchema>;
 export type StatusCommand = Static<typeof StatusCommandSchema>;
 export type GetMessageCommand = Static<typeof GetMessageCommandSchema>;
 export type ClearCommand = Static<typeof ClearCommandSchema>;
 export type AbortCommand = Static<typeof AbortCommandSchema>;
+export type PresenceHintCommand = Static<typeof PresenceHintCommandSchema>;
 export type RpcSendCommand = MessageSendCommand;
 export type RpcSubscribeCommand = SubscribeCommand;
 
@@ -225,6 +255,10 @@ export const ClearCommandSchema = Type.Object(
 );
 export const AbortCommandSchema = Type.Object(
 	{ type: Type.Literal("abort"), id: Type.Optional(RpcIdSchema) },
+	{ additionalProperties: false },
+);
+export const PresenceHintCommandSchema = Type.Object(
+	{ type: Type.Literal("presence_hint"), ...PresenceHintParamsSchema.properties, id: Type.Optional(RpcIdSchema) },
 	{ additionalProperties: false },
 );
 
@@ -292,7 +326,9 @@ export function methodResultSchema(method: string) {
 						? EmptyResultSchema
 						: method === "event.subscribe"
 							? SubscribeResultSchema
-							: undefined;
+							: method === "presence.hint"
+								? EmptyResultSchema
+								: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -364,6 +400,13 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 	if (command.type === "status") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.status" };
 	if (command.type === "get_message") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.get_message" };
 	if (command.type === "clear") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.clear" };
+	if (command.type === "presence_hint")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "presence.hint",
+			params: { member: command.member, state: command.state, instanceId: command.instanceId },
+		};
 	return { jsonrpc: JSON_RPC_VERSION, id, method: "session.abort" };
 }
 export function requestToCommand(request: RpcRequest): RpcInboundCommand | ProtocolFailure {
@@ -388,6 +431,10 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 			delivery: validParams.delivery ?? "follow_up",
 			id: request.id,
 		};
+	}
+	if (request.method === "presence.hint") {
+		if (!Value.Check(PresenceHintParamsSchema, params)) return invalid("Invalid presence.hint params");
+		return { type: "presence_hint", ...params, id: request.id } as RpcInboundCommand;
 	}
 	if (["session.status", "session.get_message", "session.clear", "session.abort"].includes(request.method)) {
 		if (params !== undefined) return invalid(`Invalid ${request.method} params`);

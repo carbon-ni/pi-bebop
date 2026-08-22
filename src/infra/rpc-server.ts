@@ -56,6 +56,8 @@ function methodForCommand(command: string): string | undefined {
 			return "session.abort";
 		case "subscribe":
 			return "event.subscribe";
+		case "presence_hint":
+			return "presence.hint";
 		default:
 			return undefined;
 	}

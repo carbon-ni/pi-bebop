@@ -11,6 +11,7 @@
 		"index.ts",
 		"src/application/direct-message.ts",
 		"src/application/member-message.ts",
+		"src/application/presence-observer.ts",
 		"src/domain/branch-alias.ts",
 		"src/domain/cli.ts",
 		"src/domain/crew-roster.ts",
