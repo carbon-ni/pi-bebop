@@ -78,7 +78,7 @@ export function registerSessionControlCommand(
 			const membership = deps.membershipRuntime ?? state.membershipRuntime;
 			const parsed = parseSessionControlAction(args);
 			if (!parsed.action) {
-				notify(ctx, parsed.error ?? "Invalid intray action", "error");
+				notify(ctx, parsed.error ?? "Invalid crew action", "error");
 				return;
 			}
 

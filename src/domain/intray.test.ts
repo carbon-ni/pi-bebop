@@ -391,6 +391,12 @@ test("parseSessionControlAction accepts the exact crew command surface", () => {
 	});
 });
 
+test("parseSessionControlAction reports crew-specific quote errors", () => {
+	assert.deepEqual(parseSessionControlAction("join 'unterminated"), {
+		error: "Unclosed quote in crew command.",
+	});
+});
+
 test("parseSessionControlAction rejects removed direct actions and invalid arity", () => {
 	for (const action of ["listen", "connect", "disconnect"]) {
 		assert.deepEqual(parseSessionControlAction(action), {
