@@ -1,7 +1,7 @@
 ---
 id: TASK-0029
 title: Implement hybrid crew presence runtime
-status: doing
+status: done
 depends_on: [TASK-0024, TASK-0028]
 priority: high
 tags: [crew, presence, runtime, json-rpc]
