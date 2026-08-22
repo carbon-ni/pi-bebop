@@ -97,8 +97,30 @@ async function createEndpoint(
 	}
 }
 
-export async function probeMemberEndpoint(socketPath: string): Promise<boolean> {
-	return defaultDependencies.isSocketAlive(socketPath);
+export interface SocketProbeDependencies {
+	createConnection?: (socketPath: string) => { once(event: string, listener: () => void): unknown; destroy(): void };
+	setTimeout?: typeof globalThis.setTimeout;
+	clearTimeout?: typeof globalThis.clearTimeout;
+}
+
+export function probeMemberEndpoint(socketPath: string, dependencies: SocketProbeDependencies = {}): Promise<boolean> {
+	const createConnection = dependencies.createConnection ?? ((target) => net.createConnection(target));
+	const setTimer = dependencies.setTimeout ?? globalThis.setTimeout;
+	const clearTimer = dependencies.clearTimeout ?? globalThis.clearTimeout;
+	return new Promise((resolve) => {
+		const socket = createConnection(socketPath);
+		let settled = false;
+		const finish = (alive: boolean) => {
+			if (settled) return;
+			settled = true;
+			clearTimer(timer);
+			socket.destroy();
+			resolve(alive);
+		};
+		const timer = setTimer(() => finish(false), 300);
+		socket.once("connect", () => finish(true));
+		socket.once("error", () => finish(false));
+	});
 }
 
 export async function claimMemberEndpoint(
