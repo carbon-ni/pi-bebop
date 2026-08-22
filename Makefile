@@ -1,6 +1,6 @@
-.PHONY: all build typecheck lint test security-check package-verify hooks-install hooks-uninstall
+.PHONY: all build typecheck lint format-check package-check test security-check package-verify hooks-install hooks-uninstall
 
-all: lint test security-check build
+all: format-check package-check lint test security-check build
 
 build:
 	npm run build
@@ -10,6 +10,12 @@ typecheck:
 
 lint:
 	npm run lint
+
+format-check:
+	npm run format:check
+
+package-check:
+	npm run check:package-json
 
 test:
 	npm test

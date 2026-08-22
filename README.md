@@ -4,6 +4,15 @@ Give a small dysfunctional crew to your Pi agents. Bebop is self-contained: it
 owns its crew socket transport, project-local membership, and role-based
 `send_to_member` delivery.
 
+## Development checks
+
+Formatting is pinned to Prettier 3.6.2. Run `npm run format:write` to apply the
+configured formatting scope, then `npm run format:check` to verify it. The full
+`make all` quality gate also checks package dependency-key uniqueness and the
+exact Prettier pin before typechecking, tests, security, and build. Generated
+output, dependency locks, plans, and shared agent state are intentionally
+excluded from formatting.
+
 ## Setup
 
 Create the crew manifest in a trusted project. `.pi/bebop` is the canonical layout; `.pi/crew` is supported as an exact compatibility layout for existing projects:
