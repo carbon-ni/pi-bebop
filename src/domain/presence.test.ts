@@ -20,15 +20,25 @@ function apply(state: ReturnType<typeof createInitialPresenceState>, event: Pres
 
 test("initial state is unknown for ordered non-current members and excludes current", () => {
 	const state = createInitialPresenceState(members, "lead");
-	assert.deepEqual(state, { members: { dev: "unknown", qa: "unknown" }, failures: { dev: 0, qa: 0 }, initialScanComplete: false, config: { notifications: true } });
+	assert.deepEqual(state, {
+		members: { dev: "unknown", qa: "unknown" },
+		failures: { dev: 0, qa: 0 },
+		initialScanComplete: false,
+		config: { notifications: true },
+	});
 });
 
 test("initial scan emits one ordered roster and no joined or left effects", () => {
 	let result = apply(createInitialPresenceState(members, "lead"), { type: "initial-scan-complete" });
-	assert.deepEqual(result.effects, [{ type: "roster", members: [
-		{ name: "dev", role: "developer", status: "unknown" },
-		{ name: "qa", role: "qa", status: "unknown" },
-	] }]);
+	assert.deepEqual(result.effects, [
+		{
+			type: "roster",
+			members: [
+				{ name: "dev", role: "developer", status: "unknown" },
+				{ name: "qa", role: "qa", status: "unknown" },
+			],
+		},
+	]);
 	result = apply(result.state, { type: "initial-scan-complete" });
 	assert.deepEqual(result.effects, []);
 });
@@ -39,7 +49,8 @@ test("online failure becomes suspect, then offline at the named threshold with o
 	let result = apply(state, { type: "observation", memberName: "dev", online: false });
 	assert.equal(result.state.members.dev, "suspect");
 	assert.deepEqual(result.effects, []);
-	for (let i = 1; i < DEFAULT_PRESENCE_OFFLINE_FAILURE_THRESHOLD; i += 1) result = apply(result.state, { type: "observation", memberName: "dev", online: false });
+	for (let i = 1; i < DEFAULT_PRESENCE_OFFLINE_FAILURE_THRESHOLD; i += 1)
+		result = apply(result.state, { type: "observation", memberName: "dev", online: false });
 	assert.equal(result.state.members.dev, "offline");
 	assert.deepEqual(result.effects, [{ type: "left", member: { name: "dev", role: "developer" } }]);
 	result = apply(result.state, { type: "observation", memberName: "dev", online: false });
@@ -63,14 +74,40 @@ test("observations are immutable, ordered, and current identity is ignored", () 
 	const result = apply(initial, { type: "observation", memberName: "qa", online: true });
 	assert.notEqual(result.state, initial);
 	assert.deepEqual(Object.keys(result.state.members), ["dev", "qa"]);
-	assert.deepEqual(apply(initial, { type: "observation", memberName: "lead", online: false }), { state: initial, effects: [] });
+	assert.deepEqual(apply(initial, { type: "observation", memberName: "lead", online: false }), {
+		state: initial,
+		effects: [],
+	});
 });
 
 test("strict optional presence notifications config defaults true and rejects unknown fields", () => {
-	assert.equal(parseCrewManifest({ version: 1, members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }] }).presence?.notifications, true);
-	assert.equal(parseCrewManifest({ version: 1, presence: { notifications: false }, members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }] }).presence?.notifications, false);
-	assert.throws(() => parseCrewManifest({ version: 1, presence: { notifications: "yes" }, members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }] }));
-	assert.throws(() => parseCrewManifest({ version: 1, presence: { notifications: true, extra: false }, members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }] }));
+	assert.equal(
+		parseCrewManifest({ version: 1, members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }] }).presence
+			?.notifications,
+		true,
+	);
+	assert.equal(
+		parseCrewManifest({
+			version: 1,
+			presence: { notifications: false },
+			members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+		}).presence?.notifications,
+		false,
+	);
+	assert.throws(() =>
+		parseCrewManifest({
+			version: 1,
+			presence: { notifications: "yes" },
+			members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+		}),
+	);
+	assert.throws(() =>
+		parseCrewManifest({
+			version: 1,
+			presence: { notifications: true, extra: false },
+			members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+		}),
+	);
 });
 
 test("leave and rejoin effects are deterministic across a role switch table", () => {
@@ -80,11 +117,27 @@ test("leave and rejoin effects are deterministic across a role switch table", ()
 	] as const;
 	for (const row of cases) {
 		let state = createInitialPresenceState([{ name: row.name, role: row.role }], "lead");
-		state = reducePresence(state, { members: [{ name: row.name, role: row.role }], currentMemberName: "lead", event: { type: "observation", memberName: row.name, online: true } }).state;
-		state = reducePresence(state, { members: [{ name: row.name, role: row.role }], currentMemberName: "lead", event: { type: "observation", memberName: row.name, online: false } }).state;
-		const left = reducePresence(state, { members: [{ name: row.name, role: row.role }], currentMemberName: "lead", event: { type: "observation", memberName: row.name, online: false } });
+		state = reducePresence(state, {
+			members: [{ name: row.name, role: row.role }],
+			currentMemberName: "lead",
+			event: { type: "observation", memberName: row.name, online: true },
+		}).state;
+		state = reducePresence(state, {
+			members: [{ name: row.name, role: row.role }],
+			currentMemberName: "lead",
+			event: { type: "observation", memberName: row.name, online: false },
+		}).state;
+		const left = reducePresence(state, {
+			members: [{ name: row.name, role: row.role }],
+			currentMemberName: "lead",
+			event: { type: "observation", memberName: row.name, online: false },
+		});
 		assert.deepEqual(left.effects, [row.expected]);
-		const rejoined = reducePresence(left.state, { members: [{ name: row.name, role: `${row.role}-new` }], currentMemberName: "lead", event: { type: "observation", memberName: row.name, online: true } });
+		const rejoined = reducePresence(left.state, {
+			members: [{ name: row.name, role: `${row.role}-new` }],
+			currentMemberName: "lead",
+			event: { type: "observation", memberName: row.name, online: true },
+		});
 		assert.deepEqual(rejoined.effects, [{ type: "joined", member: { name: row.name, role: `${row.role}-new` } }]);
 	}
 });
