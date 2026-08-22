@@ -52,6 +52,21 @@ test("restores active membership, skips inactive and startup-overridden selectio
 	assert.deepEqual(failures, []);
 });
 
+test("restores persisted external-root membership without rebasing to cwd", async () => {
+	let request: unknown;
+	const restored = await restorePersistedMembership({
+		runtime: { join: async (value) => { request = value; return { ok: true, membership }; } },
+		persisted: { active: true, socketPath: "/root-B/.pi/crew/sockets/dev1.sock", manifestPath: "/root-B/.pi/crew/crew.json" },
+		startupSocketSelected: false,
+		globalSocketPath: "/root-B/.pi/crew/sockets/local-global.sock",
+		manifestPathForSocket: () => "/cwd/.pi/bebop/crew.json",
+		announce: () => undefined,
+		reportFailure: assert.fail,
+	});
+	assert.equal(restored, true);
+	assert.deepEqual(request, { manifestPath: "/root-B/.pi/crew/crew.json", socketPath: "/root-B/.pi/crew/sockets/dev1.sock", globalSocketPath: "/root-B/.pi/crew/sockets/local-global.sock" });
+});
+
 test("failed or unavailable restore reports failure without creating identity", async () => {
 	let joins = 0;
 	const failures: string[] = [];

@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { parseSessionControlAction, type SessionControlAction } from "../domain/index.ts";
 import { getLiveSessions, type LiveSessionInfo } from "../infra/control-store.ts";
-import { getCrewManifestPathFromSocketPath, selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
+import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import { getSocketPath } from "../infra/intray-paths.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import type { MembershipRuntime, Membership } from "../infra/membership-runtime.ts";
@@ -14,7 +14,6 @@ export type ControlCommandDeps = {
 	getLiveSessions?: typeof getLiveSessions;
 	sendRpcCommand?: typeof sendRpcCommand;
 	getSocketPath?: typeof getSocketPath;
-	getCrewManifestPathFromSocketPath?: typeof getCrewManifestPathFromSocketPath;
 	membershipRuntime?: MembershipRuntime;
 	persistMembership?: (active: boolean, membership: Membership) => void;
 	announceMembership?: (message: string) => void;
@@ -108,7 +107,7 @@ export function registerSessionControlCommand(pi: ExtensionAPI, state: SocketSta
 						return;
 					}
 					const socketPath = selection.socketPath;
-					const manifestPath = (deps.getCrewManifestPathFromSocketPath ?? getCrewManifestPathFromSocketPath)(socketPath);
+					const manifestPath = selection.manifestPath;
 					const result = await membership.join({ manifestPath, socketPath, globalSocketPath: state.socketPath });
 					if ("error" in result) {
 						notify(ctx, `Intray join failed: ${result.error.message}`, "error");

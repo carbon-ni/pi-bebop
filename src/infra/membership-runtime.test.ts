@@ -108,7 +108,28 @@ describe("membership runtime", () => {
 	assert.equal(runtime.getMembership()?.globalSocketPath, "/tmp/new.sock");
 	});
 
-	test("unknown member and malformed manifest fail without claiming", async () => {
+	test("extensionless configured endpoint joins without suffix guessing", async () => {
+	let claims = 0;
+	const extensionless = parseCrewManifest({ version: 1, members: [{ name: "dev1", role: "developer", socket: "sockets/dev1" }] }, "/root-B/.pi/bebop/crew.json");
+	const runtime = createMembershipRuntime({ loadManifest: async () => extensionless, claimEndpoint: (async () => { claims += 1; return { idempotent: false }; }) as never, releaseEndpoint: (async () => ({ released: true })) as never });
+	const result = await runtime.join({ manifestPath: "/root-B/.pi/bebop/crew.json", socketPath: "/root-B/.pi/bebop/sockets/dev1", globalSocketPath: "/tmp/global.sock" });
+	assert.equal(result.ok, true);
+	assert.equal(claims, 1);
+});
+
+test("dev1 versus dev1.sock fails before claim with bounded exact guidance", async () => {
+	let claims = 0;
+	const manifest = parseCrewManifest({ version: 1, members: [{ name: "dev1", role: "developer", socket: "sockets/dev1.sock" }] }, "/root-B/.pi/bebop/crew.json");
+	const runtime = createMembershipRuntime({ loadManifest: async () => manifest, claimEndpoint: (async () => { claims += 1; return { idempotent: false }; }) as never });
+	const result = await runtime.join({ manifestPath: "/root-B/.pi/bebop/crew.json", socketPath: "/root-B/.pi/bebop/sockets/dev1", globalSocketPath: "/tmp/global.sock" });
+	assert.equal(result.ok, false);
+	if (result.ok) return;
+	assert.match(result.error.message, /Configured endpoints: dev1=\/root-B\/\.pi\/bebop\/sockets\/dev1\.sock\./);
+	assert.ok(result.error.message.length < 220);
+	assert.equal(claims, 0);
+});
+
+test("unknown member and malformed manifest fail without claiming", async () => {
 	let claims = 0;
 	const runtime = createMembershipRuntime(dependencies({
 		loadManifest: async () => { throw new Error("malformed crew"); },

@@ -5,7 +5,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { LiveSessionInfo } from "../infra/control-store.ts";
 import { createSocketState } from "./control-runtime.ts";
 import { registerSessionControlCommand, type ControlCommandDeps } from "./control-commands.ts";
-import type { MembershipRuntime } from "../infra/membership-runtime.ts";
+import { createMembershipRuntime, type MembershipRuntime } from "../infra/membership-runtime.ts";
+import { parseCrewManifest } from "../domain/index.ts";
 
 function setup() {
 	let command: { handler: (args: string, ctx: ExtensionContext) => Promise<void>; getArgumentCompletions: (prefix: string) => unknown } | undefined;
@@ -107,6 +108,35 @@ test("/crew join accepts both layouts and rejects arbitrary siblings before runt
 	await rejected.getCommand().handler("join .pi/other/sockets/dev.sock", rejected.ctx);
 	assert.equal(joins, 0);
 	assert.match(rejected.notifications[0]!, /untrusted crew manifest path/);
+});
+
+test("/crew join selects the external-root manifest for both layouts", async () => {
+	for (const layout of ["bebop", "crew"]) {
+		const state = setup();
+		let request: unknown;
+		const runtime = { join: async (value: unknown) => { request = value; return { ok: true, membership: { member: { name: "dev1", role: "developer" }, socketPath: `/root-B/.pi/${layout}/sockets/dev1.sock` }, idempotent: false }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
+		registerSessionControlCommand(state.pi, state.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/root-B/.pi/bebop/sockets/global.sock"; current.context = ctx; } }));
+		await state.getCommand().handler(`join /root-B/.pi/${layout}/sockets/dev1.sock`, state.ctx);
+		assert.deepEqual(request, { manifestPath: `/root-B/.pi/${layout}/crew.json`, socketPath: `/root-B/.pi/${layout}/sockets/dev1.sock`, globalSocketPath: "/root-B/.pi/bebop/sockets/global.sock" });
+	}
+});
+
+test("/crew join rejects unsupported and unconfigured endpoints without joining", async () => {
+	for (const target of ["/root-B/.pi/other/sockets/dev.sock", "/root-B/.pi/bebop/member.sock", "/root-B/.pi/bebop/sockets/../dev.sock"]) {
+		const state = setup(); let joins = 0;
+		const runtime = { join: async () => { joins += 1; return { ok: false, error: new Error("must not claim") }; }, leave: async () => ({ ok: true, left: false }), getMembership: () => null } as unknown as MembershipRuntime;
+		registerSessionControlCommand(state.pi, state.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/tmp/global.sock"; current.context = ctx; } }));
+		await state.getCommand().handler(`join ${target}`, state.ctx);
+		assert.equal(joins, 0, target);
+	}
+	const state = setup(); let claims = 0;
+	const runtime = createMembershipRuntime({
+		loadManifest: async () => parseCrewManifest({ version: 1, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] }, "/root-B/.pi/bebop/crew.json"),
+		claimEndpoint: (async () => { claims += 1; return { idempotent: false }; }) as never,
+	});
+	registerSessionControlCommand(state.pi, state.state, baseDeps({ membershipRuntime: runtime, ensureControlServer: async (_pi, current, ctx) => { current.server = {} as never; current.socketPath = "/tmp/global.sock"; current.context = ctx; } }));
+	await state.getCommand().handler("join /root-B/.pi/bebop/sockets/unknown.sock", state.ctx);
+	assert.equal(claims, 0);
 });
 
 test("/intray join reports trust and runtime failures without claiming", async () => {
