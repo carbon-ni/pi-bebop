@@ -1,4 +1,4 @@
-import { appendSenderMetadata, isSendResult, type RpcCommand, type RpcCommandResponse } from "../domain/index.ts";
+import { isMessagePayload, isSendResult, type RpcCommand, type RpcCommandResponse } from "../domain/index.ts";
 
 type CrewMember = { name: string; role: string; socketPath: string };
 type CrewMembership = { member: CrewMember; socketPath: string; manifest: { members: readonly CrewMember[] } };
@@ -12,7 +12,8 @@ export interface MemberMessageRequest {
 	readonly intent?: MemberDeliveryIntent;
 	readonly waitFor?: MemberWaitFor;
 	readonly signal?: AbortSignal;
-	readonly sender?: { sessionId: string; sessionName?: string };
+	readonly instructions?: readonly string[];
+	readonly sender?: { sessionId: string; sessionName?: string }; // callback routing only; never message origin
 }
 export interface MemberMessageTransport {
 	send(
@@ -102,9 +103,23 @@ export async function sendMemberMessage(
 		);
 	const target = resolveTarget(request.membership, request.member.trim());
 	const endpoint = await dependencies.resolveEndpoint(target.socketPath);
+	const origin = {
+		kind: "crew" as const,
+		name: request.membership.member.name,
+		role: request.membership.member.role,
+	};
+	const payload = {
+		content: request.message,
+		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
+		origin,
+	};
+	if (!isMessagePayload(payload))
+		throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
 	const command: RpcCommand = {
 		type: "send",
-		message: appendSenderMetadata(request.message, request.sender ?? null),
+		message: payload.content,
+		...(payload.instructions === undefined ? {} : { instructions: payload.instructions }),
+		origin: payload.origin,
 		mode: intent === "immediate" ? "steer" : "follow_up",
 	};
 	const deliver = async (): Promise<MemberMessageOutcome> => {

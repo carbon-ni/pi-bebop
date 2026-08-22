@@ -1,7 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { ExtractedMessageSchema, type ExtractedMessage } from "./messages.ts";
-import { MessagePayloadSchema, isMessagePayload, type MessagePayload } from "./message-payload.ts";
+import { MessageOriginSchema, MessagePayloadSchema, isMessagePayload, type MessagePayload } from "./message-payload.ts";
 
 export const JSON_RPC_VERSION = "2.0" as const;
 export const RpcIdSchema = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
@@ -198,6 +198,8 @@ export const MessageSendCommandSchema = Type.Object(
 	{
 		type: Type.Literal("send"),
 		message: Type.String({ minLength: 1, maxLength: 1_000_000 }),
+		instructions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 32 })),
+		origin: Type.Optional(MessageOriginSchema),
 		mode: Type.Optional(Type.Union([Type.Literal("steer"), Type.Literal("follow_up")])),
 		id: Type.Optional(RpcIdSchema),
 	},
@@ -354,7 +356,12 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 			jsonrpc: JSON_RPC_VERSION,
 			id,
 			method: "message.send",
-			params: { content: command.message, delivery: command.mode === "steer" ? "immediate" : "follow_up" },
+			params: {
+				content: command.message,
+				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+				...(command.origin === undefined ? {} : { origin: command.origin }),
+				delivery: command.mode === "steer" ? "immediate" : "follow_up",
+			},
 		};
 	if (command.type === "subscribe")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "event.subscribe", params: { event: command.event } };
@@ -371,14 +378,17 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 		const payload = rawParams
 			? { content: rawParams.content, instructions: rawParams.instructions, origin: rawParams.origin }
 			: undefined;
-		return Value.Check(MessageSendParamsSchema, params) && isMessagePayload(payload)
-			? {
-					type: "send",
-					message: params.content,
-					mode: params.delivery === "immediate" ? "steer" : "follow_up",
-					id: request.id,
-				}
-			: invalid("Invalid message.send params");
+		if (!Value.Check(MessageSendParamsSchema, params) || !isMessagePayload(payload))
+			return invalid("Invalid message.send params");
+		const validParams = params as MessageSendParams;
+		return {
+			type: "send",
+			message: validParams.content,
+			...(validParams.instructions === undefined ? {} : { instructions: validParams.instructions }),
+			...(validParams.origin === undefined ? {} : { origin: validParams.origin }),
+			mode: validParams.delivery === "immediate" ? "steer" : "follow_up",
+			id: request.id,
+		};
 	}
 	if (["session.status", "session.get_message", "session.clear", "session.abort"].includes(request.method)) {
 		if (params !== undefined) return invalid(`Invalid ${request.method} params`);
