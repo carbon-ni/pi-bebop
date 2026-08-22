@@ -1,7 +1,7 @@
 ---
 id: TASK-0024
 title: Adopt schema-validated JSON-RPC transport
-status: todo
+status: done
 depends_on: [TASK-0023]
 priority: high
 tags: [protocol, json-rpc, validation, security]
@@ -53,6 +53,7 @@ Schemas are the source of truth: derive TypeScript types from maintained runtime
 - [ ] Client validation rejects invalid `jsonrpc`, unknown envelope keys, invalid notification IDs, result-plus-error, result-without-error, duplicate/mismatched IDs, and malformed responses/notifications immediately without leaking stack traces or raw dependency errors.
 - [ ] Existing status, send, get-message, clear, abort, timeout, abort-signal, and turn-end behavior remains covered through the new protocol.
 - [ ] The CLI and registered tools use the same generated protocol types and client; no adapter constructs raw JSON-RPC envelopes independently.
+- [ ] The built extension loads through the actual Pi extension host at the published TypeBox peer floor and registers `--crew-socket`; schema construction uses no API unavailable at that floor. A plain-Node package smoke test alone is insufficient evidence.
 - [ ] Migration is atomic: production code accepts only the JSON-RPC contract, with the breaking wire change documented.
 - [ ] Unix socket framing and access policy remain unchanged; JSON-RPC does not claim to add authentication, and transport provenance remains separate from caller-supplied method payloads so TASK-0025 cannot infer authority from raw origin fields.
 - [ ] Focused schema, parser, server, client, concurrency, and integration tests pass, followed by coverage/risk analysis and the final watcher gate.

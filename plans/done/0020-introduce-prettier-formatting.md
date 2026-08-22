@@ -1,7 +1,7 @@
 ---
 id: TASK-0020
 title: Introduce Prettier formatting
-status: todo
+status: done
 depends_on: []
 priority: normal
 tags: [tooling, formatting, prettier]
