@@ -2,6 +2,7 @@ import type { MessageRenderer } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { TextContent } from "@earendil-works/pi-ai";
 import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { isMessagePayload, renderMessagePayloadForDisplay, type MessagePayload } from "../domain/index.ts";
 
 const SENDER_INFO_PATTERN = /<sender_info>[\s\S]*?<\/sender_info>/g;
 const LEGACY_REPLY_INSTRUCTION_PATTERN =
@@ -22,6 +23,20 @@ export function stripMessageMetadata(text: string): string {
 interface SenderInfo {
 	sessionId?: string;
 	sessionName?: string;
+}
+
+function payloadFromDetails(message: unknown): MessagePayload | null {
+	const details = (message as { details?: unknown }).details;
+	if (typeof details !== "object" || details === null) return null;
+	const payload = (details as { messagePayload?: unknown }).messagePayload;
+	return isMessagePayload(payload) ? payload : null;
+}
+
+function claimedOrigin(payload: MessagePayload): string | null {
+	if (!payload.origin) return null;
+	return payload.origin.kind === "crew"
+		? `from ${payload.origin.name} (${payload.origin.role})`
+		: `from ${payload.origin.label}`;
 }
 
 export function parseSenderInfo(text: string): SenderInfo | null {
@@ -63,23 +78,30 @@ function formatSenderInfo(info: SenderInfo | null): string | null {
 	return null;
 }
 
-export const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => {
-	const rawContent = extractTextContent(message.content);
-	const senderInfo = parseSenderInfo(rawContent);
-	let text = stripMessageMetadata(rawContent);
+export function getMessageDisplayModel(
+	message: unknown,
+	expanded: boolean,
+): { text: string; senderText: string | null } {
+	const rawContent = extractTextContent(
+		(message as { content: string | Array<TextContent | { type: string }> }).content,
+	);
+	const payload = payloadFromDetails(message);
+	const senderInfo = payload ? null : parseSenderInfo(rawContent);
+	let text = payload ? renderMessagePayloadForDisplay(payload) : stripMessageMetadata(rawContent);
 	if (!text) text = "(no content)";
-
 	if (!expanded) {
 		const lines = text.split("\n");
-		if (lines.length > 5) {
-			text = `${lines.slice(0, 5).join("\n")}\n...`;
-		}
+		if (lines.length > 5) text = `${lines.slice(0, 5).join("\n")}\n...`;
 	}
+	return { text, senderText: payload ? claimedOrigin(payload) : formatSenderInfo(senderInfo) };
+}
+
+export const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => {
+	const { text, senderText } = getMessageDisplayModel(message, expanded);
 
 	const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
 	const labelBase = theme.fg("customMessageLabel", `\x1b[1m[${message.customType}]\x1b[22m`);
-	const senderText = formatSenderInfo(senderInfo);
-	const label = senderText ? `${labelBase} ${theme.fg("dim", `from ${senderText}`)}` : labelBase;
+	const label = senderText ? `${labelBase} ${theme.fg("dim", senderText)}` : labelBase;
 	box.addChild(new Text(label, 0, 0));
 	box.addChild(new Spacer(1));
 	box.addChild(
