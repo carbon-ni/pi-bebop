@@ -7,6 +7,7 @@ import { readTrustedCrewManifest } from "../infra/crew-manifest-store.ts";
 import { resolveSessionIdFromAlias } from "../infra/control-store.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import {
+	MAX_MESSAGE_INSTRUCTION_BYTES,
 	MAX_MESSAGE_INSTRUCTIONS,
 	MAX_MESSAGE_ORIGIN_FIELD_BYTES,
 	isClearResult,
@@ -95,7 +96,7 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds ca
 				),
 				message: Type.Optional(Type.String({ description: "Message to send (required for action=send)" })),
 				instructions: Type.Optional(
-					Type.Array(Type.String({ minLength: 1, maxLength: MAX_MESSAGE_ORIGIN_FIELD_BYTES }), {
+					Type.Array(Type.String({ minLength: 1, maxLength: MAX_MESSAGE_INSTRUCTION_BYTES }), {
 						minItems: 1,
 						maxItems: MAX_MESSAGE_INSTRUCTIONS,
 						description: "Ordered user-level instructions",

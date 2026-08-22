@@ -49,7 +49,7 @@ async function withEndpoint(
 test("runs against a live Unix socket and sends ordered instructions and claimed origin", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-"));
 	const socketPath = path.join(dir, "member.sock");
-	let sentParams: any;
+	const sentParams: any[] = [];
 	const server = net.createServer((socket) => {
 		socket.setEncoding("utf8");
 		let buffer = "";
@@ -61,7 +61,7 @@ test("runs against a live Unix socket and sends ordered instructions and claimed
 				if (!line) continue;
 				const command = JSON.parse(line) as { method: string; id: string; params?: unknown };
 				if (command.method === "message.send") {
-					sentParams = command.params;
+					sentParams.push(command.params);
 					socket.write(
 						JSON.stringify({
 							jsonrpc: "2.0",
@@ -123,9 +123,36 @@ test("runs against a live Unix socket and sends ordered instructions and claimed
 		);
 		assert.equal(code, 0);
 		assert.equal(JSON.parse(text).response, "answer");
-		assert.deepEqual(sentParams, {
+		assert.deepEqual(sentParams[0], {
 			content: "hello",
 			instructions: ["first", "second"],
+			origin: { kind: "external", label: "CI" },
+			delivery: "immediate",
+		});
+		const stdin = new PassThrough();
+		const stdinOutput = new PassThrough();
+		const stdinPending = runCli(
+			[
+				"send",
+				"--socket",
+				socketPath,
+				"--stdin",
+				"--instruction",
+				"from-flag",
+				"--from",
+				"CI",
+				"--format",
+				"json",
+			],
+			process.cwd(),
+			stdin,
+			stdinOutput,
+		);
+		stdin.end("stdin is content only");
+		assert.equal(await stdinPending, 0);
+		assert.deepEqual(sentParams[1], {
+			content: "stdin is content only",
+			instructions: ["from-flag"],
 			origin: { kind: "external", label: "CI" },
 			delivery: "immediate",
 		});

@@ -55,6 +55,41 @@ test("keeps callback routing separate from claimed origin", async () => {
 	assert.deepEqual(calls[1]?.payload.replyTo, { sessionId: "s" });
 });
 
+test("omits replyTo for synchronous turn_end and adds it only for callback policy", async () => {
+	const calls: RpcCommand[] = [];
+	const send = async (_path: string, command: RpcCommand) => {
+		calls.push(command);
+		return {
+			response: { type: "response", command: "send", success: true, data: { delivered: true } },
+			event: { message: { role: "assistant", content: "ok", timestamp: 1 }, turnIndex: 1 },
+		};
+	};
+	await sendDirectMessage(
+		{
+			socketPath: "/x",
+			message: "x",
+			mode: "steer",
+			wait: "turn_end",
+			origin: { kind: "crew", name: "Bob", role: "dev" },
+		},
+		send,
+	);
+	await sendDirectMessage(
+		{
+			socketPath: "/x",
+			message: "x",
+			mode: "steer",
+			wait: "accepted",
+			origin: { kind: "crew", name: "Bob", role: "dev" },
+			sender: { sessionId: "s" },
+		},
+		send,
+	);
+	assert.equal(calls[0]?.payload.replyTo, undefined);
+	assert.deepEqual(calls[0]?.payload.origin, calls[1]?.payload.origin);
+	assert.deepEqual(calls[1]?.payload.replyTo, { sessionId: "s" });
+});
+
 test("rejects turn completion without an assistant response as an operational error", async () => {
 	await assert.rejects(
 		() =>

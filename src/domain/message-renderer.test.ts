@@ -25,6 +25,17 @@ test("returns content byte-for-byte when metadata is absent", () => {
 	assert.equal(renderMessagePayload({ content }), content);
 });
 
+test("renders the reverse Kelly (qa) to Bob (dev) recipient model context", () => {
+	const payload = {
+		content: "Please verify",
+		instructions: ["Reply synchronously"],
+		origin: { kind: "crew" as const, name: "Kelly", role: "qa" },
+	};
+	const rendered = renderMessagePayload(payload);
+	assert.deepEqual(parseRenderedMessagePayload(rendered), payload);
+	assert.match(renderMessagePayloadForDisplay(payload), /^Claimed origin: from Kelly \(qa\)/);
+});
+
 test("preserves claimed external origin and reply route independently", () => {
 	const origin = { kind: "external" as const, label: "CI\n😀" };
 	const withoutRoute = { content: "hello", origin };

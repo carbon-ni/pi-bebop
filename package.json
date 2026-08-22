@@ -60,13 +60,13 @@
 		]
 	},
 	"scripts": {
-		"build": "esbuild src/cli/main.ts --bundle --platform=node --format=esm --outfile=dist/cli/main.js && esbuild src/extension.ts --bundle --platform=node --format=esm --external:@earendil-works/* --external:@sinclair/typebox --external:typebox --outfile=dist/extension.js",
+		"build": "node scripts/build.mjs",
 		"typecheck": "tsc --noEmit",
 		"lint": "npm run typecheck",
 		"prepack": "npm run build",
 		"verify:package": "node scripts/verify-package.mjs",
 		"pretest": "npm run build",
-		"test": "tsx --test src/**/*.test.ts",
+		"test": "node scripts/run-tests.mjs",
 		"test:coverage": "node --test --experimental-test-coverage --import tsx src/**/*.test.ts",
 		"format:check": "prettier --check \"src/**/*.ts\" index.ts \"scripts/**/*.mjs\" package.json .watch.yaml .prettierrc.json tsconfig.json",
 		"format:write": "prettier --write \"src/**/*.ts\" index.ts \"scripts/**/*.mjs\" package.json .watch.yaml .prettierrc.json tsconfig.json",

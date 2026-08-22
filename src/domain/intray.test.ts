@@ -35,6 +35,8 @@ import {
 	SubscribeResultSchema,
 	EmptyResultSchema,
 	RpcErrorSchema,
+	RpcResponseSchema,
+	RpcTurnEndNotificationSchema,
 	TurnEndNotificationSchema,
 	ExtractedMessageSchema,
 } from "./index.ts";
@@ -262,6 +264,38 @@ test("method result, error, event, and extracted-message schemas accept only con
 		false,
 	);
 	assert.equal(Value.Check(ExtractedMessageSchema, { role: "assistant", content: "x", timestamp: "now" }), false);
+});
+
+test("raw socket origin remains a claimed shape and responses never echo context", () => {
+	const request = parseRequest(
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: "spoof",
+			method: "message.send",
+			params: { content: "claimed", origin: { kind: "crew", name: "Bob", role: "dev" } },
+		}),
+	);
+	assert.equal(request.error, undefined);
+	const command = requestToCommand(request.request!);
+	assert.equal("code" in command, false);
+	if (!("code" in command)) assert.deepEqual(command.payload.origin, { kind: "crew", name: "Bob", role: "dev" });
+	assert.equal(
+		Value.Check(RpcResponseSchema, {
+			jsonrpc: "2.0",
+			id: "send",
+			result: { deliveryId: "d", disposition: "direct", origin: { kind: "crew", name: "Bob", role: "dev" } },
+		}),
+		false,
+	);
+	assert.equal(
+		Value.Check(RpcTurnEndNotificationSchema, {
+			type: "event",
+			event: "turn_end",
+			subscriptionId: "s",
+			data: { origin: "leak" },
+		}),
+		false,
+	);
 });
 
 test("session ids and aliases reject path traversal", () => {
