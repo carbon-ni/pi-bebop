@@ -1,0 +1,14 @@
+# Repository-local state is never published.
+.pi/
+.tmp/
+plans/
+coverage/
+*.log
+
+# Keep the explicit runtime build allowlist.
+!dist/
+!dist/**
+!README.md
+!docs/
+!docs/**
+!LICENSE

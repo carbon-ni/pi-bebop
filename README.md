@@ -44,6 +44,31 @@ For an existing session, join a crew endpoint with:
 Use `/crew status`, `/crew leave`, or `/crew stop` to inspect or release the
 current identity.
 
+## Direct socket messaging from a shell
+
+The package also installs `pi-bebop`, which targets one endpoint directly. It does
+not read the crew manifest or resolve names and roles:
+
+```bash
+pi-bebop send --socket .pi/bebop/sockets/lead.sock \
+  --message "Review the current changes"
+printf 'line one\nline two\n' | pi-bebop send --socket .pi/crew/sockets/lead.sock --stdin --wait accepted --format json
+```
+
+The default is `--mode steer`, `--wait turn_end`, `--timeout 5m`, and `--format
+toon`. Use `--wait accepted` for acknowledgement-only automation, `--format text`
+for concise human output, and `--full` to disable the 2,000-character response
+preview. JSON and TOON always include `ok`, `target`, `status`, and response/error
+data; exit status is 0 for success, 1 for operational failures, and 2 for
+invalid usage. The CLI never attaches callback metadata.
+
+A Unix socket is a local capability. The effective boundary is permission to
+traverse its parent directories and connect to the socket (subject to the
+platform's Unix-socket permissions), not secrecy of the path. Path knowledge
+alone is not an authentication mechanism. Direct targeting supports both
+`.pi/bebop/sockets/*` and `.pi/crew/sockets/*`; no manifest or role lookup is
+performed.
+
 ## Role-based messaging
 
 Once joined, use Bebop's only tool:

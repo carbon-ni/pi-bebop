@@ -10,10 +10,9 @@
       "node"
     ],
     "noEmit": true,
+    "outDir": "dist",
     "allowImportingTsExtensions": true
   },
-  "include": [
-    "index.ts",
-    "tests/**/*.ts"
-  ]
+  "include": ["index.ts", "src/**/*.ts"],
+  "exclude": ["**/*.test.ts"]
 }
