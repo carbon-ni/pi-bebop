@@ -148,6 +148,18 @@ test("sendRpcCommand rejects once on timeout", async () => {
 	);
 });
 
+test("defers malformed RPC output classification to TASK-0024 and times out for now", async () => {
+	await withSocketServer(
+		(socket) => socket.write("not-json\\n"),
+		async (socketPath) => {
+			await assert.rejects(
+				() => sendRpcCommand(socketPath, { type: "send", message: "hello" }, { timeout: 20 }),
+				/timeout/i,
+			);
+		},
+	);
+});
+
 test("sendRpcCommand rejects a failed subscription response", async () => {
 	await withSocketServer(
 		(socket) => handleLines(socket, (message) => {

@@ -4,6 +4,8 @@
 plans/
 coverage/
 *.log
+**/*.test.ts
+**/AGENTS.md
 
 # Keep the explicit runtime build allowlist.
 !dist/

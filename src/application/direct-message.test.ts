@@ -15,10 +15,12 @@ test("sends exact message without sender metadata and returns an accepted result
 	assert.deepEqual(result, { status: "accepted", data: { delivered: true } });
 });
 
-test("waits for turn completion and preserves missing assistant output", async () => {
-	const completed = await sendDirectMessage({ socketPath: "/x", message: "x", mode: "follow_up", wait: "turn_end", timeoutMs: 500 }, async (_path, _command, options) => {
-		assert.deepEqual(options, { timeout: 500, waitForEvent: "turn_end", signal: undefined });
-		return { response: { type: "response", command: "send", success: true }, event: { turnIndex: 4 } };
-	});
-	assert.deepEqual(completed, { status: "completed", turnIndex: 4 });
+test("rejects turn completion without an assistant response as an operational error", async () => {
+	await assert.rejects(
+		() => sendDirectMessage({ socketPath: "/x", message: "x", mode: "follow_up", wait: "turn_end", timeoutMs: 500 }, async (_path, _command, options) => {
+			assert.deepEqual(options, { timeout: 500, waitForEvent: "turn_end", signal: undefined });
+			return { response: { type: "response", command: "send", success: true }, event: { turnIndex: 4 } };
+		}),
+		(error: unknown) => error instanceof Error && error.name === "DirectMessageError" && (error as { code?: string }).code === "missing-assistant-response",
+	);
 });

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
 import { parseCliArguments, UsageError, type SendCliOptions } from "./arguments.ts";
 import { renderCliResult, type CliResult } from "./output.ts";
 import { sendDirectMessage, DirectMessageError } from "../application/direct-message.ts";
 
-function errorCode(error: unknown): string {
+export function errorCode(error: unknown): string {
 	if (error instanceof DirectMessageError) return error.code;
 	if (error instanceof Error && error.name === "AbortError") return "aborted";
 	if (error instanceof Error && /timeout/i.test(error.message)) return "timeout";
-	if (error instanceof Error && ["ENOENT", "EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) return "permission-or-offline";
+	const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+	if (systemCode === "EACCES" || systemCode === "EPERM") return "permission-denied";
+	if (systemCode === "ENOENT") return "offline";
 	if (error instanceof Error && /JSON|malformed|parse/i.test(error.message)) return "malformed-response";
 	return "offline";
 }
@@ -22,20 +23,20 @@ export async function runCli(args: string[], cwd = process.cwd(), input = proces
 	let options: SendCliOptions;
 	try { options = parseCliArguments(args, cwd); } catch (error) { return usage(error as UsageError); }
 	let message = options.message;
-	if (options.stdin) {
-		message = await new Promise<string>((resolve, reject) => {
-			let data = "";
-			input.setEncoding("utf8");
-			input.on("data", (chunk) => { data += chunk; });
-			input.once("end", () => resolve(data));
-			input.once("error", reject);
-		});
-		if (message.length === 0) return usage(new UsageError("--stdin received empty input; provide UTF-8 message content"));
-	}
 	const controller = new AbortController();
 	const abort = () => controller.abort(Object.assign(new Error("Operation aborted"), { name: "AbortError" }));
 	process.once("SIGINT", abort);
 	try {
+		if (options.stdin) {
+			message = await new Promise<string>((resolve, reject) => {
+				let data = "";
+				input.setEncoding("utf8");
+				input.on("data", (chunk) => { data += chunk; });
+				input.once("end", () => resolve(data));
+				input.once("error", reject);
+			});
+			if (message.length === 0) return usage(new UsageError("--stdin received empty input; provide UTF-8 message content"));
+		}
 		const result = await sendDirectMessage({ socketPath: options.socketPath, message: message!, mode: options.mode, wait: options.wait, timeoutMs: options.timeoutMs, signal: controller.signal });
 		const outputResult: CliResult = { ok: true, target: options.socketPath, status: result.status, response: result.message?.content, data: result.data, turnIndex: result.turnIndex };
 		output.write(`${renderCliResult(outputResult, options.format, options.full)}\n`);
