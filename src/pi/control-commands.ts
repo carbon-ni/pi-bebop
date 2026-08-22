@@ -142,8 +142,13 @@ export function registerSessionControlCommand(
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
-							await deps.broadcastPresence?.(previousMembership!.member, "offline");
-							deps.stopPresence?.();
+							try {
+								await deps.broadcastPresence?.(previousMembership!.member, "offline");
+							} catch {
+								// Presence broadcast is best-effort; release must still complete.
+							} finally {
+								deps.stopPresence?.();
+							}
 							deps.announceMembership?.("Crew membership released");
 						}
 						notify(ctx, result.left ? "Crew membership released" : "Crew not joined");
@@ -171,9 +176,14 @@ export function registerSessionControlCommand(
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
-							if (previousMembership)
-								await deps.broadcastPresence?.(previousMembership.member, "offline");
-							deps.stopPresence?.();
+							try {
+								if (previousMembership)
+									await deps.broadcastPresence?.(previousMembership.member, "offline");
+							} catch {
+								// Presence broadcast is best-effort; cleanup must still complete.
+							} finally {
+								deps.stopPresence?.();
+							}
 							deps.announceMembership?.("Crew membership released");
 						},
 						reportFailure: (message) => notify(ctx, message, "warning"),

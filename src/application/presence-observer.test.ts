@@ -168,6 +168,18 @@ test("offline broadcast targets every peer with changed current member and isola
 	assert.deepEqual(sent, [`${dev.identity}<-${lead.identity}:offline`, `${qa.identity}<-${lead.identity}:offline`]);
 });
 
+test("two failed reconciles emit one left for a crashed member", async () => {
+	const h = harness();
+	h.answers.set(dev.identity, false);
+	await h.observer.start();
+	h.effects.length = 0;
+	await h.observer.reconcile();
+	const left = h.effects.filter((effect) => (effect as { type?: string }).type === "left");
+	assert.deepEqual(left, [{ type: "left", member: dev }]);
+	await h.observer.reconcile();
+	assert.equal(h.effects.filter((effect) => (effect as { type?: string }).type === "left").length, 1);
+});
+
 test("reconciliation probe failures are isolated and later scans remain available", async () => {
 	const h = harness();
 	let reject = true;
