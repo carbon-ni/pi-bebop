@@ -1,7 +1,7 @@
 ---
 id: TASK-0022
 title: Support crew and Bebop project layouts
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [crew, compatibility, security]

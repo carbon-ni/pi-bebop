@@ -1,7 +1,7 @@
 ---
 id: TASK-0023
 title: Add direct socket messaging CLI
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, cli, rpc, automation]
@@ -69,8 +69,9 @@ External CLI calls have no live sender session, so they must not attach `sender_
 - [ ] The CLI never adds callback sender metadata; tests and documentation accurately define who can connect based on directory/socket permissions on supported platforms.
 - [ ] Both `.pi/bebop/sockets/*` and `.pi/crew/sockets/*` work because targeting is direct; no manifest fallback or role lookup is introduced.
 - [ ] The existing `send_to_member` and `send_to_session` behavior remains unchanged and uses the shared direct-message operation, including a non-error `Turn completed but no assistant message found` result for tool adapters.
-- [ ] Package installation exposes `pi-bebop`; an npm-pack/install subprocess test executes the installed `dist/cli/main.js` under plain Node without development dependencies while the Pi extension entrypoint remains loadable.
-- [ ] `npm pack --dry-run` contains only intentional runtime, type, license, and documentation files—no `.pi`, `.tmp`, database, log, plan, or nested fixture state.
+- [ ] Package installation exposes `pi-bebop`; an explicit release/package target installs the packed artifact in a locked isolated consumer, executes `dist/cli/main.js` under plain Node, and loads the extension entrypoint. Normal `npm test`/`make all` remain registry-free and deterministic, using only local packed-artifact coverage.
+- [ ] `npm pack --dry-run` contains only intentional runtime, type, license, and documentation files—no `.pi`, `.tmp`, database, log, plan, or nested fixture state; peer compatibility ranges are bounded with secure minimum versions and the release consumer pins exact dependency versions.
+- [ ] Coupled Pi development/peer packages are verified against secure 0.84.2-compatible versions, full and production-only npm audits have no unresolved moderate/high advisories, and the supported Pi range is documented without claiming vulnerable 0.80.x compatibility.
 - [ ] Integration coverage includes accepted wait, remote rejection, timeout, SIGINT during stdin, exact multiline/empty stdin, both endpoint layouts, no outbound sender metadata, and real supported-platform permission behavior where deterministic.
 - [ ] Focused parser, renderer, transport, integration, packaging, unhappy-path, and truncation tests pass, followed by the final watcher gate.
 
