@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Value } from "@sinclair/typebox/value";
 import { parseCrewManifest } from "../domain/index.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 import type { RpcClientOptions } from "../infra/rpc-client.ts";
 import { createSocketState } from "../pi/control-runtime.ts";
+import { createMemberMessageCoordinator } from "../application/member-message.ts";
 import { registerSendFollowUpTool } from "./send-follow-up.ts";
 import { registerSendImmediateTool } from "./send-immediate.ts";
 
@@ -34,6 +36,8 @@ const membership = {
 function setup(
 	sendRpcCommand: (path: string, command: any, options?: RpcClientOptions) => Promise<any>,
 	joined = true,
+	currentMembership = membership,
+	dependencies = { coordinator: createMemberMessageCoordinator() },
 ): Map<string, Tool> {
 	const tools = new Map<string, Tool>();
 	const pi = {
@@ -44,9 +48,11 @@ function setup(
 	} as unknown as ExtensionAPI;
 	const state = createSocketState();
 	state.context = { sessionManager: { getSessionId: () => "dev-session", getSessionName: () => "dev" } } as never;
-	state.membershipRuntime = { getMembership: () => (joined ? membership : null) } as unknown as MembershipRuntime;
-	registerSendFollowUpTool(pi, state, { sendRpcCommand });
-	registerSendImmediateTool(pi, state, { sendRpcCommand });
+	state.membershipRuntime = {
+		getMembership: () => (joined ? currentMembership : null),
+	} as unknown as MembershipRuntime;
+	registerSendFollowUpTool(pi, state, { sendRpcCommand, ...dependencies });
+	registerSendImmediateTool(pi, state, { sendRpcCommand, ...dependencies });
 	return tools;
 }
 const ack = (disposition: string) => ({
@@ -65,6 +71,9 @@ test("registers only intent-named tools with compact parameters and teaching des
 	for (const tool of tools.values()) {
 		assert.deepEqual(Object.keys(tool.parameters.properties ?? {}).sort(), ["member", "message", "wait_for"]);
 		assert.equal(tool.description.includes("mode"), false);
+		assert.equal(Value.Check(tool.parameters, { member: "qa", message: "x" }), true);
+		assert.equal(Value.Check(tool.parameters, { member: "qa", message: "x", mode: "steer" }), false);
+		assert.equal(Value.Check(tool.parameters, { member: "qa", message: "x", extra: true }), false);
 	}
 	assert.match(tools.get("send_follow_up")!.description, /default/i);
 	assert.match(tools.get("send_immediate")!.description, /redirect.*active/i);
@@ -92,35 +101,155 @@ test("uses follow-up by default and maps immediate to explicit steering", async 
 	);
 });
 
-test("preserves FIFO follow-ups while immediate sends remain independently concurrent", async () => {
+test("proves FIFO follow-ups wait for the first ack and immediates start concurrently", async () => {
 	const order: string[] = [];
-	const tools = setup(async (_path, command) => {
-		order.push(command.message);
-		if (command.message.includes("first")) await new Promise((resolve) => setTimeout(resolve, 10));
-		return ack(command.mode === "steer" ? "steered" : "queued");
+	let releaseFirst!: () => void;
+	let releaseImmediate!: () => void;
+	const firstReleased = new Promise<void>((resolve) => {
+		releaseFirst = resolve;
 	});
-	await Promise.all([
-		tools
-			.get("send_follow_up")!
-			.execute("call", { member: "qa", message: "first follow-up" }, undefined, undefined, undefined),
-		tools
-			.get("send_follow_up")!
-			.execute("call", { member: "qa", message: "second follow-up" }, undefined, undefined, undefined),
-	]);
-	assert.deepEqual(
-		order.map((message) => message.split("\n")[0]),
-		["first follow-up", "second follow-up"],
+	const immediateReleased = new Promise<void>((resolve) => {
+		releaseImmediate = resolve;
+	});
+	let secondStarted = false;
+	let immediateStarts = 0;
+	let resolveImmediateStarts!: () => void;
+	const immediateStarted = new Promise<void>((resolve) => {
+		resolveImmediateStarts = resolve;
+	});
+	const tools = setup(async (_path, command) => {
+		const message = command.message.split("\n")[0];
+		order.push(message);
+		if (message === "first follow-up") return firstReleased.then(() => ack("queued"));
+		if (message === "second follow-up") {
+			secondStarted = true;
+			return ack("queued");
+		}
+		immediateStarts += 1;
+		if (immediateStarts === 2) resolveImmediateStarts();
+		return immediateReleased.then(() => ack("steered"));
+	});
+	const first = tools
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "first follow-up" }, undefined, undefined, undefined);
+	const second = tools
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "second follow-up" }, undefined, undefined, undefined);
+	await Promise.resolve();
+	assert.equal(secondStarted, false);
+	releaseFirst();
+	await Promise.all([first, second]);
+	assert.deepEqual(order.slice(0, 2), ["first follow-up", "second follow-up"]);
+	const immediateOne = tools
+		.get("send_immediate")!
+		.execute("call", { member: "qa", message: "redirect one" }, undefined, undefined, undefined);
+	const immediateTwo = tools
+		.get("send_immediate")!
+		.execute("call", { member: "qa", message: "redirect two" }, undefined, undefined, undefined);
+	await immediateStarted;
+	assert.equal(immediateStarts, 2);
+	releaseImmediate();
+	await Promise.all([immediateOne, immediateTwo]);
+});
+
+test("rejects ambiguous roles before RPC and aborts queued follow-ups before delivery", async () => {
+	const ambiguousManifest = parseCrewManifest(
+		{
+			version: 1,
+			members: [
+				{ name: "dev", role: "developer", socket: "sockets/dev.sock" },
+				{ name: "qa", role: "reviewer", socket: "sockets/qa.sock" },
+				{ name: "qa2", role: "reviewer", socket: "sockets/qa2.sock" },
+			],
+		},
+		"/project/.pi/bebop/crew.json",
 	);
-	order.length = 0;
-	await Promise.all([
-		tools
-			.get("send_immediate")!
-			.execute("call", { member: "qa", message: "redirect one" }, undefined, undefined, undefined),
-		tools
-			.get("send_immediate")!
-			.execute("call", { member: "qa", message: "redirect two" }, undefined, undefined, undefined),
-	]);
-	assert.deepEqual(order.map((message) => message.split("\n")[0]).sort(), ["redirect one", "redirect two"]);
+	let calls = 0;
+	const tools = setup(
+		async () => {
+			calls += 1;
+			return ack("queued");
+		},
+		true,
+		{ ...membership, manifest: ambiguousManifest },
+	);
+	const ambiguous = await tools
+		.get("send_follow_up")!
+		.execute("call", { member: "reviewer", message: "x" }, undefined, undefined, undefined);
+	assert.equal(ambiguous.isError, true);
+	assert.match(ambiguous.content[0].text, /Ambiguous/);
+	assert.equal(calls, 0);
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const first = setup(async () => {
+		calls += 1;
+		await gate;
+		return ack("queued");
+	});
+	const firstPending = first
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "first" }, undefined, undefined, undefined);
+	const controller = new AbortController();
+	const secondPending = first
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "second" }, controller.signal, undefined, undefined);
+	controller.abort();
+	release();
+	await firstPending;
+	const secondResult = await secondPending;
+	assert.equal(secondResult.isError, true);
+	assert.match(secondResult.content[0].text, /aborted/i);
+	assert.equal(calls, 1);
+});
+
+test("cleans a failed queue tail and isolates a role-switched endpoint queue", async () => {
+	const coordinator = createMemberMessageCoordinator();
+	let calls = 0;
+	const failedThenOk = setup(
+		async (_path, command) => {
+			calls += 1;
+			if (calls === 1) throw new Error("target shutdown");
+			return ack(command.mode === "steer" ? "steered" : "queued");
+		},
+		true,
+		membership,
+		{ coordinator },
+	);
+	const first = failedThenOk
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "fails" }, undefined, undefined, undefined);
+	const second = failedThenOk
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "recovers" }, undefined, undefined, undefined);
+	const results = await Promise.all([first, second]);
+	assert.equal(results[0].isError, true);
+	assert.equal(results[1].isError, undefined);
+	assert.equal(calls, 2);
+	const switchedMembership = {
+		...membership,
+		manifest: {
+			...manifest,
+			members: manifest.members.map((member) =>
+				member.name === "qa" ? { ...member, socketPath: "/other/qa.sock" } : member,
+			),
+		},
+	};
+	const paths: string[] = [];
+	const switched = setup(
+		async (path) => {
+			paths.push(path);
+			return ack("queued");
+		},
+		true,
+		switchedMembership,
+		{ coordinator: createMemberMessageCoordinator() },
+	);
+	await switched
+		.get("send_follow_up")!
+		.execute("call", { member: "qa", message: "new endpoint" }, undefined, undefined, undefined);
+	assert.deepEqual(paths, ["/other/qa.sock"]);
 });
 
 test("rejects response waiting and preserves membership target errors without RPC", async () => {
