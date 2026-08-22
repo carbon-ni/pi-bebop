@@ -58,10 +58,10 @@ test("RPC status reports online and joined without legacy fields", async () => {
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
 	const pi = { sendMessage: () => undefined } as never;
 	await handleCommand(pi, state, { type: "status" }, socket);
-	assert.deepEqual(JSON.parse(writes[0]!), { type: "response", command: "status", success: true, data: { status: "online" } });
+	assert.deepEqual(JSON.parse(writes[0]!), { jsonrpc: "2.0", id: "legacy", result: { status: "online" } });
 	state.membershipRuntime = { getMembership: () => ({}) } as never;
 	await handleCommand(pi, state, { type: "status" }, socket);
-	assert.deepEqual(JSON.parse(writes[1]!), { type: "response", command: "status", success: true, data: { status: "joined" } });
+	assert.deepEqual(JSON.parse(writes[1]!), { jsonrpc: "2.0", id: "legacy", result: { status: "joined" } });
 });
 
 test("disableControlServer clears the base server status", async () => {

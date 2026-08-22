@@ -37,6 +37,17 @@ merge, and arbitrary `.pi/<name>/crew.json` paths remain rejected. It maps uniqu
 names and roles to relative paths beneath `sockets/`; endpoint symlinks are
 transport details, not identity.
 
+## Socket protocol
+
+The Unix socket uses one JSON-RPC 2.0 value per newline. Production accepts only
+these methods: `session.status`, `message.send`, `session.get_message`,
+`session.clear`, `session.abort`, and `event.subscribe`; turn completion is the
+`session.turn_end` notification. Request IDs are correlated and responses have
+exactly one result or standard error. Schema validation happens before handler
+side effects, and clients fail immediately on malformed, mismatched, duplicate,
+or wrong-subscription peer output. The migration intentionally breaks the
+legacy `{ type, ... }` envelope; JSON-RPC does not add authentication.
+
 ## Runtime lifecycle
 
 - `pi --crew` starts Bebop's socket server.

@@ -41,16 +41,34 @@ test("createRpcServer dispatches parsed commands to handler", async () => {
 		let received: RpcCommand | undefined;
 		const server = await createRpcServer(socketPath, (command, socket) => {
 			received = command;
-			socket.write(`${JSON.stringify({ type: "response", command: command.type, success: true })}\n`);
+			writeResponse(socket, { type: "response", command: command.type, success: true, id: command.id, data: { message: null } });
 		});
 		try {
-			const response = await sendLine(socketPath, JSON.stringify({ type: "get_message" }));
+			const response = await sendLine(socketPath, JSON.stringify({ jsonrpc: "2.0", id: "get-1", method: "session.get_message" }));
 
-			assert.deepEqual(received, { type: "get_message" });
-			assert.deepEqual(JSON.parse(response), { type: "response", command: "get_message", success: true });
+			assert.deepEqual(received, { type: "get_message", id: "get-1" });
+			assert.deepEqual(JSON.parse(response), { jsonrpc: "2.0", id: "get-1", result: { message: null } });
 		} finally {
 			await closeRpcServer(server);
 		}
+	});
+});
+
+test("rejects unknown methods, extra params, legacy envelopes, and malformed envelopes before dispatch", async () => {
+	await withSocketServer(async (socketPath) => {
+		let dispatched = 0;
+		const server = await createRpcServer(socketPath, () => { dispatched += 1; });
+		try {
+			for (const [line, code] of [
+				[JSON.stringify({ jsonrpc: "2.0", id: "unknown", method: "no.such" }), -32601],
+				[JSON.stringify({ jsonrpc: "2.0", id: "params", method: "message.send", params: { message: "x", extra: true } }), -32602],
+				[JSON.stringify({ type: "send", message: "x" }), -32600],
+			]) {
+				const response = JSON.parse(await sendLine(socketPath, line));
+				assert.equal(response.jsonrpc, "2.0"); assert.equal(response.error.code, code); assert.equal(response.id === null || response.id === "unknown" || response.id === "params", true);
+			}
+			assert.equal(dispatched, 0);
+		} finally { await closeRpcServer(server); }
 	});
 });
 
@@ -72,8 +90,9 @@ test("createRpcServer returns parse errors without dispatching invalid commands"
 
 			assert.equal(dispatched, false);
 			assert.equal(parseErrorObserved, true);
-			assert.equal(JSON.parse(response).success, false);
-			assert.equal(JSON.parse(response).command, "parse");
+			assert.equal(JSON.parse(response).jsonrpc, "2.0");
+			assert.equal(JSON.parse(response).error.code, -32700);
+			assert.equal(JSON.parse(response).id, null);
 		} finally {
 			await closeRpcServer(server);
 		}
