@@ -151,6 +151,31 @@ existing Pi follow-up delivery. It deliberately carries no workflow semantics.
 Bebop intentionally does **not** register generic session discovery or direct
 session-control tools. Those capabilities are outside crew management.
 
+### Crew Intake (defined)
+
+Crew Intake is the public one-way boundary for messages crossing from an
+external actor into the crew; Inbox remains its durable delivery dependency,
+not the same concept. The manifest optionally selects **exactly one crew
+contact by member name** via `intake.contact`; absent contact means external
+intake is disabled (`external-intake-disabled`) — there is never a fallback to
+lead, product owner, first, or online member, and roles never resolve a
+contact. The contact is responsible only for triage: ignore malformed or
+unwanted content, clarify through the external channel when available, or
+forward internally with follow-up/inbox; redirect remains exceptional.
+
+- **Origin is claimed and unverified.** The external label comes from the
+  caller; contact identity and inbox location come only from the validated
+  manifest.
+- **One-way acknowledgement.** Persistence acknowledgement carries the item id
+  and `persisted` only — no reply route, no promised response. Intake does not
+  classify content, select an internal worker, or infer that a message became
+  accepted software work.
+- **Trust boundary.** Pi surfaces require project trust. The standalone CLI
+  (adapter, TASK-0041) treats an explicitly supplied exact-layout manifest
+  plus filesystem permissions as caller consent and never claims Pi trust.
+- The message is persisted to the contact's inbox (TASK-0035 store) and may
+  arrive while the contact is offline.
+
 ## Quality gates
 
 - `npm run format:check` — Prettier check

@@ -183,3 +183,68 @@ describe("crew manifest", () => {
 		);
 	});
 });
+
+describe("crew intake manifest config", () => {
+	const members = [
+		{ name: "Mary", role: "po", socket: "sockets/po.sock" },
+		{ name: "Tony", role: "lead", socket: "sockets/lead.sock" },
+	];
+
+	test("optional intake selects exactly one configured member by name", () => {
+		const manifest = parseCrewManifest({ version: 1, members, intake: { contact: "Mary" } });
+		assert.equal(manifest.intake?.contact, "Mary");
+		const lead = parseCrewManifest({ version: 1, members, intake: { contact: "Tony" } });
+		assert.equal(lead.intake?.contact, "Tony");
+	});
+
+	test("absent intake leaves the manifest without a contact (disabled)", () => {
+		const manifest = parseCrewManifest({ version: 1, members });
+		assert.equal(manifest.intake, undefined);
+	});
+
+	test("strict intake schema rejects non-objects, extra fields, and malformed contact", () => {
+		const invalidIntakes: unknown[] = [
+			"Mary",
+			{ contact: "Mary", fallback: "Tony" },
+			{},
+			{ contact: 3 },
+			{ contact: "   " },
+			{ contact: "Mary\0evil" },
+			{ contact: " Mary " },
+			{ contact: "Mary", extra: true },
+		];
+		for (const intake of invalidIntakes) {
+			assert.throws(
+				() => parseCrewManifest({ version: 1, members, intake }),
+				(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-intake-config",
+				`expected invalid-intake-config for ${JSON.stringify(intake)}`,
+			);
+		}
+	});
+
+	test("unknown or renamed contact is rejected at the manifest boundary", () => {
+		assert.throws(
+			() => parseCrewManifest({ version: 1, members, intake: { contact: "Ghost" } }),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-intake-contact",
+		);
+		assert.throws(
+			() => parseCrewManifest({ version: 1, members: [members[0]!], intake: { contact: "Tony" } }),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-intake-contact",
+		);
+	});
+
+	test("contact is resolved by exact member name, never by role", () => {
+		// "po" is a role, not a member name: the manifest must reject it (no role fallback).
+		assert.throws(
+			() => parseCrewManifest({ version: 1, members, intake: { contact: "po" } }),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-intake-contact",
+		);
+		// A member literally named like a role resolves by name, not by its role field.
+		const namedLead = parseCrewManifest({
+			version: 1,
+			members: [{ name: "lead", role: "po", socket: "sockets/lead.sock" }],
+			intake: { contact: "lead" },
+		});
+		assert.equal(namedLead.intake?.contact, "lead");
+	});
+});
