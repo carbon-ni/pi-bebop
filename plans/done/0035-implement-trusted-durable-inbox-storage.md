@@ -1,7 +1,7 @@
 ---
 id: TASK-0035
 title: Implement trusted durable inbox storage
-status: todo
+status: done
 depends_on: [TASK-0034]
 priority: high
 tags: [crew, inbox, infra, persistence, security]
