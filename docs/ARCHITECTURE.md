@@ -176,15 +176,15 @@ forward internally with follow-up/inbox; redirect remains exceptional.
 - The message is persisted to the contact's inbox (TASK-0035 store) and may
   arrive while the contact is offline.
 
-### Crew Broadcast (defined)
+### Crew Broadcast (tool)
 
 Crew Broadcast is the internal, durable, non-interrupting fan-out initiated
 by a current joined member: the same structured message is persisted to every
 other member configured by the current trusted manifest, in manifest order,
 regardless of presence. Each recipient later receives its own Inbox item
-through the normal Follow-up handoff (TASK-0037 bridge). The tool and
-runtime adapters arrive in TASK-0043; this section defines the domain
-contract only.
+through the normal Follow-up handoff (TASK-0037 bridge). The `broadcast_to_crew`
+tool (TASK-0043) exposes the operation to joined members; the domain contract
+defined in TASK-0042 remains authoritative.
 
 - **Internal and joined only.** The initiator must resolve to a configured
   manifest member; unjoined or external callers are rejected before

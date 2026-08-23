@@ -54,11 +54,12 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 
 ## Recommended agent-facing verbs
 
-| Intent                                           | Recommended tool  | Why                                                                                |
-| ------------------------------------------------ | ----------------- | ---------------------------------------------------------------------------------- |
-| Send normal online crew communication            | `send_follow_up`  | Established Pi term for non-interrupting delivery; does not imply durable storage. |
-| Change target active work now                    | `redirect_member` | Names consequence and urgency, not transport timing.                               |
-| Leave durable message for online or offline peer | `send_to_inbox`   | Durable per-member queue; persists even if recipient offline.                      |
+| Intent                                           | Recommended tool    | Why                                                                                                 |
+| ------------------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------- |
+| Send normal online crew communication            | `send_follow_up`    | Established Pi term for non-interrupting delivery; does not imply durable storage.                  |
+| Change target active work now                    | `redirect_member`   | Names consequence and urgency, not transport timing.                                                |
+| Leave durable message for online or offline peer | `send_to_inbox`     | Durable per-member queue; persists even if recipient offline.                                       |
+| Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
 
 `send_follow_up` is canonical normal delivery. `redirect_member` names the
 consequence (changing active work), not transport timing. Legacy

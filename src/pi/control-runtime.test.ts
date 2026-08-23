@@ -34,7 +34,14 @@ test("membership tool activation preserves unrelated tools and is idempotent", (
 	} as never;
 	activateMembershipTool(pi);
 	activateMembershipTool(pi);
-	assert.deepEqual(active, ["read", "grep", "send_follow_up", "redirect_member", "send_to_inbox"]);
+	assert.deepEqual(active, [
+		"read",
+		"grep",
+		"send_follow_up",
+		"redirect_member",
+		"send_to_inbox",
+		"broadcast_to_crew",
+	]);
 	deactivateMembershipTool(pi);
 	deactivateMembershipTool(pi);
 	assert.deepEqual(active, ["read", "grep"]);

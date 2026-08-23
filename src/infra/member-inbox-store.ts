@@ -124,6 +124,21 @@ export interface InboxItemSummary {
 export interface MemberInboxStore {
 	readonly memberKey: string;
 	enqueue(payload: unknown, now: number): Promise<{ readonly item: InboxItem }>;
+	/**
+	 * Enqueue under a caller-supplied item id (broadcast seam, TASK-0043).
+	 *
+	 * The id is persisted verbatim (after safe-filename validation) so it can
+	 * be a deterministic per-recipient broadcast item id. When an item with
+	 * that id already exists the call is an idempotent no-op returning
+	 * `{ alreadyPersisted: true }` — the retry path after a partial fan-out.
+	 * Throws the same errors as `enqueue` (invalid payload/id, capacity,
+	 * storage); `alreadyPersisted` is never an error.
+	 */
+	enqueueWithId(
+		payload: unknown,
+		now: number,
+		id: string,
+	): Promise<{ readonly item: InboxItem } | { readonly alreadyPersisted: true; readonly itemId: string }>;
 	peekOldest(): Promise<InboxItem | null>;
 	list(limit?: number): Promise<readonly InboxItemSummary[]>;
 	count(): Promise<number>;
@@ -205,17 +220,34 @@ export async function openTrustedMemberInboxStore(options: {
 					enqueuedAt: now,
 					sequence,
 				};
-				const finalPath = path.join(memberDir, `${item.id}.json`);
-				const tempPath = path.join(memberDir, `${TEMP_PREFIX}${item.id}.json`);
-				try {
-					await deps.writeFile(tempPath, JSON.stringify(item));
-					await deps.rename(tempPath, finalPath);
-				} catch (error) {
-					await silentUnlink(tempPath, deps);
-					throw new MemberInboxStoreError("write-failed", `failed to persist inbox item: ${memberDir}`, {
-						cause: error,
-					});
-				}
+				await persistItem(memberDir, item, deps);
+				return { item };
+			});
+		},
+
+		async enqueueWithId(payload, now, id) {
+			if (!isMessagePayload(payload))
+				throw new MemberInboxStoreError("invalid-payload", "inbox payload must be a valid message payload");
+			assertSafeItemId(id);
+			await ensureMemberDir(realInboxRoot, memberDir, deps);
+			return await withLock(memberDir, deps, async () => {
+				const items = await readItems(memberDir, realInboxRoot, socketPath, deps);
+				if (items.some((item) => item.id === id)) return { alreadyPersisted: true as const, itemId: id };
+				if (items.length >= MAX_INBOX_ITEMS)
+					throw new MemberInboxStoreError(
+						"capacity-exceeded",
+						`member inbox is full: ${items.length}/${MAX_INBOX_ITEMS} items`,
+					);
+				const sequence = nextInboxSequence(items);
+				const item: InboxItem = {
+					version: INBOX_VERSION,
+					id,
+					target,
+					payload,
+					enqueuedAt: now,
+					sequence,
+				};
+				await persistItem(memberDir, item, deps);
 				return { item };
 			});
 		},
@@ -380,12 +412,26 @@ async function silentUnlink(filePath: string, deps: Required<MemberInboxStoreDep
 	}
 }
 
-async function removeItem(
+/** Atomic temp-file + rename persistence shared by enqueue paths. */
+async function persistItem(
 	memberDir: string,
-	realInboxRoot: string,
-	id: string,
+	item: InboxItem,
 	deps: Required<MemberInboxStoreDependencies>,
-): Promise<{ readonly removed: boolean }> {
+): Promise<void> {
+	const finalPath = path.join(memberDir, `${item.id}.json`);
+	const tempPath = path.join(memberDir, `${TEMP_PREFIX}${item.id}.json`);
+	try {
+		await deps.writeFile(tempPath, JSON.stringify(item));
+		await deps.rename(tempPath, finalPath);
+	} catch (error) {
+		await silentUnlink(tempPath, deps);
+		throw new MemberInboxStoreError("write-failed", `failed to persist inbox item: ${memberDir}`, {
+			cause: error,
+		});
+	}
+}
+
+function assertSafeItemId(id: string): void {
 	if (
 		typeof id !== "string" ||
 		id.length === 0 ||
@@ -395,6 +441,15 @@ async function removeItem(
 		id.includes("\0")
 	)
 		throw new MemberInboxStoreError("invalid-item-id", "inbox item id must be a safe file name");
+}
+
+async function removeItem(
+	memberDir: string,
+	realInboxRoot: string,
+	id: string,
+	deps: Required<MemberInboxStoreDependencies>,
+): Promise<{ readonly removed: boolean }> {
+	assertSafeItemId(id);
 	await ensureMemberDir(realInboxRoot, memberDir, deps);
 	try {
 		await deps.unlink(path.join(memberDir, `${id}.json`));

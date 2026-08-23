@@ -2,7 +2,12 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import { renderCrewPresence, renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts";
-import { registerSendFollowUpTool, registerRedirectMemberTool, registerSendToInboxTool } from "./tools/index.ts";
+import {
+	registerSendFollowUpTool,
+	registerRedirectMemberTool,
+	registerSendToInboxTool,
+	registerBroadcastToCrewTool,
+} from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
@@ -73,6 +78,7 @@ export default function (pi: ExtensionAPI) {
 	registerSendFollowUpTool(pi, state, memberMessageDependencies);
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);
 	registerSendToInboxTool(pi, state);
+	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};
