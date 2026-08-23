@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCliArguments, UsageError } from "./arguments.ts";
+import path from "node:path";
+import { parseCliArguments, parseCliCommand, UsageError } from "./arguments.ts";
 
 const cwd = "/project";
 
@@ -174,4 +175,56 @@ test("rejects live-delivery flags with --crew and keeps --socket surface intact"
 	assert.equal(direct.socketPath, "/tmp/a.sock");
 	assert.equal(direct.crewPath, undefined);
 	assert.equal(direct.wait, "accepted");
+});
+
+test("crew init parses optional --project and --format with defaults", () => {
+	const parsed = parseCliCommand(["crew", "init"], cwd);
+	assert.deepEqual(parsed, { command: "crew-init", format: "toon" });
+	const withProject = parseCliCommand(["crew", "init", "--project", ".", "--format", "json"], cwd);
+	assert.deepEqual(withProject, { command: "crew-init", project: path.resolve(cwd, "."), format: "json" });
+});
+
+test("crew init rejects unknown, duplicate, missing-value, and incompatible flags", () => {
+	for (const [args, pattern] of [
+		[["crew", "init", "--bogus"], /Unknown flag '--bogus'/],
+		[["crew", "init", "--project"], /Missing value for --project/],
+		[["crew", "init", "--format", "yaml"], /Invalid --format 'yaml'/],
+		[["crew", "init", "--project", "a", "--project", "b"], /Duplicate flag: --project/],
+		[["crew", "init", "--project", "a", "--format", "json", "--format", "toon"], /Duplicate flag: --format/],
+	] as const) {
+		assert.throws(
+			() => parseCliCommand(args, cwd),
+			(error: unknown) => {
+				assert.ok(error instanceof UsageError);
+				assert.match(error.message, pattern);
+				return true;
+			},
+			args.join(" "),
+		);
+	}
+});
+
+test("crew init --help is accepted as a command-local help flag", () => {
+	const parsed = parseCliCommand(["crew", "init", "--help"], cwd);
+	assert.deepEqual(parsed, { command: "crew-init", format: "toon", help: true });
+});
+
+test("crew without init, unknown commands, and no command are usage errors with valid alternatives", () => {
+	for (const args of [["crew"], ["crew", "members"], ["sendx"], ["bogus"]]) {
+		assert.throws(
+			() => parseCliCommand(args, cwd),
+			(error: unknown) => {
+				assert.ok(error instanceof UsageError);
+				assert.match(error.message, /valid.*send|valid.*crew init/i);
+				return true;
+			},
+			args.join(" "),
+		);
+	}
+});
+
+test("crew init does not mutate send parser behavior", () => {
+	const send = parseCliArguments(["send", "--socket", "/tmp/x", "--message", "hello"], cwd);
+	assert.equal(send.command, "send");
+	assert.equal(send.message, "hello");
 });

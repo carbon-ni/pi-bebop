@@ -147,3 +147,68 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 		full,
 	};
 }
+
+export type CrewInitCliOptions = {
+	readonly command: "crew-init";
+	readonly project?: string;
+	readonly format: CliFormat;
+	readonly help?: boolean;
+};
+
+export type HomeCliOptions = {
+	readonly command: "home";
+};
+
+export type CliCommand = SendCliOptions | CrewInitCliOptions | HomeCliOptions;
+
+/**
+ * Top-level command dispatch. Exactly two commands are supported: `send`
+ * (existing behavior, byte-compatible) and `crew init` (deterministic scaffold,
+ * TASK-0054). Unknown commands report valid alternatives and exit 2 before any
+ * filesystem/network dependency is called.
+ */
+export function parseCliCommand(args: string[], cwd = process.cwd()): CliCommand {
+	if (args.length === 0) return { command: "home" };
+	const command = args[0];
+	if (command === "send") return parseCliArguments(args, cwd);
+	if (command !== "crew") throw new UsageError(`Invalid command '${command ?? ""}'; valid commands: send, crew init`);
+	if (args[1] !== "init") throw new UsageError(`Invalid command 'crew ${args[1] ?? ""}'; valid command: crew init`);
+	const values = new Map<string, string>();
+	let help = false;
+	const valueFlags = new Set(["--project", "--format"]);
+	for (let index = 2; index < args.length; index += 1) {
+		const rawFlag = args[index]!;
+		const equals = rawFlag.indexOf("=");
+		const flag = equals > 0 ? rawFlag.slice(0, equals) : rawFlag;
+		const inlineValue = equals > 0 ? rawFlag.slice(equals + 1) : undefined;
+		if (flag === "--help") {
+			if (help) throw new UsageError("Duplicate flag: --help");
+			help = true;
+			continue;
+		}
+		if (!valueFlags.has(flag))
+			throw new UsageError(
+				`Unknown flag '${flag}'; valid flags: --project <directory>, --format toon|json|text, --help`,
+			);
+		if (values.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
+		let value = inlineValue ?? args[++index];
+		let escaped = false;
+		if (value === "--") {
+			value = args[++index];
+			escaped = true;
+		}
+		if (value === undefined || (inlineValue === undefined && !escaped && value.startsWith("--")))
+			throw new UsageError(`Missing value for ${flag}`);
+		values.set(flag, value);
+	}
+	const format = values.get("--format") ?? "toon";
+	if (format !== "toon" && format !== "json" && format !== "text")
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
+	const project = values.get("--project");
+	return {
+		command: "crew-init",
+		...(project === undefined ? {} : { project: path.resolve(cwd, project) }),
+		format,
+		...(help ? { help: true } : {}),
+	};
+}
