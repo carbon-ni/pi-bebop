@@ -2,7 +2,6 @@
 
 <img  width="250" alt="screenshot-2026-08-22_15-39-54" src="https://github.com/user-attachments/assets/9430855c-9060-4f1f-b7a8-e8d3b03ce232"  align="left"  />
 
-
 Give a small dysfunctional but effective crew to your Pi agents.
 
 </br>
@@ -16,6 +15,7 @@ Give a small dysfunctional but effective crew to your Pi agents.
 Create the crew manifest in a trusted project. `.pi/bebop` is the canonical layout; `.pi/crew` is supported as an exact compatibility layout for existing projects:
 
 ### Setup
+
 ```bash
 mkdir -p .pi/bebop/sockets
 cat > .pi/bebop/crew.json <<'JSON'
@@ -80,7 +80,7 @@ output is displayed without starting an agent turn. Use `/crew status`,
 A member may use either inline instructions or a Markdown file, but never both:
 
 ```json
-{"name":"Bob","role":"dev","socket":"sockets/Bob.sock","instructionsFile":"instructions/dev.md"}
+{ "name": "Bob", "role": "dev", "socket": "sockets/Bob.sock", "instructionsFile": "instructions/dev.md" }
 ```
 
 File paths are relative to the manifest and must remain under that layout's
@@ -137,9 +137,52 @@ Use `send_immediate` only when the message should redirect active work. Both
 return an accepted delivery acknowledgement with `deliveryId` and disposition
 (`direct`, `queued`, or `steered`). `wait_for: response` is explicitly
 unsupported because Pi lifecycle events cannot prove delivery-level response
-correlation; it never consumes an unrelated global `turn_end`. Members can be
-addressed by unique name or role. A live endpoint owned by another session is
+correlation; it never consumes an unrelated global `turn_end`. Members can be addressed by unique name or role. A live endpoint owned by another session is
 never overwritten; stale endpoints may be reclaimed.
+
+### Durable member inbox
+
+Members may be offline, but work can still be left durably. `send_to_inbox`
+persists one structured message into the target member's project-local inbox;
+the recipient reads it later as a normal follow-up, even after a restart:
+
+```text
+send_to_inbox({
+  "member": "developer",
+  "message": "Review the proposed API change when you are next available."
+})
+```
+
+Success returns a stable item id and means **persisted** — never delivered,
+started, completed, or answered. `send_to_inbox` works whether the peer is
+online or offline and never requires the peer's endpoint or a live turn.
+
+A joined member's inbox is handed to Pi automatically: the oldest pending item
+is offered as a normal follow-up on membership start/restore, on a best-effort
+hint, and when a turn ends. Handoff is FIFO and never steers active work;
+follow-ups already accepted by Pi stay ahead. An item is removed only after
+durable session evidence contains its stable id, so a crash between handoff and
+removal is reconciled on restart.
+
+Inspect and control the local inbox with `/crew inbox`:
+
+```text
+/crew inbox status          # bounded pending metadata
+/crew inbox cancel <id>     # remove one pending item (idempotent)
+/crew inbox pause           # stop automatic offering (items are kept)
+/crew inbox resume          # resume automatic offering
+```
+
+`status` shows pending count, offering state, and stable ids/metadata — never
+message contents. `pause` stops automatic offering without deleting pending
+items; `resume` restores it. `cancel` removes only a pending item and is
+idempotent.
+
+**Bebop is a transport, not a workflow.** The inbox stores and hands over
+messages; it does not track whether a software task was completed, and it has
+no Git, review, CI, or worktree integration. It never claims exactly-once
+execution. For live communication use `send_follow_up`; to change what a
+member is doing right now use `send_immediate`.
 
 ## Development
 

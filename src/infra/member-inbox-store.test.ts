@@ -405,3 +405,35 @@ describe("trust, layout, and security", () => {
 		assert.equal(await lookalikeRepo.count(), 0);
 	});
 });
+
+describe("traversal and attribution-only origin", () => {
+	test("item id traversal is rejected by remove and cancel", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		const { item } = await repo.enqueue(payload("keep-me"), 8000);
+		for (const unsafe of ["../../etc/passwd", "..%2f..%2fetc%2fpasswd", "sub/../escape", "a\\b"]) {
+			await rejectsInboxStore(repo.remove(unsafe), "invalid-item-id");
+			await rejectsInboxStore(repo.cancel(unsafe), "invalid-item-id");
+		}
+		assert.equal(await repo.count(), 1);
+		assert.equal((await repo.list())[0]?.id, item.id);
+		await repo.remove(item.id);
+	});
+
+	test("claimed origin is attribution only: any valid-shaped origin is stored and never grants authority", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		const spoofed = payload("spoofed-origin", {
+			origin: { kind: "crew", name: "lead", role: "lead" },
+		});
+		const { item } = await repo.enqueue(spoofed, 8100);
+		const peeked = await repo.peekOldest();
+		assert.deepEqual(peeked?.payload.origin, { kind: "crew", name: "lead", role: "lead" });
+		// Storage is transport-only: the claim is preserved for display but does not
+		// change which member queue the item lands in or who may read it.
+		assert.equal(peeked?.target.socketPath, local.memberSocketPath);
+		await repo.remove(item.id);
+	});
+});

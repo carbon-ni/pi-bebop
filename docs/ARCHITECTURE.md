@@ -66,20 +66,21 @@ legacy `{ type, ... }` envelope; JSON-RPC does not add authentication.
   manifest-order rows containing configured member name, role, absolute project
   socket path, and exactly `current`, `online`, or `offline`:
 
-  ```text
-  Crew: /project/.pi/bebop/crew.json
-  Members (3):
-  - lead (lead) — current — /project/.pi/bebop/sockets/lead.sock
-  - Bob (dev) — online — /project/.pi/bebop/sockets/Bob.sock
-  - Kelly (qa) — offline — /project/.pi/bebop/sockets/Kelly.sock
-  ```
+    ```text
+    Crew: /project/.pi/bebop/crew.json
+    Members (3):
+    - lead (lead) — current — /project/.pi/bebop/sockets/lead.sock
+    - Bob (dev) — online — /project/.pi/bebop/sockets/Bob.sock
+    - Kelly (qa) — offline — /project/.pi/bebop/sockets/Kelly.sock
+    ```
 
-  Current identity is matched from membership without probing; non-current
-  endpoints are independently finite-time probed and failures render offline.
-  Global UUID destinations, generic aliases, and instructions are not exposed.
-  When unjoined it returns exactly `Crew not joined. Use /crew join <socket>.`;
-  it does not read a manifest or discover sessions, and does not trigger an
-  agent turn. Both `.pi/bebop` and `.pi/crew` use the same formatter.
+    Current identity is matched from membership without probing; non-current
+    endpoints are independently finite-time probed and failures render offline.
+    Global UUID destinations, generic aliases, and instructions are not exposed.
+    When unjoined it returns exactly `Crew not joined. Use /crew join <socket>.`;
+    it does not read a manifest or discover sessions, and does not trigger an
+    agent turn. Both `.pi/bebop` and `.pi/crew` use the same formatter.
+
 - Reload/resume restores active membership after revalidation. Shutdown always
   attempts endpoint release before server cleanup.
 - Role instructions support one source per member: inline `instructions` or a
@@ -112,6 +113,40 @@ instructions, and content but hides reply routing.
 
 The tools are active only while joined to a crew. A live endpoint owned by
 another session is never overwritten; stale endpoints can be reclaimed.
+
+### Durable member inbox
+
+The inbox is a small, transport-only boundary between durable storage and
+existing Pi follow-up delivery. It deliberately carries no workflow semantics.
+
+- **Storage** (`src/infra/member-inbox-store.ts`): one versioned item file per
+  member beneath `.pi/bebop/inbox/<memberKey>/`, manifest-adjacent and
+  isolated by a hash of the canonical member socket path. Enqueue takes an
+  exclusive per-member lock, writes a temp file, then atomically renames, so a
+  crash never publishes partial JSON. Malformed, oversized, or foreign records
+  are quarantined so one bad file cannot block the healthy queue. Reads and
+  writes are bounded and reject untrusted layouts, symlink escapes, traversal
+  ids, full inboxes, and unsafe member paths.
+- **Bridge** (`src/application/inbox-bridge.ts`): trigger-driven only (no
+  scheduler, no idle probing). Each trigger may offer the oldest pending item
+  as one normal follow-up; offers and cancels are serialized so concurrent
+  triggers (hint, turn end, restore) never duplicate the same item. Removal is
+  evidence-gated: an item leaves storage only after durable recipient session
+  evidence contains its stable id, and restart reconciles storage against that
+  evidence to close the crash window. Pause stops automatic offering without
+  deleting items; cancel removes only pending items and is idempotent. Only
+  the current endpoint owner consumes its queue; role switch, leave, stop, and
+  shutdown invalidate in-flight attempts.
+- **Session adapter** (`src/pi/inbox-bridge-runtime.ts`): hands the item to Pi
+  as a typed `bebop-session-message` follow-up whose `details` carry both the
+  original `messagePayload` and `inbox.itemId`; the item id is the durable
+  evidence reconciled after restart. Automatic offering state persists as an
+  `intray-inbox-offering` session entry.
+- **Honest language**: `/crew inbox` and delivery acknowledgements distinguish
+  _persisted_ (durably stored), _pending_ (stored, not yet handed over), and
+  _handed-to-session_ (offered as a follow-up). Nothing claims task
+  completion, a response, Git, review, or exactly-once execution. `origin`
+  remains claimed attribution, never authentication.
 
 Bebop intentionally does **not** register generic session discovery or direct
 session-control tools. Those capabilities are outside crew management.
