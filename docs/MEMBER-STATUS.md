@@ -11,8 +11,9 @@ it is stable manifest-authored profile text, while Focus is dynamic
 member-authored activity. Description is not returned implicitly by Member
 Status.
 
-> TASK-0046 defines domain contract. Query/focus tools and RPC integration are
-> planned in TASK-0047 and are not implemented by this task.
+> TASK-0046 defines the domain contract; TASK-0047 implements the `member.status`
+> JSON-RPC method, the `get_member_status` and `update_member_focus` tools, and
+> the integration/restore lifecycle described below.
 
 ## Signals
 
@@ -147,9 +148,9 @@ Restore walks active session branch backward and uses latest valid entry for
 exact current member identity. Invalid, unrelated, or other-member entries are
 ignored.
 
-## Planned interaction
+## Interaction
 
-TASK-0047 proposes:
+Implemented tools:
 
 ```text
 get_member_status({ member: "Bob" })
@@ -158,9 +159,17 @@ update_member_focus({ action: "clear" })
 ```
 
 Only joined members may query another configured member. Query is one-shot,
-finite-time, and never starts, steers, or interrupts target turn. `/crew
-members` remains reachability roster; detailed status stays on demand.
+finite-time (bounded probe plus 5s RPC timeout), and never starts, steers, or
+interrupts the target turn; it never emits presence activity. Transport failure
+for a configured endpoint is a compact offline result; malformed online peer
+output is a protocol error. `/crew members` remains the reachability roster;
+detailed status stays on demand.
 
-Use `send_follow_up` without querying when timing does not matter—it is safe
+Focus mutates only the current member's local session state (typed
+`bebop-member-focus` custom entry) and performs no RPC. Leave/switch clears
+active focus in memory; restoring the same active membership rehydrates the
+latest matching focus/clear entry for the canonical member identity.
+
+Use `send_follow_up` without querying when timing does not matter—it is the safe
 default behind active work. Status exists for coordination decisions, not
 monitoring.

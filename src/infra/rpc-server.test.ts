@@ -321,3 +321,33 @@ test("writeResponse serializes an interrupt acknowledgement", () => {
 		result: { interruptId: "int-1", disposition: "interrupt-requested" },
 	});
 });
+
+test("writeResponse serializes a member.status result under the member.status method", () => {
+	const writes: string[] = [];
+	const socket = {
+		write: (value: string) => {
+			writes.push(value);
+		},
+		once: () => socket,
+	} as never;
+	const status = {
+		member: { name: "Bob", role: "dev" },
+		presence: "online",
+		activity: "idle",
+		hasPendingMessages: false,
+		focus: { state: "unspecified" },
+		observedAt: "2026-08-23T12:03:00.000Z",
+	};
+	writeResponse(socket as never, {
+		type: "response",
+		command: "member_status",
+		success: true,
+		data: { status },
+		id: "ms-1",
+	});
+	assert.deepEqual(JSON.parse(writes[0]!), {
+		jsonrpc: "2.0",
+		id: "ms-1",
+		result: { status },
+	});
+});

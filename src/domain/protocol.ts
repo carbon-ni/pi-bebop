@@ -9,6 +9,7 @@ import {
 	MessageInstructionsSchema,
 	MAX_MESSAGE_CONTENT_BYTES,
 } from "./message-payload.ts";
+import { MemberStatusSchema } from "./member-status.ts";
 
 export const JSON_RPC_VERSION = "2.0" as const;
 export const RpcIdSchema = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
@@ -103,12 +104,38 @@ export const AbortRequestSchema = Type.Object(
 	{ additionalProperties: false },
 );
 export const PresenceHintResultSchema = Type.Object({ accepted: Type.Boolean() }, { additionalProperties: false });
+export const MAX_MEMBER_STATUS_TARGET_BYTES = 256;
+const MemberStatusTargetSchema = Type.String({ minLength: 1, maxLength: MAX_MEMBER_STATUS_TARGET_BYTES });
+/** Read-only status query: exactly one bounded member label, no caller-selected fields. */
+export const MemberStatusParamsSchema = Type.Object(
+	{ member: MemberStatusTargetSchema },
+	{ additionalProperties: false },
+);
+/** Result is the closed Member Status contract (TASK-0046); no message-content data. */
+export const MemberStatusResultSchema = Type.Object({ status: MemberStatusSchema }, { additionalProperties: false });
 export const PresenceHintRequestSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSON_RPC_VERSION),
 		id: RpcIdSchema,
 		method: Type.Literal("presence.hint"),
 		params: PresenceHintParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberStatusRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.status"),
+		params: MemberStatusParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberStatusCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_status"),
+		member: MemberStatusTargetSchema,
+		id: Type.Optional(RpcIdSchema),
 	},
 	{ additionalProperties: false },
 );
@@ -121,6 +148,7 @@ export const KnownRequestSchema = Type.Union([
 	ClearRequestSchema,
 	AbortRequestSchema,
 	PresenceHintRequestSchema,
+	MemberStatusRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
 	{
@@ -178,6 +206,7 @@ export const RpcMethodResultSchema = Type.Union([
 	ClearResultSchema,
 	SubscribeResultSchema,
 	PresenceHintResultSchema,
+	MemberStatusResultSchema,
 	EmptyResultSchema,
 ]);
 export const RpcResponseSchema = Type.Union([
@@ -218,6 +247,9 @@ export type GetMessageRequest = Static<typeof GetMessageRequestSchema>;
 export type ClearRequest = Static<typeof ClearRequestSchema>;
 export type AbortRequest = Static<typeof AbortRequestSchema>;
 export type PresenceHintParams = Static<typeof PresenceHintParamsSchema>;
+export type MemberStatusParams = Static<typeof MemberStatusParamsSchema>;
+export type MemberStatusCommand = Static<typeof MemberStatusCommandSchema>;
+export type MemberStatusResult = Static<typeof MemberStatusResultSchema>;
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
 export type PresenceHintResult = Static<typeof PresenceHintResultSchema>;
 export type MessageSendParams = Static<typeof MessageSendParamsSchema>;
@@ -247,7 +279,8 @@ export type RpcCommand =
 	| Static<typeof GetMessageCommandSchema>
 	| Static<typeof ClearCommandSchema>
 	| Static<typeof AbortCommandSchema>
-	| Static<typeof PresenceHintCommandSchema>;
+	| Static<typeof PresenceHintCommandSchema>
+	| Static<typeof MemberStatusCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
 	| RequiredId<Static<typeof MessageSendCommandSchema>>
@@ -257,7 +290,8 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof GetMessageCommandSchema>>
 	| RequiredId<Static<typeof ClearCommandSchema>>
 	| RequiredId<Static<typeof AbortCommandSchema>>
-	| RequiredId<Static<typeof PresenceHintCommandSchema>>;
+	| RequiredId<Static<typeof PresenceHintCommandSchema>>
+	| RequiredId<Static<typeof MemberStatusCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
 export type SubscribeCommand = Static<typeof SubscribeCommandSchema>;
@@ -380,17 +414,19 @@ export function methodResultSchema(method: string) {
 			? SendResultSchema
 			: method === "message.interrupt"
 				? InterruptResultSchema
-				: method === "session.get_message"
-					? GetMessageResultSchema
-					: method === "session.clear"
-						? ClearResultSchema
-						: method === "session.abort"
-							? EmptyResultSchema
-							: method === "event.subscribe"
-								? SubscribeResultSchema
-								: method === "presence.hint"
-									? PresenceHintResultSchema
-									: undefined;
+				: method === "member.status"
+					? MemberStatusResultSchema
+					: method === "session.get_message"
+						? GetMessageResultSchema
+						: method === "session.clear"
+							? ClearResultSchema
+							: method === "session.abort"
+								? EmptyResultSchema
+								: method === "event.subscribe"
+									? SubscribeResultSchema
+									: method === "presence.hint"
+										? PresenceHintResultSchema
+										: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -401,6 +437,9 @@ export function isSendResult(value: unknown): value is SendResult {
 }
 export function isInterruptResult(value: unknown): value is InterruptResult {
 	return Value.Check(InterruptResultSchema, value);
+}
+export function isMemberStatusResult(value: unknown): value is MemberStatusResult {
+	return Value.Check(MemberStatusResultSchema, value);
 }
 export function isSubscribeResult(value: unknown): value is Static<typeof SubscribeResultSchema> {
 	return Value.Check(SubscribeResultSchema, value);
@@ -462,6 +501,8 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 		};
 	if (command.type === "interrupt")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "message.interrupt", params: { payload: command.payload } };
+	if (command.type === "member_status")
+		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status", params: { member: command.member } };
 	if (command.type === "subscribe")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "event.subscribe", params: { event: command.event } };
 	if (command.type === "status") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.status" };
@@ -504,6 +545,10 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 		const payload = (params as InterruptParams).payload;
 		if (!isMessagePayload(payload)) return invalid("Invalid message.interrupt payload");
 		return { type: "interrupt", payload, id: request.id };
+	}
+	if (request.method === "member.status") {
+		if (!Value.Check(MemberStatusParamsSchema, params)) return invalid("Invalid member.status params");
+		return { type: "member_status", member: (params as MemberStatusParams).member, id: request.id };
 	}
 	if (request.method === "presence.hint") {
 		if (!isPresenceHintParams(params)) return invalid("Invalid presence.hint params");
