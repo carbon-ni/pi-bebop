@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { sendRpcCommand, RpcProtocolError } from "./rpc-client.ts";
+import { sendRpcCommand, sendMemberIdleWait, RpcProtocolError } from "./rpc-client.ts";
 
 async function withSocketServer(
 	handle: (socket: net.Socket) => void,
@@ -411,6 +411,177 @@ test("rejects malformed presence hint acknowledgements", async () => {
 					}),
 				/invalid|response/i,
 			);
+		},
+	);
+});
+
+test("sendMemberIdleWait resolves the terminal event for a busy target that settles", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "member.idle_wait") return;
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					result: { subscriptionId: String(request.id), event: "member_idle" },
+				});
+				setTimeout(
+					() =>
+						send(socket, {
+							jsonrpc: "2.0",
+							method: "member.idle_wait",
+							params: {
+								subscriptionId: String(request.id),
+								result: {
+									member: { name: "Kelly", role: "qa" },
+									outcome: "idle",
+									disposition: "became-idle",
+									observedAt: "2026-08-23T12:03:00.000Z",
+								},
+							},
+						}),
+					1,
+				);
+			}),
+		async (socketPath) => {
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Kelly" },
+				{ timeoutSeconds: 10 },
+			);
+			assert.equal(outcome.ok, true);
+			if (outcome.ok) {
+				assert.equal(outcome.result.outcome, "idle");
+				assert.equal(outcome.result.disposition, "became-idle");
+			}
+		},
+	);
+});
+
+test("sendMemberIdleWait returns offline when the socket closes before any terminal event", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "member.idle_wait") return;
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					result: { subscriptionId: String(request.id), event: "member_idle" },
+				});
+				socket.destroy();
+			}),
+		async (socketPath) => {
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Kelly" },
+				{ timeoutSeconds: 10 },
+			);
+			assert.deepEqual(outcome, { ok: false, code: "offline" });
+		},
+	);
+});
+
+test("sendMemberIdleWait returns timeout when the deadline expires before a terminal event", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "member.idle_wait") return;
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					result: { subscriptionId: String(request.id), event: "member_idle" },
+				});
+				// Never send the terminal event.
+			}),
+		async (socketPath) => {
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Kelly" },
+				{ timeoutSeconds: 1 },
+			);
+			assert.deepEqual(outcome, { ok: false, code: "timeout" });
+		},
+	);
+});
+
+test("sendMemberIdleWait returns aborted when the caller signal fires", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "member.idle_wait") return;
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					result: { subscriptionId: String(request.id), event: "member_idle" },
+				});
+			}),
+		async (socketPath) => {
+			const controller = new AbortController();
+			const pending = sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Kelly" },
+				{ timeoutSeconds: 60, signal: controller.signal },
+			);
+			setTimeout(() => controller.abort(), 10);
+			const outcome = await pending;
+			assert.deepEqual(outcome, { ok: false, code: "aborted" });
+		},
+	);
+});
+
+test("sendMemberIdleWait maps remote rejection and malformed terminal results", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "member.idle_wait") return;
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					error: { code: -32603, message: "capacity-exceeded" },
+				});
+			}),
+		async (socketPath) => {
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Kelly" },
+				{ timeoutSeconds: 10 },
+			);
+			assert.deepEqual(outcome, { ok: false, code: "capacity-exceeded" });
+		},
+	);
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "member.idle_wait") return;
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					result: { subscriptionId: String(request.id), event: "member_idle" },
+				});
+				setTimeout(
+					() =>
+						send(socket, {
+							jsonrpc: "2.0",
+							method: "member.idle_wait",
+							params: {
+								subscriptionId: String(request.id),
+								result: {
+									member: { name: "Kelly", role: "qa" },
+									outcome: "bogus",
+									observedAt: "2026-08-23T12:03:00.000Z",
+								},
+							},
+						}),
+					1,
+				);
+			}),
+		async (socketPath) => {
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Kelly" },
+				{ timeoutSeconds: 10 },
+			);
+			assert.deepEqual(outcome, { ok: false, code: "malformed-response" });
 		},
 	);
 });

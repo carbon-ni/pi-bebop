@@ -3,6 +3,7 @@ import {
 	buildErrorResponse,
 	buildResultResponse,
 	buildTurnEndNotification,
+	isMemberIdleWaitNotification,
 	parseRequest,
 	requestToCommand,
 	RPC_ERROR,
@@ -52,6 +53,8 @@ function methodForCommand(command: string): string | undefined {
 			return "message.interrupt";
 		case "member_status":
 			return "member.status";
+		case "member_idle_wait":
+			return "member.idle_wait";
 		case "get_message":
 			return "session.get_message";
 		case "clear":
@@ -90,6 +93,15 @@ export function writeEvent(socket: RpcSocket, event: RpcTurnEndNotification): vo
 	} catch {
 		/* Socket may be closed. */
 	}
+}
+export function writeMemberIdleWaitEvent(socket: RpcSocket, event: { subscriptionId: string; result: unknown }): void {
+	const notification = {
+		jsonrpc: "2.0" as const,
+		method: "member.idle_wait" as const,
+		params: { subscriptionId: event.subscriptionId, result: event.result },
+	};
+	if (!isMemberIdleWaitNotification(notification)) throw new Error("Invalid member idle wait event");
+	write(socket, notification);
 }
 
 export async function createRpcServer(socketPath: string, onCommand: RpcCommandHandler): Promise<RpcServer> {

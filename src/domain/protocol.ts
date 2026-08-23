@@ -10,6 +10,7 @@ import {
 	MAX_MESSAGE_CONTENT_BYTES,
 } from "./message-payload.ts";
 import { MemberStatusSchema } from "./member-status.ts";
+import { MemberIdleWaitResultSchema } from "./member-idle-wait.ts";
 
 export const JSON_RPC_VERSION = "2.0" as const;
 export const RpcIdSchema = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
@@ -139,6 +140,51 @@ export const MemberStatusCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+export const MAX_MEMBER_IDLE_WAIT_TIMEOUT = 600;
+const MemberIdleWaitTimeoutSchema = Type.Integer({ minimum: 1, maximum: MAX_MEMBER_IDLE_WAIT_TIMEOUT });
+/** One-shot idle wait: one bounded member label and an optional bounded timeout. */
+export const MemberIdleWaitParamsSchema = Type.Object(
+	{
+		member: MemberStatusTargetSchema,
+		timeoutSeconds: Type.Optional(MemberIdleWaitTimeoutSchema),
+	},
+	{ additionalProperties: false },
+);
+/** Terminal outcome is the closed Member Idle Wait contract (TASK-0050); no message-content data. */
+export const MemberIdleWaitSubscribeResultSchema = Type.Object(
+	{ subscriptionId: Type.String({ minLength: 1 }), event: Type.Literal("member_idle") },
+	{ additionalProperties: false },
+);
+export const MemberIdleWaitRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.idle_wait"),
+		params: MemberIdleWaitParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberIdleWaitCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_idle_wait"),
+		member: MemberStatusTargetSchema,
+		timeoutSeconds: Type.Optional(MemberIdleWaitTimeoutSchema),
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+/** Server -> client one-shot terminal event for a member idle wait subscription. */
+export const MemberIdleWaitNotificationSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		method: Type.Literal("member.idle_wait"),
+		params: Type.Object(
+			{ subscriptionId: Type.String({ minLength: 1 }), result: MemberIdleWaitResultSchema },
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
 export const KnownRequestSchema = Type.Union([
 	MessageSendRequestSchema,
 	InterruptRequestSchema,
@@ -149,6 +195,7 @@ export const KnownRequestSchema = Type.Union([
 	AbortRequestSchema,
 	PresenceHintRequestSchema,
 	MemberStatusRequestSchema,
+	MemberIdleWaitRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
 	{
@@ -207,6 +254,7 @@ export const RpcMethodResultSchema = Type.Union([
 	SubscribeResultSchema,
 	PresenceHintResultSchema,
 	MemberStatusResultSchema,
+	MemberIdleWaitSubscribeResultSchema,
 	EmptyResultSchema,
 ]);
 export const RpcResponseSchema = Type.Union([
@@ -248,6 +296,7 @@ export type ClearRequest = Static<typeof ClearRequestSchema>;
 export type AbortRequest = Static<typeof AbortRequestSchema>;
 export type PresenceHintParams = Static<typeof PresenceHintParamsSchema>;
 export type MemberStatusParams = Static<typeof MemberStatusParamsSchema>;
+export type MemberIdleWaitParams = Static<typeof MemberIdleWaitParamsSchema>;
 export type MemberStatusCommand = Static<typeof MemberStatusCommandSchema>;
 export type MemberStatusResult = Static<typeof MemberStatusResultSchema>;
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
@@ -270,7 +319,9 @@ export type AbortResult = Static<typeof EmptyResultSchema>;
 export type RpcError = Static<typeof RpcErrorSchema>;
 export type RpcWireResponse = Static<typeof RpcResponseSchema>;
 export type RpcMethodResult = Static<typeof RpcMethodResultSchema>;
-export type RpcNotification = Static<typeof TurnEndNotificationSchema>;
+export type RpcNotification =
+	| Static<typeof TurnEndNotificationSchema>
+	| Static<typeof MemberIdleWaitNotificationSchema>;
 export type RpcCommand =
 	| Static<typeof MessageSendCommandSchema>
 	| Static<typeof InterruptCommandSchema>
@@ -280,7 +331,8 @@ export type RpcCommand =
 	| Static<typeof ClearCommandSchema>
 	| Static<typeof AbortCommandSchema>
 	| Static<typeof PresenceHintCommandSchema>
-	| Static<typeof MemberStatusCommandSchema>;
+	| Static<typeof MemberStatusCommandSchema>
+	| Static<typeof MemberIdleWaitCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
 	| RequiredId<Static<typeof MessageSendCommandSchema>>
@@ -291,7 +343,8 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof ClearCommandSchema>>
 	| RequiredId<Static<typeof AbortCommandSchema>>
 	| RequiredId<Static<typeof PresenceHintCommandSchema>>
-	| RequiredId<Static<typeof MemberStatusCommandSchema>>;
+	| RequiredId<Static<typeof MemberStatusCommandSchema>>
+	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
 export type SubscribeCommand = Static<typeof SubscribeCommandSchema>;
@@ -300,6 +353,8 @@ export type GetMessageCommand = Static<typeof GetMessageCommandSchema>;
 export type ClearCommand = Static<typeof ClearCommandSchema>;
 export type AbortCommand = Static<typeof AbortCommandSchema>;
 export type PresenceHintCommand = Static<typeof PresenceHintCommandSchema>;
+export type MemberIdleWaitCommand = Static<typeof MemberIdleWaitCommandSchema>;
+export type MemberIdleWaitSubscribeResult = Static<typeof MemberIdleWaitSubscribeResultSchema>;
 export type RpcSendCommand = MessageSendCommand;
 export type RpcSubscribeCommand = SubscribeCommand;
 
@@ -404,7 +459,7 @@ export function isRpcRequest(value: unknown): value is RpcRequest {
 export function isRpcResponse(value: unknown): value is RpcWireResponse {
 	return Value.Check(RpcResponseSchema, value);
 }
-export function isTurnEndNotification(value: unknown): value is RpcNotification {
+export function isTurnEndNotification(value: unknown): value is Static<typeof TurnEndNotificationSchema> {
 	return Value.Check(TurnEndNotificationSchema, value);
 }
 export function methodResultSchema(method: string) {
@@ -416,17 +471,19 @@ export function methodResultSchema(method: string) {
 				? InterruptResultSchema
 				: method === "member.status"
 					? MemberStatusResultSchema
-					: method === "session.get_message"
-						? GetMessageResultSchema
-						: method === "session.clear"
-							? ClearResultSchema
-							: method === "session.abort"
-								? EmptyResultSchema
-								: method === "event.subscribe"
-									? SubscribeResultSchema
-									: method === "presence.hint"
-										? PresenceHintResultSchema
-										: undefined;
+					: method === "member.idle_wait"
+						? MemberIdleWaitSubscribeResultSchema
+						: method === "session.get_message"
+							? GetMessageResultSchema
+							: method === "session.clear"
+								? ClearResultSchema
+								: method === "session.abort"
+									? EmptyResultSchema
+									: method === "event.subscribe"
+										? SubscribeResultSchema
+										: method === "presence.hint"
+											? PresenceHintResultSchema
+											: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -440,6 +497,14 @@ export function isInterruptResult(value: unknown): value is InterruptResult {
 }
 export function isMemberStatusResult(value: unknown): value is MemberStatusResult {
 	return Value.Check(MemberStatusResultSchema, value);
+}
+export function isMemberIdleWaitSubscribeResult(
+	value: unknown,
+): value is Static<typeof MemberIdleWaitSubscribeResultSchema> {
+	return Value.Check(MemberIdleWaitSubscribeResultSchema, value);
+}
+export function isMemberIdleWaitNotification(value: unknown): value is Static<typeof MemberIdleWaitNotificationSchema> {
+	return Value.Check(MemberIdleWaitNotificationSchema, value);
 }
 export function isSubscribeResult(value: unknown): value is Static<typeof SubscribeResultSchema> {
 	return Value.Check(SubscribeResultSchema, value);
@@ -484,7 +549,11 @@ export function serializeRequest(request: RpcRequest): string {
 	return `${JSON.stringify(request)}\n`;
 }
 export function serializeProtocolMessage(value: RpcWireResponse | RpcNotification): string {
-	if (!Value.Check(RpcResponseSchema, value) && !Value.Check(TurnEndNotificationSchema, value))
+	if (
+		!Value.Check(RpcResponseSchema, value) &&
+		!Value.Check(TurnEndNotificationSchema, value) &&
+		!Value.Check(MemberIdleWaitNotificationSchema, value)
+	)
 		throw new Error("Invalid JSON-RPC message");
 	return `${JSON.stringify(value)}\n`;
 }
@@ -503,6 +572,16 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "message.interrupt", params: { payload: command.payload } };
 	if (command.type === "member_status")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status", params: { member: command.member } };
+	if (command.type === "member_idle_wait")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "member.idle_wait",
+			params: {
+				member: command.member,
+				...(command.timeoutSeconds === undefined ? {} : { timeoutSeconds: command.timeoutSeconds }),
+			},
+		};
 	if (command.type === "subscribe")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "event.subscribe", params: { event: command.event } };
 	if (command.type === "status") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.status" };
@@ -549,6 +628,16 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 	if (request.method === "member.status") {
 		if (!Value.Check(MemberStatusParamsSchema, params)) return invalid("Invalid member.status params");
 		return { type: "member_status", member: (params as MemberStatusParams).member, id: request.id };
+	}
+	if (request.method === "member.idle_wait") {
+		if (!Value.Check(MemberIdleWaitParamsSchema, params)) return invalid("Invalid member.idle_wait params");
+		const waitParams = params as MemberIdleWaitParams;
+		return {
+			type: "member_idle_wait",
+			member: waitParams.member,
+			...(waitParams.timeoutSeconds === undefined ? {} : { timeoutSeconds: waitParams.timeoutSeconds }),
+			id: request.id,
+		};
 	}
 	if (request.method === "presence.hint") {
 		if (!isPresenceHintParams(params)) return invalid("Invalid presence.hint params");

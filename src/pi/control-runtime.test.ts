@@ -8,6 +8,7 @@ import {
 	deactivateMembershipTool,
 	deriveIntrayStatus,
 	disableControlServer,
+	emitIdleSettled,
 	formatIntrayFooter,
 	handleCommand,
 	MEMBERSHIP_TOOLS,
@@ -430,4 +431,147 @@ test("message.interrupt rejects a concurrent pending request for the same target
 	writes.length = 0;
 	await handleCommand(pi, state, { type: "interrupt", payload, id: "int-2" }, socket);
 	assert.equal(JSON.parse(writes[0]!).error?.message, "already-pending");
+});
+
+test("member_idle_wait requires joined membership and rejects unjoined", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const state = createSocketState();
+	state.server = {} as never;
+	state.context = {
+		sessionManager: { getSessionId: () => "session", getEntries: () => [] },
+		isIdle: () => true,
+	} as never;
+	await handleCommand({} as never, state, { type: "member_idle_wait", member: "Bob", id: "iw-u" }, socket);
+	assert.match(JSON.parse(writes[0]!).error?.message, /not-joined/);
+});
+
+test("member_idle_wait on an already-idle target completes directly without a lingering subscription", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const state = createSocketState();
+	state.server = {} as never;
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: "/project/.pi/bebop/sockets/Tony.sock",
+			member: { name: "Tony", role: "lead", socketPath: "/project/.pi/bebop/sockets/Tony.sock" },
+			manifest: { members: [] },
+		}),
+	} as never;
+	state.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "session", getEntries: () => [] },
+		isIdle: () => true,
+	} as never;
+	await handleCommand({} as never, state, { type: "member_idle_wait", member: "Bob", id: "iw-1" }, socket);
+	const response = JSON.parse(writes[0]!);
+	assert.equal(response.id, "iw-1");
+	assert.equal(response.result.subscriptionId, "iw-1");
+	assert.equal(response.result.event, "member_idle");
+	// Already idle: the one-shot terminal event arrives immediately with already-idle.
+	const event = JSON.parse(writes[1]!);
+	assert.equal(event.method, "member.idle_wait");
+	assert.equal(event.params.subscriptionId, "iw-1");
+	assert.equal(event.params.result.outcome, "idle");
+	assert.equal(event.params.result.disposition, "already-idle");
+	// No lingering subscription: settled emission writes nothing more.
+	await emitIdleSettled(state);
+	assert.equal(writes.length, 2);
+});
+
+test("member_idle_wait on a busy target registers a one-shot subscription and settles to became-idle", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const state = createSocketState();
+	state.server = {} as never;
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: "/project/.pi/bebop/sockets/Tony.sock",
+			member: { name: "Tony", role: "lead", socketPath: "/project/.pi/bebop/sockets/Tony.sock" },
+			manifest: { members: [] },
+		}),
+	} as never;
+	state.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "session", getEntries: () => [] },
+		isIdle: () => false,
+	} as never;
+	await handleCommand({} as never, state, { type: "member_idle_wait", member: "Bob", id: "iw-2" }, socket);
+	const ack = JSON.parse(writes[0]!);
+	assert.equal(ack.result.subscriptionId, "iw-2");
+	assert.equal(ack.result.event, "member_idle");
+	// Agent settles: one-shot terminal event is emitted exactly once.
+	await emitIdleSettled(state);
+	assert.equal(writes.length, 2);
+	const event = JSON.parse(writes[1]!);
+	assert.equal(event.method, "member.idle_wait");
+	assert.equal(event.params.subscriptionId, "iw-2");
+	assert.equal(event.params.result.outcome, "idle");
+	assert.equal(event.params.result.disposition, "became-idle");
+	assert.equal(event.params.result.member.name, "Tony");
+	// One-shot: a second settle emits nothing.
+	await emitIdleSettled(state);
+	assert.equal(writes.length, 2);
+});
+
+test("member_idle_wait enforces capacity and rejects a duplicate wait for the same target", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const state = createSocketState();
+	state.server = {} as never;
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: "/project/.pi/bebop/sockets/Tony.sock",
+			member: { name: "Tony", role: "lead", socketPath: "/project/.pi/bebop/sockets/Tony.sock" },
+			manifest: { members: [] },
+		}),
+	} as never;
+	state.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "session", getEntries: () => [] },
+		isIdle: () => false,
+	} as never;
+	await handleCommand({} as never, state, { type: "member_idle_wait", member: "Bob", id: "iw-3" }, socket);
+	assert.equal(JSON.parse(writes[0]!).result.event, "member_idle");
+	// Second wait for the same target is rejected (one wait per target).
+	await handleCommand({} as never, state, { type: "member_idle_wait", member: "Bob", id: "iw-4" }, socket);
+	assert.match(JSON.parse(writes[1]!).error?.message, /already-waiting/);
+});
+
+test("member_idle_wait never triggers a turn and releases subscriptions on server stop", async () => {
+	let sent = 0;
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const state = createSocketState();
+	state.server = { close: async () => {} } as never;
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: "/project/.pi/bebop/sockets/Tony.sock",
+			member: { name: "Tony", role: "lead", socketPath: "/project/.pi/bebop/sockets/Tony.sock" },
+			manifest: { members: [] },
+		}),
+	} as never;
+	state.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "session", getSessionName: () => null, getEntries: () => [] },
+		isIdle: () => false,
+	} as never;
+	const pi = {
+		sendMessage: () => {
+			sent += 1;
+		},
+	} as never;
+	await handleCommand(pi, state, { type: "member_idle_wait", member: "Bob", id: "iw-5" }, socket);
+	assert.equal(JSON.parse(writes[0]!).result.event, "member_idle");
+	assert.equal(sent, 0, "idle wait must never trigger a turn");
+	// Stopping the server releases subscriptions: no idle event after stop.
+	state.server = null;
+	state.turnEndSubscriptions = [];
+	state.idleWaitSubscriptions = [];
+	await emitIdleSettled(state);
+	assert.equal(writes.length, 1, "released subscriptions must not emit idle events");
 });

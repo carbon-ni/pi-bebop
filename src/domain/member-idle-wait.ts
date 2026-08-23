@@ -132,6 +132,18 @@ export function isMemberIdleWaitResult(value: unknown): value is MemberIdleWaitR
 	return isIdleWaitIdentity(result.member) && isIsoTimestamp(result.observedAt);
 }
 
+/**
+ * Compact privacy-safe rendering: identity, terminal outcome/disposition, and
+ * observation timestamp only. Never exposes messages, Focus, session data, or
+ * paths (TASK-0050 privacy contract).
+ */
+export function formatMemberIdleWaitResult(result: MemberIdleWaitResult): string {
+	if (!isMemberIdleWaitResult(result)) throw new TypeError("invalid member idle wait result");
+	const member = `${result.member.name} (${result.member.role})`;
+	if (result.outcome === "idle") return `[${member}] idle — ${result.disposition} at ${result.observedAt}`;
+	return `[${member}] ${result.outcome} at ${result.observedAt}`;
+}
+
 export function createMemberIdleWaitResult(
 	member: MemberIdleWaitIdentity,
 	outcome: MemberIdleWaitOutcomeInput,

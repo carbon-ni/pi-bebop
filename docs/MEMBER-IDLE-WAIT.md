@@ -12,9 +12,31 @@ It does not answer: did the target see my message, is it done with my task, will
 it reply, is it available, is it healthy/productive, or will it stay idle.
 
 > TASK-0050 defines the domain contract (resolution, timeout bounds, terminal
-> outcome contract, one-shot state race, capacity gate). The RPC subscription
-> method and `wait_for_member_idle` tool are TASK-0051 and are not implemented
-> by this task.
+> outcome contract, one-shot state race, capacity gate). TASK-0051 implements
+> the `member.idle_wait` RPC subscription, the `wait_for_member_idle` tool, the
+> `agent_settled`-driven terminal emission, and the client transport.
+
+## Interaction
+
+Implemented tool:
+
+```text
+wait_for_member_idle({ member: "Bob", timeout_seconds?: 300 })
+```
+
+The tool blocks the current caller's tool execution once (no repeated model
+calls, no polling). The target runtime atomically registers the one-shot
+subscription and snapshots `ctx.isIdle()`; already-idle completes immediately
+with `idle/already-idle`, and a busy target completes from Pi `agent_settled`
+only (never `agent_end` or `turn_end`), returning `idle/became-idle` after all
+retry, compaction, and queued-continuation work is exhausted. Disconnect or
+restart during the wait completes as `offline`; the bounded deadline completes
+as `timeout`. Caller cancellation (AbortSignal) closes the socket and removes
+the remote subscription promptly. Exactly one terminal outcome wins; later
+events are ignored.
+
+Bebop never chooses the caller's reaction: after the terminal event the caller
+may send a Follow-up, Redirect, Interrupt, or do nothing.
 
 ## Terminal outcomes
 

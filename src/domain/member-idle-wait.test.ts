@@ -9,6 +9,7 @@ import {
 	MemberIdleWaitResultSchema,
 	applyIdleWaitSignal,
 	createMemberIdleWaitResult,
+	formatMemberIdleWaitResult,
 	isMemberIdleWaitResult,
 	registerOneShotIdleWait,
 	resolveIdleWaitTimeoutSeconds,
@@ -297,6 +298,35 @@ describe("signal exhaustiveness", () => {
 			if (entry.outcome !== undefined) assert.equal(result?.outcome, entry.outcome);
 			else assert.equal(result, undefined);
 		}
+	});
+});
+
+describe("member idle wait result formatting", () => {
+	test("formats idle/became-idle result with identity, disposition, and timestamp only", () => {
+		const result = createMemberIdleWaitResult(bob, { outcome: "idle", disposition: "became-idle" }, observedAt);
+		assert.equal(
+			formatMemberIdleWaitResult(result),
+			"[Bob (developer)] idle — became-idle at 2026-08-23T12:03:00.000Z",
+		);
+	});
+
+	test("formats idle/already-idle, offline, and timeout outcomes compactly", () => {
+		const already = createMemberIdleWaitResult(bob, { outcome: "idle", disposition: "already-idle" }, observedAt);
+		assert.equal(
+			formatMemberIdleWaitResult(already),
+			"[Bob (developer)] idle — already-idle at 2026-08-23T12:03:00.000Z",
+		);
+		const offline = createMemberIdleWaitResult(bob, { outcome: "offline" }, observedAt);
+		assert.equal(formatMemberIdleWaitResult(offline), "[Bob (developer)] offline at 2026-08-23T12:03:00.000Z");
+		const timeout = createMemberIdleWaitResult(bob, { outcome: "timeout" }, observedAt);
+		assert.equal(formatMemberIdleWaitResult(timeout), "[Bob (developer)] timeout at 2026-08-23T12:03:00.000Z");
+	});
+
+	test("formatter rejects invalid results", () => {
+		assert.throws(
+			() => formatMemberIdleWaitResult({ member: bob, outcome: "unknown", observedAt } as never),
+			TypeError,
+		);
 	});
 });
 

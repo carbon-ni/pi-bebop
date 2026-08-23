@@ -55,7 +55,157 @@ import {
 	MemberStatusResultSchema,
 	isMemberStatusResult,
 	methodResultSchema,
+	MemberIdleWaitParamsSchema,
+	MemberIdleWaitRequestSchema,
+	MemberIdleWaitCommandSchema,
+	MemberIdleWaitSubscribeResultSchema,
+	MemberIdleWaitNotificationSchema,
+	isMemberIdleWaitResult,
+	isMemberIdleWaitNotification,
+	MAX_MEMBER_IDLE_WAIT_TIMEOUT,
 } from "./index.ts";
+
+test("member.idle_wait params are strict: one bounded member label plus optional bounded timeout", () => {
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob" }), true);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 300 }), true);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 1 }), true);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 600 }), true);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, {}), false);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "" }), false);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 0 }), false);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 601 }), false);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 1.5 }), false);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", extra: true }), false);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "x".repeat(1000) }), false);
+});
+
+test("member.idle_wait command schema accepts only the strict shape", () => {
+	assert.equal(Value.Check(MemberIdleWaitCommandSchema, { type: "member_idle_wait", member: "Bob" }), true);
+	assert.equal(
+		Value.Check(MemberIdleWaitCommandSchema, {
+			type: "member_idle_wait",
+			member: "Bob",
+			timeoutSeconds: 300,
+			id: "q1",
+		}),
+		true,
+	);
+	assert.equal(Value.Check(MemberIdleWaitCommandSchema, { type: "member_idle_wait" }), false);
+	assert.equal(Value.Check(MemberIdleWaitCommandSchema, { type: "member_idle_wait", member: "", id: "q1" }), false);
+	assert.equal(
+		Value.Check(MemberIdleWaitCommandSchema, { type: "member_idle_wait", member: "Bob", extra: true }),
+		false,
+	);
+});
+
+test("member.idle_wait round-trips through requestToCommand and commandToRequest", () => {
+	const request = {
+		jsonrpc: "2.0" as const,
+		id: "q-1",
+		method: "member.idle_wait" as const,
+		params: { member: "Bob" },
+	};
+	assert.deepEqual(requestToCommand(request), { type: "member_idle_wait", member: "Bob", id: "q-1" });
+	const withTimeout = {
+		jsonrpc: "2.0" as const,
+		id: "q-2",
+		method: "member.idle_wait" as const,
+		params: { member: "Bob", timeoutSeconds: 300 },
+	};
+	assert.deepEqual(requestToCommand(withTimeout), {
+		type: "member_idle_wait",
+		member: "Bob",
+		timeoutSeconds: 300,
+		id: "q-2",
+	});
+	const command = { type: "member_idle_wait" as const, member: "Bob", id: "q-3" };
+	assert.deepEqual(commandToRequest(command, "q-3"), {
+		jsonrpc: "2.0",
+		id: "q-3",
+		method: "member.idle_wait",
+		params: { member: "Bob" },
+	});
+	assert.equal(
+		"code" in requestToCommand({ jsonrpc: "2.0", id: "q-4", method: "member.idle_wait", params: {} }),
+		true,
+	);
+	assert.equal(
+		"code" in
+			requestToCommand({
+				jsonrpc: "2.0",
+				id: "q-5",
+				method: "member.idle_wait",
+				params: { member: "Bob", timeoutSeconds: 700 },
+			}),
+		true,
+	);
+});
+
+test("member.idle_wait subscribe ack and terminal result schemas are strict and closed", () => {
+	assert.equal(
+		Value.Check(MemberIdleWaitSubscribeResultSchema, { subscriptionId: "s-1", event: "member_idle" }),
+		true,
+	);
+	assert.equal(Value.Check(MemberIdleWaitSubscribeResultSchema, { subscriptionId: "s-1", event: "turn_end" }), false);
+	assert.equal(Value.Check(MemberIdleWaitSubscribeResultSchema, { subscriptionId: "s-1" }), false);
+	assert.equal(
+		Value.Check(MemberIdleWaitSubscribeResultSchema, { subscriptionId: "s-1", event: "member_idle", extra: 1 }),
+		false,
+	);
+	const terminal = {
+		member: { name: "Bob", role: "developer" },
+		outcome: "idle",
+		disposition: "already-idle",
+		observedAt: "2026-08-23T12:03:00.000Z",
+	};
+	assert.equal(isMemberIdleWaitResult(terminal), true);
+});
+
+test("member.idle_wait notification schema is strict and validated", () => {
+	const notification = {
+		jsonrpc: "2.0" as const,
+		method: "member.idle_wait" as const,
+		params: {
+			subscriptionId: "s-1",
+			result: {
+				member: { name: "Bob", role: "developer" },
+				outcome: "idle",
+				disposition: "became-idle",
+				observedAt: "2026-08-23T12:03:00.000Z",
+			},
+		},
+	};
+	assert.equal(isMemberIdleWaitNotification(notification), true);
+	assert.equal(
+		isMemberIdleWaitNotification({
+			jsonrpc: "2.0",
+			method: "session.turn_end",
+			params: { subscriptionId: "s-1", message: null },
+		}),
+		false,
+	);
+	assert.equal(
+		isMemberIdleWaitNotification({
+			jsonrpc: "2.0",
+			method: "member.idle_wait",
+			params: {
+				subscriptionId: "s-1",
+				result: {
+					member: { name: "Bob", role: "developer" },
+					outcome: "offline",
+					observedAt: "2026-08-23T12:03:00.000Z",
+				},
+			},
+		}),
+		true,
+	);
+});
+
+test("member.idle_wait method resolves the strict subscription ack schema and timeout bound", () => {
+	assert.equal(methodResultSchema("member.idle_wait"), MemberIdleWaitSubscribeResultSchema);
+	assert.equal(methodResultSchema("member.idle_wait") === undefined, false);
+	assert.equal(MAX_MEMBER_IDLE_WAIT_TIMEOUT, 600);
+});
 
 test("member.status params are strict: exactly one bounded member label, no caller-selected fields", () => {
 	assert.equal(Value.Check(MemberStatusParamsSchema, { member: "Bob" }), true);
