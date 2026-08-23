@@ -17,18 +17,20 @@ Hard interruption remains model-tool-only and needs an isolated slice because ab
 Add:
 
 ```text
-pi-bebop member interrupt <member> (--message <text> | --stdin)
+pi-bebop member interrupt <member> [--session <id|alias>] (--message <text> | --stdin)
 ```
 
 The selected source session resolves the configured target and invokes the
 existing interrupt flow. Target-owned recovery remains responsible for evidence,
 best-effort abort, and priority guidance; CLI cannot roll back completed effects.
+Implement Interrupt as isolated command/action modules and contribute it through
+the owned registries.
 
 ## Acceptance criteria
 
-- [ ] Tests first cover idle/busy target, exact-name/unique-role, unknown/ambiguous/self, message/stdin, instructions, offline/unjoined source, target rejection, timeout, disconnect, cancellation, and formats.
+- [ ] Tests first cover idle/busy target, exact-name/unique-role, unknown/ambiguous/self, command-local source selection, message/stdin, instructions, offline/unjoined source, target rejection, timeout, disconnect, cancellation, and formats.
 - [ ] Help and result wording reserve interrupt for stuck/harmful recovery and state best-effort/no-rollback limits.
-- [ ] Tagged RPC input is bounded and cannot claim source identity or bypass current membership.
+- [ ] Isolated tagged RPC/action and CLI command modules are bounded and cannot claim source identity or bypass current membership; registry changes are made only by assigned integration owner.
 - [ ] Source server delegates to existing member-interrupt resolution and transport; target server keeps existing recovery flow.
 - [ ] Interrupt evidence is recorded before abort request and recovery guidance is prioritized according to current contract.
 - [ ] Disconnect/cancellation cleans listeners without deleting durable recovery evidence.
