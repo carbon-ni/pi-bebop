@@ -1,7 +1,7 @@
 ---
 id: TASK-0038
 title: Verify and document durable crew inbox lifecycle
-status: todo
+status: doing
 depends_on: [TASK-0036, TASK-0037]
 priority: high
 tags: [crew, inbox, integration, docs, recovery]
