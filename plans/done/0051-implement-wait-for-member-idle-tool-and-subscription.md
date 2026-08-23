@@ -1,7 +1,7 @@
 ---
 id: TASK-0051
 title: Implement wait-for-member-idle tool and subscription
-status: doing
+status: done
 depends_on: [TASK-0047,TASK-0050]
 priority: high
 tags: [crew, activity, idle, tools, rpc, subscription, lifecycle]
