@@ -1,6 +1,6 @@
 # Pi Bebop
 
-<img  width="250" alt="screenshot-2026-08-22_15-39-54" src="https://github.com/user-attachments/assets/9430855c-9060-4f1f-b7a8-e8d3b03ce232"  align="left"  />
+<img width="240" height="164" alt="bebop" src="https://github.com/user-attachments/assets/ff4eccd9-73e7-4e09-a617-ce7b7db7e299" align="left" />
 
 Give a small dysfunctional but effective crew to your Pi agents.
 
