@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "presence": { "notifications": true },
+  "intake": { "contact": "Mary" },
+  "members": [
+    {
+      "name": "Tony",
+      "role": "lead",
+      "description": "Coordinates ownership, verification, and integration",
+      "socket": "sockets/lead.sock",
+      "instructionsFile": "instructions/lead.md"
+    },
+    {
+      "name": "Mary",
+      "role": "product",
+      "description": "Shapes problems, acceptance criteria, and shared language",
+      "socket": "sockets/product.sock",
+      "instructionsFile": "instructions/product.md"
+    },
+    {
+      "name": "Bob",
+      "role": "developer",
+      "description": "Builds domain and application changes",
+      "socket": "sockets/developer-bob.sock",
+      "instructionsFile": "instructions/developer.md"
+    },
+    {
+      "name": "Dave",
+      "role": "developer",
+      "description": "Builds runtime and infrastructure integration",
+      "socket": "sockets/developer-dave.sock",
+      "instructionsFile": "instructions/developer.md"
+    },
+    {
+      "name": "Kelly",
+      "role": "quality",
+      "description": "Verifies acceptance and regression behavior",
+      "socket": "sockets/quality-kelly.sock",
+      "instructionsFile": "instructions/quality.md"
+    },
+    {
+      "name": "Dimmy",
+      "role": "quality",
+      "description": "Stress-tests failure, lifecycle, and concurrency paths",
+      "socket": "sockets/quality-dimmy.sock",
+      "instructionsFile": "instructions/quality.md"
+    }
+  ]
+}

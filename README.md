@@ -93,6 +93,34 @@ startup, restore, or explicit join/rejoin. Changes are not hot-reloaded into an
 active session; leave and rejoin to refresh. Members without either field behave
 as before.
 
+### Optional software crew workflow
+
+[`docs/SOFTWARE-CREW-WORKFLOW.md`](docs/SOFTWARE-CREW-WORKFLOW.md) provides an
+optional lead/product/developer/quality convention plus copyable
+[`instructionsFile` examples](docs/examples/software-crew/). Roles describe
+responsibility, not permissions, and repeated roles are routed by exact member
+name.
+
+Minimal end-to-end flow:
+
+1. An external actor uses `pi-bebop send --crew ...`; Crew Intake persists the
+   request for the manifest's exact product contact.
+2. Product shapes problem, acceptance, constraints, and non-goals, then sends a
+   Follow-up or durable Inbox message to lead.
+3. Lead assigns one exact developer name and requests verification from one
+   different exact quality member.
+4. Developer works with project plans, Git, tests, and watcher outside Bebop,
+   then sends bounded evidence to quality.
+5. Quality independently reports findings/verdict; lead decides integration
+   using the host project's own tools.
+6. Any joined member may use Crew Broadcast for an adopted shared constraint;
+   Broadcast never assigns shared ownership.
+
+See the full workflow for Focus/Activity interpretation and the escalation
+ladder: Follow-up normally, Redirect to change the next model step, and
+Interrupt only to abort/recover harmful active work. Interrupt cannot roll back
+completed side effects.
+
 ### Member descriptions
 
 A member may include a short, stable, crew-visible description to help choose an
@@ -211,7 +239,7 @@ no Git, review, CI, or worktree integration. It never claims exactly-once
 execution. For live communication use `send_follow_up`; to change what a
 member is doing right now use `redirect_member`.
 
-### External crew intake (defined)
+### External crew intake
 
 External sessions, scripts, and local automation can address a member socket,
 but leaving a durable message _for the crew_ requires one configured contact.
@@ -228,8 +256,7 @@ persisted to the contact's inbox and may arrive while the contact is offline.
 The product owner is the recommended contact for software crews, but any
 configured member can be selected. The contact triages intake (ignore,
 clarify, or forward internally); Bebop does not classify content, pick a
-worker, or track intake as accepted work. The command-line intake surface is
-not yet available.
+worker, or track intake as accepted work.
 
 #### One-way intake from the CLI
 
