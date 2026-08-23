@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import { renderCrewPresence, renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts";
 import { registerSendFollowUpTool, registerSendImmediateTool } from "./tools/index.ts";
-import { registerSessionTool } from "./tools/send-to-session.ts";
+import { registerMemberTool } from "./tools/send-to-member.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
@@ -74,7 +74,7 @@ export default function (pi: ExtensionAPI) {
 	};
 	registerSendFollowUpTool(pi, state, memberMessageDependencies);
 	registerSendImmediateTool(pi, state, memberMessageDependencies);
-	registerSessionTool(pi, state, { getCurrentCrewOrigin: () => resolveCurrentCrewOrigin(state) });
+	registerMemberTool(pi, state, { getCurrentCrewOrigin: () => resolveCurrentCrewOrigin(state) });
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};
