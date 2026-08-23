@@ -1,5 +1,6 @@
 import path from "node:path";
 import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
+import { parseCrewInitCommand } from "./parser.ts";
 
 export type CliFormat = "toon" | "json" | "text";
 export interface SendCliOptions {
@@ -173,42 +174,5 @@ export function parseCliCommand(args: string[], cwd = process.cwd()): CliCommand
 	if (command === "send") return parseCliArguments(args, cwd);
 	if (command !== "crew") throw new UsageError(`Invalid command '${command ?? ""}'; valid commands: send, crew init`);
 	if (args[1] !== "init") throw new UsageError(`Invalid command 'crew ${args[1] ?? ""}'; valid command: crew init`);
-	const values = new Map<string, string>();
-	let help = false;
-	const valueFlags = new Set(["--project", "--format"]);
-	for (let index = 2; index < args.length; index += 1) {
-		const rawFlag = args[index]!;
-		const equals = rawFlag.indexOf("=");
-		const flag = equals > 0 ? rawFlag.slice(0, equals) : rawFlag;
-		const inlineValue = equals > 0 ? rawFlag.slice(equals + 1) : undefined;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (!valueFlags.has(flag))
-			throw new UsageError(
-				`Unknown flag '${flag}'; valid flags: --project <directory>, --format toon|json|text, --help`,
-			);
-		if (values.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-		let value = inlineValue ?? args[++index];
-		let escaped = false;
-		if (value === "--") {
-			value = args[++index];
-			escaped = true;
-		}
-		if (value === undefined || (inlineValue === undefined && !escaped && value.startsWith("--")))
-			throw new UsageError(`Missing value for ${flag}`);
-		values.set(flag, value);
-	}
-	const format = values.get("--format") ?? "toon";
-	if (format !== "toon" && format !== "json" && format !== "text")
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	const project = values.get("--project");
-	return {
-		command: "crew-init",
-		...(project === undefined ? {} : { project: path.resolve(cwd, project) }),
-		format,
-		...(help ? { help: true } : {}),
-	};
+	return parseCrewInitCommand(args.slice(2), cwd);
 }

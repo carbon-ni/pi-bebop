@@ -62,6 +62,16 @@ try {
 		if (!/crew init/.test(initHelp.stdout) || !/\.pi\/bebop\/crew\.json/.test(initHelp.stdout))
 			throw new Error("Installed CLI crew init --help missing layout/docs");
 
+		// TASK-0057: no-argument home must render compact TOON project state
+		// (scaffold missing -> copyable crew init hint), not full help.
+		const home = await execFile(process.execPath, [cli], { cwd: initDir, env: environment });
+		if (
+			!/status: home/.test(home.stdout) ||
+			!/scaffold: missing/.test(home.stdout) ||
+			!/crew init/.test(home.stdout)
+		)
+			throw new Error("Installed CLI no-argument home missing compact state");
+
 		const created = await execFile(process.execPath, [cli, "crew", "init", "--format", "json"], {
 			cwd: initDir,
 			env: environment,
