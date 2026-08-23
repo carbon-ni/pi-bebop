@@ -30,12 +30,14 @@ The project must be trusted by Pi before this manifest can be read. Trust is a
 project security boundary, not a property granted by the filename or socket
 path.
 
-### The crew
+## The crew
 
 > This is why it is a dysfunctional crew: members may or may not be there, by
 > design. You can create a script to start the crew yourself.
 
 A socket under `.pi/bebop/sockets/` selects only `.pi/bebop/crew.json`; a socket under `.pi/crew/sockets/` selects only `.pi/crew/crew.json`. There is no fallback or merge when both manifests exist. Other `.pi/<name>/crew.json` paths are rejected as untrusted, and missing, malformed, or member-mismatched manifests report their actionable cause.
+
+### Join the crew
 
 Start each member with its crew identity:
 
@@ -52,6 +54,8 @@ For an existing session, join a crew endpoint with:
 ```text
 /crew join .pi/bebop/sockets/lead.sock
 ```
+
+### Crew members
 
 Use `/crew members` to inspect the authoritative roster for the active membership.
 
@@ -71,7 +75,7 @@ other endpoints are probed independently. If not joined, `/crew members` prints
 output is displayed without starting an agent turn. Use `/crew status`,
 `/crew leave`, or `/crew stop` to inspect or release the current identity.
 
-### Presence activity
+### Members presence
 
 Presence activity is enabled by default for joined manifests and appears as
 chat-only `[crew]` activity (`triggerTurn: false`); disable it with
@@ -80,8 +84,9 @@ observation, not idle or available.
 
 ### External project members
 
-Selections may target another trusted worktree from the current project. Both
-startup and runtime commands use the manifest adjacent to the absolute endpoint
+Members can join from any path, useful for worktrees, or external contributions.
+
+Both startup and runtime commands use the manifest adjacent to the absolute endpoint
 and never consult the current working tree's manifest:
 
 ```bash
@@ -90,7 +95,7 @@ pi --crew-socket /worktree-B/.pi/bebop/sockets/dev1.sock
 /crew join /worktree-B/.pi/crew/sockets/dev1.sock
 ```
 
-## Direct socket messaging from a shell
+### Direct socket messaging from a shell
 
 The package also installs `pi-bebop`, which targets one endpoint directly. It does
 not read the crew manifest or resolve names and roles:
@@ -101,7 +106,7 @@ pi-bebop send --socket .pi/bebop/sockets/lead.sock \
 printf 'line one\nline two\n' | pi-bebop send --socket .pi/crew/sockets/lead.sock --stdin --wait accepted --format json
 ```
 
-## Role-based messaging
+### Role-based messaging
 
 Once joined, use `send_follow_up` by default:
 
