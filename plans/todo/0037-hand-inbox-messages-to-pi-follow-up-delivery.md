@@ -1,7 +1,7 @@
 ---
 id: TASK-0037
 title: Hand inbox messages to Pi follow-up delivery
-status: todo
+status: doing
 depends_on: [TASK-0035]
 priority: high
 tags: [crew, inbox, application, lifecycle, recovery]

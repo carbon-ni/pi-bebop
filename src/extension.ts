@@ -30,6 +30,7 @@ import {
 } from "./pi/membership-context.ts";
 import { releaseMembershipBeforeCleanup, restorePersistedMembership } from "./pi/membership-lifecycle.ts";
 import { maybeHandleStartupSocketJoin } from "./pi/startup-send.ts";
+import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
 
 const CREW_FLAG = "crew";
@@ -66,6 +67,11 @@ export default function (pi: ExtensionAPI) {
 			return readTrustedCrewManifest(manifestPath, projectRoot, () => context.isProjectTrusted());
 		},
 	});
+
+	const inboxBridge = createInboxBridgeController(pi, state);
+	state.onInboxHint = () => {
+		void inboxBridge.attemptOffer();
+	};
 
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
@@ -152,6 +158,7 @@ export default function (pi: ExtensionAPI) {
 			refreshStatus: () => refreshIntrayStatus(state),
 			refreshPresence,
 			stopPresence,
+			inboxBridge,
 		},
 		"crew",
 	);
@@ -184,6 +191,8 @@ export default function (pi: ExtensionAPI) {
 				announceMembership(
 					`Crew joined ${membership.member.name} (${membership.member.role}) at ${membership.socketPath}`,
 				);
+				inboxBridge.establish(ownershipFromMembership(membership));
+				void inboxBridge.attemptOffer();
 			}
 			return;
 		}
@@ -197,6 +206,11 @@ export default function (pi: ExtensionAPI) {
 				activateMembershipTool(pi);
 				await refreshPresence();
 				announceMembership(message);
+				const membership = state.membershipRuntime?.getMembership();
+				if (membership) {
+					inboxBridge.establish(ownershipFromMembership(membership));
+					void inboxBridge.attemptOffer();
+				}
 			},
 			reportFailure: (message) => {
 				if (ctx.hasUI) ctx.ui.notify(`Crew membership restore failed: ${message}`, "error");
@@ -212,6 +226,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+		inboxBridge.invalidate();
 		const context = state.context;
 		await releaseMembershipBeforeCleanup({
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
@@ -233,5 +248,8 @@ export default function (pi: ExtensionAPI) {
 		state.socketPath = null;
 	});
 
-	pi.on("turn_end", (event, ctx) => emitTurnEnd(state, event, ctx));
+	pi.on("turn_end", (event, ctx) => {
+		emitTurnEnd(state, event, ctx);
+		void inboxBridge.attemptOffer();
+	});
 }

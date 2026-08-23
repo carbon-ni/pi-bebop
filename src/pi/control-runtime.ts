@@ -23,6 +23,7 @@ import {
 	createSequentialProjectBranchAlias,
 	getFirstEntryId,
 	getLastAssistantMessage,
+	isInboxHint,
 	isSafeAlias,
 	type RpcInboundCommand,
 	SESSION_MESSAGE_TYPE,
@@ -48,6 +49,7 @@ export interface SocketState {
 	turnEndSubscriptions: TurnEndSubscription[];
 	membershipRuntime: MembershipRuntime | null;
 	presenceObserver?: PresenceObserver;
+	onInboxHint?: () => void;
 }
 
 // ============================================================================
@@ -82,7 +84,7 @@ function isStaleContextError(error: unknown): boolean {
 	return String(error instanceof Error ? error.message : error).includes("This extension ctx is stale");
 }
 
-const MEMBERSHIP_TOOLS = ["send_follow_up", "send_immediate"] as const;
+const MEMBERSHIP_TOOLS = ["send_follow_up", "send_immediate", "send_to_inbox"] as const;
 
 export function activateMembershipTool(pi: ExtensionAPI): void {
 	const active = pi.getActiveTools();
@@ -242,6 +244,7 @@ export async function handleCommand(
 			respond(false, "send", undefined, "Invalid structured message payload");
 			return;
 		}
+		if (isInboxHint(payload)) state.onInboxHint?.();
 		const message = renderMessagePayload(payload);
 		const mode = command.delivery ?? "follow_up";
 		const isIdle = ctx.isIdle();
