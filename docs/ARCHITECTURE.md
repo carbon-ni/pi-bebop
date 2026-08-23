@@ -82,6 +82,12 @@ legacy `{ type, ... }` envelope; JSON-RPC does not add authentication.
   agent turn. Both `.pi/bebop` and `.pi/crew` use the same formatter.
 - Reload/resume restores active membership after revalidation. Shutdown always
   attempts endpoint release before server cleanup.
+- Role instructions support one source per member: inline `instructions` or a
+  relative `instructionsFile`. File-backed instructions are loaded as a strict
+  UTF-8 snapshot during join/restore (maximum 64 KiB), only beneath the active
+  layout's `instructions/` directory after real-path checks. Blank, NUL,
+  directory, unreadable, invalid, oversized, or escaping files reject the join
+  atomically. Files are not watched; leave/rejoin refreshes the snapshot.
 
 Server status is `stopped`, `online`, or `joined`. A session publishes its
 socket and up to two aliases (session name and project/branch alias) under

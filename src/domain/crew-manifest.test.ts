@@ -43,6 +43,11 @@ describe("crew manifest", () => {
 			{ version: 1, members: [{ name: "", role: "developer", socket: "dev.sock" }] },
 			{ version: 1, members: [{ name: "dev", role: "", socket: "dev.sock" }] },
 			{ version: 1, members: [{ name: "dev", role: "developer", socket: "dev.sock", instructions: 3 }] },
+			{ version: 1, members: [{ name: "dev", role: "developer", socket: "dev.sock", instructions: "   \n" }] },
+			{
+				version: 1,
+				members: [{ name: "dev", role: "developer", socket: "dev.sock", instructions: "valid\0invalid" }],
+			},
 			{ version: 1, members: [{ name: "dev", role: "developer", socket: "" }] },
 			{ version: 1, members: [{ name: "dev", role: "developer", socket: "/tmp/dev.sock" }] },
 			{ version: 1, members: [{ name: "dev", role: "developer", socket: "../../dev.sock" }] },
@@ -54,6 +59,59 @@ describe("crew manifest", () => {
 				(error: unknown) => error instanceof CrewManifestError,
 			);
 		}
+	});
+
+	test("parses one file-backed instruction source and rejects unsafe or conflicting sources", () => {
+		const result = parseCrewManifest(
+			{
+				version: 1,
+				members: [
+					{
+						name: "dev",
+						role: "developer",
+						socket: "sockets/dev.sock",
+						instructionsFile: "instructions/dev.md",
+					},
+				],
+			},
+			"/repo/.pi/bebop/crew.json",
+		);
+		assert.equal(result.members[0].instructionsFile, "instructions/dev.md");
+		for (const instructionsFile of [
+			"/tmp/dev.md",
+			"../dev.md",
+			"instructions/../dev.md",
+			"",
+			"instructions/\0.md",
+		]) {
+			assert.throws(
+				() =>
+					parseCrewManifest(
+						{
+							version: 1,
+							members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock", instructionsFile }],
+						},
+						"/repo/.pi/bebop/crew.json",
+					),
+				(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-instructions-file",
+			);
+		}
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					version: 1,
+					members: [
+						{
+							name: "dev",
+							role: "developer",
+							socket: "sockets/dev.sock",
+							instructions: "inline",
+							instructionsFile: "instructions/dev.md",
+						},
+					],
+				}),
+			/only one/,
+		);
 	});
 
 	test("rejects absolute and escaping sockets outside the crew namespace", () => {
