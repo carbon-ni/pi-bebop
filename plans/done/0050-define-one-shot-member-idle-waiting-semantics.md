@@ -1,7 +1,7 @@
 ---
 id: TASK-0050
 title: Define one-shot member idle waiting semantics
-status: doing
+status: done
 depends_on: [TASK-0046]
 priority: high
 tags: [crew, activity, idle, waiting, lifecycle, protocol, privacy]
