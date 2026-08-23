@@ -50,6 +50,35 @@ try {
 	}
 	if (cliError?.code !== 2 || !/Invalid --wait/.test(cliError.stdout ?? ""))
 		throw new Error("Installed CLI verification failed");
+
+	// TASK-0054: packed CLI must ship the deterministic crew init templates and
+	// scaffold a fresh project; exact rerun is a byte-identical unchanged no-op.
+	const initDir = await mkdtemp(path.join(tmpdir(), "pi-bebop-init-"));
+	try {
+		const initHelp = await execFile(process.execPath, [cli, "crew", "init", "--help"], {
+			cwd: initDir,
+			env: environment,
+		});
+		if (!/crew init/.test(initHelp.stdout) || !/\.pi\/bebop\/crew\.json/.test(initHelp.stdout))
+			throw new Error("Installed CLI crew init --help missing layout/docs");
+
+		const created = await execFile(process.execPath, [cli, "crew", "init", "--format", "json"], {
+			cwd: initDir,
+			env: environment,
+		});
+		const createdResult = JSON.parse(created.stdout);
+		if (createdResult.status !== "created" || !createdResult.data.createdPaths.includes(".pi/bebop/crew.json"))
+			throw new Error("Installed CLI crew init did not create the canonical scaffold");
+
+		const unchanged = await execFile(process.execPath, [cli, "crew", "init", "--format", "json"], {
+			cwd: initDir,
+			env: environment,
+		});
+		const unchangedResult = JSON.parse(unchanged.stdout);
+		if (unchangedResult.status !== "unchanged") throw new Error("Installed CLI crew init rerun was not unchanged");
+	} finally {
+		await rm(initDir, { recursive: true, force: true });
+	}
 	const extension = await execFile(
 		process.execPath,
 		[

@@ -3,11 +3,13 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { errorCode, runCli } from "./main.ts";
+import { crewInitHelp } from "../domain/index.ts";
+import { decode } from "@toon-format/toon";
 
 const execFile = promisify(execFileCallback);
 const root = path.resolve(".");
@@ -632,3 +634,155 @@ test("--crew with a full contact inbox reports inbox-full", async () => {
 		assert.equal(JSON.parse(text()).error.code, "inbox-full");
 	});
 });
+
+test("crew init --help exits 0 without IO and shows deterministic local help", async () => {
+	const output = new PassThrough();
+	let text = "";
+	output.setEncoding("utf8");
+	output.on("data", (chunk) => {
+		text += chunk;
+	});
+	const code = await runCli(["crew", "init", "--help"], process.cwd(), process.stdin, output);
+	assert.equal(code, 0);
+	assert.equal(text, crewInitHelp());
+});
+
+test("unknown command exits 2 with valid alternatives before any IO", async () => {
+	const output = new PassThrough();
+	let text = "";
+	output.setEncoding("utf8");
+	output.on("data", (chunk) => {
+		text += chunk;
+	});
+	const code = await runCli(["frobnicate"], process.cwd(), process.stdin, output);
+	assert.equal(code, 2);
+	assert.match(text, /valid commands: send, crew init/);
+});
+
+test("crew init creates a fresh canonical scaffold in a temp project with created status", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-init-"));
+	try {
+		const output = new PassThrough();
+		let text = "";
+		output.setEncoding("utf8");
+		output.on("data", (chunk) => {
+			text += chunk;
+		});
+		const code = await runCli(["crew", "init", "--project", dir, "--format", "json"], dir, process.stdin, output);
+		assert.equal(code, 0);
+		const parsed = JSON.parse(text);
+		assert.equal(parsed.status, "created");
+		assert.equal(parsed.data.manifestPath, ".pi/bebop/crew.json");
+		assert.ok(parsed.data.createdPaths.includes(".pi/bebop/crew.json"));
+		// Real files exist and manifest parses.
+		const manifest = JSON.parse(await readFile(path.join(dir, ".pi/bebop/crew.json"), "utf8"));
+		assert.equal(manifest.version, 1);
+		assert.equal(manifest.intake.contact, "product");
+		assert.equal((await readFile(path.join(dir, ".pi/bebop/instructions/lead.md"), "utf8")) !== "", true);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("crew init exact rerun is unchanged with zero writes and preserved mtimes", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-init-"));
+	try {
+		const run = async () => {
+			const output = new PassThrough();
+			let text = "";
+			output.setEncoding("utf8");
+			output.on("data", (chunk) => {
+				text += chunk;
+			});
+			const code = await runCli(
+				["crew", "init", "--project", dir, "--format", "json"],
+				dir,
+				process.stdin,
+				output,
+			);
+			return { code, text };
+		};
+		await run();
+		const manifestPath = path.join(dir, ".pi/bebop/crew.json");
+		const before = (await stat(manifestPath)).mtimeMs;
+		const second = await run();
+		assert.equal(second.code, 0);
+		assert.equal(JSON.parse(second.text).status, "unchanged");
+		const after = (await stat(manifestPath)).mtimeMs;
+		assert.equal(after, before, "mtime must be preserved on exact rerun");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("crew init conflict leaves user content untouched and exits 1", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-init-"));
+	try {
+		await mkdir(path.join(dir, ".pi/bebop"), { recursive: true });
+		const userManifest = '{"version":999}';
+		await writeFile(path.join(dir, ".pi/bebop/crew.json"), userManifest);
+		const output = new PassThrough();
+		let text = "";
+		output.setEncoding("utf8");
+		output.on("data", (chunk) => {
+			text += chunk;
+		});
+		const code = await runCli(["crew", "init", "--project", dir, "--format", "json"], dir, process.stdin, output);
+		assert.equal(code, 1);
+		const parsed = JSON.parse(text);
+		assert.equal(parsed.ok, false);
+		assert.equal(parsed.error.code, "managed-file-differs");
+		assert.equal(await readFile(path.join(dir, ".pi/bebop/crew.json"), "utf8"), userManifest);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("crew init does not create inbox, sockets links, processes, or Git state", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-init-"));
+	try {
+		await runCli(["crew", "init", "--project", dir, "--format", "json"], dir, process.stdin, new PassThrough());
+		const dotPi = path.join(dir, ".pi/bebop");
+		const entries = await readdir(dotPi);
+		assert.deepEqual(entries.sort(), [".gitignore", "crew.json", "instructions", "sockets"]);
+		assert.ok(!(await pathExists(path.join(dir, ".git"))), "no Git state created");
+		assert.ok(!(await pathExists(path.join(dotPi, "inbox"))), "no inbox created");
+		assert.ok(!(await pathExists(path.join(dotPi, "sockets/lead.sock"))), "no socket link created");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+async function pathExists(p: string): Promise<boolean> {
+	try {
+		await stat(p);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+test("no arguments shows compact TOON home state with crew init hint when missing", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-home-"));
+	try {
+		const output = new PassThrough();
+		let text = "";
+		output.setEncoding("utf8");
+		output.on("data", (chunk) => {
+			text += chunk;
+		});
+		const code = await runCli([], dir, process.stdin, output);
+		assert.equal(code, 0);
+		const decoded = decodeTOON(text);
+		assert.equal(decoded.status, "home");
+		assert.equal(decoded.data.scaffold, "missing");
+		assert.equal(decoded.data.next, "pi-bebop crew init");
+		assert.deepEqual(decoded.data.commands, ["send", "crew init"]);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+function decodeTOON(text: string): Record<string, unknown> {
+	return decode(text);
+}

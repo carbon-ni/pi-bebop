@@ -14,7 +14,26 @@ Give a small dysfunctional but effective crew to your Pi agents.
 
 Create the crew manifest in a trusted project. `.pi/bebop` is the canonical layout; `.pi/crew` is supported as an exact compatibility layout for existing projects:
 
-### Setup
+### Quick start (recommended)
+
+```bash
+pi-bebop crew init
+```
+
+Non-interactive and deterministic: creates `.pi/bebop/crew.json`, `.gitignore`,
+four role instruction templates under `.pi/bebop/instructions/`, and an empty
+`.pi/bebop/sockets/` directory. Defaults to the current directory and TOON
+output; `--project <directory>` and `--format toon|json|text` are optional.
+Rerunning is a safe byte-identical no-op (`unchanged`); any existing or
+differing layout is a conflict that never overwrites your edits. Review
+`crew.json` names, Intake contact, and instruction templates before joining.
+
+```bash
+pi-bebop crew init --project /path/to/project --format json
+pi-bebop crew init --help
+```
+
+### Manual setup
 
 ```bash
 mkdir -p .pi/bebop/sockets

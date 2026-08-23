@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { parseCliArguments, UsageError, type SendCliOptions } from "./arguments.ts";
+import { parseCliCommand, UsageError, type CliCommand, type SendCliOptions } from "./arguments.ts";
 import { renderCliResult, type CliResult } from "./output.ts";
+import { crewInitHelp } from "../domain/index.ts";
+import { createCrewInitFlow } from "../application/crew-init-flow.ts";
+import { createNodeCrewInitFsAdapter } from "../infra/crew-init-fs.ts";
 import { sendDirectMessage, DirectMessageError } from "../application/direct-message.ts";
 import { submitExternalIntake, ExternalIntakeError } from "../application/external-intake.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
@@ -20,6 +23,18 @@ export function errorCode(error: unknown): string {
 	if (systemCode === "ENOENT") return "offline";
 	if (error instanceof Error && /JSON|malformed|parse/i.test(error.message)) return "malformed-response";
 	return "offline";
+}
+
+function homeExecutable(): string {
+	const argv1 = process.argv[1];
+	if (!argv1) return "pi-bebop";
+	return argv1.replace(process.env.HOME ?? "~", "~");
+}
+
+function redactHome(value: string): string {
+	const home = process.env.HOME;
+	if (!home) return value;
+	return value.replace(home, "~");
 }
 
 function requestedFormat(args: string[]): "toon" | "json" | "text" {
@@ -124,13 +139,90 @@ export async function runCli(
 	input = process.stdin,
 	output = process.stdout,
 ): Promise<number> {
-	let options: SendCliOptions;
+	let options: CliCommand;
 	try {
-		options = parseCliArguments(args, cwd);
+		options = parseCliCommand(args, cwd);
 	} catch (error) {
 		return usage(error as UsageError, output, requestedFormat(args));
 	}
-	let message = options.message;
+	if (options.command === "home") {
+		const project = cwd;
+		const scaffoldAbs = path.join(project, ".pi/bebop/crew.json");
+		let scaffold: "missing" | "present" = "missing";
+		try {
+			await fs.stat(scaffoldAbs);
+			scaffold = "present";
+		} catch {
+			scaffold = "missing";
+		}
+		const home: CliResult = {
+			ok: true,
+			target: "",
+			status: "home",
+			data: {
+				executable: homeExecutable(),
+				purpose: "Pi Bebop crew coordination CLI",
+				project: redactHome(project),
+				scaffold,
+				commands: ["send", "crew init"],
+				...(scaffold === "missing"
+					? { next: "pi-bebop crew init" }
+					: { next: 'pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"' }),
+			},
+		};
+		output.write(`${renderCliResult(home, "toon", false)}\n`);
+		return 0;
+	}
+	if (options.command === "crew-init") {
+		if (options.help) {
+			output.write(crewInitHelp());
+			return 0;
+		}
+		const project = options.project ?? cwd;
+		try {
+			const result = await createCrewInitFlow(createNodeCrewInitFsAdapter()).run(project);
+			if (result.ok === false) {
+				const outputResult: CliResult = {
+					ok: false,
+					target: project,
+					status: "error",
+					error: { code: result.error.code, message: result.error.message },
+				};
+				output.write(`${renderCliResult(outputResult, options.format, false)}\n`);
+				return 1;
+			}
+			const outputResult: CliResult = {
+				ok: true,
+				target: project,
+				status: result.status,
+				response:
+					result.status === "created"
+						? "Scaffolded .pi/bebop crew; review names/contact/instructions before joining"
+						: "Crew scaffold already present and byte-identical",
+				data: {
+					status: result.status,
+					project: result.project,
+					manifestPath: result.manifestPath,
+					createdPaths: result.createdPaths,
+					verifiedPaths: result.verifiedPaths,
+					nextCommands: result.nextCommands,
+				},
+			};
+			output.write(`${renderCliResult(outputResult, options.format, false)}\n`);
+			return 0;
+		} catch (error) {
+			const messageText = error instanceof Error ? error.message : "Crew init failed";
+			const outputResult: CliResult = {
+				ok: false,
+				target: project,
+				status: "error",
+				error: { code: "operational", message: messageText },
+			};
+			output.write(`${renderCliResult(outputResult, options.format, false)}\n`);
+			return 1;
+		}
+	}
+	let message = (options as SendCliOptions).message;
 	const controller = new AbortController();
 	const abortError = Object.assign(new Error("Operation aborted"), { name: "AbortError" });
 	const abort = () => controller.abort(abortError);
