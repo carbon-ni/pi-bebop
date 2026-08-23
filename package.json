@@ -29,6 +29,7 @@
 		"src/domain/member-interrupt.ts",
 		"src/domain/member-status.ts",
 		"src/domain/member-idle-wait.ts",
+		"src/domain/crew-init.ts",
 		"src/domain/member-inbox.ts",
 		"src/domain/index.ts",
 		"src/domain/inbox-hint.ts",
