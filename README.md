@@ -75,6 +75,22 @@ other endpoints are probed independently. If not joined, `/crew members` prints
 output is displayed without starting an agent turn. Use `/crew status`,
 `/crew leave`, or `/crew stop` to inspect or release the current identity.
 
+### Member role instructions
+
+A member may use either inline instructions or a Markdown file, but never both:
+
+```json
+{"name":"Bob","role":"dev","socket":"sockets/Bob.sock","instructionsFile":"instructions/dev.md"}
+```
+
+File paths are relative to the manifest and must remain under that layout's
+`.pi/bebop/instructions/` (or compatibility `.pi/crew/instructions/`) directory;
+symlink escapes, directories, invalid UTF-8, NULs, blank files, and files over
+64 KiB are rejected before membership is claimed. The file is read once during
+startup, restore, or explicit join/rejoin. Changes are not hot-reloaded into an
+active session; leave and rejoin to refresh. Members without either field behave
+as before.
+
 ### Members presence
 
 Presence activity is enabled by default for joined manifests and appears as

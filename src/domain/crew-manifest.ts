@@ -9,6 +9,7 @@ export interface CrewMember {
 	readonly socket: string;
 	readonly socketPath: string;
 	readonly instructions?: string;
+	readonly instructionsFile?: string;
 }
 
 export interface CrewPresenceConfig {
@@ -27,6 +28,7 @@ export type CrewManifestErrorCode =
 	| "invalid-members"
 	| "invalid-member"
 	| "invalid-socket-path"
+	| "invalid-instructions-file"
 	| "duplicate-member-name"
 	| "duplicate-socket-path";
 
@@ -127,10 +129,42 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 		const role = requireText(rawMember.role, `members[${index}].role`);
 		const socket = requireText(rawMember.socket, `members[${index}].socket`);
 		const instructions = rawMember.instructions;
-		if (instructions !== undefined && typeof instructions !== "string") {
-			invalid(`members[${index}].instructions must be a string`, "invalid-member");
+		if (
+			instructions !== undefined &&
+			(typeof instructions !== "string" || instructions.trim().length === 0 || instructions.includes("\0"))
+		) {
+			invalid(`members[${index}].instructions must be a non-empty string without NUL`, "invalid-member");
+		}
+		const instructionsFile = rawMember.instructionsFile;
+		if (
+			instructionsFile !== undefined &&
+			(typeof instructionsFile !== "string" ||
+				instructionsFile.trim().length === 0 ||
+				instructionsFile.includes("\0"))
+		) {
+			invalid(
+				`members[${index}].instructionsFile must be a non-empty relative path`,
+				"invalid-instructions-file",
+			);
+		}
+		if (instructions !== undefined && instructionsFile !== undefined) {
+			invalid(`members[${index}] must define only one of instructions or instructionsFile`, "invalid-member");
 		}
 		const validInstructions = typeof instructions === "string" ? instructions : undefined;
+		const validInstructionsFile = typeof instructionsFile === "string" ? instructionsFile : undefined;
+		if (validInstructionsFile !== undefined) {
+			if (path.isAbsolute(validInstructionsFile))
+				invalid(`members[${index}].instructionsFile must be relative`, "invalid-instructions-file");
+			const instructionsRoot = path.resolve(path.dirname(manifestPath), "instructions");
+			const resolved = path.resolve(path.dirname(manifestPath), validInstructionsFile);
+			const relative = path.relative(instructionsRoot, resolved);
+			if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+				invalid(
+					`members[${index}].instructionsFile must remain under the instructions directory`,
+					"invalid-instructions-file",
+				);
+			}
+		}
 		if (names.has(name)) {
 			throw new CrewManifestError("duplicate-member-name", `duplicate member name: ${name}`);
 		}
@@ -141,6 +175,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 			socket,
 			socketPath: resolveCrewMemberSocketPath({ socket }, manifestPath),
 			...(validInstructions === undefined ? {} : { instructions: validInstructions }),
+			...(validInstructionsFile === undefined ? {} : { instructionsFile: validInstructionsFile }),
 		};
 		const samePath = socketPaths.get(member.socketPath) ?? [];
 		samePath.push(member);
