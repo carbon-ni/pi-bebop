@@ -1,7 +1,7 @@
 ---
 id: TASK-0052
 title: Expose Crew contact in joined membership context
-status: doing
+status: done
 depends_on: [TASK-0040,TASK-0049]
 priority: normal
 tags: [crew, context, intake, contact, communication, tokens]
