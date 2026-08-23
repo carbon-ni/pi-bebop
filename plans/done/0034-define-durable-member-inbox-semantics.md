@@ -1,7 +1,7 @@
 ---
 id: TASK-0034
 title: Define durable member inbox semantics
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [crew, inbox, domain, durability, ubiquitous-language]
