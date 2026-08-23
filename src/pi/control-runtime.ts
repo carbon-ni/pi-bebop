@@ -9,6 +9,7 @@ import {
 } from "../infra/control-store.ts";
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
 import { isMessagePayload, renderMessagePayload } from "../domain/index.ts";
+import { createOnlineMemberStatus, restoreMemberFocus, type MemberStatus } from "../domain/index.ts";
 import {
 	closeRpcServer,
 	createRpcServer,
@@ -91,6 +92,8 @@ export const MEMBERSHIP_TOOLS = [
 	"send_to_inbox",
 	"broadcast_to_crew",
 	"interrupt_member",
+	"get_member_status",
+	"update_member_focus",
 ] as const;
 
 /**
@@ -187,6 +190,33 @@ export async function handleCommand(
 				instanceId: command.instanceId,
 			}) ?? false;
 		respond(true, "presence_hint", { accepted });
+		return;
+	}
+
+	// Member status (read-only snapshot, TASK-0047). Computes activity/pending/focus
+	// at request time and responds without triggering any turn.
+	if (command.type === "member_status") {
+		const membership = state.membershipRuntime?.getMembership();
+		if (!membership) {
+			respond(false, "member_status", undefined, "not-joined");
+			return;
+		}
+		const focus = restoreMemberFocus(ctx.sessionManager.getEntries(), membership.member.socketPath);
+		const observedAt = new Date().toISOString();
+		let status: MemberStatus;
+		try {
+			status = createOnlineMemberStatus({
+				member: { name: membership.member.name, role: membership.member.role },
+				isIdle: ctx.isIdle(),
+				hasPendingMessages: ctx.hasPendingMessages(),
+				focus,
+				observedAt,
+			});
+		} catch {
+			respond(false, "member_status", undefined, "invalid-status");
+			return;
+		}
+		respond(true, "member_status", { status });
 		return;
 	}
 

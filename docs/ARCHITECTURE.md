@@ -45,8 +45,12 @@ transport details, not identity.
 
 The Unix socket uses one JSON-RPC 2.0 value per newline. Production accepts only
 these methods: `session.status`, `message.send`, `session.get_message`,
-`session.clear`, `session.abort`, and `event.subscribe`; turn completion is the
-`session.turn_end` notification. Request IDs are correlated and responses have
+`session.clear`, `session.abort`, `event.subscribe`, `presence.hint`, and
+`member.status`; turn completion is the `session.turn_end` notification.
+`member.status` is a strict read-only snapshot (one bounded member label, no
+caller-selected fields, no message-content data); the handler computes
+activity/pending at request time, snapshots current focus, and responds without
+triggering a turn. Request IDs are correlated and responses have
 exactly one result or standard error. Schema validation happens before handler
 side effects, and clients fail immediately on malformed, mismatched, duplicate,
 or wrong-subscription peer output. The migration intentionally breaks the

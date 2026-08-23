@@ -49,7 +49,78 @@ import {
 	InterruptCommandSchema,
 	InterruptResultSchema,
 	isInterruptResult,
+	MemberStatusParamsSchema,
+	MemberStatusRequestSchema,
+	MemberStatusCommandSchema,
+	MemberStatusResultSchema,
+	isMemberStatusResult,
+	methodResultSchema,
 } from "./index.ts";
+
+test("member.status params are strict: exactly one bounded member label, no caller-selected fields", () => {
+	assert.equal(Value.Check(MemberStatusParamsSchema, { member: "Bob" }), true);
+	assert.equal(Value.Check(MemberStatusParamsSchema, { member: "qa" }), true);
+	assert.equal(Value.Check(MemberStatusParamsSchema, {}), false);
+	assert.equal(Value.Check(MemberStatusParamsSchema, { member: "" }), false);
+	assert.equal(Value.Check(MemberStatusParamsSchema, { member: "x", extra: true }), false);
+	assert.equal(Value.Check(MemberStatusParamsSchema, { member: "x", limit: 5 }), false);
+	assert.equal(Value.Check(MemberStatusParamsSchema, { member: "x".repeat(1000) }), false);
+	assert.equal(Value.Check(MemberStatusParamsSchema, { member: 42 }), false);
+});
+
+test("member.status command schema accepts only the strict shape", () => {
+	assert.equal(Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "Bob" }), true);
+	assert.equal(Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "Bob", id: "q1" }), true);
+	assert.equal(Value.Check(MemberStatusCommandSchema, { type: "member_status" }), false);
+	assert.equal(Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "", id: "q1" }), false);
+	assert.equal(Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "Bob", extra: true }), false);
+	assert.equal(
+		Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "Bob", fields: ["focus"] }),
+		false,
+	);
+});
+
+test("member.status round-trips through requestToCommand and commandToRequest", () => {
+	const request = { jsonrpc: "2.0" as const, id: "q-1", method: "member.status" as const, params: { member: "Bob" } };
+	assert.deepEqual(requestToCommand(request), { type: "member_status", member: "Bob", id: "q-1" });
+	const command = { type: "member_status" as const, member: "Bob", id: "q-2" };
+	assert.deepEqual(commandToRequest(command, "q-2"), {
+		jsonrpc: "2.0",
+		id: "q-2",
+		method: "member.status",
+		params: { member: "Bob" },
+	});
+	// Extra or missing params are rejected deterministically.
+	assert.equal(
+		"code" in
+			requestToCommand({ jsonrpc: "2.0", id: "q-3", method: "member.status", params: { member: "Bob", x: 1 } }),
+		true,
+	);
+	assert.equal("code" in requestToCommand({ jsonrpc: "2.0", id: "q-4", method: "member.status", params: {} }), true);
+});
+
+test("member.status result schema and guard accept closed online/offline statuses only", () => {
+	const online = {
+		member: { name: "Bob", role: "developer" },
+		presence: "online",
+		activity: "busy",
+		hasPendingMessages: true,
+		focus: { state: "reported", text: "Implementing", updatedAt: "2026-08-23T12:00:00.000Z" },
+		observedAt: "2026-08-23T12:03:00.000Z",
+	};
+	assert.equal(Value.Check(MemberStatusResultSchema, { status: online }), true);
+	assert.equal(isMemberStatusResult({ status: online }), true);
+	assert.equal(isMemberStatusResult({ status: { ...online, activity: "unavailable" } }), false);
+	assert.equal(isMemberStatusResult({ status: { ...online, extra: true } }), false);
+	assert.equal(
+		isMemberStatusResult({ status: { ...online, member: { name: "Bob", role: "developer", socket: "x" } } }),
+		false,
+	);
+	assert.equal(isMemberStatusResult({ status: "nope" }), false);
+	assert.equal(isMemberStatusResult({ status: online, extra: true }), false);
+	assert.equal(methodResultSchema("member.status"), MemberStatusResultSchema);
+	assert.equal(methodResultSchema("member.status") === undefined, false);
+});
 
 test("presence hint uses a strict claimed identity schema and round-trips through JSON-RPC", () => {
 	const params = {

@@ -15,6 +15,8 @@ import {
 	registerSendToInboxTool,
 	registerBroadcastToCrewTool,
 	registerInterruptMemberTool,
+	registerGetMemberStatusTool,
+	registerUpdateMemberFocusTool,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
@@ -22,6 +24,7 @@ import { createPresenceObserverAdapter } from "./application/presence-adapter.ts
 import { sendRpcCommand } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
+import { isMemberStatusResult } from "./domain/index.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -106,9 +109,33 @@ export default function (pi: ExtensionAPI) {
 	registerSendToInboxTool(pi, state);
 	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
 	registerInterruptMemberTool(pi, state);
-	// Fresh load: membership tools are registered but must stay inactive until a
-	// successful join/restore (Pi auto-activates newly registered extension tools).
-	reconcileMembershipTools(pi, false);
+	registerGetMemberStatusTool(pi, state, {
+		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
+		requestStatus: async (endpoint, memberLabel) => {
+			try {
+				const resolved = await resolveMemberEndpoint(endpoint);
+				const { response } = await sendRpcCommand(
+					resolved,
+					{ type: "member_status", member: memberLabel },
+					{ timeout: 5000 },
+				);
+				if (!response.success)
+					return { ok: false, code: response.error === "timeout" ? "timeout" : "remote-rejected" };
+				if (!isMemberStatusResult(response.data)) return { ok: false, code: "malformed-response" };
+				return { ok: true, status: response.data.status };
+			} catch (error) {
+				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+				const message = error instanceof Error ? error.message : "";
+				if (/timed? ?out|timeout/i.test(message)) return { ok: false, code: "timeout" };
+				return { ok: false, code: "transport-error" };
+			}
+		},
+	});
+	registerUpdateMemberFocusTool(pi, state);
+	// Membership tools stay registered (getAllTools) and are deactivated at
+	// session_start before the first agent request: Pi's extension runtime does
+	// NOT allow action methods (getActiveTools/setActiveTools) during extension
+	// loading, so the unjoined reconcile must run in the session_start handler.
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};
