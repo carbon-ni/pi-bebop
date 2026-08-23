@@ -20,18 +20,41 @@ Cover exactly the eight membership-scoped tools registered by Bebop:
 |---|---|
 | `send_follow_up` | `member follow-up <member>` |
 | `redirect_member` | `member redirect <member>` |
-| `send_to_inbox` | `member inbox <member>` |
+| `send_to_inbox` | `member inbox send <member>` |
 | `broadcast_to_crew` | `crew broadcast` |
 | `interrupt_member` | `member interrupt <member>` |
 | `get_member_status` | `member status <member>` |
 | `update_member_focus` | `member focus set <text>` / `member focus clear` |
 | `wait_for_member_idle` | `member wait-idle <member>` |
 
-Commands execute as one existing joined Pi session, selected explicitly by
-`--session <id|alias>` or deterministically from `PI_SESSION_ID` when invoked
-inside Pi's Bash environment. Explicit flag wins; missing/unknown/unjoined source
-fails before member action IO. Target labels preserve current exact-name then
-unique-role semantics.
+Commands execute as one existing joined Pi session. `--session <id|alias>` is a
+leaf-command-local flag: accepted after the selected leaf command and before any
+`--` positional terminator, never as a root or group-global flag. A nonblank
+explicit flag wins over `PI_SESSION_ID`; the environment fallback accepts only a
+safe exact session id. Missing/unsafe/unknown/offline/unjoined source fails before
+member action IO. Target labels preserve current exact-name then unique-role
+semantics.
+
+Add `session list` as the bounded discovery surface for shell callers without
+`PI_SESSION_ID`. It reports reachable session id, safe aliases, and joined state
+only—never messages, prompts, model details, paths, instructions, or tool history.
+Empty output is explicit and includes the next step for starting/joining Pi.
+
+Follow-up and Redirect are accepted-delivery commands only. They expose no
+`wait_for` flag because delivery-level response correlation is unsupported;
+help and unknown-flag errors must say so rather than imply a reply guarantee.
+
+`member wait-idle --timeout` reuses the existing positive duration grammar
+(`500ms|30s|5m`) and defaults to `5m`; it accepts only values resolving exactly
+to 1–600 whole seconds and rejects sub-second/non-whole-second values without
+rounding. A separate fixed bounded connection/setup deadline is not the idle
+operation deadline. Source owns the semantic idle timeout; client transport must
+allow that deadline plus bounded response grace so semantic `timeout` wins the
+boundary race.
+
+Focus remains positional. Flags, including command-local `--session`, precede a
+standard `--` terminator when Focus begins with `-`, for example
+`member focus set --session lead -- --blocked`.
 
 This task approves names and contracts only. It must not make standalone CLI
 code load a manifest and impersonate a member.
@@ -40,11 +63,15 @@ code load a manifest and impersonate a member.
 
 - [ ] One matrix maps every tool input, default, success result, error code, delivery semantics, and cancellation behavior to one non-interactive CLI command.
 - [ ] Command names use stable product language and remain grouped under `member` or `crew`; no command collides with existing `send` or `crew init` behavior.
-- [ ] Source-session selection contract defines `--session`, `PI_SESSION_ID` fallback, precedence, alias/ID resolution, missing/offline/unjoined errors, and trust assumptions.
+- [ ] Source-session selection contract fixes command-local `--session` placement, explicit-over-environment precedence, safe ID/alias validation, alias/ID resolution, missing/offline/unjoined errors, local-socket trust assumptions, and copyable recovery hints.
+- [ ] `session list` provides deterministic bounded source discovery with explicit empty state and privacy exclusions; missing/unknown-session errors point to it.
 - [ ] Message-taking commands consistently support `--message` or `--stdin`, ordered `--instruction` where the tool does, UTF-8 limits, and deterministic empty-input errors.
 - [ ] Immediate redirect, normal follow-up, durable inbox, hard interrupt, and broadcast remain separate commands; CLI terminology does not blur their different guarantees.
-- [ ] Status/focus/wait commands preserve privacy boundaries, timeout bounds, self-target rejection, ambiguous-role handling, and focus set/clear semantics.
+- [ ] Follow-up/Redirect deliberately expose accepted-delivery only; CLI has no `wait_for` flag and explicitly states response correlation is unsupported.
+- [ ] Status/focus/wait commands preserve privacy boundaries, target-offline status semantics, self-target rejection, ambiguous-role handling, Focus set/clear semantics, and dash-leading Focus through `--`.
+- [ ] `--timeout` has one duration grammar across commands; idle wait separately defines connection/setup deadline, semantic operation deadline, response grace, and terminal precedence.
 - [ ] All outputs use existing TOON default and JSON/text opt-ins with exit 0/1/2; successful persistence/delivery never overclaims completion.
-- [ ] Root/home and local help expose the new commands compactly without dumping all tool documentation.
+- [ ] Inbox send syntax is effect-bearing (`member inbox send`) and reserves `member inbox status|pause|resume|cancel` for possible future local Inbox management.
+- [ ] Root/home and local help expose the new commands plus session discovery compactly without dumping all tool documentation.
 - [ ] Scope explicitly excludes Pi built-in tools (`read`, `bash`, `edit`, `write`) and covers Bebop membership tools only.
 
