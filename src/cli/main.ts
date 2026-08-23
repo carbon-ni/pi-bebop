@@ -38,9 +38,21 @@ function redactHome(value: string): string {
 }
 
 function requestedFormat(args: string[]): "toon" | "json" | "text" {
-	const index = args.indexOf("--format");
-	const value = index >= 0 ? args[index + 1] : undefined;
-	return value === "json" || value === "text" ? value : "toon";
+	// Usage errors must honor an explicitly requested output format even when
+	// parsing fails (TASK-0056 contract edge: both --format json and
+	// --format=json forms). Last occurrence wins, consistent with the parser.
+	let format: "toon" | "json" | "text" = "toon";
+	for (let index = 0; index < args.length; index += 1) {
+		const arg = args[index]!;
+		if (arg === "--format") {
+			const value = args[index + 1];
+			if (value === "json" || value === "text") format = value;
+		} else if (arg.startsWith("--format=")) {
+			const value = arg.slice("--format=".length);
+			if (value === "json" || value === "text") format = value;
+		}
+	}
+	return format;
 }
 
 function usage(error: UsageError, output: NodeJS.WritableStream, format: "toon" | "json" | "text"): number {
