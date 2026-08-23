@@ -23,6 +23,7 @@
 		"src/domain/crew-presence.ts",
 		"src/domain/crew-manifest.ts",
 		"src/domain/crew-intake.ts",
+		"src/domain/crew-broadcast.ts",
 		"src/domain/member-inbox.ts",
 		"src/domain/index.ts",
 		"src/domain/inbox-hint.ts",
