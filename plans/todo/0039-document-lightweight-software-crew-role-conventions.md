@@ -16,6 +16,8 @@ Bebop can remain small only if lead, product, developer, and quality responsibil
 
 Use TASK-0027 file-backed role instructions as composition mechanism. Bebop transports messages and identities only; instruction files teach software-development behavior using whatever plan, Git, review, and verification tools are available in host project.
 
+`docs/SOFTWARE-CREW-WORKFLOW.md` is target workflow reference: role responsibilities, communication ladder, end-to-end example, and explicit current/planned capability labels. Keep it aligned as dependent features land.
+
 Provide example, not mandatory framework. Crew manifest remains free to use other roles. Names identify members; roles describe responsibility, so examples should use repeated `developer` or `quality` roles rather than artificial `dev1`/`qa1` role vocabulary. Exact routing can use member name.
 
 ## Proposed role contracts
@@ -27,6 +29,7 @@ Provide example, not mandatory framework. Crew manifest remains free to use othe
 
 ## Acceptance criteria
 
+- [ ] `docs/SOFTWARE-CREW-WORKFLOW.md` remains aligned with final tool names/semantics and no longer marks implemented capabilities planned.
 - [ ] Repository includes concise example instruction files for lead, product, developer, and quality roles.
 - [ ] Each template defines mission, expected inputs, expected outputs, escalation/blocker behavior, and definition of done.
 - [ ] Templates use `send_follow_up`, `redirect_member`, `interrupt_member`, Inbox, Crew Intake, and Crew Broadcast according to final ubiquitous language.

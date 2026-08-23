@@ -1,7 +1,7 @@
 ---
 id: TASK-0044
 title: Define hard member interruption semantics
-status: todo
+status: doing
 depends_on: [TASK-0033]
 priority: high
 tags: [crew, interrupt, recovery, lifecycle, ubiquitous-language]
