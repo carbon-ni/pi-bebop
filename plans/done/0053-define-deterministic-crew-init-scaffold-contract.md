@@ -1,7 +1,7 @@
 ---
 id: TASK-0053
 title: Define deterministic crew init scaffold contract
-status: doing
+status: done
 depends_on: [TASK-0027,TASK-0039,TASK-0048]
 priority: normal
 tags: [crew, cli, init, scaffold, filesystem, axi, security]
