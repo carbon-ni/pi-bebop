@@ -3,11 +3,9 @@
 <img  width="250" alt="screenshot-2026-08-22_15-39-54" src="https://github.com/user-attachments/assets/9430855c-9060-4f1f-b7a8-e8d3b03ce232"  align="left"  />
 
 
-Give a small dysfunctional crew to your Pi agents. Bebop is self-contained: it
-owns its crew socket transport, project-local membership, and intent-based
-`send_follow_up`/`send_immediate` delivery.
+Give a small dysfunctional but effective crew to your Pi agents. 
 
-
+</br>
 </br>
 </br>
 </br>
