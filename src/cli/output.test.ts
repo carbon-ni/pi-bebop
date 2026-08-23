@@ -38,3 +38,39 @@ test("text emits only useful success output and concise errors", () => {
 		"Socket is offline",
 	);
 });
+
+const intakeResult = {
+	ok: true as const,
+	target: "/project/.pi/bebop/crew.json",
+	status: "persisted" as const,
+	response: "Persisted for Mary (po) — inbox item inbox-0-abc",
+	data: { ok: true, itemId: "inbox-0-abc", persisted: true, contact: "Mary", contactRole: "po" },
+};
+
+test("persisted intake output carries item id, contact, and persisted; never delivery/completion claims", () => {
+	const json = JSON.parse(renderCliResult(intakeResult, "json", false));
+	assert.equal(json.status, "persisted");
+	assert.deepEqual(json.data, {
+		ok: true,
+		itemId: "inbox-0-abc",
+		persisted: true,
+		contact: "Mary",
+		contactRole: "po",
+	});
+	for (const forbidden of ["delivered", "completed", "assigned", "answered"]) {
+		assert.ok(!JSON.stringify(json).toLowerCase().includes(forbidden), `forbidden word: ${forbidden}`);
+	}
+	const toon = decode(renderCliResult(intakeResult, "toon", false));
+	assert.deepEqual(toon, JSON.parse(renderCliResult(intakeResult, "json", false)));
+});
+
+test("persisted text output renders the one-way acknowledgement", () => {
+	assert.equal(renderCliResult(intakeResult, "text", false), "Persisted for Mary (po) — inbox item inbox-0-abc");
+});
+
+test("persisted text falls back to a neutral ack never 'completed'", () => {
+	assert.equal(
+		renderCliResult({ ok: true, target: "/x", status: "persisted", data: { itemId: "i" } }, "text", false),
+		"Message persisted",
+	);
+});

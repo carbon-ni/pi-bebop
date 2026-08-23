@@ -1,7 +1,7 @@
 ---
 id: TASK-0041
 title: Implement external crew intake with CLI adapter
-status: todo
+status: doing
 depends_on: [TASK-0038, TASK-0040]
 priority: high
 tags: [crew, external, cli, inbox, security]

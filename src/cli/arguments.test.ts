@@ -129,3 +129,49 @@ test("rejects missing, conflicting, invalid, duplicate, and unknown inputs", () 
 	];
 	for (const args of invalid) assert.throws(() => parseCliArguments(args, cwd), UsageError, args.join(" "));
 });
+
+test("requires exactly one of --socket or --crew with self-correcting usage", () => {
+	assert.throws(
+		() => parseCliArguments(["send", "--message", "hello"], cwd),
+		(error: unknown) => error instanceof UsageError && /exactly one target.*--socket.*--crew/.test(error.message),
+	);
+	assert.throws(
+		() =>
+			parseCliArguments(
+				["send", "--socket", "/tmp/a.sock", "--crew", ".pi/bebop/crew.json", "--message", "hello"],
+				cwd,
+			),
+		(error: unknown) => error instanceof UsageError && /exactly one target.*--socket.*--crew/.test(error.message),
+	);
+});
+
+test("parses a crew intake target and resolves the manifest path", () => {
+	const parsed = parseCliArguments(
+		["send", "--crew", ".pi/bebop/crew.json", "--message", "evaluate", "--from", "jira-automation"],
+		cwd,
+	);
+	assert.equal(parsed.crewPath, "/project/.pi/bebop/crew.json");
+	assert.equal(parsed.socketPath, undefined);
+	assert.deepEqual(parsed.origin, { kind: "external", label: "jira-automation" });
+	assert.equal(parsed.message, "evaluate");
+});
+
+test("rejects live-delivery flags with --crew and keeps --socket surface intact", () => {
+	const incompatible: Array<[string, string]> = [
+		["--mode", "follow_up"],
+		["--wait", "accepted"],
+		["--timeout", "30s"],
+	];
+	for (const [flag, value] of incompatible) {
+		const args = ["send", "--crew", ".pi/bebop/crew.json", "--message", "x", flag, value];
+		assert.throws(
+			() => parseCliArguments(args, cwd),
+			(error: unknown) => error instanceof UsageError && /not supported with --crew/.test(error.message),
+			`expected usage error for ${flag}`,
+		);
+	}
+	const direct = parseCliArguments(["send", "--socket", "/tmp/a.sock", "--message", "x", "--wait", "accepted"], cwd);
+	assert.equal(direct.socketPath, "/tmp/a.sock");
+	assert.equal(direct.crewPath, undefined);
+	assert.equal(direct.wait, "accepted");
+});
