@@ -92,7 +92,10 @@ legacy `{ type, ... }` envelope; JSON-RPC does not add authentication.
 
 Server status is `stopped`, `online`, or `joined`. A session publishes its
 socket and up to two aliases (session name and project/branch alias) under
-Bebop's own runtime directory.
+Bebop's own runtime directory. Extension installation and a server in `online`
+state keep crew tools registered but inactive and add no agent prompt context;
+only `joined` activates the five crew tools and injects identity, roster, and
+current role instructions. Crew management output is TUI-only while unjoined.
 
 ## Crew delivery
 
