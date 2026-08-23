@@ -5,7 +5,9 @@ export type CrewRosterRow = { readonly member: CrewMember; readonly status: Crew
 
 export function formatCrewRoster(manifestPath: string, rows: readonly CrewRosterRow[]): string {
 	const lines = [`Crew: ${manifestPath}`, `Members (${rows.length}):`];
-	for (const { member, status } of rows)
-		lines.push(`- ${member.name} (${member.role}) — ${status} — ${member.socketPath}`);
+	for (const { member, status } of rows) {
+		const description = member.description ? ` — ${member.description}` : "";
+		lines.push(`- ${member.name} (${member.role}) — ${status}${description} — ${member.socketPath}`);
+	}
 	return lines.join("\n");
 }

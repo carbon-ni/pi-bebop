@@ -19,3 +19,50 @@ test("formats rows in supplied manifest order without instructions or global tar
 		"Crew: /project/.pi/crew/crew.json\nMembers (1):\n- lead (lead) — current — /project/.pi/crew/sockets/lead.sock",
 	);
 });
+
+test("formats optional description on the same deterministic row, keeping status and endpoint positions", () => {
+	assert.equal(
+		formatCrewRoster("/project/.pi/crew/crew.json", [
+			{
+				member: {
+					name: "Bob",
+					role: "developer",
+					socket: "sockets/dev.sock",
+					socketPath: "/project/.pi/crew/sockets/dev.sock",
+					description: "Builds domain and application changes",
+				},
+				status: "current",
+			},
+			{
+				member: {
+					name: "Kelly",
+					role: "qa",
+					socket: "sockets/qa.sock",
+					socketPath: "/project/.pi/crew/sockets/qa.sock",
+				},
+				status: "offline",
+			},
+		]),
+		"Crew: /project/.pi/crew/crew.json\nMembers (2):\n- Bob (developer) — current — Builds domain and application changes — /project/.pi/crew/sockets/dev.sock\n- Kelly (qa) — offline — /project/.pi/crew/sockets/qa.sock",
+	);
+});
+
+test("roster keeps descriptions out of status and keeps status/endpoint tokens exact", () => {
+	const rows = [
+		{
+			member: {
+				name: "Dave",
+				role: "developer",
+				socket: "sockets/dave.sock",
+				socketPath: "/project/.pi/crew/sockets/dave.sock",
+				description: "Focuses on infra",
+			},
+			status: "online" as const,
+		},
+	];
+	const rendered = formatCrewRoster("/project/.pi/crew/crew.json", rows);
+	assert.match(rendered, /— online —/);
+	assert.match(rendered, /— Focuses on infra —/);
+	assert.match(rendered, /— \/project\/\.pi\/crew\/sockets\/dave\.sock$/);
+	assert.doesNotMatch(rendered, /current|offline/);
+});

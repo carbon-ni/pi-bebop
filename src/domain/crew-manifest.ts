@@ -3,6 +3,9 @@ import * as path from "node:path";
 export const CREW_MANIFEST_VERSION = 1 as const;
 export const DEFAULT_CREW_MANIFEST_FILE = "crew.json";
 
+/** Maximum UTF-8 byte length of an optional inline crew-visible member description. */
+export const MAX_MEMBER_DESCRIPTION_BYTES = 256;
+
 export interface CrewMember {
 	readonly name: string;
 	readonly role: string;
@@ -10,6 +13,8 @@ export interface CrewMember {
 	readonly socketPath: string;
 	readonly instructions?: string;
 	readonly instructionsFile?: string;
+	/** Stable manifest-authored, crew-visible specialty/responsibility summary. */
+	readonly description?: string;
 }
 
 export interface CrewPresenceConfig {
@@ -86,6 +91,27 @@ function requireText(value: unknown, field: string): string {
 	return value;
 }
 
+function requireDescription(value: unknown, field: string): string {
+	if (typeof value !== "string") {
+		invalid(`${field} must be a non-empty string`, "invalid-member");
+	}
+	const description = value;
+	if (description.trim().length === 0) invalid(`${field} must be a non-empty string`, "invalid-member");
+	if (description !== description.trim())
+		invalid(`${field} must not have leading or trailing whitespace`, "invalid-member");
+	if (/[\r\n]/.test(description)) invalid(`${field} must be a single line`, "invalid-member");
+	if (description.includes("\0")) invalid(`${field} must not contain NUL`, "invalid-member");
+	try {
+		encodeURIComponent(description);
+	} catch {
+		invalid(`${field} must be valid Unicode`, "invalid-member");
+	}
+	if (Buffer.byteLength(description, "utf8") > MAX_MEMBER_DESCRIPTION_BYTES) {
+		invalid(`${field} must be at most ${MAX_MEMBER_DESCRIPTION_BYTES} UTF-8 bytes`, "invalid-member");
+	}
+	return description;
+}
+
 export function resolveCrewMemberSocketPath(member: Pick<CrewMember, "socket">, manifestPath: string): string {
 	if (typeof manifestPath !== "string" || manifestPath.trim().length === 0 || manifestPath.includes("\0")) {
 		invalid("manifest path must be a non-empty path");
@@ -158,6 +184,11 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 		if (instructions !== undefined && instructionsFile !== undefined) {
 			invalid(`members[${index}] must define only one of instructions or instructionsFile`, "invalid-member");
 		}
+		const rawDescription = rawMember.description;
+		const validDescription =
+			rawDescription === undefined
+				? undefined
+				: requireDescription(rawDescription, `members[${index}].description`);
 		const validInstructions = typeof instructions === "string" ? instructions : undefined;
 		const validInstructionsFile = typeof instructionsFile === "string" ? instructionsFile : undefined;
 		if (validInstructionsFile !== undefined) {
@@ -184,6 +215,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 			socketPath: resolveCrewMemberSocketPath({ socket }, manifestPath),
 			...(validInstructions === undefined ? {} : { instructions: validInstructions }),
 			...(validInstructionsFile === undefined ? {} : { instructionsFile: validInstructionsFile }),
+			...(validDescription === undefined ? {} : { description: validDescription }),
 		};
 		const samePath = socketPaths.get(member.socketPath) ?? [];
 		samePath.push(member);

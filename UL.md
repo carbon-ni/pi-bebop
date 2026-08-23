@@ -13,6 +13,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Role**                 | Descriptive routing label for member; unique role may identify message target.                                                                                               | permission, authority                                  |
 | **Membership**           | Active relationship between Pi session and claimed crew member identity.                                                                                                     | connection, login                                      |
 | **Member endpoint**      | Project socket path that identifies configured member and resolves to active runtime socket.                                                                                 | session ID, alias, socket when product meaning matters |
+| **Member Description**   | Stable manifest-authored, crew-visible specialty or responsibility summary; it is not current work, authority, or routing identity.                                        | Focus, role instructions, permission, search key       |
 | **Presence**             | Last observed endpoint reachability of configured member.                                                                                                                    | availability, readiness, idle state                    |
 | **Role instructions**    | Stable member guidance loaded when membership starts or restores.                                                                                                            | prompt, message instructions                           |
 | **Message instructions** | Ordered guidance attached to one crew message.                                                                                                                               | role instructions                                      |
@@ -127,6 +128,7 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Interrupt/Redirect/Follow-up/Inbox/shutdown:** Follow-up waits; Redirect changes direction after current assistant tool calls without aborting; Inbox persists for later or offline handoff; Interrupt requests best-effort abort and recovery precedence; shutdown ends the runtime and is not message delivery or recovery.
 - **Immediate:** does not reveal that message redirects active work; prefer _redirect_.
 - **Instructions:** qualify as _role instructions_ or _message instructions_.
+- **Description/Focus/Role instructions:** Member Description is stable manifest-authored profile text; Focus is dynamic member-authored activity; Role instructions are behavioral guidance and are not a public profile. Descriptions must not contain secrets, credentials, customer data, or private prompt content.
 - **Socket/endpoint:** endpoint is product identity; socket is transport implementation.
 
 ## Sources
@@ -146,3 +148,4 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - `plans/done/0037-hand-inbox-messages-to-pi-follow-up-delivery.md`
 - `plans/todo/0040-define-external-crew-intake-feature.md`
 - `plans/todo/0044-define-hard-member-interruption-semantics.md`
+- `plans/todo/0048-add-crew-visible-member-descriptions.md`

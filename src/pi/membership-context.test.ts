@@ -60,3 +60,51 @@ test("injects concise identity exactly once per system prompt", () => {
 	assert.match(first, /Members: dev \(developer\), qa \(reviewer\)/);
 	assert.doesNotMatch(first, /message-context|per-message|Reply with evidence/);
 });
+
+test("joined context lists manifest-order name (role): description, keeping others concise and instructions separate", () => {
+	const withDescription = parseCrewManifest(
+		{
+			version: 1,
+			members: [
+				{
+					name: "Bob",
+					role: "developer",
+					socket: "sockets/bob.sock",
+					description: "Builds domain and application changes",
+				},
+				{ name: "Kelly", role: "qa", socket: "sockets/kelly.sock" },
+				{
+					name: "Dave",
+					role: "developer",
+					socket: "sockets/dave.sock",
+					description: "Focuses on infra",
+					instructions: "Secret role guidance",
+				},
+			],
+		},
+		manifestPath,
+	);
+	const joined: Membership = {
+		manifestPath,
+		socketPath: "/project/.pi/intray/sockets/bob.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: withDescription.members[0],
+		manifest: withDescription,
+	};
+	const rendered = formatMembershipContext(joined);
+	// Manifest order preserved; described members get ": description", others stay concise.
+	assert.match(
+		rendered,
+		/Members: Bob \(developer\): Builds domain and application changes, Kelly \(qa\), Dave \(developer\): Focuses on infra/,
+	);
+	// Role instructions remain a separate section, never merged into the roster list.
+	assert.doesNotMatch(rendered, /Secret role guidance/);
+	assert.match(rendered, /Role: developer/);
+});
+
+test("membership context without descriptions stays byte-compatible with prior concise form", () => {
+	const plain = formatMembershipContext(membership);
+	assert.match(plain, /Members: dev \(developer\), qa \(reviewer\)\nRole instructions: Build it/);
+	// No member gains a ": description" suffix when none is configured.
+	assert.doesNotMatch(plain, /\(developer\): |\(reviewer\): /);
+});

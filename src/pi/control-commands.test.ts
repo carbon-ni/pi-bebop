@@ -421,6 +421,42 @@ test("/crew members while unjoined gives exact guidance without probing", async 
 	assert.equal(setupState.messages.length, 0, "unjoined roster must not reach LLM context");
 });
 
+test("/crew members shows optional description on the same deterministic row", async () => {
+	const setupState = setup();
+	const members = [
+		{ name: "Bob", role: "dev", socket: "sockets/Bob.sock", socketPath: "/project/.pi/bebop/sockets/Bob.sock" },
+		{
+			name: "Dave",
+			role: "dev",
+			socket: "sockets/Dave.sock",
+			socketPath: "/project/.pi/bebop/sockets/Dave.sock",
+			description: "Focuses on infrastructure",
+		},
+	];
+	setupState.state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: members[0]!.socketPath,
+			globalSocketPath: "/global/uuid.sock",
+			member: members[0],
+			manifest: { version: 1, members },
+		}),
+	} as never;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({ probeMemberEndpoint: async () => false }),
+	);
+	await setupState.getCommand().handler("members", setupState.ctx);
+	const content = (setupState.entries[0]!.data as { content: string }).content;
+	assert.match(content, /- Bob \(dev\) — current — \/project\/\.pi\/bebop\/sockets\/Bob\.sock/);
+	assert.match(
+		content,
+		/- Dave \(dev\) — offline — Focuses on infrastructure — \/project\/\.pi\/bebop\/sockets\/Dave\.sock/,
+	);
+	assert.equal(setupState.messages.length, 0, "roster must stay out of LLM context");
+});
+
 test("/crew leave releases before broadcasting offline and stopping presence", async () => {
 	const setupState = setup();
 	const events: string[] = [];
