@@ -1,7 +1,7 @@
 ---
 id: TASK-0027
 title: Load member startup instructions from files
-status: doing
+status: todo
 depends_on: [TASK-0022]
 priority: high
 tags: [crew, instructions, manifest, security]
