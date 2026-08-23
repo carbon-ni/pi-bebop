@@ -104,7 +104,133 @@ test("joined context lists manifest-order name (role): description, keeping othe
 
 test("membership context without descriptions stays byte-compatible with prior concise form", () => {
 	const plain = formatMembershipContext(membership);
-	assert.match(plain, /Members: dev \(developer\), qa \(reviewer\)\nRole instructions: Build it/);
+	assert.match(
+		plain,
+		/Members: dev \(developer\), qa \(reviewer\)\nCrew contact: none \(Crew Intake disabled\)\nRole instructions: Build it/,
+	);
 	// No member gains a ": description" suffix when none is configured.
 	assert.doesNotMatch(plain, /\(developer\): |\(reviewer\): /);
+});
+
+test("joined context includes exactly one trusted Crew contact line when intake.contact is configured", () => {
+	const configured = parseCrewManifest(
+		{
+			version: 1,
+			intake: { contact: "Mary" },
+			members: [
+				{ name: "Bob", role: "developer", socket: "sockets/bob.sock" },
+				{ name: "Mary", role: "product", socket: "sockets/mary.sock" },
+				{ name: "Kelly", role: "qa", socket: "sockets/kelly.sock" },
+			],
+		},
+		manifestPath,
+	);
+	const joined: Membership = {
+		manifestPath,
+		socketPath: "/project/.pi/intray/sockets/bob.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: configured.members[0],
+		manifest: configured,
+	};
+	const rendered = formatMembershipContext(joined);
+	// Exactly one contact line, matching configured member name and role.
+	assert.equal(rendered.match(/Crew contact:/g)?.length, 1);
+	assert.match(rendered, /Crew contact: Mary \(product\) — external Intake triage/);
+	// Contact does not replace the roster or current identity.
+	assert.match(rendered, /Member: Bob/);
+	assert.match(rendered, /Members: Bob \(developer\), Mary \(product\), Kelly \(qa\)/);
+});
+
+test("joined context without intake shows the disabled line with no fallback", () => {
+	const rendered = formatMembershipContext(membership);
+	assert.equal(rendered.match(/Crew contact:/g)?.length, 1);
+	assert.match(rendered, /Crew contact: none \(Crew Intake disabled\)/);
+	// No lead/product/first/online member is inferred.
+	assert.doesNotMatch(rendered, /Crew contact: dev|Crew contact: qa/);
+});
+
+test("same contact line renders whether current member is contact or another member", () => {
+	const configured = parseCrewManifest(
+		{
+			version: 1,
+			intake: { contact: "Mary" },
+			members: [
+				{ name: "Bob", role: "developer", socket: "sockets/bob.sock" },
+				{ name: "Mary", role: "product", socket: "sockets/mary.sock" },
+			],
+		},
+		manifestPath,
+	);
+	const asBob: Membership = {
+		manifestPath,
+		socketPath: "/project/.pi/intray/sockets/bob.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: configured.members[0],
+		manifest: configured,
+	};
+	const asMary: Membership = {
+		manifestPath,
+		socketPath: "/project/.pi/intray/sockets/mary.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: configured.members[1],
+		manifest: configured,
+	};
+	const bobLine = formatMembershipContext(asBob)
+		.split("\n")
+		.find((line) => line.startsWith("Crew contact:"));
+	const maryLine = formatMembershipContext(asMary)
+		.split("\n")
+		.find((line) => line.startsWith("Crew contact:"));
+	assert.equal(bobLine, "Crew contact: Mary (product) — external Intake triage");
+	assert.equal(maryLine, "Crew contact: Mary (product) — external Intake triage");
+});
+
+test("contact line appears once per built system prompt and marker still prevents duplicate append", () => {
+	const configured = parseCrewManifest(
+		{
+			version: 1,
+			intake: { contact: "Mary" },
+			members: [
+				{ name: "Bob", role: "developer", socket: "sockets/bob.sock" },
+				{ name: "Mary", role: "product", socket: "sockets/mary.sock" },
+			],
+		},
+		manifestPath,
+	);
+	const joined: Membership = {
+		manifestPath,
+		socketPath: "/project/.pi/intray/sockets/bob.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: configured.members[0],
+		manifest: configured,
+	};
+	const first = appendMembershipContext("Base system", joined);
+	const second = appendMembershipContext(first, joined);
+	assert.equal(first, second);
+	assert.equal(first.match(/Crew contact:/g)?.length, 1);
+});
+
+test("contact line derives from the trusted manifest snapshot, not a duplicated role/name field or fallback", () => {
+	// The contact name resolves through manifest.members; the rendered role comes
+	// from that member's configured role, never from an inferred product/lead role.
+	const configured = parseCrewManifest(
+		{
+			version: 1,
+			intake: { contact: "Kelly" },
+			members: [
+				{ name: "Bob", role: "developer", socket: "sockets/bob.sock" },
+				{ name: "Kelly", role: "reviewer", socket: "sockets/kelly.sock" },
+			],
+		},
+		manifestPath,
+	);
+	const joined: Membership = {
+		manifestPath,
+		socketPath: "/project/.pi/intray/sockets/bob.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: configured.members[0],
+		manifest: configured,
+	};
+	const rendered = formatMembershipContext(joined);
+	assert.match(rendered, /Crew contact: Kelly \(reviewer\) — external Intake triage/);
 });

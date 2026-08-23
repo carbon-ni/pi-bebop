@@ -43,7 +43,17 @@ export function formatMembershipContext(membership: Membership): string {
 		)
 		.join(", ");
 	const instructions = membership.member.instructions ? `\nRole instructions: ${membership.member.instructions}` : "";
-	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}${instructions}`;
+	// Crew contact is the exact manifest member selected by intake.contact to triage
+	// unverified external Crew Intake. It is derived only from the trusted manifest
+	// snapshot; never inferred as lead/product/first/online, never a fallback, and
+	// never duplicated role/name fields. It grants no extra tool or visibility
+	// permission and is not an internal routing target.
+	const contactName = membership.manifest.intake?.contact;
+	const contact = contactName ? membership.manifest.members.find((member) => member.name === contactName) : undefined;
+	const contactLine = contact
+		? `Crew contact: ${contact.name} (${contact.role}) — external Intake triage`
+		: "Crew contact: none (Crew Intake disabled)";
+	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}\n${contactLine}${instructions}`;
 }
 
 export function appendMembershipContext(systemPrompt: string, membership: Membership | null): string {
