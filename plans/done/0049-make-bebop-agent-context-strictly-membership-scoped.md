@@ -1,7 +1,7 @@
 ---
 id: TASK-0049
 title: Make Bebop agent context strictly membership-scoped
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, context, tools, lifecycle, tokens, privacy]
