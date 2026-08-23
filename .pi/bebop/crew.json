@@ -1,7 +1,8 @@
 {
   "version": 1,
   "members": [
-    { "name": "lead", "role": "lead", "socket": "sockets/lead.sock" },
+    { "name": "Tony", "role": "lead", "socket": "sockets/lead.sock" },
+    { "name": "Mary", "role": "po", "socket": "sockets/po.sock" },
     { "name": "Bob", "role": "dev", "socket": "sockets/dev.sock" },
     { "name": "Dave", "role": "dev1", "socket": "sockets/dev1.sock" },
     { "name": "Kelly", "role": "qa", "socket": "sockets/qa.sock" },
