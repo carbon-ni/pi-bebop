@@ -16,6 +16,7 @@ const MAX_RESPONSE = 2000;
 export function renderCliResult(result: CliResult, format: CliFormat, full: boolean): string {
 	if (format === "text") {
 		if (!result.ok) return result.error?.message ?? "Operation failed";
+		if (result.status === "persisted") return result.response ?? "Message persisted";
 		return result.response ?? (result.status === "accepted" ? "Message accepted" : "Message completed");
 	}
 	const output: Record<string, unknown> = { ...result };

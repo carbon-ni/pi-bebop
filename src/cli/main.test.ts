@@ -3,7 +3,7 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -502,4 +502,133 @@ test(
 test("distinguishes permission denial from an offline endpoint", () => {
 	assert.equal(errorCode(Object.assign(new Error("denied"), { code: "EACCES" })), "permission-denied");
 	assert.equal(errorCode(Object.assign(new Error("missing"), { code: "ENOENT" })), "offline");
+});
+
+import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
+
+async function withCrewManifest(
+	contact: string | undefined,
+	run: (manifestPath: string) => Promise<void>,
+): Promise<void> {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-intake-"));
+	const layout = path.join(dir, ".pi", "bebop");
+	const sockets = path.join(layout, "sockets");
+	await mkdir(sockets, { recursive: true });
+	const manifestPath = path.join(layout, "crew.json");
+	const members = [
+		{ name: "Mary", role: "po", socket: "sockets/po.sock" },
+		{ name: "Bob", role: "dev", socket: "sockets/dev.sock" },
+	];
+	await writeFile(
+		manifestPath,
+		JSON.stringify({ version: 1, members, ...(contact === undefined ? {} : { intake: { contact } }) }),
+	);
+	try {
+		await run(manifestPath);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+}
+
+function capture() {
+	const output = new PassThrough();
+	let text = "";
+	output.setEncoding("utf8");
+	output.on("data", (chunk) => {
+		text += chunk;
+	});
+	return { output, text: () => text };
+}
+
+test("--crew persists one-way intake for the configured contact while offline", async () => {
+	await withCrewManifest("Mary", async (manifestPath) => {
+		const { output, text } = capture();
+		const code = await runCli(
+			[
+				"send",
+				"--crew",
+				manifestPath,
+				"--message",
+				"evaluate this request",
+				"--from",
+				"jira-automation",
+				"--format",
+				"json",
+			],
+			process.cwd(),
+			process.stdin,
+			output,
+		);
+		assert.equal(code, 0);
+		const parsed = JSON.parse(text());
+		assert.equal(parsed.status, "persisted");
+		assert.equal(parsed.data.contact, "Mary");
+		assert.equal(parsed.data.contactRole, "po");
+		assert.equal(parsed.data.persisted, true);
+		assert.match(parsed.data.itemId, /^inbox-/);
+		for (const forbidden of ["delivered", "completed", "assigned", "answered"]) {
+			assert.ok(!text().toLowerCase().includes(forbidden), `forbidden word: ${forbidden}`);
+		}
+	});
+});
+
+test("--crew without a configured contact reports external-intake-disabled", async () => {
+	await withCrewManifest(undefined, async (manifestPath) => {
+		const { output, text } = capture();
+		const code = await runCli(
+			["send", "--crew", manifestPath, "--message", "x", "--format", "json"],
+			process.cwd(),
+			process.stdin,
+			output,
+		);
+		assert.equal(code, 1);
+		assert.equal(JSON.parse(text()).error.code, "external-intake-disabled");
+	});
+});
+
+test("--crew outside an exact supported layout reports untrusted-path", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-intake-layout-"));
+	try {
+		const manifestPath = path.join(dir, "crew.json");
+		await writeFile(manifestPath, JSON.stringify({ version: 1, members: [] }));
+		const { output, text } = capture();
+		const code = await runCli(
+			["send", "--crew", manifestPath, "--message", "x", "--format", "json"],
+			process.cwd(),
+			process.stdin,
+			output,
+		);
+		assert.equal(code, 1);
+		assert.equal(JSON.parse(text()).error.code, "untrusted-path");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("--crew with a full contact inbox reports inbox-full", async () => {
+	await withCrewManifest("Mary", async (manifestPath) => {
+		const projectRoot = path.dirname(path.dirname(path.dirname(manifestPath)));
+		const store = await openTrustedMemberInboxStore({
+			manifestPath,
+			projectRoot,
+			isProjectTrusted: () => true,
+			member: {
+				name: "Mary",
+				role: "po",
+				socketPath: path.join(path.dirname(manifestPath), "sockets", "po.sock"),
+			},
+		});
+		for (let index = 0; index < 64; index += 1) {
+			await store.enqueue({ content: `fill-${index}` }, 1000 + index);
+		}
+		const { output, text } = capture();
+		const code = await runCli(
+			["send", "--crew", manifestPath, "--message", "overflow", "--format", "json"],
+			process.cwd(),
+			process.stdin,
+			output,
+		);
+		assert.equal(code, 1);
+		assert.equal(JSON.parse(text()).error.code, "inbox-full");
+	});
 });

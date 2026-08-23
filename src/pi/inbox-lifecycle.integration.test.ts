@@ -379,3 +379,46 @@ test("spoofed origin is stored as attribution only; the handoff still reaches th
 		| undefined;
 	assert.deepEqual(payload?.origin, { kind: "crew", name: "lead", role: "lead" });
 });
+
+import { submitExternalIntake } from "../application/external-intake.ts";
+import { parseCrewManifest } from "../domain/index.ts";
+
+test("external intake persists for an offline contact and later hands off as a follow-up", async (t) => {
+	const crew = await makeCrew();
+	t.after(crew.cleanup);
+
+	// Configure the crew contact (exact member name) and submit intake while offline.
+	const manifestWithIntake = {
+		version: 1,
+		members: crew.members.map((member) => ({ ...member })),
+		intake: { contact: "developer" },
+	};
+	await fs.writeFile(crew.manifestPath, JSON.stringify(manifestWithIntake));
+	const ack = await submitExternalIntake(
+		{ manifestPath: crew.manifestPath, label: "jira-automation", content: "evaluate the proposal" },
+		{
+			loadManifest: async (manifestPath) =>
+				parseCrewManifest(JSON.parse(await fs.readFile(manifestPath, "utf8")), manifestPath),
+			openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
+		},
+	);
+	assert.equal(ack.contact, "developer");
+	assert.equal(ack.persisted, true);
+	assert.match(ack.itemId, /^inbox-/);
+	assert.ok(!JSON.stringify(ack).includes("replyTo"));
+	assert.equal(await (await storeFor(crew, "developer")).count(), 1, "contact offline but item persisted");
+
+	// Contact later joins; TASK-0037 hands the oldest item over as a follow-up.
+	const recipient = session(crew, "developer");
+	recipient.bridge.establish(ownershipFromMembership(recipient.membership));
+	const outcome = await recipient.bridge.attemptOffer();
+	assert.equal(outcome.offered, true);
+	assert.equal(outcome.itemId, ack.itemId);
+	const payload = (recipient.sent[0]!.message.details as { messagePayload: { origin?: unknown } }).messagePayload;
+	assert.deepEqual(payload.origin, { kind: "external", label: "jira-automation" });
+	assert.deepEqual(recipient.sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
+
+	// Durable evidence removes the item on the next trigger.
+	assert.deepEqual(await recipient.bridge.attemptOffer(), { offered: false, reason: "no-items" });
+	assert.equal(await (await storeFor(crew, "developer")).count(), 0);
+});

@@ -204,6 +204,35 @@ clarify, or forward internally); Bebop does not classify content, pick a
 worker, or track intake as accepted work. The command-line intake surface is
 not yet available.
 
+#### One-way intake from the CLI
+
+`pi-bebop send` accepts exactly one target: `--socket` for direct live
+delivery, or `--crew <manifest>` for durable one-way intake through the
+configured contact:
+
+```bash
+pi-bebop send --crew .pi/bebop/crew.json \
+  --message "Please evaluate this product request" \
+  --from "jira-automation"
+```
+
+Output is a persisted acknowledgement with the stable item id and the
+contact's name/role — never delivered, completed, assigned, or answered. The
+contact may be offline; no endpoint probe or running Pi session is required.
+`--from` is stored as a claimed, unverified external label; a crew origin can
+never be claimed through the CLI.
+
+The explicit `--crew` path is caller consent: the CLI enforces the exact
+supported layout (`.pi/bebop` or `.pi/crew`) and filesystem permissions, but
+it never reports the project as Pi-trusted. With no configured contact the CLI
+reports `external-intake-disabled`; unsafe layout, full inbox, malformed
+messages, and persistence failures each have distinct stable errors and
+nonzero exit codes.
+
+External intake is one-way and has no auth, callbacks, broadcasts, or
+task/Git integration: the external actor cannot read responses, and Bebop does
+not route, classify, or dispatch the message to a worker.
+
 ## Development
 
 ```bash

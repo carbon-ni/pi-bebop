@@ -4,7 +4,8 @@ import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../dom
 export type CliFormat = "toon" | "json" | "text";
 export interface SendCliOptions {
 	command: "send";
-	socketPath: string;
+	socketPath?: string;
+	crewPath?: string;
 	message?: string;
 	instructions: string[];
 	origin?: { kind: "external"; label: string };
@@ -39,6 +40,7 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 	let full = false;
 	const valueFlags = new Set([
 		"--socket",
+		"--crew",
 		"--message",
 		"--mode",
 		"--wait",
@@ -89,7 +91,19 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 		values.set(flag, value);
 	}
 	const socket = values.get("--socket");
-	if (!socket) throw new UsageError("Missing required --socket <path>");
+	const crew = values.get("--crew");
+	if ((socket === undefined) === (crew === undefined))
+		throw new UsageError(
+			"Choose exactly one target: --socket <path> for direct delivery or --crew <manifest> for durable intake",
+		);
+	if (crew !== undefined) {
+		for (const incompatible of ["--mode", "--wait", "--timeout"]) {
+			if (values.has(incompatible))
+				throw new UsageError(
+					`${incompatible} is not supported with --crew; external intake is one-way persisted delivery`,
+				);
+		}
+	}
 	const message = values.get("--message");
 	const from = values.get("--from");
 	if (from !== undefined) {
@@ -120,7 +134,8 @@ export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliO
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return {
 		command: "send",
-		socketPath: path.resolve(cwd, socket),
+		...(socket === undefined ? {} : { socketPath: path.resolve(cwd, socket) }),
+		...(crew === undefined ? {} : { crewPath: path.resolve(cwd, crew) }),
 		message,
 		instructions,
 		...(origin === undefined ? {} : { origin }),
