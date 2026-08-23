@@ -16,18 +16,23 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Presence** | Last observed endpoint reachability of configured member. | availability, readiness, idle state |
 | **Role instructions** | Stable member guidance loaded when membership starts or restores. | prompt, message instructions |
 | **Message instructions** | Ordered guidance attached to one crew message. | role instructions |
+| **Crew Intake** *(proposed)* | One-way feature that accepts external message for crew and hands it durably to configured crew contact. | inbox, broadcast, API gateway |
+| **External actor** *(proposed)* | Local process or Pi session that sends crew message without joined member identity. | crew member, authenticated caller |
+| **Crew contact** *(proposed)* | Explicitly configured member responsible for triaging Crew Intake messages; product owner is recommended for software crews but never inferred. | lead by default, first online member |
 
 ## Collaboration language
 
 | Canonical term | Definition | Avoid |
 | --- | --- | --- |
 | **Member message** | Structured communication sent from current member to another crew member. | command, RPC, payload |
+| **Enqueue** | Act of persisting an Inbox item for a member; succeeds without recipient liveness and never implies delivery, start, or completion. | send, deliver, assign |
 | **Follow-up** | Normal online member message delivered after target finishes active work when target is busy. | deferred, inbox, non-urgent |
 | **Redirect** | Explicit member message inserted into active work to change what target is doing now. | immediate, steer in product-facing language |
-| **Inbox** *(proposed)* | Durable per-member message queue accepted while recipient may be offline and handed to Pi later as normal follow-up. | task board, workflow engine, mailbox UI |
-| **Inbox item** *(proposed)* | Persisted structured member message with stable identity for restart-safe handoff. | task, assignment state, completed work |
+| **Inbox** | Durable per-member message queue accepted while recipient may be offline and handed to Pi later as normal follow-up. | task board, workflow engine, mailbox UI |
+| **Inbox item** | Persisted structured member message with stable identity for restart-safe handoff. | task, assignment state, completed work |
+| **External crew message** *(proposed)* | Unverified one-way message accepted by Crew Intake and addressed to configured crew contact through Inbox. | broadcast, authenticated request, task |
 | **Accepted** | Target endpoint validated and live delivery request acknowledged. | delivered, completed, persisted |
-| **Persisted** *(proposed)* | Inbox item durably stored; it does not mean offered, started, completed, or answered. | delivered, accepted |
+| **Persisted** | Inbox item durably stored; it does not mean offered, started, completed, or answered. | delivered, accepted |
 | **Direct** | Accepted message started target work while target was idle. | synchronous |
 | **Queued** | Accepted follow-up waits behind target active work in transient session queue. | inbox, pending response |
 | **Redirected** | Accepted redirect entered target active turn. | steered in product-facing language |
@@ -51,7 +56,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | --- | --- | --- |
 | Send normal online crew communication | `send_follow_up` | Established Pi term for non-interrupting delivery; does not imply durable storage. |
 | Change target active work now | `redirect_member` | Names consequence and urgency, not transport timing. |
-| Leave durable message for online or offline peer *(proposed)* | `send_to_inbox` | Honest only once durable inbox contract exists. |
+| Leave durable message for online or offline peer | `send_to_inbox` | Durable per-member queue; persists even if recipient offline. |
 
 Current `send_follow_up` is canonical normal delivery. Current `send_immediate` describes timing but not that active work may be changed; prefer `redirect_member`. Current `send_to_member` is overloaded with send/read/clear and session/socket targeting; it does not represent one crew-domain action and should not remain a Bebop crew tool.
 
@@ -65,6 +70,9 @@ Member is reached through Member endpoint
 Current member sends Member message
 Live Member message is either Follow-up or Redirect
 Accepted live message has Direct, Queued, or Redirected disposition
+Crew manifest explicitly selects Crew contact
+Crew Intake accepts External crew message and addresses configured Crew contact
+Crew Intake persists External crew message through Inbox
 Inbox persists Inbox items independently from endpoint presence
 Bebop hands Inbox item to Pi as normal Follow-up without managing recipient workflow
 Presence observes Member endpoint; it does not prove availability
@@ -82,7 +90,7 @@ Use `redirect_member({ member: "Bob", message: "Stop and inspect crew-manifest-s
 
 > Bob is offline; leave TASK-0035 for his next idle period.
 
-After inbox exists, use `send_to_inbox({ member: "Bob", message: "Implement TASK-0035" })`.
+Use `send_to_inbox({ member: "Bob", message: "Implement TASK-0035" })`.
 
 > Is Bob available?
 
@@ -90,6 +98,8 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 
 ## Flagged ambiguities
 
+- **Crew Intake/inbox:** Crew Intake is external-facing feature; Inbox is durable per-member delivery mechanism it reuses.
+- **Crew/contact:** messaging crew does not broadcast; configured crew contact owns triage, not automatic acceptance or execution.
 - **Agent/session/member:** use *member* for crew identity, *Pi session* for runtime conversation, and *agent* only for general actor.
 - **Online/available:** online means endpoint reachable; it does not mean idle, ready, or responsive.
 - **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or response produced.
@@ -111,3 +121,4 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - `plans/done/0031-split-crew-follow-up-and-immediate-messaging-tools.md`
 - `plans/todo/0033-align-crew-messaging-tool-names-with-delivery-intent.md`
 - `plans/todo/0034-define-durable-member-inbox-semantics.md`
+- `plans/todo/0040-define-external-crew-intake-feature.md`

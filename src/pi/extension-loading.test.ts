@@ -40,7 +40,7 @@ test("registers crew delivery surfaces with the structured session tool", () => 
 
 	assert.doesNotThrow(() => extension(pi));
 	assert.deepEqual(flags, ["crew", "crew-socket"]);
-	assert.deepEqual(tools, ["send_follow_up", "send_immediate", "send_to_member"]);
+	assert.deepEqual(tools, ["send_follow_up", "send_immediate", "send_to_inbox", "send_to_member"]);
 	assert.deepEqual(commands, ["crew"]);
 	assert.equal(renderers.includes("crew-presence"), true);
 });
