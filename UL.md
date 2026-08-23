@@ -29,6 +29,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Enqueue**               | Act of persisting an Inbox item for a member; succeeds without recipient liveness and never implies delivery, start, or completion. | send, deliver, assign                                 |
 | **Follow-up**             | Normal online member message delivered after target finishes active work when target is busy.                                       | deferred, inbox, non-urgent                           |
 | **Redirect**              | Explicit member message inserted into active work to change what target is doing now.                                               | immediate, steer in product-facing language           |
+| **Interrupt**             | Destructive internal live recovery operation that requests best-effort abort and puts persisted recovery guidance ahead of older queued Follow-ups; it never rewinds or rolls back side effects. | redirect, shutdown, kill, rollback                     |
 | **Inbox**                 | Durable per-member message queue accepted while recipient may be offline and handed to Pi later as normal follow-up.                | task board, workflow engine, mailbox UI               |
 | **Inbox item**            | Persisted structured member message with stable identity for restart-safe handoff.                                                  | task, assignment state, completed work                |
 | **External crew message** | Unverified one-way message accepted by Crew Intake and addressed to the configured crew contact through Inbox.                      | broadcast, authenticated request, task                |
@@ -58,6 +59,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | ------------------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------- |
 | Send normal online crew communication            | `send_follow_up`    | Established Pi term for non-interrupting delivery; does not imply durable storage.                  |
 | Change target active work now                    | `redirect_member`   | Names consequence and urgency, not transport timing.                                                |
+| Abort target active work for recovery *(planned)* | `interrupt_member` | Pi 0.84.2 precedence is proven; the public tool arrives with TASK-0045.                      |
 | Leave durable message for online or offline peer | `send_to_inbox`     | Durable per-member queue; persists even if recipient offline.                                       |
 | Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
 
@@ -89,6 +91,7 @@ Each Crew Broadcast recipient receives own Inbox item through normal Follow-up
 Inbox item is removed only after durable session evidence records its Handoff
 Bebop hands Inbox item to Pi as normal Follow-up without managing recipient workflow
 Presence observes Member endpoint; it does not prove availability
+Busy Interrupt persists pending recovery, requests abort, then hands recovery guidance before older queued Follow-ups
 ```
 
 ## Example dialogue
@@ -121,6 +124,7 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or response produced.
 - **Follow-up/inbox:** follow-up requires online target and uses transient Pi delivery; inbox survives recipient downtime and restarts.
 - **Follow-up:** in ordinary conversation it can mean another conversational message; in Bebop it specifically means safe queued delivery when target is busy.
+- **Interrupt/Redirect/Follow-up/Inbox/shutdown:** Follow-up waits; Redirect changes direction after current assistant tool calls without aborting; Inbox persists for later or offline handoff; Interrupt requests best-effort abort and recovery precedence; shutdown ends the runtime and is not message delivery or recovery.
 - **Immediate:** does not reveal that message redirects active work; prefer _redirect_.
 - **Instructions:** qualify as _role instructions_ or _message instructions_.
 - **Socket/endpoint:** endpoint is product identity; socket is transport implementation.
@@ -141,3 +145,4 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - `plans/done/0036-add-member-inbox-enqueue-operation-and-tool.md`
 - `plans/done/0037-hand-inbox-messages-to-pi-follow-up-delivery.md`
 - `plans/todo/0040-define-external-crew-intake-feature.md`
+- `plans/todo/0044-define-hard-member-interruption-semantics.md`

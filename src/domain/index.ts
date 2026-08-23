@@ -11,6 +11,7 @@ export * from "./session-filter.ts";
 export * from "./crew-manifest.ts";
 export * from "./crew-intake.ts";
 export * from "./crew-broadcast.ts";
+export * from "./member-interrupt.ts";
 export * from "./crew-roster.ts";
 export * from "./crew-presence.ts";
 export * from "./presence.ts";
