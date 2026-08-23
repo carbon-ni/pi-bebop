@@ -59,7 +59,11 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | Change target active work now | `redirect_member` | Names consequence and urgency, not transport timing. |
 | Leave durable message for online or offline peer | `send_to_inbox` | Durable per-member queue; persists even if recipient offline. |
 
-Current `send_follow_up` is canonical normal delivery. Current `send_immediate` describes timing but not that active work may be changed; prefer `redirect_member`. Current `send_to_member` is overloaded with send/read/clear and session/socket targeting; it does not represent one crew-domain action and should not remain a Bebop crew tool.
+`send_follow_up` is canonical normal delivery. `redirect_member` names the
+consequence (changing active work), not transport timing. Legacy
+`send_immediate` and overloaded `send_to_member` are removed: `send_to_member`
+mixed send/read/clear with session/socket targeting and did not represent one
+crew-domain action.
 
 ## Relationships
 

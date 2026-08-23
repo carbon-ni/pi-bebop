@@ -133,7 +133,7 @@ send_follow_up({
 })
 ```
 
-Use `send_immediate` only when the message should redirect active work. Both
+Use `redirect_member` only when the message should change active work. Both
 return an accepted delivery acknowledgement with `deliveryId` and disposition
 (`direct`, `queued`, or `steered`). `wait_for: response` is explicitly
 unsupported because Pi lifecycle events cannot prove delivery-level response
@@ -182,7 +182,7 @@ idempotent.
 messages; it does not track whether a software task was completed, and it has
 no Git, review, CI, or worktree integration. It never claims exactly-once
 execution. For live communication use `send_follow_up`; to change what a
-member is doing right now use `send_immediate`.
+member is doing right now use `redirect_member`.
 
 ## Development
 

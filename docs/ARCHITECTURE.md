@@ -20,7 +20,7 @@ src/domain  <-  src/infra  <-  src/pi / src/tools
 - `src/pi/` — flags, `/crew` command, renderer, lifecycle hooks, and socket
   runtime composition.
 - `src/tools/` — discoverable Pi tool registrations. Bebop registers only
-  `send_follow_up` and `send_immediate`.
+  `send_follow_up`, `redirect_member`, and `send_to_inbox`.
 - `src/**/*.test.ts` — deterministic colocated `node:test` coverage.
 
 ## Isolation and configuration
@@ -96,9 +96,9 @@ Bebop's own runtime directory.
 
 ## Crew delivery
 
-`send_follow_up` and `send_immediate` are thin intent adapters over
+`send_follow_up` and `redirect_member` are thin intent adapters over
 `src/application/member-message.ts`. Follow-up is the normal/default path and
-maps to queued delivery while busy; immediate is opt-in and maps to steering
+maps to queued delivery while busy; redirect is opt-in and maps to steering
 active work. Both return schema-validated `deliveryId`/disposition
 acknowledgements without subscribing to global `turn_end`. Response waiting is
 rejected because Pi lifecycle events cannot prove delivery-level correlation.

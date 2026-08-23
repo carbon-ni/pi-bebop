@@ -2,8 +2,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import { renderCrewPresence, renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts";
-import { registerSendFollowUpTool, registerSendImmediateTool, registerSendToInboxTool } from "./tools/index.ts";
-import { registerMemberTool } from "./tools/send-to-member.ts";
+import { registerSendFollowUpTool, registerRedirectMemberTool, registerSendToInboxTool } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
@@ -35,13 +34,6 @@ import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
-
-export function resolveCurrentCrewOrigin(state: ReturnType<typeof createSocketState>) {
-	const membership = state.membershipRuntime?.getMembership();
-	return membership
-		? { kind: "crew" as const, name: membership.member.name, role: membership.member.role }
-		: undefined;
-}
 
 /** Crew management with its own namespaced socket transport. */
 export default function (pi: ExtensionAPI) {
@@ -79,9 +71,8 @@ export default function (pi: ExtensionAPI) {
 		coordinator: createMemberMessageCoordinator(),
 	};
 	registerSendFollowUpTool(pi, state, memberMessageDependencies);
-	registerSendImmediateTool(pi, state, memberMessageDependencies);
+	registerRedirectMemberTool(pi, state, memberMessageDependencies);
 	registerSendToInboxTool(pi, state);
-	registerMemberTool(pi, state, { getCurrentCrewOrigin: () => resolveCurrentCrewOrigin(state) });
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};
