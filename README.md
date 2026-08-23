@@ -184,6 +184,26 @@ no Git, review, CI, or worktree integration. It never claims exactly-once
 execution. For live communication use `send_follow_up`; to change what a
 member is doing right now use `redirect_member`.
 
+### External crew intake (defined)
+
+External sessions, scripts, and local automation can address a member socket,
+but leaving a durable message _for the crew_ requires one configured contact.
+The manifest may select it by exact member name:
+
+```json
+{"version":1,"members":[...],"intake":{"contact":"Mary"}}
+```
+
+Without `intake`, external crew intake is disabled — Bebop never falls back to
+a lead, product owner, or first-online member. Messages are one-way and
+unverified (the external label is claimed, never authenticated); they are
+persisted to the contact's inbox and may arrive while the contact is offline.
+The product owner is the recommended contact for software crews, but any
+configured member can be selected. The contact triages intake (ignore,
+clarify, or forward internally); Bebop does not classify content, pick a
+worker, or track intake as accepted work. The command-line intake surface is
+not yet available.
+
 ## Development
 
 ```bash

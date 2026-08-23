@@ -1,7 +1,7 @@
 ---
 id: TASK-0040
 title: Define external crew intake feature
-status: todo
+status: doing
 depends_on: [TASK-0034]
 priority: high
 tags: [crew, external, intake, manifest, ubiquitous-language]

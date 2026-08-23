@@ -16,10 +16,16 @@ export interface CrewPresenceConfig {
 	readonly notifications: boolean;
 }
 
+/** Optional external intake: selects the exact crew contact by member name. */
+export interface CrewIntakeConfig {
+	readonly contact: string;
+}
+
 export interface CrewManifest {
 	readonly version: typeof CREW_MANIFEST_VERSION;
 	readonly members: readonly CrewMember[];
 	readonly presence: CrewPresenceConfig;
+	readonly intake?: CrewIntakeConfig;
 }
 
 export type CrewManifestErrorCode =
@@ -29,6 +35,8 @@ export type CrewManifestErrorCode =
 	| "invalid-member"
 	| "invalid-socket-path"
 	| "invalid-instructions-file"
+	| "invalid-intake-config"
+	| "invalid-intake-contact"
 	| "duplicate-member-name"
 	| "duplicate-socket-path";
 
@@ -188,7 +196,36 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 			throw new CrewManifestError("duplicate-socket-path", `duplicate socket path: ${socketPath}`);
 		}
 	}
-	return { version: CREW_MANIFEST_VERSION, members, presence };
+
+	let intake: CrewIntakeConfig | undefined;
+	const rawIntake = input.intake;
+	if (rawIntake !== undefined) {
+		if (!isRecord(rawIntake)) invalid("intake must be an object", "invalid-intake-config");
+		const keys = Object.keys(rawIntake);
+		if (keys.length !== 1 || keys[0] !== "contact")
+			invalid("intake must contain only the contact field", "invalid-intake-config");
+		const contact = rawIntake.contact;
+		if (
+			typeof contact !== "string" ||
+			contact.trim().length === 0 ||
+			contact !== contact.trim() ||
+			contact.includes("\0")
+		)
+			invalid("intake.contact must be a non-empty trimmed member name", "invalid-intake-config");
+		if (!names.has(contact))
+			throw new CrewManifestError(
+				"invalid-intake-contact",
+				`intake contact is not a configured member: ${contact}`,
+			);
+		intake = { contact };
+	}
+
+	return {
+		version: CREW_MANIFEST_VERSION,
+		members,
+		presence,
+		...(intake === undefined ? {} : { intake }),
+	};
 }
 
 export function lookupCrewMemberBySocketPath(manifest: CrewManifest, socketPath: string): CrewMemberLookup {
