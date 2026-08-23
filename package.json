@@ -20,6 +20,7 @@
 		"src/domain/crew-roster.ts",
 		"src/domain/crew-presence.ts",
 		"src/domain/crew-manifest.ts",
+		"src/domain/member-inbox.ts",
 		"src/domain/index.ts",
 		"src/domain/messages.ts",
 		"src/domain/message-payload.ts",
