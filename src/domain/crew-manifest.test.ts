@@ -5,6 +5,7 @@ import {
 	CrewManifestError,
 	CrewMemberLookupError,
 	lookupCrewMemberBySocketPath,
+	MAX_MEMBER_DESCRIPTION_BYTES,
 	parseCrewManifest,
 	resolveCrewMemberSocketPath,
 	resolveCrewMemberBySocketPath,
@@ -181,6 +182,93 @@ describe("crew manifest", () => {
 			() => resolveCrewMemberBySocketPath(manifest, "/repo/.pi/intray/sockets/unknown.sock"),
 			(error: unknown) => error instanceof CrewMemberLookupError && error.code === "no-match",
 		);
+	});
+});
+
+describe("crew member descriptions", () => {
+	const base = { version: 1, members: [{ name: "Bob", role: "developer", socket: "sockets/dev.sock" }] };
+
+	test("optional nonblank description parses and round-trips inline", () => {
+		const result = parseCrewManifest(
+			{
+				...base,
+				members: [
+					{
+						name: "Bob",
+						role: "developer",
+						socket: "sockets/dev.sock",
+						description: "Builds domain and application changes",
+					},
+				],
+			},
+			"/repo/.pi/intray/crew.json",
+		);
+		assert.equal(result.members[0]!.description, "Builds domain and application changes");
+		// Descriptions stay inline on the member; no new top-level shape appears.
+		assert.equal(result.members[0]!.name, "Bob");
+		assert.equal(result.members[0]!.socketPath, "/repo/.pi/intray/sockets/dev.sock");
+	});
+
+	test("absent description preserves the manifest unchanged (backwards compatible)", () => {
+		const result = parseCrewManifest(base);
+		assert.equal("description" in result.members[0]!, false);
+		assert.deepEqual(Object.keys(result.members[0]!).sort(), ["name", "role", "socket", "socketPath"]);
+	});
+
+	test("strict description schema rejects blank, padded, multiline, wrong-type, NUL, and invalid Unicode", () => {
+		const cases: unknown[] = [
+			{ description: "" },
+			{ description: "   " },
+			{ description: "  padded  " },
+			{ description: "line1\nline2" },
+			{ description: "line1\rline2" },
+			{ description: 42 },
+			{ description: true },
+			{ description: ["Builds"] },
+			{ description: { text: "Builds" } },
+			{ description: "valid\u0000description" },
+			{ description: "lone surrogate \uD800 here" },
+		];
+		for (const descriptionField of cases) {
+			assert.throws(
+				() => parseCrewManifest({ ...base, members: [{ ...base.members[0], ...descriptionField }] }),
+				(error: unknown) =>
+					error instanceof CrewManifestError &&
+					error.code === "invalid-member" &&
+					error.message.includes("members[0].description"),
+				`expected member-specific description rejection for ${JSON.stringify(descriptionField)}`,
+			);
+		}
+	});
+
+	test("description is bounded to 256 UTF-8 bytes under the named constant", () => {
+		const ascii256 = "x".repeat(256);
+		const ascii257 = "x".repeat(257);
+		// Multi-byte UTF-8 counts bytes, not characters: 128 × 2-byte chars = 256 bytes.
+		const multibyte256 = "é".repeat(128);
+		const multibyte257 = "é".repeat(129);
+		const makeMember = (description: string) => ({ ...base, members: [{ ...base.members[0], description }] });
+		assert.equal(parseCrewManifest(makeMember(ascii256)).members[0]!.description, ascii256);
+		assert.equal(parseCrewManifest(makeMember(multibyte256)).members[0]!.description, multibyte256);
+		assert.throws(() => parseCrewManifest(makeMember(ascii257)), CrewManifestError);
+		assert.throws(() => parseCrewManifest(makeMember(multibyte257)), CrewManifestError);
+	});
+
+	test("MAX_MEMBER_DESCRIPTION_BYTES is a named 256 constant", () => {
+		assert.equal(MAX_MEMBER_DESCRIPTION_BYTES, 256);
+	});
+
+	test("multiple members may share role and description; description is never a uniqueness constraint", () => {
+		const result = parseCrewManifest({
+			version: 1,
+			members: [
+				{ name: "Bob", role: "developer", socket: "sockets/bob.sock", description: "Builds" },
+				{ name: "Dave", role: "developer", socket: "sockets/dave.sock", description: "Builds" },
+			],
+		});
+		assert.equal(result.members.length, 2);
+		assert.equal(result.members[0]!.description, "Builds");
+		assert.equal(result.members[1]!.description, "Builds");
 	});
 });
 

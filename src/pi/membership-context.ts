@@ -35,7 +35,13 @@ export function membershipStateFromRuntime(membership: Membership, active = true
 }
 
 export function formatMembershipContext(membership: Membership): string {
-	const members = membership.manifest.members.map((member) => `${member.name} (${member.role})`).join(", ");
+	const members = membership.manifest.members
+		.map((member) =>
+			member.description
+				? `${member.name} (${member.role}): ${member.description}`
+				: `${member.name} (${member.role})`,
+		)
+		.join(", ");
 	const instructions = membership.member.instructions ? `\nRole instructions: ${membership.member.instructions}` : "";
 	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}${instructions}`;
 }

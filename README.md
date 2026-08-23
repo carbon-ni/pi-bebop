@@ -93,6 +93,20 @@ startup, restore, or explicit join/rejoin. Changes are not hot-reloaded into an
 active session; leave and rejoin to refresh. Members without either field behave
 as before.
 
+### Member descriptions
+
+A member may include a short, stable, crew-visible description to help choose an
+exact person when several members share a role:
+
+```json
+{ "name": "Bob", "role": "dev", "description": "Builds domain and application changes", "socket": "sockets/Bob.sock" }
+```
+
+Descriptions are manifest-authored profiles, not routing keys, permissions,
+role instructions, or current work. Keep them to a single non-secret line:
+never include credentials, customer data, or private prompt content. Use an
+exact member name whenever a role is ambiguous.
+
 ### Members presence
 
 Presence activity is enabled by default for joined manifests and appears as
