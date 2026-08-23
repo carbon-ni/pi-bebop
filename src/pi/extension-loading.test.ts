@@ -11,6 +11,7 @@ const MEMBERSHIP_TOOLS = [
 	"interrupt_member",
 	"get_member_status",
 	"update_member_focus",
+	"wait_for_member_idle",
 ];
 
 test("fresh extension load registers membership tools and renderers without calling action methods", () => {

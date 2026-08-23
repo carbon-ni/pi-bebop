@@ -17,19 +17,21 @@ import {
 	registerInterruptMemberTool,
 	registerGetMemberStatusTool,
 	registerUpdateMemberFocusTool,
+	registerWaitForMemberIdleTool,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
-import { sendRpcCommand } from "./infra/rpc-client.ts";
+import { sendMemberIdleWait, sendRpcCommand } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
-import { isMemberStatusResult } from "./domain/index.ts";
+import { isMemberStatusResult, type MemberIdleWaitCommand } from "./domain/index.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
 	deactivateMembershipTool,
 	disableControlServer,
+	emitIdleSettled,
 	emitTurnEnd,
 	ensureControlServer,
 	reconcileMembershipTools,
@@ -132,6 +134,19 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 	registerUpdateMemberFocusTool(pi, state);
+	registerWaitForMemberIdleTool(pi, state, {
+		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
+		requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
+			try {
+				const resolved = await resolveMemberEndpoint(endpoint);
+				const command: MemberIdleWaitCommand = { type: "member_idle_wait", member: memberLabel };
+				return await sendMemberIdleWait(resolved, command, { timeoutSeconds, signal });
+			} catch (error) {
+				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+				return { ok: false, code: "transport-error" };
+			}
+		},
+	});
 	// Membership tools stay registered (getAllTools) and are deactivated at
 	// session_start before the first agent request: Pi's extension runtime does
 	// NOT allow action methods (getActiveTools/setActiveTools) during extension
@@ -316,5 +331,12 @@ export default function (pi: ExtensionAPI) {
 	pi.on("turn_end", (event, ctx) => {
 		emitTurnEnd(state, event, ctx);
 		void inboxBridge.attemptOffer();
+	});
+
+	// One-shot member idle waits complete ONLY from Pi `agent_settled` (TASK-0051).
+	// `agent_end` and `turn_end` are intentionally ignored: retry, compaction,
+	// and queued continuation work must be exhausted before `became-idle`.
+	pi.on("agent_settled", (_event, ctx) => {
+		emitIdleSettled(state, ctx);
 	});
 }

@@ -9,11 +9,19 @@ import {
 } from "../infra/control-store.ts";
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
 import { isMessagePayload, renderMessagePayload } from "../domain/index.ts";
-import { createOnlineMemberStatus, restoreMemberFocus, type MemberStatus } from "../domain/index.ts";
+import {
+	createMemberIdleWaitResult,
+	createOnlineMemberStatus,
+	MAX_MEMBER_IDLE_WAIT_SUBSCRIPTIONS,
+	restoreMemberFocus,
+	tryAcquireIdleWaitSubscription,
+	type MemberStatus,
+} from "../domain/index.ts";
 import {
 	closeRpcServer,
 	createRpcServer,
 	writeEvent,
+	writeMemberIdleWaitEvent,
 	writeResponse,
 	type RpcServer,
 	type RpcSocket,
@@ -42,6 +50,11 @@ interface TurnEndSubscription {
 	subscriptionId: string;
 }
 
+interface IdleWaitSubscription {
+	socket: RpcSocket;
+	subscriptionId: string;
+}
+
 export interface SocketState {
 	server: RpcServer | null;
 	socketPath: string | null;
@@ -49,6 +62,7 @@ export interface SocketState {
 	aliases: string[];
 	aliasTimer: ReturnType<typeof setInterval> | null;
 	turnEndSubscriptions: TurnEndSubscription[];
+	idleWaitSubscriptions: IdleWaitSubscription[];
 	membershipRuntime: MembershipRuntime | null;
 	presenceObserver?: PresenceObserver;
 	onInboxHint?: () => void;
@@ -94,6 +108,7 @@ export const MEMBERSHIP_TOOLS = [
 	"interrupt_member",
 	"get_member_status",
 	"update_member_focus",
+	"wait_for_member_idle",
 ] as const;
 
 /**
@@ -217,6 +232,48 @@ export async function handleCommand(
 			return;
 		}
 		respond(true, "member_status", { status });
+		return;
+	}
+
+	// One-shot member idle wait (TASK-0051). Registration plus the initial
+	// ctx.isIdle() snapshot are atomic in this synchronous handler so an idle
+	// transition cannot be lost between separate check/subscribe calls. The
+	// terminal event is emitted only from Pi `agent_settled` (emitIdleSettled),
+	// never from `agent_end` or `turn_end`.
+	if (command.type === "member_idle_wait") {
+		const membership = state.membershipRuntime?.getMembership();
+		if (!membership) {
+			respond(false, "member_idle_wait", undefined, "not-joined");
+			return;
+		}
+		const ownName = membership.member.name;
+		const activeTargets = new Set(state.idleWaitSubscriptions.map((sub) => ownName));
+		const gate = tryAcquireIdleWaitSubscription(activeTargets, ownName, state.idleWaitSubscriptions.length);
+		if (gate.ok === false) {
+			respond(false, "member_idle_wait", undefined, gate.code);
+			return;
+		}
+		const subscriptionId = String(id);
+		if (ctx.isIdle()) {
+			// Already idle: complete directly without registering a lingering subscription.
+			const observedAt = new Date().toISOString();
+			const result = createMemberIdleWaitResult(
+				{ name: membership.member.name, role: membership.member.role },
+				{ outcome: "idle", disposition: "already-idle" },
+				observedAt,
+			);
+			respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
+			writeMemberIdleWaitEvent(socket, { subscriptionId, result });
+			return;
+		}
+		state.idleWaitSubscriptions.push({ socket, subscriptionId });
+		const cleanup = () => {
+			const idx = state.idleWaitSubscriptions.findIndex((sub) => sub.subscriptionId === subscriptionId);
+			if (idx !== -1) state.idleWaitSubscriptions.splice(idx, 1);
+		};
+		socket.once("close", cleanup);
+		socket.once("error", cleanup);
+		respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
 		return;
 	}
 
@@ -386,6 +443,7 @@ async function stopControlServer(state: SocketState): Promise<void> {
 	const socketPath = state.socketPath;
 	state.socketPath = null;
 	state.turnEndSubscriptions = [];
+	state.idleWaitSubscriptions = [];
 	await closeRpcServer(state.server);
 	state.server = null;
 	await removeAliasesForSocket(socketPath);
@@ -469,6 +527,7 @@ export function createSocketState(): SocketState {
 		aliases: [],
 		aliasTimer: null,
 		turnEndSubscriptions: [],
+		idleWaitSubscriptions: [],
 		membershipRuntime: null,
 	};
 }
@@ -490,5 +549,38 @@ export function emitTurnEnd(state: SocketState, event: TurnEndEvent, ctx: Extens
 			data: eventData,
 			subscriptionId: sub.subscriptionId,
 		});
+	}
+}
+
+/**
+ * One-shot idle terminal emission, driven ONLY by Pi `agent_settled`
+ * (TASK-0051). Busy waits registered via `member_idle_wait` complete here with
+ * `idle/became-idle` after all retry/compaction/queued-continuation work is
+ * exhausted. Never call this from `agent_end` or `turn_end` handlers:
+ * `agent_end` alone is insufficient while continuation remains. The result
+ * contains only name/role, outcome/disposition, and the observation timestamp.
+ */
+export function emitIdleSettled(state: SocketState, ctx?: ExtensionContext): void {
+	if (state.idleWaitSubscriptions.length === 0) return;
+	const membership = state.membershipRuntime?.getMembership();
+	if (!membership) {
+		state.idleWaitSubscriptions = [];
+		return;
+	}
+	if (ctx) void syncAlias(state, ctx);
+	const observedAt = new Date().toISOString();
+	const result = createMemberIdleWaitResult(
+		{ name: membership.member.name, role: membership.member.role },
+		{ outcome: "idle", disposition: "became-idle" },
+		observedAt,
+	);
+	const subscriptions = [...state.idleWaitSubscriptions];
+	state.idleWaitSubscriptions = [];
+	for (const sub of subscriptions) {
+		try {
+			writeMemberIdleWaitEvent(sub.socket, { subscriptionId: sub.subscriptionId, result });
+		} catch {
+			/* Socket may be closed. */
+		}
 	}
 }

@@ -2,12 +2,16 @@ import * as net from "node:net";
 import { randomUUID } from "node:crypto";
 import {
 	commandToRequest,
+	isMemberIdleWaitNotification,
+	isMemberIdleWaitSubscribeResult,
 	isMethodResult,
 	isRpcResponse,
 	isSubscribeResult,
 	isTurnEndNotification,
 	serializeRequest,
 	type ExtractedMessage,
+	type MemberIdleWaitCommand,
+	type MemberIdleWaitResult,
 	type RpcCommand,
 	type RpcCommandResponse,
 	type RpcId,
@@ -17,6 +21,25 @@ import {
 export interface RpcClientOptions {
 	timeout?: number;
 	waitForEvent?: "turn_end";
+	signal?: AbortSignal;
+}
+
+export type MemberIdleWaitClientOutcome =
+	| { readonly ok: true; readonly result: MemberIdleWaitResult }
+	| {
+			readonly ok: false;
+			readonly code:
+				| "timeout"
+				| "offline"
+				| "aborted"
+				| "malformed-response"
+				| "remote-rejected"
+				| "capacity-exceeded"
+				| "transport-error";
+	  };
+
+export interface MemberIdleWaitClientOptions {
+	timeoutSeconds: number;
 	signal?: AbortSignal;
 }
 export class RpcProtocolError extends Error {
@@ -190,5 +213,113 @@ export async function sendRpcCommand(
 		socket.on("error", (error) => settle(error));
 		socket.on("end", () => settle(new Error("Socket ended before RPC completed")));
 		socket.on("close", () => settle(new Error("Socket closed before RPC completed")));
+	});
+}
+
+/**
+ * One-shot member idle wait (TASK-0051). Sends `member.idle_wait`, correlates
+ * the subscription ack, and waits for the terminal `member.idle_wait` event.
+ * No polling: the caller blocks once, event-driven. The deadline is
+ * caller-enforced; on expiry the socket is closed (removing the remote
+ * subscription) and `timeout` is returned. Disconnect/restart before a
+ * terminal event returns `offline`; caller cancellation returns `aborted`.
+ * Malformed online peer output is a protocol error.
+ */
+export async function sendMemberIdleWait(
+	socketPath: string,
+	command: MemberIdleWaitCommand,
+	options: MemberIdleWaitClientOptions,
+): Promise<MemberIdleWaitClientOutcome> {
+	const { timeoutSeconds, signal } = options;
+	const requestId = command.id ?? nextId();
+	const request = commandToRequest(command, requestId);
+	return new Promise((resolve) => {
+		if (signal?.aborted) {
+			resolve({ ok: false, code: "aborted" });
+			return;
+		}
+		const socket = net.createConnection(socketPath);
+		socket.setEncoding("utf8");
+		let buffer = "";
+		let settled = false;
+		let subscriptionAcknowledged = false;
+		let terminalReceived = false;
+		let timeoutHandle: NodeJS.Timeout;
+		const cleanup = () => {
+			clearTimeout(timeoutHandle);
+			signal?.removeEventListener("abort", onAbort);
+			socket.removeAllListeners();
+		};
+		const finish = (outcome: MemberIdleWaitClientOutcome) => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			socket.destroy();
+			resolve(outcome);
+		};
+		const onAbort = () => finish({ ok: false, code: "aborted" });
+		signal?.addEventListener("abort", onAbort, { once: true });
+		timeoutHandle = setTimeout(() => finish({ ok: false, code: "timeout" }), timeoutSeconds * 1000);
+		socket.on("connect", () => {
+			try {
+				socket.write(serializeRequest(request));
+			} catch {
+				finish({ ok: false, code: "transport-error" });
+			}
+		});
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			let newlineIndex = buffer.indexOf("\n");
+			while (newlineIndex !== -1) {
+				const line = buffer.slice(0, newlineIndex).trim();
+				buffer = buffer.slice(newlineIndex + 1);
+				newlineIndex = buffer.indexOf("\n");
+				if (!line) continue;
+				let value: unknown;
+				try {
+					value = JSON.parse(line);
+				} catch {
+					finish({ ok: false, code: "malformed-response" });
+					return;
+				}
+				if (isMemberIdleWaitNotification(value)) {
+					if (value.params.subscriptionId !== requestId || !subscriptionAcknowledged) {
+						finish({ ok: false, code: "malformed-response" });
+						return;
+					}
+					terminalReceived = true;
+					finish({ ok: true, result: value.params.result });
+					return;
+				}
+				if (!isRpcResponse(value)) {
+					finish({ ok: false, code: "malformed-response" });
+					return;
+				}
+				if (value.id !== requestId) {
+					finish({ ok: false, code: "malformed-response" });
+					return;
+				}
+				if ("error" in value) {
+					const message = String(value.error.message ?? "");
+					const code = /capacity/i.test(message)
+						? "capacity-exceeded"
+						: /not-joined|unknown|ambiguous|self-wait/i.test(message)
+							? "remote-rejected"
+							: "remote-rejected";
+					finish({ ok: false, code });
+					return;
+				}
+				if (!isMemberIdleWaitSubscribeResult(value.result)) {
+					finish({ ok: false, code: "malformed-response" });
+					return;
+				}
+				subscriptionAcknowledged = true;
+			}
+		});
+		socket.on("error", () => finish({ ok: false, code: "transport-error" }));
+		socket.on("end", () => finish({ ok: false, code: "offline" }));
+		socket.on("close", () => {
+			if (!settled && !terminalReceived) finish({ ok: false, code: "offline" });
+		});
 	});
 }

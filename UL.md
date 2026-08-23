@@ -69,7 +69,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
 | Inspect one member timing and stated work | `get_member_status` | Returns reachability, mechanical Activity, pending signal, and self-reported Focus without reading conversation. |
 | Publish or clear own crew-visible Focus | `update_member_focus` | Explicit opt-in note for coordination; member can update only own Focus. |
-| Block until another member's Pi is mechanically idle, goes offline, or times out | `wait_for_member_idle` *(planned, TASK-0051)* | One-shot bounded wait; never implies reply, task completion, or availability. |
+| Block until another member's Pi is mechanically idle, goes offline, or times out | `wait_for_member_idle` | One-shot bounded wait; never implies reply, task completion, or availability. |
 
 `send_follow_up` is canonical normal delivery. `redirect_member` names the
 consequence (changing active work), not transport timing. Legacy
