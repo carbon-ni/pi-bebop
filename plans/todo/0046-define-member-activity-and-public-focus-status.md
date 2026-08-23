@@ -1,7 +1,7 @@
 ---
 id: TASK-0046
 title: Define member activity and public focus status
-status: todo
+status: doing
 depends_on: [TASK-0029]
 priority: high
 tags: [crew, status, activity, focus, ubiquitous-language]

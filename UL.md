@@ -15,6 +15,9 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Member endpoint**      | Project socket path that identifies configured member and resolves to active runtime socket.                                                                                 | session ID, alias, socket when product meaning matters |
 | **Member Description**   | Stable manifest-authored, crew-visible specialty or responsibility summary; it is not current work, authority, or routing identity.                                        | Focus, role instructions, permission, search key       |
 | **Presence**             | Last observed endpoint reachability of configured member.                                                                                                                    | availability, readiness, idle state                    |
+| **Member Status**        | One-shot privacy-safe snapshot combining Presence, live Activity, pending-message signal, and optional self-reported Focus.                                                  | monitoring, task progress, transcript summary          |
+| **Activity**             | Mechanical live Pi runtime state: idle when settled, busy while processing/retrying/continuing, or unavailable while offline.                                               | availability, productivity, manually claimed state     |
+| **Focus**                | Optional bounded crew-visible note explicitly published by current member and never inferred from session content.                                                          | verified progress, automatic summary, private status   |
 | **Role instructions**    | Stable member guidance loaded when membership starts or restores.                                                                                                            | prompt, message instructions                           |
 | **Message instructions** | Ordered guidance attached to one crew message.                                                                                                                               | role instructions                                      |
 | **Crew Intake**          | One-way feature that accepts an external message for the crew and hands it durably to the configured crew contact.                                                           | inbox, broadcast, API gateway                          |
@@ -63,6 +66,8 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | Abort target active work for recovery | `interrupt_member` | Live target-owned recovery: evidence, best-effort abort, then recovery steer; never rolls back side effects. |
 | Leave durable message for online or offline peer | `send_to_inbox`     | Durable per-member queue; persists even if recipient offline.                                       |
 | Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
+| Inspect one member timing and stated work *(planned)* | `get_member_status` | Returns reachability, mechanical Activity, pending signal, and self-reported Focus without reading conversation. |
+| Publish or clear own crew-visible Focus *(planned)* | `update_member_focus` | Explicit opt-in note for coordination; member can update only own Focus. |
 
 `send_follow_up` is canonical normal delivery. `redirect_member` names the
 consequence (changing active work), not transport timing. Legacy
@@ -92,6 +97,9 @@ Each Crew Broadcast recipient receives own Inbox item through normal Follow-up
 Inbox item is removed only after durable session evidence records its Handoff
 Bebop hands Inbox item to Pi as normal Follow-up without managing recipient workflow
 Presence observes Member endpoint; it does not prove availability
+Member Status reads Presence and live Activity without triggering target turn
+Current member explicitly publishes own Focus; Bebop never infers it
+Offline Member Status marks Activity and Focus unavailable rather than stale
 Busy Interrupt persists pending recovery, requests abort, then hands recovery guidance before older queued Follow-ups
 ```
 
@@ -109,6 +117,10 @@ Use `redirect_member({ member: "Bob", message: "Stop and inspect crew-manifest-s
 
 Use `send_to_inbox({ member: "Bob", message: "Implement TASK-0035" })`.
 
+> Is Bob idle, and what does Bob say he is focused on?
+
+After Member Status is implemented, use `get_member_status({ member: "Bob" })`. Treat Activity as mechanical and Focus as member-reported.
+
 > Is Bob available?
 
 Say: “Bob endpoint is online.” Presence proves reachability only, not availability.
@@ -121,6 +133,9 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Broadcast/inbox:** Broadcast persists separate per-recipient copies through each member's Inbox; it is not a shared group mailbox and does not route or select a worker.
 - **Broadcast/redirect:** Broadcast is non-interrupting and cannot change what a recipient is doing; redirect targets one member's active work explicitly.
 - **Agent/session/member:** use _member_ for crew identity, _Pi session_ for runtime conversation, and _agent_ only for general actor.
+- **Presence/Activity:** Presence says reachable; Activity says Pi idle/busy. Neither means available, healthy, or productive.
+- **Activity/Focus:** Activity is mechanically derived and cannot be claimed; Focus is explicitly member-reported and unverified.
+- **Focus/privacy:** Focus is crew-visible and must never contain secrets or private prompt/session content; absence is `unspecified`, offline is `unavailable`.
 - **Online/available:** online means endpoint reachable; it does not mean idle, ready, or responsive.
 - **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or response produced.
 - **Follow-up/inbox:** follow-up requires online target and uses transient Pi delivery; inbox survives recipient downtime and restarts.
@@ -149,3 +164,5 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - `plans/todo/0040-define-external-crew-intake-feature.md`
 - `plans/todo/0044-define-hard-member-interruption-semantics.md`
 - `plans/todo/0048-add-crew-visible-member-descriptions.md`
+- `plans/todo/0046-define-member-activity-and-public-focus-status.md`
+- `docs/MEMBER-STATUS.md`
