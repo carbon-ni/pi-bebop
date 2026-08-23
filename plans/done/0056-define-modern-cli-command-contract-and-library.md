@@ -1,7 +1,7 @@
 ---
 id: TASK-0056
 title: Define modern CLI command contract and library
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [cli, architecture, axi, dependencies, compatibility]
