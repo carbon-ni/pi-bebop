@@ -437,3 +437,92 @@ describe("traversal and attribution-only origin", () => {
 		await repo.remove(item.id);
 	});
 });
+
+describe("enqueueWithId (broadcast seam)", () => {
+	test("persists under the caller-supplied deterministic id", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		const result = await repo.enqueueWithId(payload("broadcast!"), 500, "broadcast-abc-123");
+		assert.ok("item" in result, "expected a persisted item");
+		assert.equal(result.item.id, "broadcast-abc-123");
+		assert.equal(result.item.sequence, 0);
+		assert.equal(await repo.count(), 1);
+
+		// Deterministic id survives a restart (no rewrite by the store).
+		const reopened = await open(local);
+		const [stored] = (await reopened.list()) as Array<{ id: string }>;
+		assert.equal(stored.id, "broadcast-abc-123");
+	});
+
+	test("already-persisted is idempotent and does not consume capacity", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		const first = await repo.enqueueWithId(payload("msg"), 600, "broadcast-id-1");
+		assert.ok("item" in first);
+		const second = await repo.enqueueWithId(payload("msg"), 601, "broadcast-id-1");
+		assert.ok("alreadyPersisted" in second);
+		assert.equal(second.itemId, "broadcast-id-1");
+		assert.equal(await repo.count(), 1, "duplicate id must not add an item");
+	});
+
+	test("coexists with sequence-derived enqueue items (distinct id spaces)", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		await repo.enqueue(payload("normal"), 900);
+		const broadcast = await repo.enqueueWithId(payload("broadcast"), 901, "broadcast-x");
+		assert.ok("item" in broadcast);
+		assert.equal(await repo.count(), 2);
+		const listed = await repo.list();
+		// FIFO by sequence regardless of id scheme: normal first (seq 0), broadcast second (seq 1).
+		assert.equal(listed[0]!.id.startsWith("inbox-"), true);
+		assert.equal(listed[1]!.id, "broadcast-x");
+	});
+
+	test("rejects an unsafe explicit id", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		await rejectsInboxStore(repo.enqueueWithId(payload("x"), 100, "../evil"), "invalid-item-id");
+		await rejectsInboxStore(repo.enqueueWithId(payload("x"), 100, "a/b"), "invalid-item-id");
+		await rejectsInboxStore(repo.enqueueWithId(payload("x"), 100, ""), "invalid-item-id");
+		await rejectsInboxStore(repo.enqueueWithId(payload("x"), 100, "a\0b"), "invalid-item-id");
+		assert.equal(await repo.count(), 0);
+	});
+
+	test("enforces capacity even for a fresh explicit id", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		for (let index = 0; index < MAX_INBOX_ITEMS; index += 1)
+			await repo.enqueue(payload(`cap-${index}`), 1000 + index);
+		await rejectsInboxStore(
+			repo.enqueueWithId(payload("overflow"), 99999, "broadcast-overflow"),
+			"capacity-exceeded",
+		);
+		assert.equal(await repo.count(), MAX_INBOX_ITEMS);
+	});
+
+	test("already-persisted wins over capacity on retry", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		const first = await repo.enqueueWithId(payload("keep"), 700, "broadcast-keep");
+		assert.ok("item" in first);
+		for (let index = 0; index < MAX_INBOX_ITEMS - 1; index += 1)
+			await repo.enqueue(payload(`fill-${index}`), 2000 + index);
+		// Inbox is now full, but the existing item id must still resolve as already-persisted.
+		const retry = await repo.enqueueWithId(payload("keep"), 99999, "broadcast-keep");
+		assert.ok("alreadyPersisted" in retry);
+		assert.equal(await repo.count(), MAX_INBOX_ITEMS);
+	});
+
+	test("rejects an invalid payload even with a valid id", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		await rejectsInboxStore(repo.enqueueWithId({ nope: true }, 100, "broadcast-badpayload"), "invalid-payload");
+	});
+});

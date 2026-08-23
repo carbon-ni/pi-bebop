@@ -84,7 +84,7 @@ function isStaleContextError(error: unknown): boolean {
 	return String(error instanceof Error ? error.message : error).includes("This extension ctx is stale");
 }
 
-const MEMBERSHIP_TOOLS = ["send_follow_up", "redirect_member", "send_to_inbox"] as const;
+const MEMBERSHIP_TOOLS = ["send_follow_up", "redirect_member", "send_to_inbox", "broadcast_to_crew"] as const;
 
 export function activateMembershipTool(pi: ExtensionAPI): void {
 	const active = pi.getActiveTools();

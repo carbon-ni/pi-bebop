@@ -233,18 +233,29 @@ External intake is one-way and has no auth, callbacks, broadcasts, or
 task/Git integration: the external actor cannot read responses, and Bebop does
 not route, classify, or dispatch the message to a worker.
 
-#### Durable crew broadcast (defined)
+#### Durable crew broadcast
 
-Crew Broadcast is an internal, durable, non-interrupting fan-out initiated by
-a current joined member: the same message is persisted to every other
-configured member, in manifest order, regardless of presence, and each
-recipient later receives its own copy through the normal Inbox-to-follow-up
-handoff. The sender is excluded; delivery can never interrupt or redirect
-active work. A stable broadcast id plus deterministic per-recipient item ids
-make retry idempotent after partial failure, and the outcome reports every
-recipient rather than masking partial success. The broadcast tool is not yet
-available;
-this section defines the domain contract only.
+`broadcast_to_crew` fans one non-interrupting message out to every other
+configured member, in manifest order, regardless of presence. It is available
+only to a joined crew member; each recipient later receives its own copy
+through the normal Inbox-to-follow-up handoff and never has active work
+interrupted or redirected. The sender is excluded.
+
+```bash
+broadcast_to_crew({
+  message: "API contract changed; pull latest plan before continuing",
+  instructions: ["Acknowledge constraint in your next normal report"]
+})
+```
+
+A stable broadcast id plus deterministic per-recipient item ids make retrying
+safe and idempotent: recipients already persisted are reported as
+already-persisted, and a retry never duplicates a successful copy. The tool
+reports a persisted count and per-recipient disposition; a recipient with a
+full inbox is reported as failed for that recipient without corrupting the
+successful recipients. Use it for shared team-wide information, not for work
+that should have a single owner — use `send_follow_up` or `send_to_inbox` for
+a specific member instead.
 
 ## Development
 

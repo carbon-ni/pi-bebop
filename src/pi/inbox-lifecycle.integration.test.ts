@@ -422,3 +422,81 @@ test("external intake persists for an offline contact and later hands off as a f
 	assert.deepEqual(await recipient.bridge.attemptOffer(), { offered: false, reason: "no-items" });
 	assert.equal(await (await storeFor(crew, "developer")).count(), 0);
 });
+
+import { submitCrewBroadcast } from "../application/crew-broadcast.ts";
+
+test("broadcast reaches an offline recipient as a normal follow-up and is removed on evidence", async (t) => {
+	const crew = await makeCrew();
+	t.after(crew.cleanup);
+
+	// Fan out from the lead while the developer is offline (no endpoint exists).
+	const outcome = await submitCrewBroadcast(
+		{
+			membership: membershipFor(crew, "lead"),
+			message: "API contract changed; pull latest plan before continuing",
+			instructions: ["Acknowledge constraint in your next normal report"],
+			now: 1000,
+		},
+		{
+			isProjectTrusted: () => true,
+			openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
+		},
+	);
+	assert.equal(outcome.ok, true);
+	if (!outcome.ok) return;
+	assert.equal(outcome.summary.persisted, 1);
+	assert.equal(outcome.summary.failed, 0);
+
+	// Recipient is the developer with a deterministic broadcast item id (no endpoint probe).
+	const devStore = await storeFor(crew, "developer");
+	assert.equal(await devStore.count(), 1);
+	const listed = await devStore.list();
+	assert.ok(listed[0]!.id.startsWith("broadcast-"), `expected broadcast id, got ${listed[0]!.id}`);
+
+	// Developer joins later and the item hands off as a normal non-interrupting follow-up.
+	const recipient = session(crew, "developer");
+	const senderCreated = recipient.sent.length;
+	recipient.bridge.establish(ownershipFromMembership(recipient.membership));
+	const offer = await recipient.bridge.attemptOffer();
+	assert.equal(offer.offered, true);
+	assert.equal(offer.itemId, listed[0]!.id);
+
+	const handoff = recipient.sent[senderCreated]!;
+	assert.equal(handoff.message.customType, SESSION_MESSAGE_TYPE);
+	const payload = (handoff.message.details as { messagePayload?: MessagePayload }).messagePayload;
+	assert.equal(payload?.content, "API contract changed; pull latest plan before continuing");
+	// Derived crew origin: the broadcaster's manifest identity, never external.
+	assert.deepEqual(payload?.origin, { kind: "crew", name: "lead", role: "lead" });
+	// Never redirects active work.
+	assert.deepEqual(handoff.options, { triggerTurn: true, deliverAs: "followUp" });
+
+	// Durable evidence removes the item on the next trigger.
+	assert.deepEqual(await recipient.bridge.attemptOffer(), { offered: false, reason: "no-items" });
+	assert.equal(await devStore.count(), 0);
+});
+
+test("broadcast fan-out is idempotent across a retry after one recipient failed", async (t) => {
+	const crew = await makeCrew();
+	t.after(crew.cleanup);
+
+	const run = () =>
+		submitCrewBroadcast(
+			{ membership: membershipFor(crew, "lead"), message: "retry me", now: 2000 },
+			{
+				isProjectTrusted: () => true,
+				openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
+			},
+		);
+
+	const first = await run();
+	assert.equal(first.ok, true);
+	if (!first.ok) return;
+	// Same broadcast re-sent must not duplicate the successful recipient.
+	const second = await run();
+	assert.equal(second.ok, true);
+	if (!second.ok) return;
+	assert.equal(second.summary.alreadyPersisted, 1);
+
+	const devStore = await storeFor(crew, "developer");
+	assert.equal(await devStore.count(), 1, "retry must not duplicate the broadcast item");
+});

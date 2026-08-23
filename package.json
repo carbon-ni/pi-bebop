@@ -9,6 +9,7 @@
 	},
 	"files": [
 		"index.ts",
+		"src/application/crew-broadcast.ts",
 		"src/application/direct-message.ts",
 		"src/application/external-intake.ts",
 		"src/application/inbox-bridge.ts",
@@ -57,6 +58,7 @@
 		"src/pi/membership-lifecycle.ts",
 		"src/pi/message-renderer.ts",
 		"src/pi/startup-send.ts",
+		"src/tools/broadcast-to-crew.ts",
 		"src/tools/index.ts",
 		"src/tools/member-tool-adapter.ts",
 		"src/tools/redirect-member.ts",
