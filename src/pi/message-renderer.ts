@@ -127,3 +127,26 @@ export const renderSessionMessage: MessageRenderer = (message, { expanded }, the
 	);
 	return box;
 };
+
+export const renderCrewInterrupt: MessageRenderer = (message, { expanded }, theme) => {
+	const { text, senderText } = getMessageDisplayModel(message, expanded);
+	const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
+	const labelBase = theme.fg("customMessageLabel", `\x1b[1m[interrupt]\x1b[22m`);
+	const label = senderText ? `${labelBase} ${theme.fg("dim", senderText)}` : labelBase;
+	box.addChild(new Text(label, 0, 0));
+	box.addChild(new Spacer(1));
+	box.addChild(
+		new Markdown(text, 0, 0, getMarkdownTheme(), {
+			color: (value: string) => theme.fg("customMessageText", value),
+		}),
+	);
+	box.addChild(new Spacer(1));
+	box.addChild(
+		new Text(
+			theme.fg("dim", "Note: prior side effects were NOT rolled back; verify state before continuing."),
+			0,
+			0,
+		),
+	);
+	return box;
+};

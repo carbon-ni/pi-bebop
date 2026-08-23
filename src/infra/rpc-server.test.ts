@@ -299,3 +299,25 @@ test("writeEvent ignores closed socket write errors", () => {
 		}),
 	);
 });
+
+test("writeResponse serializes an interrupt acknowledgement", () => {
+	const writes: string[] = [];
+	const socket = {
+		write: (value: string) => {
+			writes.push(value);
+		},
+		once: () => socket,
+	} as never;
+	writeResponse(socket as never, {
+		type: "response",
+		command: "interrupt",
+		success: true,
+		data: { interruptId: "int-1", disposition: "interrupt-requested" },
+		id: "int-1",
+	});
+	assert.deepEqual(JSON.parse(writes[0]!), {
+		jsonrpc: "2.0",
+		id: "int-1",
+		result: { interruptId: "int-1", disposition: "interrupt-requested" },
+	});
+});

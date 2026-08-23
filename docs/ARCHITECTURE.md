@@ -114,6 +114,15 @@ instructions, and content but hides reply routing.
 The tools are active only while joined to a crew. A live endpoint owned by
 another session is never overwritten; stale endpoints can be reclaimed.
 
+### Member interrupt
+
+`interrupt_member` is a target-owned live recovery operation. The target's
+`message.interrupt` handler validates the request, persists `interrupt.pending`
+evidence, requests an abort only when busy, then sends one recovery steer and
+persists handed-off evidence. On reload, pending evidence without hand-off is
+retried before normal continuation. Pi gives recovery steer precedence over older
+follow-ups, but abort is best-effort and never rolls back prior side effects.
+
 ### Durable member inbox
 
 The inbox is a small, transport-only boundary between durable storage and

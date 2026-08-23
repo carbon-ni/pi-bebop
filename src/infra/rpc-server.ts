@@ -48,6 +48,8 @@ function methodForCommand(command: string): string | undefined {
 			return "session.status";
 		case "send":
 			return "message.send";
+		case "interrupt":
+			return "message.interrupt";
 		case "get_message":
 			return "session.get_message";
 		case "clear":

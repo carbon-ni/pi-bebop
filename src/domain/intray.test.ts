@@ -44,6 +44,11 @@ import {
 	PresenceHintCommandSchema,
 	PresenceHintResultSchema,
 	isPresenceHintParams,
+	InterruptParamsSchema,
+	InterruptRequestSchema,
+	InterruptCommandSchema,
+	InterruptResultSchema,
+	isInterruptResult,
 } from "./index.ts";
 
 test("presence hint uses a strict claimed identity schema and round-trips through JSON-RPC", () => {
@@ -117,6 +122,7 @@ test("method parameter schemas accept only their exact valid shapes", () => {
 		["session.get_message", EmptyParamsSchema, {}],
 		["session.clear", EmptyParamsSchema, {}],
 		["session.abort", EmptyParamsSchema, {}],
+		["message.interrupt", InterruptParamsSchema, { payload: { content: "stop" } }],
 	];
 	for (const [method, schema, value] of cases) assert.equal(Value.Check(schema, value), true, method);
 	assert.equal(Value.Check(MessageSendParamsSchema, { content: "" }), false);
@@ -125,6 +131,9 @@ test("method parameter schemas accept only their exact valid shapes", () => {
 	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x".repeat(1_000_001) }), false);
 	assert.equal(Value.Check(SubscribeParamsSchema, { event: null }), false);
 	assert.equal(Value.Check(EmptyParamsSchema, { extra: true }), false);
+	assert.equal(Value.Check(InterruptParamsSchema, { payload: { content: "" } }), false);
+	assert.equal(Value.Check(InterruptParamsSchema, { payload: { content: "x" }, extra: true }), false);
+	assert.equal(Value.Check(InterruptParamsSchema, { payload: { content: "x", replyTo: { sessionId: "s" } } }), false);
 });
 
 test("command schemas accept valid optional fields and reject invalid or extra fields", () => {
@@ -141,9 +150,12 @@ test("command schemas accept valid optional fields and reject invalid or extra f
 		["get_message", GetMessageCommandSchema, { type: "get_message" }],
 		["clear", ClearCommandSchema, { type: "clear" }],
 		["abort", AbortCommandSchema, { type: "abort" }],
+		["interrupt", InterruptCommandSchema, { type: "interrupt", payload: { content: "stop" } }],
 	];
 	for (const [name, schema, value] of valid) assert.equal(Value.Check(schema, value), true, name);
 	assert.equal(Value.Check(MessageSendCommandSchema, { type: "send" }), false);
+	assert.equal(Value.Check(InterruptCommandSchema, { type: "interrupt" }), false);
+	assert.equal(Value.Check(InterruptCommandSchema, { type: "interrupt", payload: { content: 1 } }), false);
 	assert.equal(
 		Value.Check(MessageSendCommandSchema, { type: "send", payload: { content: "x" }, delivery: "later" }),
 		false,
@@ -162,6 +174,7 @@ test("command and request mappings round-trip through their strict schemas", () 
 	const commands = [
 		{ type: "send", payload: { content: "x" } },
 		{ type: "send", payload: { content: "x" }, delivery: "follow_up", id: "send-1" },
+		{ type: "interrupt", payload: { content: "stop" } },
 		{ type: "subscribe", event: "turn_end", id: 2 },
 		{ type: "status" },
 		{ type: "get_message" },
@@ -171,6 +184,7 @@ test("command and request mappings round-trip through their strict schemas", () 
 	const schemas = [
 		MessageSendCommandSchema,
 		MessageSendCommandSchema,
+		InterruptCommandSchema,
 		SubscribeCommandSchema,
 		StatusCommandSchema,
 		GetMessageCommandSchema,
@@ -185,15 +199,17 @@ test("command and request mappings round-trip through their strict schemas", () 
 			Value.Check(
 				request.method === "message.send"
 					? MessageSendRequestSchema
-					: request.method === "event.subscribe"
-						? SubscribeRequestSchema
-						: request.method === "session.status"
-							? StatusRequestSchema
-							: request.method === "session.get_message"
-								? GetMessageRequestSchema
-								: request.method === "session.clear"
-									? ClearRequestSchema
-									: AbortRequestSchema,
+					: request.method === "message.interrupt"
+						? InterruptRequestSchema
+						: request.method === "event.subscribe"
+							? SubscribeRequestSchema
+							: request.method === "session.status"
+								? StatusRequestSchema
+								: request.method === "session.get_message"
+									? GetMessageRequestSchema
+									: request.method === "session.clear"
+										? ClearRequestSchema
+										: AbortRequestSchema,
 				request,
 			),
 			true,
@@ -210,6 +226,10 @@ test("command and request mappings round-trip through their strict schemas", () 
 test("method request schemas reject invalid envelopes and required fields", () => {
 	const valid: Array<[string, unknown]> = [
 		["message.send", { jsonrpc: "2.0", id: "1", method: "message.send", params: { content: "x" } }],
+		[
+			"message.interrupt",
+			{ jsonrpc: "2.0", id: "i", method: "message.interrupt", params: { payload: { content: "stop" } } },
+		],
 		["event.subscribe", { jsonrpc: "2.0", id: 1, method: "event.subscribe", params: { event: "turn_end" } }],
 		["session.status", { jsonrpc: "2.0", id: "s", method: "session.status" }],
 		["session.get_message", { jsonrpc: "2.0", id: "g", method: "session.get_message" }],
@@ -218,6 +238,7 @@ test("method request schemas reject invalid envelopes and required fields", () =
 	];
 	const schemas = [
 		MessageSendRequestSchema,
+		InterruptRequestSchema,
 		SubscribeRequestSchema,
 		StatusRequestSchema,
 		GetMessageRequestSchema,
@@ -486,4 +507,29 @@ test("parseSessionControlAction rejects removed direct actions and invalid arity
 	assert.deepEqual(parseSessionControlAction("status now"), {
 		error: "Too many arguments. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
 	});
+});
+
+test("message.interrupt round-trips through requestToCommand with a structured payload", () => {
+	const payload = { content: "stop now", origin: { kind: "crew", name: "Tony", role: "lead" } };
+	const request = { jsonrpc: "2.0" as const, id: "int-1", method: "message.interrupt" as const, params: { payload } };
+	assert.deepEqual(requestToCommand(request), { type: "interrupt", payload, id: "int-1" });
+	const command = { type: "interrupt" as const, payload, id: "int-2" };
+	assert.deepEqual(commandToRequest(command, "int-2"), {
+		jsonrpc: "2.0",
+		id: "int-2",
+		method: "message.interrupt",
+		params: { payload },
+	});
+});
+
+test("interrupt result schema and guard accept only the two dispositions", () => {
+	assert.equal(
+		Value.Check(InterruptResultSchema, { interruptId: "int-1", disposition: "interrupt-requested" }),
+		true,
+	);
+	assert.equal(Value.Check(InterruptResultSchema, { interruptId: "int-1", disposition: "direct" }), true);
+	assert.equal(isInterruptResult({ interruptId: "int-1", disposition: "interrupt-requested" }), true);
+	assert.equal(isInterruptResult({ interruptId: "int-1", disposition: "queued" }), false);
+	assert.equal(isInterruptResult({ interruptId: "", disposition: "direct" }), false);
+	assert.equal(isInterruptResult({ interruptId: "int-1", disposition: "direct", extra: true }), false);
 });

@@ -30,6 +30,7 @@ import {
 } from "../domain/index.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 import type { PresenceObserver } from "../application/presence-observer.ts";
+import { createInterruptFlow } from "../application/interrupt-flow.ts";
 
 // ============================================================================
 // Subscription Management
@@ -84,7 +85,13 @@ function isStaleContextError(error: unknown): boolean {
 	return String(error instanceof Error ? error.message : error).includes("This extension ctx is stale");
 }
 
-const MEMBERSHIP_TOOLS = ["send_follow_up", "redirect_member", "send_to_inbox", "broadcast_to_crew"] as const;
+const MEMBERSHIP_TOOLS = [
+	"send_follow_up",
+	"redirect_member",
+	"send_to_inbox",
+	"broadcast_to_crew",
+	"interrupt_member",
+] as const;
 
 export function activateMembershipTool(pi: ExtensionAPI): void {
 	const active = pi.getActiveTools();
@@ -173,6 +180,24 @@ export async function handleCommand(
 	if (command.type === "abort") {
 		ctx.abort();
 		respond(true, "abort", {});
+		return;
+	}
+
+	// Interrupt (target-owned recovery flow, TASK-0045)
+	if (command.type === "interrupt") {
+		const interruptFlow = createInterruptFlow({
+			isIdle: () => ctx.isIdle(),
+			abort: () => ctx.abort(),
+			sendMessage: (message, options) => pi.sendMessage(message as never, options as never),
+			appendEntry: (customType, data) => pi.appendEntry(customType, data),
+			getEntries: () => ctx.sessionManager.getEntries() as readonly unknown[],
+		});
+		const result = await interruptFlow.interrupt(command.payload);
+		if (result.ok === false) {
+			respond(false, "interrupt", undefined, result.code);
+			return;
+		}
+		respond(true, "interrupt", { interruptId: result.interruptId, disposition: result.disposition });
 		return;
 	}
 

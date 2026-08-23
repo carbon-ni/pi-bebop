@@ -1,12 +1,18 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
-import { renderCrewPresence, renderCrewRoster, renderSessionMessage } from "./pi/message-renderer.ts";
+import {
+	renderCrewPresence,
+	renderCrewRoster,
+	renderSessionMessage,
+	renderCrewInterrupt,
+} from "./pi/message-renderer.ts";
 import {
 	registerSendFollowUpTool,
 	registerRedirectMemberTool,
 	registerSendToInboxTool,
 	registerBroadcastToCrewTool,
+	registerInterruptMemberTool,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
@@ -35,6 +41,7 @@ import {
 import { releaseMembershipBeforeCleanup, restorePersistedMembership } from "./pi/membership-lifecycle.ts";
 import { maybeHandleStartupSocketJoin } from "./pi/startup-send.ts";
 import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
+import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
 
 const CREW_FLAG = "crew";
@@ -54,6 +61,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
 	pi.registerMessageRenderer("crew-roster", renderCrewRoster);
 	pi.registerMessageRenderer("crew-presence", renderCrewPresence);
+	pi.registerMessageRenderer("crew-interrupt", renderCrewInterrupt);
 
 	const state = createSocketState();
 	state.membershipRuntime = createMembershipRuntime({
@@ -70,6 +78,19 @@ export default function (pi: ExtensionAPI) {
 		void inboxBridge.attemptOffer();
 	};
 
+	const recoverInterrupts = async () => {
+		const context = state.context;
+		if (!context) return;
+		const interruptFlow = createInterruptFlow({
+			isIdle: () => context.isIdle(),
+			abort: () => context.abort(),
+			sendMessage: (message, options) => pi.sendMessage(message as never, options as never),
+			appendEntry: (customType, data) => pi.appendEntry(customType, data),
+			getEntries: () => context.sessionManager.getEntries() as readonly unknown[],
+		});
+		await interruptFlow.recoverPending();
+	};
+
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,
@@ -79,6 +100,7 @@ export default function (pi: ExtensionAPI) {
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);
 	registerSendToInboxTool(pi, state);
 	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
+	registerInterruptMemberTool(pi, state);
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};
@@ -190,6 +212,7 @@ export default function (pi: ExtensionAPI) {
 				);
 				inboxBridge.establish(ownershipFromMembership(membership));
 				void inboxBridge.attemptOffer();
+				void recoverInterrupts();
 			}
 			return;
 		}
@@ -207,6 +230,7 @@ export default function (pi: ExtensionAPI) {
 				if (membership) {
 					inboxBridge.establish(ownershipFromMembership(membership));
 					void inboxBridge.attemptOffer();
+					void recoverInterrupts();
 				}
 			},
 			reportFailure: (message) => {

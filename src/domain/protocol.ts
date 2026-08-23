@@ -1,7 +1,14 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { ExtractedMessageSchema, type ExtractedMessage } from "./messages.ts";
-import { MessageOriginSchema, MessagePayloadSchema, isMessagePayload, type MessagePayload } from "./message-payload.ts";
+import {
+	MessageOriginSchema,
+	MessagePayloadSchema,
+	isMessagePayload,
+	type MessagePayload,
+	MessageInstructionsSchema,
+	MAX_MESSAGE_CONTENT_BYTES,
+} from "./message-payload.ts";
 
 export const JSON_RPC_VERSION = "2.0" as const;
 export const RpcIdSchema = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
@@ -45,6 +52,31 @@ export const MessageSendRequestSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+export const InterruptPayloadSchema = Type.Object(
+	{
+		content: Type.String({ minLength: 1, maxLength: MAX_MESSAGE_CONTENT_BYTES }),
+		instructions: Type.Optional(MessageInstructionsSchema),
+		origin: Type.Optional(MessageOriginSchema),
+	},
+	{ additionalProperties: false },
+);
+export const InterruptParamsSchema = Type.Object({ payload: InterruptPayloadSchema }, { additionalProperties: false });
+export const InterruptResultSchema = Type.Object(
+	{
+		interruptId: Type.String({ minLength: 1 }),
+		disposition: Type.Union([Type.Literal("interrupt-requested"), Type.Literal("direct")]),
+	},
+	{ additionalProperties: false },
+);
+export const InterruptRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("message.interrupt"),
+		params: InterruptParamsSchema,
+	},
+	{ additionalProperties: false },
+);
 export const SubscribeRequestSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSON_RPC_VERSION),
@@ -82,6 +114,7 @@ export const PresenceHintRequestSchema = Type.Object(
 );
 export const KnownRequestSchema = Type.Union([
 	MessageSendRequestSchema,
+	InterruptRequestSchema,
 	SubscribeRequestSchema,
 	StatusRequestSchema,
 	GetMessageRequestSchema,
@@ -140,6 +173,7 @@ export const EmptyResultSchema = Type.Object({}, { additionalProperties: false }
 export const RpcMethodResultSchema = Type.Union([
 	StatusResultSchema,
 	SendResultSchema,
+	InterruptResultSchema,
 	GetMessageResultSchema,
 	ClearResultSchema,
 	SubscribeResultSchema,
@@ -175,6 +209,9 @@ export const TurnEndNotificationSchema = Type.Object(
 export type RpcId = Static<typeof RpcIdSchema>;
 export type RpcRequest = Static<typeof RpcRequestSchema>;
 export type MessageSendRequest = Static<typeof MessageSendRequestSchema>;
+export type InterruptParams = Static<typeof InterruptParamsSchema>;
+export type InterruptResult = Static<typeof InterruptResultSchema>;
+export type InterruptRequest = Static<typeof InterruptRequestSchema>;
 export type SubscribeRequest = Static<typeof SubscribeRequestSchema>;
 export type StatusRequest = Static<typeof StatusRequestSchema>;
 export type GetMessageRequest = Static<typeof GetMessageRequestSchema>;
@@ -204,6 +241,7 @@ export type RpcMethodResult = Static<typeof RpcMethodResultSchema>;
 export type RpcNotification = Static<typeof TurnEndNotificationSchema>;
 export type RpcCommand =
 	| Static<typeof MessageSendCommandSchema>
+	| Static<typeof InterruptCommandSchema>
 	| Static<typeof SubscribeCommandSchema>
 	| Static<typeof StatusCommandSchema>
 	| Static<typeof GetMessageCommandSchema>
@@ -213,6 +251,7 @@ export type RpcCommand =
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
 	| RequiredId<Static<typeof MessageSendCommandSchema>>
+	| RequiredId<Static<typeof InterruptCommandSchema>>
 	| RequiredId<Static<typeof SubscribeCommandSchema>>
 	| RequiredId<Static<typeof StatusCommandSchema>>
 	| RequiredId<Static<typeof GetMessageCommandSchema>>
@@ -220,6 +259,7 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof AbortCommandSchema>>
 	| RequiredId<Static<typeof PresenceHintCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
+export type InterruptCommand = Static<typeof InterruptCommandSchema>;
 export type SubscribeCommand = Static<typeof SubscribeCommandSchema>;
 export type StatusCommand = Static<typeof StatusCommandSchema>;
 export type GetMessageCommand = Static<typeof GetMessageCommandSchema>;
@@ -234,6 +274,14 @@ export const MessageSendCommandSchema = Type.Object(
 		type: Type.Literal("send"),
 		payload: MessagePayloadSchema,
 		delivery: Type.Optional(Type.Union([Type.Literal("follow_up"), Type.Literal("immediate")])),
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+export const InterruptCommandSchema = Type.Object(
+	{
+		type: Type.Literal("interrupt"),
+		payload: InterruptPayloadSchema,
 		id: Type.Optional(RpcIdSchema),
 	},
 	{ additionalProperties: false },
@@ -330,17 +378,19 @@ export function methodResultSchema(method: string) {
 		? StatusResultSchema
 		: method === "message.send"
 			? SendResultSchema
-			: method === "session.get_message"
-				? GetMessageResultSchema
-				: method === "session.clear"
-					? ClearResultSchema
-					: method === "session.abort"
-						? EmptyResultSchema
-						: method === "event.subscribe"
-							? SubscribeResultSchema
-							: method === "presence.hint"
-								? PresenceHintResultSchema
-								: undefined;
+			: method === "message.interrupt"
+				? InterruptResultSchema
+				: method === "session.get_message"
+					? GetMessageResultSchema
+					: method === "session.clear"
+						? ClearResultSchema
+						: method === "session.abort"
+							? EmptyResultSchema
+							: method === "event.subscribe"
+								? SubscribeResultSchema
+								: method === "presence.hint"
+									? PresenceHintResultSchema
+									: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -348,6 +398,9 @@ export function isMethodResult(method: string, value: unknown): value is RpcMeth
 }
 export function isSendResult(value: unknown): value is SendResult {
 	return Value.Check(SendResultSchema, value);
+}
+export function isInterruptResult(value: unknown): value is InterruptResult {
+	return Value.Check(InterruptResultSchema, value);
 }
 export function isSubscribeResult(value: unknown): value is Static<typeof SubscribeResultSchema> {
 	return Value.Check(SubscribeResultSchema, value);
@@ -407,6 +460,8 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 				delivery: command.delivery ?? "follow_up",
 			},
 		};
+	if (command.type === "interrupt")
+		return { jsonrpc: JSON_RPC_VERSION, id, method: "message.interrupt", params: { payload: command.payload } };
 	if (command.type === "subscribe")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "event.subscribe", params: { event: command.event } };
 	if (command.type === "status") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.status" };
@@ -443,6 +498,12 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 			delivery: validParams.delivery ?? "follow_up",
 			id: request.id,
 		};
+	}
+	if (request.method === "message.interrupt") {
+		if (!Value.Check(InterruptParamsSchema, params)) return invalid("Invalid message.interrupt params");
+		const payload = (params as InterruptParams).payload;
+		if (!isMessagePayload(payload)) return invalid("Invalid message.interrupt payload");
+		return { type: "interrupt", payload, id: request.id };
 	}
 	if (request.method === "presence.hint") {
 		if (!isPresenceHintParams(params)) return invalid("Invalid presence.hint params");

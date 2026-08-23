@@ -59,7 +59,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | ------------------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------- |
 | Send normal online crew communication            | `send_follow_up`    | Established Pi term for non-interrupting delivery; does not imply durable storage.                  |
 | Change target active work now                    | `redirect_member`   | Names consequence and urgency, not transport timing.                                                |
-| Abort target active work for recovery *(planned)* | `interrupt_member` | Pi 0.84.2 precedence is proven; the public tool arrives with TASK-0045.                      |
+| Abort target active work for recovery | `interrupt_member` | Live target-owned recovery: evidence, best-effort abort, then recovery steer; never rolls back side effects. |
 | Leave durable message for online or offline peer | `send_to_inbox`     | Durable per-member queue; persists even if recipient offline.                                       |
 | Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
 
