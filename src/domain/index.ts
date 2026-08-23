@@ -12,3 +12,4 @@ export * from "./crew-manifest.ts";
 export * from "./crew-roster.ts";
 export * from "./crew-presence.ts";
 export * from "./presence.ts";
+export * from "./member-inbox.ts";
