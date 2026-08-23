@@ -41,6 +41,7 @@ test("membership tool activation preserves unrelated tools and is idempotent", (
 		"redirect_member",
 		"send_to_inbox",
 		"broadcast_to_crew",
+		"interrupt_member",
 	]);
 	deactivateMembershipTool(pi);
 	deactivateMembershipTool(pi);
@@ -216,4 +217,105 @@ test("disableControlServer still reports unexpected context errors", async () =>
 	const state = createSocketState();
 	const brokenContext = createThrowingContext("unexpected failure");
 	await assert.rejects(disableControlServer(state, brokenContext as never), /unexpected failure/);
+});
+
+test("message.interrupt busy flow persists pending before abort, steers recovery, and hands off", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const sent: unknown[] = [];
+	const appended: unknown[] = [];
+	const order: string[] = [];
+	let idle = false;
+	const state = createSocketState();
+	state.server = {} as never;
+	const context = {
+		sessionManager: { getSessionId: () => "session", getEntries: () => appended },
+		isIdle: () => idle,
+		abort: () => {
+			order.push("abort");
+		},
+	};
+	state.context = context as never;
+	const pi = {
+		sendMessage: (message: unknown, options: unknown) => {
+			order.push(`send:${(options as { deliverAs?: string }).deliverAs ?? "turn"}`);
+			sent.push({ message, options });
+		},
+		appendEntry: (customType: string, data: unknown) => {
+			order.push("append");
+			appended.push({ type: "custom", customType, data });
+		},
+	} as never;
+
+	const payload = { content: "stop now", origin: { kind: "crew" as const, name: "Tony", role: "lead" } };
+	await handleCommand(pi, state, { type: "interrupt", payload, id: "int-1" }, socket);
+	assert.deepEqual(order, ["append", "abort", "send:steer", "append"]);
+	const response = JSON.parse(writes[0]!) as {
+		result: { interruptId: string; disposition: string };
+	};
+	assert.equal(response.result.disposition, "interrupt-requested");
+	assert.match(response.result.interruptId, /^interrupt-/);
+});
+
+test("message.interrupt idle flow returns direct without abort", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const sent: unknown[] = [];
+	const appended: unknown[] = [];
+	const order: string[] = [];
+	const state = createSocketState();
+	state.server = {} as never;
+	const context = {
+		sessionManager: { getSessionId: () => "session", getEntries: () => appended },
+		isIdle: () => true,
+		abort: () => {
+			order.push("abort");
+		},
+	};
+	state.context = context as never;
+	const pi = {
+		sendMessage: (message: unknown, options: unknown) => {
+			order.push(`send:${(options as { deliverAs?: string }).deliverAs ?? "turn"}`);
+			sent.push({ message, options });
+		},
+		appendEntry: (customType: string, data: unknown) => {
+			order.push("append");
+			appended.push({ type: "custom", customType, data });
+		},
+	} as never;
+	const payload = { content: "recover", origin: { kind: "crew" as const, name: "Mary", role: "po" } };
+	await handleCommand(pi, state, { type: "interrupt", payload, id: "int-2" }, socket);
+	assert.deepEqual(order, ["append", "send:turn", "append"]);
+	const response = JSON.parse(writes[0]!) as { result: { disposition: string } };
+	assert.equal(response.result.disposition, "direct");
+});
+
+test("message.interrupt rejects a concurrent pending request for the same target", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const appended: unknown[] = [];
+	let idle = false;
+	const state = createSocketState();
+	state.server = {} as never;
+	const context = {
+		sessionManager: { getSessionId: () => "session", getEntries: () => appended },
+		isIdle: () => idle,
+		abort: () => {
+			throw new Error("abort failed");
+		},
+	};
+	state.context = context as never;
+	const pi = {
+		sendMessage: () => {},
+		appendEntry: (customType: string, data: unknown) => {
+			appended.push({ type: "custom", customType, data });
+		},
+	} as never;
+	const payload = { content: "stop", origin: { kind: "crew" as const, name: "Tony", role: "lead" } };
+	await handleCommand(pi, state, { type: "interrupt", payload, id: "int-1" }, socket);
+	assert.equal(JSON.parse(writes[0]!).error?.code, -32603); // abort failed → error response
+	// Pending evidence remains; a second request for the same target is rejected.
+	writes.length = 0;
+	await handleCommand(pi, state, { type: "interrupt", payload, id: "int-2" }, socket);
+	assert.equal(JSON.parse(writes[0]!).error?.message, "already-pending");
 });

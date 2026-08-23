@@ -500,3 +500,85 @@ test("broadcast fan-out is idempotent across a retry after one recipient failed"
 	const devStore = await storeFor(crew, "developer");
 	assert.equal(await devStore.count(), 1, "retry must not duplicate the broadcast item");
 });
+
+import { handleCommand, createSocketState } from "./control-runtime.ts";
+import { createInterruptFlow } from "../application/interrupt-flow.ts";
+import { INTERRUPT_ENTRY_TYPE } from "../application/interrupt-flow.ts";
+
+test("interrupt E2E: target-owned flow persists pending, aborts, steers recovery, and reload recovery re-delivers on crash", async (t) => {
+	const crew = await makeCrew();
+	t.after(crew.cleanup);
+
+	// Target session (the recipient of the interrupt): scripted Pi surface.
+	const entries: unknown[] = [];
+	const sent: Array<{ message: unknown; options?: unknown }> = [];
+	const pi = {
+		sendMessage: (message: unknown, options?: unknown) => {
+			sent.push({ message, options });
+		},
+		appendEntry: (customType: string, data?: unknown) => {
+			entries.push({ type: "custom", customType, data });
+		},
+	} as unknown as ExtensionAPI;
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	let idle = false;
+	const ctx = {
+		sessionManager: { getSessionId: () => "target-session", getEntries: () => entries },
+		isIdle: () => idle,
+		abort: () => {},
+	};
+	const state = createSocketState();
+	state.context = ctx as never;
+	state.server = {} as never;
+
+	const payload = {
+		content: "Stop and re-check the contract before continuing",
+		origin: { kind: "crew", name: "Tony", role: "lead" },
+	};
+
+	// Busy: interrupt request arrives while the target is streaming.
+	idle = false;
+	await handleCommand(pi, state, { type: "interrupt", payload, id: "int-e2e" }, socket);
+	const response = JSON.parse(writes[0]!) as { result?: { disposition: string; interruptId: string } };
+	assert.equal(response.result?.disposition, "interrupt-requested");
+	const interruptId = response.result!.interruptId;
+	assert.match(interruptId, /^interrupt-/);
+
+	// Evidence: pending then handed-off persisted.
+	const records = entries.filter((e) => (e as { customType?: string }).customType === INTERRUPT_ENTRY_TYPE);
+	assert.equal(records.length, 2);
+	assert.equal((records[0] as { data: { phase: string } }).data.phase, "pending");
+	assert.equal((records[1] as { data: { phase: string } }).data.phase, "handed-off");
+
+	// Recovery handed as a steer (never redirect, never followUp) with derived origin.
+	const handoff = sent[sent.length - 1]! as {
+		message: { details: { messagePayload: MessagePayload } };
+		options: unknown;
+	};
+	assert.deepEqual(handoff.options, { triggerTurn: true, deliverAs: "steer" });
+	assert.deepEqual(handoff.message.details.messagePayload.origin, { kind: "crew", name: "Tony", role: "lead" });
+
+	// Reload recovery: simulate crash between pending and handed-off — remove the
+	// handed-off entry, keep pending; a fresh flow must re-deliver.
+	entries.splice(1, 1); // drop handed-off, keep pending
+	const recoveredEntries: unknown[] = [...entries];
+	const recoveredFlow = createInterruptFlow({
+		isIdle: () => true,
+		abort: async () => {},
+		sendMessage: (message, options) => {
+			sent.push({ message, options });
+		},
+		appendEntry: (customType, data) => {
+			recoveredEntries.push({ type: "custom", customType, data });
+		},
+		getEntries: () => recoveredEntries,
+	});
+	const recovery = await recoveredFlow.recoverPending();
+	assert.equal(recovery?.interruptId, interruptId);
+	// Re-delivered as steer with derived origin.
+	const last = sent[sent.length - 1]! as { options: unknown };
+	assert.deepEqual(last.options, { triggerTurn: true, deliverAs: "steer" });
+	const phases = recoveredEntries.map((e) => (e as { data?: { phase?: string } }).data?.phase).filter(Boolean);
+	assert.deepEqual(phases, ["pending", "handed-off"]);
+});

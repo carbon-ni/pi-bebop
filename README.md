@@ -140,6 +140,17 @@ unsupported because Pi lifecycle events cannot prove delivery-level response
 correlation; it never consumes an unrelated global `turn_end`. Members can be addressed by unique name or role. A live endpoint owned by another session is
 never overwritten; stale endpoints may be reclaimed.
 
+### Hard interrupt
+
+Escalate deliberately: use `send_follow_up` for normal delivery, `redirect_member`
+when the target should change direction after current work, and `interrupt_member`
+only to stop and recover work that is stuck, harmful, or based on invalid
+assumptions. Interrupt is live-only: the target records pending recovery guidance
+before requesting a best-effort abort, then hands the guidance to Pi ahead of
+older follow-ups; recovery survives reload until handed off. It cannot roll back
+filesystem, shell, network, or already-completed side effects—verify state before
+continuing.
+
 ### Durable member inbox
 
 Members may be offline, but work can still be left durably. `send_to_inbox`

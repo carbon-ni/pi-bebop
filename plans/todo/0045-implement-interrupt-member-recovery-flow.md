@@ -1,7 +1,7 @@
 ---
 id: TASK-0045
 title: Implement interrupt-member recovery flow
-status: todo
+status: doing
 depends_on: [TASK-0044]
 priority: high
 tags: [crew, interrupt, tools, protocol, recovery]
