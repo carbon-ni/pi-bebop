@@ -430,6 +430,38 @@ test("parseSessionControlAction accepts the exact crew command surface", () => {
 	});
 });
 
+test("parseSessionControlAction parses the inbox subcommand surface", () => {
+	assert.deepEqual(parseSessionControlAction("inbox status"), { action: "inbox", target: "status" });
+	assert.deepEqual(parseSessionControlAction("inbox pause"), { action: "inbox", target: "pause" });
+	assert.deepEqual(parseSessionControlAction("inbox resume"), { action: "inbox", target: "resume" });
+	assert.deepEqual(parseSessionControlAction("inbox cancel inbox-0-abc"), {
+		action: "inbox",
+		target: "cancel inbox-0-abc",
+	});
+	assert.deepEqual(parseSessionControlAction("inbox cancel 'inbox-0 abc'"), {
+		action: "inbox",
+		target: "cancel inbox-0 abc",
+	});
+});
+
+test("parseSessionControlAction rejects malformed inbox subcommands", () => {
+	assert.deepEqual(parseSessionControlAction("inbox"), {
+		error: "Missing inbox action. Use /crew inbox status|cancel <id>|pause|resume.",
+	});
+	assert.deepEqual(parseSessionControlAction("inbox bogus"), {
+		error: "Unknown inbox action: bogus. Use /crew inbox status|cancel <id>|pause|resume.",
+	});
+	assert.deepEqual(parseSessionControlAction("inbox cancel"), {
+		error: "Missing target. Use /crew inbox cancel <id>.",
+	});
+	assert.deepEqual(parseSessionControlAction("inbox status extra"), {
+		error: "Too many arguments. Use /crew inbox status.",
+	});
+	assert.deepEqual(parseSessionControlAction("inbox cancel a b"), {
+		error: "Too many arguments. Use /crew inbox cancel <id>.",
+	});
+});
+
 test("parseSessionControlAction reports crew-specific quote errors", () => {
 	assert.deepEqual(parseSessionControlAction("join 'unterminated"), {
 		error: "Unclosed quote in crew command.",
@@ -439,11 +471,11 @@ test("parseSessionControlAction reports crew-specific quote errors", () => {
 test("parseSessionControlAction rejects removed direct actions and invalid arity", () => {
 	for (const action of ["listen", "connect", "disconnect"]) {
 		assert.deepEqual(parseSessionControlAction(action), {
-			error: `Unknown crew action: ${action}. Use /crew join <socket>|leave|members|status|stop.`,
+			error: `Unknown crew action: ${action}. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.`,
 		});
 	}
 	assert.deepEqual(parseSessionControlAction("start"), {
-		error: "Unknown crew action: start. Use /crew join <socket>|leave|members|status|stop.",
+		error: "Unknown crew action: start. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
 	});
 	assert.deepEqual(parseSessionControlAction("join"), {
 		error: "Missing target. Use /crew join <socket>.",
@@ -452,6 +484,6 @@ test("parseSessionControlAction rejects removed direct actions and invalid arity
 		error: "Join accepts exactly one target.",
 	});
 	assert.deepEqual(parseSessionControlAction("status now"), {
-		error: "Too many arguments. Use /crew join <socket>|leave|members|status|stop.",
+		error: "Too many arguments. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
 	});
 });

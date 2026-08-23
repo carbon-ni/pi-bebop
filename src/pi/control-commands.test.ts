@@ -49,11 +49,11 @@ test("crew command completions expose only the consolidated command surface", as
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
 		({ value }) => value,
 	);
-	assert.deepEqual(values, ["join", "leave", "members", "status", "stop"]);
+	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "inbox"]);
 	assert.match((setupState.getCommand() as any).description, /crew members/i);
 	await setupState.getCommand().handler("list", setupState.ctx);
 	assert.deepEqual(setupState.notifications, [
-		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop.",
+		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
 	]);
 });
 
@@ -513,4 +513,126 @@ test("/crew stop releases and persists active crew membership before cleanup", a
 	assert.deepEqual(calls, ["leave", "stop"]);
 	assert.deepEqual(persisted, [false]);
 	assert.deepEqual(activation, ["deactivate"]);
+});
+
+function fakeBridge(overrides: Record<string, unknown> = {}) {
+	const calls: string[] = [];
+	const bridge = {
+		establish: () => calls.push("establish"),
+		invalidate: () => calls.push("invalidate"),
+		attemptOffer: async () => ({ offered: false as const, reason: "no-items" as const }),
+		status: async () => ({
+			offering: "active" as const,
+			count: 2,
+			outstanding: null,
+			items: [
+				{ id: "inbox-0-abc", sequence: 0, enqueuedAt: 1000, bytes: 24 },
+				{ id: "inbox-1-def", sequence: 1, enqueuedAt: 1001, bytes: 24 },
+			],
+		}),
+		cancel: async (id: string) => ({ removed: true, itemId: id }),
+		setPaused: (paused: boolean) => calls.push(`setPaused:${paused}`),
+		...overrides,
+	} as never;
+	return { bridge, calls };
+}
+
+test("/crew inbox status renders bounded pending metadata without content", async () => {
+	const setupState = setup();
+	const { bridge } = fakeBridge();
+	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({ inboxBridge: bridge }));
+	await setupState.getCommand().handler("inbox status", setupState.ctx);
+	assert.equal(setupState.notifications.length, 0);
+	assert.equal(setupState.messages.length, 1);
+	assert.equal(setupState.messages[0]!.customType, "crew-inbox");
+	assert.match(setupState.messages[0]!.content, /Inbox active/);
+	assert.match(setupState.messages[0]!.content, /2 pending/);
+	assert.ok(setupState.messages[0]!.content.includes("inbox-0-abc"));
+});
+
+test("/crew inbox pause and resume control automatic offering", async () => {
+	const setupState = setup();
+	const { bridge, calls } = fakeBridge();
+	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({ inboxBridge: bridge }));
+	await setupState.getCommand().handler("inbox pause", setupState.ctx);
+	await setupState.getCommand().handler("inbox resume", setupState.ctx);
+	assert.deepEqual(calls, ["setPaused:true", "setPaused:false"]);
+	assert.match(setupState.notifications[0]!, /paused/i);
+	assert.match(setupState.notifications[1]!, /resumed/i);
+});
+
+test("/crew inbox cancel removes a pending item and reports not-found idempotently", async () => {
+	const setupState = setup();
+	const cancelCalls: string[] = [];
+	const { bridge } = fakeBridge({
+		cancel: async (id: string) => {
+			cancelCalls.push(id);
+			return cancelCalls.length === 1 ? { removed: true, itemId: id } : { removed: false, reason: "not-found" };
+		},
+	});
+	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({ inboxBridge: bridge }));
+	await setupState.getCommand().handler("inbox cancel inbox-0-abc", setupState.ctx);
+	await setupState.getCommand().handler("inbox cancel inbox-0-abc", setupState.ctx);
+	assert.deepEqual(cancelCalls, ["inbox-0-abc", "inbox-0-abc"]);
+	assert.match(setupState.notifications[0]!, /cancelled: inbox-0-abc/);
+	assert.match(setupState.notifications[1]!, /not found: inbox-0-abc/);
+});
+
+test("/crew inbox reports missing bridge and malformed subcommands", async () => {
+	const setupState = setup();
+	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps());
+	await setupState.getCommand().handler("inbox status", setupState.ctx);
+	assert.deepEqual(setupState.notifications, ["Inbox bridge unavailable"]);
+	assert.equal(setupState.messages.length, 0);
+
+	await setupState.getCommand().handler("inbox bogus", setupState.ctx);
+	assert.match(setupState.notifications[1]!, /Unknown inbox action: bogus/);
+	await setupState.getCommand().handler("inbox cancel", setupState.ctx);
+	assert.match(setupState.notifications[2]!, /Missing target. Use \/crew inbox cancel <id>\./);
+});
+
+test("/crew join establishes the inbox bridge and leave invalidates it", async () => {
+	const setupState = setup();
+	const { bridge, calls } = fakeBridge();
+	const currentMembership = {
+		manifestPath: "/project/.pi/bebop/crew.json",
+		socketPath: "/project/.pi/bebop/sockets/dev.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: {
+			name: "dev",
+			role: "developer",
+			socket: "sockets/dev.sock",
+			socketPath: "/project/.pi/bebop/sockets/dev.sock",
+		},
+		manifest: { version: 1, members: [], presence: { notifications: true } },
+	};
+	let membership: unknown = null;
+	const runtime = {
+		join: async () => {
+			membership = currentMembership;
+			return { ok: true, membership: currentMembership, idempotent: false };
+		},
+		leave: async () => {
+			membership = null;
+			return { ok: true, left: true };
+		},
+		getMembership: () => membership,
+	} as unknown as MembershipRuntime;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			inboxBridge: bridge,
+			ensureControlServer: async (_pi, current, ctx) => {
+				current.server = {} as never;
+				current.socketPath = "/tmp/global.sock";
+				current.context = ctx;
+			},
+		}),
+	);
+	await setupState.getCommand().handler("join '.pi/bebop/sockets/dev.sock'", setupState.ctx);
+	assert.ok(calls.includes("establish"));
+	await setupState.getCommand().handler("leave", setupState.ctx);
+	assert.ok(calls.includes("invalidate"));
 });

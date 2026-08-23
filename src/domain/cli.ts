@@ -1,13 +1,15 @@
 export const CONTROL_FLAG = "intray";
 export const CONTROL_SHORT_FLAG = "in";
 
-export type SessionControlAction = "join" | "leave" | "members" | "status" | "stop";
+export type SessionControlAction = "join" | "leave" | "members" | "status" | "stop" | "inbox";
 
 export type ParsedSessionControlAction =
-	| { action: Exclude<SessionControlAction, "join"> }
-	| { action: "join"; target: string };
+	| { action: Exclude<SessionControlAction, "join" | "inbox"> }
+	| { action: "join"; target: string }
+	| { action: "inbox"; target: string };
 
-const SESSION_CONTROL_USAGE = "join <socket>|leave|members|status|stop";
+const SESSION_CONTROL_USAGE = "join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume";
+const INBOX_USAGE = "status|cancel <id>|pause|resume";
 
 function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: string } {
 	const parts: string[] = [];
@@ -67,6 +69,20 @@ export function parseSessionControlAction(args: string): {
 	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
 		if (parts.length > 1) return { error: `Too many arguments. Use /crew ${SESSION_CONTROL_USAGE}.` };
 		return { action };
+	}
+	if (action === "inbox") {
+		const sub = parts[1];
+		if (sub === "status" || sub === "pause" || sub === "resume") {
+			if (parts.length > 2) return { error: `Too many arguments. Use /crew inbox ${sub}.` };
+			return { action: "inbox", target: sub };
+		}
+		if (sub === "cancel") {
+			if (parts.length < 3) return { error: "Missing target. Use /crew inbox cancel <id>." };
+			if (parts.length > 3) return { error: "Too many arguments. Use /crew inbox cancel <id>." };
+			return { action: "inbox", target: `cancel ${parts[2]}` };
+		}
+		if (!sub) return { error: `Missing inbox action. Use /crew inbox ${INBOX_USAGE}.` };
+		return { error: `Unknown inbox action: ${sub}. Use /crew inbox ${INBOX_USAGE}.` };
 	}
 	return { error: `Unknown crew action: ${action}. Use /crew ${SESSION_CONTROL_USAGE}.` };
 }

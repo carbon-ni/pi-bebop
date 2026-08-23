@@ -5,6 +5,8 @@ import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import type { MembershipRuntime, Membership } from "../infra/membership-runtime.ts";
 import { deriveIntrayStatus, ensureControlServer, type SocketState } from "./control-runtime.ts";
 import { releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
+import { formatInboxStatus, type InboxBridgeController } from "../application/inbox-bridge.ts";
+import { ownershipFromMembership } from "./inbox-bridge-runtime.ts";
 
 export type ControlCommandDeps = {
 	ensureControlServer?: typeof ensureControlServer;
@@ -18,9 +20,10 @@ export type ControlCommandDeps = {
 	refreshStatus?: () => void;
 	refreshPresence?: () => void | Promise<void>;
 	stopPresence?: () => void | Promise<void>;
+	inboxBridge?: InboxBridgeController | null;
 };
 
-const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop"];
+const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop", "inbox"];
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
 	if (ctx.hasUI) ctx.ui.notify(message, level);
@@ -122,6 +125,8 @@ export function registerSessionControlCommand(
 					deps.refreshStatus?.();
 					await deps.refreshPresence?.();
 					deps.announceMembership?.(joinedMessage);
+					deps.inboxBridge?.establish(ownershipFromMembership(result.membership));
+					void deps.inboxBridge?.attemptOffer();
 					notify(ctx, joinedMessage);
 					return;
 				}
@@ -140,6 +145,7 @@ export function registerSessionControlCommand(
 							deps.refreshStatus?.();
 							await deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
+							deps.inboxBridge?.invalidate();
 						}
 						notify(ctx, result.left ? "Crew membership released" : "Crew not joined");
 					}
@@ -156,6 +162,43 @@ export function registerSessionControlCommand(
 						{ triggerTurn: false },
 					);
 					return;
+				case "inbox": {
+					const bridge = deps.inboxBridge;
+					const sub = parsed.target ?? "";
+					if (!bridge) {
+						notify(ctx, "Inbox bridge unavailable", "error");
+						return;
+					}
+					if (sub === "status") {
+						const status = await bridge.status();
+						pi.sendMessage(
+							{ customType: "crew-inbox", content: formatInboxStatus(status), display: true },
+							{ triggerTurn: false },
+						);
+						return;
+					}
+					if (sub === "pause") {
+						bridge.setPaused(true);
+						notify(ctx, "Inbox automatic offering paused");
+						return;
+					}
+					if (sub === "resume") {
+						bridge.setPaused(false);
+						notify(ctx, "Inbox automatic offering resumed");
+						return;
+					}
+					if (sub.startsWith("cancel ")) {
+						const itemId = sub.slice("cancel ".length);
+						const outcome = await bridge.cancel(itemId);
+						if (outcome.removed === true) notify(ctx, `Inbox item cancelled: ${outcome.itemId}`);
+						else if (outcome.reason === "not-pending")
+							notify(ctx, `Inbox item ${itemId} is not pending (already handed to session)`, "warning");
+						else notify(ctx, `Inbox item not found: ${itemId}`, "warning");
+						return;
+					}
+					notify(ctx, `Unknown inbox action: ${sub}`, "error");
+					return;
+				}
 				case "stop": {
 					const previousMembership = membership?.getMembership();
 					await releaseMembershipBeforeCleanup({
@@ -168,6 +211,7 @@ export function registerSessionControlCommand(
 							deps.refreshStatus?.();
 							await deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
+							deps.inboxBridge?.invalidate();
 						},
 						reportFailure: (message) => notify(ctx, message, "warning"),
 					});
