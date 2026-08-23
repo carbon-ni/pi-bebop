@@ -16,6 +16,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Member Description**   | Stable manifest-authored, crew-visible specialty or responsibility summary; it is not current work, authority, or routing identity.                                        | Focus, role instructions, permission, search key       |
 | **Presence**             | Last observed endpoint reachability of configured member.                                                                                                                    | availability, readiness, idle state                    |
 | **Member Status**        | One-shot privacy-safe snapshot combining Presence, live Activity, pending-message signal, and optional self-reported Focus.                                                  | monitoring, task progress, transcript summary          |
+| **Member Idle Wait**     | One-shot coordination primitive that blocks, bounded and event-driven, until a configured member's Pi settles to mechanical idle, goes offline, or the bounded deadline expires. | waiting for a reply, monitoring, availability, presence |
 | **Activity**             | Mechanical live Pi runtime state: idle when settled, busy while processing/retrying/continuing, or unavailable while offline.                                               | availability, productivity, manually claimed state     |
 | **Focus**                | Optional bounded crew-visible note explicitly published by current member and never inferred from session content.                                                          | verified progress, automatic summary, private status   |
 | **Role instructions**    | Stable member guidance loaded when membership starts or restores.                                                                                                            | prompt, message instructions                           |
@@ -68,6 +69,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
 | Inspect one member timing and stated work | `get_member_status` | Returns reachability, mechanical Activity, pending signal, and self-reported Focus without reading conversation. |
 | Publish or clear own crew-visible Focus | `update_member_focus` | Explicit opt-in note for coordination; member can update only own Focus. |
+| Block until another member's Pi is mechanically idle, goes offline, or times out | `wait_for_member_idle` *(planned, TASK-0051)* | One-shot bounded wait; never implies reply, task completion, or availability. |
 
 `send_follow_up` is canonical normal delivery. `redirect_member` names the
 consequence (changing active work), not transport timing. Legacy
@@ -137,6 +139,9 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Activity/Focus:** Activity is mechanically derived and cannot be claimed; Focus is explicitly member-reported and unverified.
 - **Focus/privacy:** Focus is crew-visible and must never contain secrets or private prompt/session content; absence is `unspecified`, offline is `unavailable`.
 - **Online/available:** online means endpoint reachable; it does not mean idle, ready, or responsive.
+- **Idle/reply:** mechanical idle proves the Pi runtime settled; it never proves the target saw a message, finished a task, intends to reply, or will remain idle. Reply correlation remains unsupported.
+- **Idle wait/monitoring:** idle wait is one-shot, transient, and bounded; monitoring is continuous background observation.
+- **Idle wait/Member Status:** Member Status is an immediate snapshot; idle wait blocks until a mechanical transition or deadline.
 - **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or response produced.
 - **Follow-up/inbox:** follow-up requires online target and uses transient Pi delivery; inbox survives recipient downtime and restarts.
 - **Follow-up:** in ordinary conversation it can mean another conversational message; in Bebop it specifically means safe queued delivery when target is busy.
