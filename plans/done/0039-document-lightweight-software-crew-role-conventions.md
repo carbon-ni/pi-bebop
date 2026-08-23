@@ -1,7 +1,7 @@
 ---
 id: TASK-0039
 title: Document lightweight software crew role conventions
-status: doing
+status: done
 depends_on: [TASK-0027, TASK-0033, TASK-0038, TASK-0041, TASK-0043, TASK-0045, TASK-0047]
 priority: normal
 tags: [crew, roles, instructions, workflow, docs]
