@@ -66,8 +66,8 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | Abort target active work for recovery | `interrupt_member` | Live target-owned recovery: evidence, best-effort abort, then recovery steer; never rolls back side effects. |
 | Leave durable message for online or offline peer | `send_to_inbox`     | Durable per-member queue; persists even if recipient offline.                                       |
 | Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
-| Inspect one member timing and stated work *(planned)* | `get_member_status` | Returns reachability, mechanical Activity, pending signal, and self-reported Focus without reading conversation. |
-| Publish or clear own crew-visible Focus *(planned)* | `update_member_focus` | Explicit opt-in note for coordination; member can update only own Focus. |
+| Inspect one member timing and stated work | `get_member_status` | Returns reachability, mechanical Activity, pending signal, and self-reported Focus without reading conversation. |
+| Publish or clear own crew-visible Focus | `update_member_focus` | Explicit opt-in note for coordination; member can update only own Focus. |
 
 `send_follow_up` is canonical normal delivery. `redirect_member` names the
 consequence (changing active work), not transport timing. Legacy
