@@ -34,6 +34,7 @@
 		"src/extension.ts",
 		"src/infra/control-store.ts",
 		"src/infra/crew-manifest-store.ts",
+		"src/infra/member-inbox-store.ts",
 		"src/infra/git-branch.ts",
 		"src/infra/intray-config.ts",
 		"src/infra/intray-paths.ts",
