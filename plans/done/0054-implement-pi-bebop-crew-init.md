@@ -1,7 +1,7 @@
 ---
 id: TASK-0054
 title: Implement pi-bebop crew init
-status: doing
+status: done
 depends_on: [TASK-0053]
 priority: normal
 tags: [crew, cli, init, scaffold, filesystem, axi, tdd]
