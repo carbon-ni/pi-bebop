@@ -44,12 +44,12 @@ export function registerMemberIntentTool(
 	intent: MemberDeliveryIntent,
 	dependencies: MemberToolAdapterDependencies,
 ): void {
-	const name = intent === "follow_up" ? "send_follow_up" : "send_immediate";
-	const label = intent === "follow_up" ? "Send Follow-up" : "Send Immediate";
+	const name = intent === "follow_up" ? "send_follow_up" : "redirect_member";
+	const label = intent === "follow_up" ? "Send Follow-up" : "Redirect Member";
 	const description =
 		intent === "follow_up"
 			? "Send a normal follow-up to a joined crew member; use this by default when urgency is not explicit."
-			: "Send a message to redirect a crew member's active work; use only when changing what they are doing now.";
+			: "Insert a message into a crew member's active work to change what they are doing now; use only when redirecting active work.";
 	pi.registerTool({
 		name,
 		label,

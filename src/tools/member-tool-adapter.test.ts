@@ -8,7 +8,7 @@ import type { RpcClientOptions } from "../infra/rpc-client.ts";
 import { createSocketState } from "../pi/control-runtime.ts";
 import { createMemberMessageCoordinator, sendMemberMessage } from "../application/member-message.ts";
 import { registerSendFollowUpTool } from "./send-follow-up.ts";
-import { registerSendImmediateTool } from "./send-immediate.ts";
+import { registerRedirectMemberTool } from "./redirect-member.ts";
 
 type Tool = {
 	name: string;
@@ -57,7 +57,7 @@ function setup(
 		...dependencies,
 	};
 	registerSendFollowUpTool(pi, state, adapterDependencies);
-	registerSendImmediateTool(pi, state, adapterDependencies);
+	registerRedirectMemberTool(pi, state, adapterDependencies);
 	return tools;
 }
 const ack = (disposition: string) => ({
@@ -95,7 +95,7 @@ test("application omission defaults to follow-up wire delivery and coordinator q
 
 test("registers only intent-named tools with compact parameters and teaching descriptions", () => {
 	const tools = setup(async () => ack("queued"));
-	assert.deepEqual([...tools.keys()], ["send_follow_up", "send_immediate"]);
+	assert.deepEqual([...tools.keys()], ["send_follow_up", "redirect_member"]);
 	for (const tool of tools.values()) {
 		assert.deepEqual(Object.keys(tool.parameters.properties ?? {}).sort(), [
 			"instructions",
@@ -109,7 +109,7 @@ test("registers only intent-named tools with compact parameters and teaching des
 		assert.equal(Value.Check(tool.parameters, { member: "qa", message: "x", extra: true }), false);
 	}
 	assert.match(tools.get("send_follow_up")!.description, /default/i);
-	assert.match(tools.get("send_immediate")!.description, /redirect.*active/i);
+	assert.match(tools.get("redirect_member")!.description, /redirect.*active/i);
 });
 
 test("intent tools reject invalid instruction payloads before endpoint or transport", async () => {
@@ -132,7 +132,7 @@ test("intent tools reject invalid instruction payloads before endpoint or transp
 	);
 	const aggregateOverflow = Array.from({ length: 32 }, () => "x".repeat(31_250));
 	const invalidMatrices = [["   "], ["\0"], ["😀".repeat(25_001)], Array(33).fill("x"), aggregateOverflow];
-	for (const name of ["send_follow_up", "send_immediate"]) {
+	for (const name of ["send_follow_up", "redirect_member"]) {
 		for (const instructions of invalidMatrices) {
 			const result = await tools
 				.get(name)!
@@ -150,7 +150,7 @@ test("both intent tools preserve ordered instructions and current origin with ca
 		calls.push(command);
 		return ack("queued");
 	});
-	for (const name of ["send_follow_up", "send_immediate"]) {
+	for (const name of ["send_follow_up", "redirect_member"]) {
 		const result = await tools
 			.get(name)!
 			.execute(
@@ -179,7 +179,7 @@ test("uses follow-up by default and maps immediate to explicit steering", async 
 		.get("send_follow_up")!
 		.execute("call", { member: "qa", message: "later" }, undefined, undefined, undefined);
 	const immediate = await tools
-		.get("send_immediate")!
+		.get("redirect_member")!
 		.execute("call", { member: "qa", message: "now" }, undefined, undefined, undefined);
 	assert.equal(follow.isError, undefined);
 	assert.equal(immediate.isError, undefined);
@@ -231,10 +231,10 @@ test("proves FIFO follow-ups wait for the first ack and immediates start concurr
 	await Promise.all([first, second]);
 	assert.deepEqual(order.slice(0, 2), ["first follow-up", "second follow-up"]);
 	const immediateOne = tools
-		.get("send_immediate")!
+		.get("redirect_member")!
 		.execute("call", { member: "qa", message: "redirect one" }, undefined, undefined, undefined);
 	const immediateTwo = tools
-		.get("send_immediate")!
+		.get("redirect_member")!
 		.execute("call", { member: "qa", message: "redirect two" }, undefined, undefined, undefined);
 	await immediateStarted;
 	assert.equal(immediateStarts, 2);
@@ -451,7 +451,7 @@ test("forwards abort and reports offline endpoints", async () => {
 		throw new Error("aborted");
 	});
 	const result = await tools
-		.get("send_immediate")!
+		.get("redirect_member")!
 		.execute("call", { member: "qa", message: "x" }, controller.signal, undefined, undefined);
 	assert.equal(result.isError, true);
 	assert.match(result.content[0].text, /aborted/i);

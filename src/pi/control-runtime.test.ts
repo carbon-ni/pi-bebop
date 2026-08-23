@@ -25,7 +25,7 @@ function createThrowingContext(message: string): unknown {
 }
 
 test("membership tool activation preserves unrelated tools and is idempotent", () => {
-	let active = ["read", "send_to_member"];
+	let active = ["read", "grep"];
 	const pi = {
 		getActiveTools: () => active,
 		setActiveTools: (tools: string[]) => {
@@ -34,10 +34,10 @@ test("membership tool activation preserves unrelated tools and is idempotent", (
 	} as never;
 	activateMembershipTool(pi);
 	activateMembershipTool(pi);
-	assert.deepEqual(active, ["read", "send_to_member", "send_follow_up", "send_immediate", "send_to_inbox"]);
+	assert.deepEqual(active, ["read", "grep", "send_follow_up", "redirect_member", "send_to_inbox"]);
 	deactivateMembershipTool(pi);
 	deactivateMembershipTool(pi);
-	assert.deepEqual(active, ["read", "send_to_member"]);
+	assert.deepEqual(active, ["read", "grep"]);
 });
 
 test("status derives stopped, online, and joined from server and crew state", () => {

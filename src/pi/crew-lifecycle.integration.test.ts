@@ -12,7 +12,7 @@ import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-ser
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { createMemberMessageCoordinator } from "../application/member-message.ts";
-import { registerSendFollowUpTool, registerSendImmediateTool } from "../tools/index.ts";
+import { registerSendFollowUpTool, registerRedirectMemberTool } from "../tools/index.ts";
 import { getLatestMembershipState, MEMBERSHIP_ENTRY_TYPE } from "./membership-context.ts";
 import { restorePersistedMembership, releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
 
@@ -193,7 +193,7 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 		coordinator: createMemberMessageCoordinator(),
 	};
 	registerSendFollowUpTool(toolApi, toolState, memberMessageDependencies);
-	registerSendImmediateTool(toolApi, toolState, memberMessageDependencies);
+	registerRedirectMemberTool(toolApi, toolState, memberMessageDependencies);
 	const tool = registered.get("send_follow_up");
 	const send = (member: string, message: string) =>
 		tool.execute("call", { member, message }, undefined, undefined, undefined);
