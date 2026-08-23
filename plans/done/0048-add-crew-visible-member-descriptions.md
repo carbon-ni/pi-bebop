@@ -1,7 +1,7 @@
 ---
 id: TASK-0048
 title: Add crew-visible member descriptions
-status: doing
+status: done
 depends_on: []
 priority: normal
 tags: [crew, manifest, description, roster, context]
