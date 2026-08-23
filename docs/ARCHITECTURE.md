@@ -176,6 +176,48 @@ forward internally with follow-up/inbox; redirect remains exceptional.
 - The message is persisted to the contact's inbox (TASK-0035 store) and may
   arrive while the contact is offline.
 
+### Crew Broadcast (defined)
+
+Crew Broadcast is the internal, durable, non-interrupting fan-out initiated
+by a current joined member: the same structured message is persisted to every
+other member configured by the current trusted manifest, in manifest order,
+regardless of presence. Each recipient later receives its own Inbox item
+through the normal Follow-up handoff (TASK-0037 bridge). The tool and
+runtime adapters arrive in TASK-0043; this section defines the domain
+contract only.
+
+- **Internal and joined only.** The initiator must resolve to a configured
+  manifest member; unjoined or external callers are rejected before
+  persistence. Joined-ness is enforced by the application layer (tool), while
+  the domain validates sender identity and derives origin. External actors use
+  Crew Intake, a separate boundary, and never broadcast directly.
+- **Self exclusion by canonical identity.** Recipients are the manifest
+  snapshot in manifest order excluding the sender by exact canonical member
+  name — never by name/role heuristics. Presence never changes recipients or
+  order.
+- **Derived origin.** Every recipient payload carries the initiator's crew
+  origin derived from the validated manifest member, never from caller-claimed
+  input.
+- **Non-interrupting delivery.** Broadcast always persists through each
+  recipient's Inbox as a normal Follow-up; it can never steer or redirect
+  active work.
+- **Idempotent retry.** A stable broadcast id plus deterministic per-recipient
+  item ids (broadcast id + recipient canonical name only, independent of
+  inbox sequence) let a retry fill missing recipients without duplicating
+  successful copies. TASK-0043 wiring must persist copies under these ids and
+  treat a matching id as already-persisted.
+- **Disposition contract.** The outcome reports persisted, already-persisted,
+  and failed for every target. Partial success is never presented as total
+  success — callers must observe the failed count. One recipient failure or a
+  full inbox does not corrupt other recipients and never silently drops a
+  failed target.
+- **No-recipient no-IO.** When self exclusion empties the recipient set, the
+  contract returns an explicit no-recipients outcome and performs no storage
+  IO.
+
+Crew Broadcast is not Crew Intake (external one-way boundary), not a shared
+inbox or group turn (per-recipient independent copies), and not redirect-all.
+
 ## Quality gates
 
 - `npm run format:check` — Prettier check

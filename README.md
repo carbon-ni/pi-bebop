@@ -233,6 +233,19 @@ External intake is one-way and has no auth, callbacks, broadcasts, or
 task/Git integration: the external actor cannot read responses, and Bebop does
 not route, classify, or dispatch the message to a worker.
 
+#### Durable crew broadcast (defined)
+
+Crew Broadcast is an internal, durable, non-interrupting fan-out initiated by
+a current joined member: the same message is persisted to every other
+configured member, in manifest order, regardless of presence, and each
+recipient later receives its own copy through the normal Inbox-to-follow-up
+handoff. The sender is excluded; delivery can never interrupt or redirect
+active work. A stable broadcast id plus deterministic per-recipient item ids
+make retry idempotent after partial failure, and the outcome reports every
+recipient rather than masking partial success. The broadcast tool is not yet
+available;
+this section defines the domain contract only.
+
 ## Development
 
 ```bash

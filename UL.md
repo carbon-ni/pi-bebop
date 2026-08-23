@@ -4,21 +4,22 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 
 ## Product concepts
 
-| Canonical term           | Definition                                                                                                                                                              | Avoid                                                  |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| **Crew**                 | Trusted, project-local set of configured Pi members that may be independently online or offline.                                                                        | team, cluster, pool                                    |
-| **Crew manifest**        | Authoritative file that defines crew members, roles, endpoints, instructions, and presence policy.                                                                      | config, registry                                       |
-| **Member**               | Pi session that claims one identity configured by crew manifest.                                                                                                        | peer, agent, session when discussing crew identity     |
-| **Current member**       | Member identity claimed by this Pi session.                                                                                                                             | self, local agent                                      |
-| **Role**                 | Descriptive routing label for member; unique role may identify message target.                                                                                          | permission, authority                                  |
-| **Membership**           | Active relationship between Pi session and claimed crew member identity.                                                                                                | connection, login                                      |
-| **Member endpoint**      | Project socket path that identifies configured member and resolves to active runtime socket.                                                                            | session ID, alias, socket when product meaning matters |
-| **Presence**             | Last observed endpoint reachability of configured member.                                                                                                               | availability, readiness, idle state                    |
-| **Role instructions**    | Stable member guidance loaded when membership starts or restores.                                                                                                       | prompt, message instructions                           |
-| **Message instructions** | Ordered guidance attached to one crew message.                                                                                                                          | role instructions                                      |
-| **Crew Intake**          | One-way feature that accepts an external message for the crew and hands it durably to the configured crew contact.                                                      | inbox, broadcast, API gateway                          |
-| **External actor**       | Local process or Pi session that sends a crew message without joined member identity.                                                                                   | crew member, authenticated caller                      |
-| **Crew contact**         | Explicitly configured member selected by exact name, responsible for triaging Crew Intake messages; product owner is recommended for software crews but never inferred. | lead by default, first online member                   |
+| Canonical term           | Definition                                                                                                                                                                   | Avoid                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **Crew**                 | Trusted, project-local set of configured Pi members that may be independently online or offline.                                                                             | team, cluster, pool                                    |
+| **Crew manifest**        | Authoritative file that defines crew members, roles, endpoints, instructions, and presence policy.                                                                           | config, registry                                       |
+| **Member**               | Pi session that claims one identity configured by crew manifest.                                                                                                             | peer, agent, session when discussing crew identity     |
+| **Current member**       | Member identity claimed by this Pi session.                                                                                                                                  | self, local agent                                      |
+| **Role**                 | Descriptive routing label for member; unique role may identify message target.                                                                                               | permission, authority                                  |
+| **Membership**           | Active relationship between Pi session and claimed crew member identity.                                                                                                     | connection, login                                      |
+| **Member endpoint**      | Project socket path that identifies configured member and resolves to active runtime socket.                                                                                 | session ID, alias, socket when product meaning matters |
+| **Presence**             | Last observed endpoint reachability of configured member.                                                                                                                    | availability, readiness, idle state                    |
+| **Role instructions**    | Stable member guidance loaded when membership starts or restores.                                                                                                            | prompt, message instructions                           |
+| **Message instructions** | Ordered guidance attached to one crew message.                                                                                                                               | role instructions                                      |
+| **Crew Intake**          | One-way feature that accepts an external message for the crew and hands it durably to the configured crew contact.                                                           | inbox, broadcast, API gateway                          |
+| **External actor**       | Local process or Pi session that sends a crew message without joined member identity.                                                                                        | crew member, authenticated caller                      |
+| **Crew contact**         | Explicitly configured member selected by exact name, responsible for triaging Crew Intake messages; product owner is recommended for software crews but never inferred.      | lead by default, first online member                   |
+| **Crew Broadcast**       | Internal durable fan-out initiated by a current joined member; the same message persists to every other configured member and is later handed to each as a normal Follow-up. | intake, shared inbox, redirect-all, team broadcast     |
 
 ## Collaboration language
 
@@ -80,6 +81,10 @@ Intake is disabled when manifest has no Crew contact
 Crew Intake accepts External crew message and addresses configured Crew contact
 Crew Intake persists External crew message through Inbox
 Inbox persists Inbox items independently from endpoint presence
+Crew Broadcast is initiated only by a Current joined member
+Crew Broadcast excludes the sender by canonical member identity
+Crew Broadcast persists the same message to every other member through Inbox
+Each Crew Broadcast recipient receives own Inbox item through normal Follow-up
 Inbox item is removed only after durable session evidence records its Handoff
 Bebop hands Inbox item to Pi as normal Follow-up without managing recipient workflow
 Presence observes Member endpoint; it does not prove availability
@@ -108,6 +113,8 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Crew Intake/inbox:** Crew Intake is external-facing feature; Inbox is durable per-member delivery mechanism it reuses.
 - **Intake/contact fallback:** no configured contact means external intake is disabled; there is never a fallback to lead, product owner, first, or online member.
 - **Crew/contact:** messaging crew does not broadcast; configured crew contact owns triage, not automatic acceptance or execution.
+- **Broadcast/inbox:** Broadcast persists separate per-recipient copies through each member's Inbox; it is not a shared group mailbox and does not route or select a worker.
+- **Broadcast/redirect:** Broadcast is non-interrupting and cannot change what a recipient is doing; redirect targets one member's active work explicitly.
 - **Agent/session/member:** use _member_ for crew identity, _Pi session_ for runtime conversation, and _agent_ only for general actor.
 - **Online/available:** online means endpoint reachable; it does not mean idle, ready, or responsive.
 - **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or response produced.
