@@ -1,7 +1,7 @@
 ---
 id: TASK-0033
 title: Align crew messaging tool names with delivery intent
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, messaging, tools, ubiquitous-language]
