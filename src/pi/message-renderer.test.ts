@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { getMessageDisplayModel, parseSenderInfo, stripMessageMetadata } from "./message-renderer.ts";
 
 const legacyInstruction =
-	"<reply_instruction>When responding, reply directly to the sender by calling send_to_session with the sessionId from sender_info. Do not use get_message polling.</reply_instruction>";
+	"<reply_instruction>When responding, reply directly to the sender by calling send_to_member with the sessionId from sender_info. Do not use get_message polling.</reply_instruction>";
 
 test("renderer strips legacy generated instruction and sender metadata", () => {
 	const text = `hello\n\n${legacyInstruction}\n\n<sender_info>{"sessionId":"sender-id","sessionName":"Sender"}</sender_info>`;

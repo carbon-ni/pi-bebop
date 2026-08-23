@@ -32,10 +32,10 @@ export interface SessionToolDependencies {
 }
 
 // ============================================================================
-// Tool: send_to_session
+// Tool: send_to_member
 // ============================================================================
 
-export function registerSessionTool(
+export function registerMemberTool(
 	pi: ExtensionAPI,
 	state: SessionToolState,
 	dependencies: SessionToolDependencies = {},
@@ -43,9 +43,9 @@ export function registerSessionTool(
 	const sendRpc = dependencies.sendRpcCommand ?? sendRpcCommand;
 
 	pi.registerTool({
-		name: "send_to_session",
-		label: "Send To Session",
-		description: `Interact with another running session via its intray socket.
+		name: "send_to_member",
+		label: "Send To Member",
+		description: `Interact with another crew member via its socket.
 
 Actions:
 - send: Send a message (default). Requires 'message' parameter.
@@ -297,7 +297,7 @@ Response modes are mutually exclusive: turn_end is synchronous and never adds re
 			const shortSessionRef = sessionRef.length > 12 ? sessionRef.slice(0, 8) + "..." : sessionRef;
 
 			// Build the header line
-			let header = theme.fg("toolTitle", theme.bold("→ session "));
+			let header = theme.fg("toolTitle", theme.bold("→ member "));
 			header += theme.fg("accent", shortSessionRef);
 
 			// Add action-specific info

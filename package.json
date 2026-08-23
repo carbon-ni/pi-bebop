@@ -54,7 +54,7 @@
 		"src/tools/member-tool-adapter.ts",
 		"src/tools/send-follow-up.ts",
 		"src/tools/send-immediate.ts",
-		"src/tools/send-to-session.ts",
+		"src/tools/send-to-member.ts",
 		"src/tools/session-target.ts",
 		"dist/cli/main.js",
 		"dist/extension.js",

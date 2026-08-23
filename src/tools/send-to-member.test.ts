@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Value } from "@sinclair/typebox/value";
 
-import { registerSessionTool } from "./send-to-session.ts";
+import { registerMemberTool } from "./send-to-member.ts";
 import type { RpcClientOptions } from "../infra/rpc-client.ts";
 import { parseCrewManifest, type RpcCommand } from "../domain/index.ts";
 
@@ -25,7 +25,7 @@ function setup(
 		},
 	} as unknown as ExtensionAPI;
 
-	registerSessionTool(
+	registerMemberTool(
 		pi,
 		{
 			context: {
@@ -48,7 +48,7 @@ function successfulSend(): Promise<any> {
 	});
 }
 
-test("send_to_session defaults to synchronous turn_end without reverse-reply metadata", async () => {
+test("send_to_member defaults to synchronous turn_end without reverse-reply metadata", async () => {
 	const calls: Array<{ command: RpcCommand; options?: RpcClientOptions }> = [];
 	const tool = setup(async (socketPath, command, options) => {
 		calls.push({ command, options });
@@ -74,7 +74,7 @@ test("send_to_session defaults to synchronous turn_end without reverse-reply met
 	assert.equal(calls[0]?.options?.signal, signal);
 });
 
-test("send_to_session schema is closed and bounds structured context", () => {
+test("send_to_member schema is closed and bounds structured context", () => {
 	const tool = setup(async () => successfulSend());
 	assert.equal(Value.Check(tool.parameters, { sessionId: "target-id", message: "x", from: "CI" }), true);
 	assert.equal(
@@ -92,7 +92,7 @@ test("send_to_session schema is closed and bounds structured context", () => {
 	assert.equal(Value.Check(tool.parameters, { sessionId: "target-id", message: "x", extra: true }), false);
 });
 
-test("send_to_session rejects invalid structured context before RPC", async () => {
+test("send_to_member rejects invalid structured context before RPC", async () => {
 	let calls = 0;
 	const tool = setup(async () => {
 		calls += 1;
@@ -111,7 +111,7 @@ test("send_to_session rejects invalid structured context before RPC", async () =
 	assert.equal(calls, 0);
 });
 
-test("send_to_session carries external claims and rejects joined origin overrides", async () => {
+test("send_to_member carries external claims and rejects joined origin overrides", async () => {
 	const calls: RpcCommand[] = [];
 	const external = setup(async (_path, command) => {
 		calls.push(command);
@@ -177,7 +177,7 @@ test("reply policy changes only replyTo while preserving origin", async () => {
 	assert.deepEqual(calls[1]?.payload.replyTo, { sessionId: "sender-id", sessionName: "sender" });
 });
 
-test("send_to_session rejects turn_end plus allow_reply before RPC IO", async () => {
+test("send_to_member rejects turn_end plus allow_reply before RPC IO", async () => {
 	let rpcCalls = 0;
 	const tool = setup(async () => {
 		rpcCalls += 1;
@@ -202,7 +202,7 @@ test("send_to_session rejects turn_end plus allow_reply before RPC IO", async ()
 	assert.equal(rpcCalls, 0);
 });
 
-test("send_to_session targets an authoritative socket path with cwd and preserves wait/abort semantics", async () => {
+test("send_to_member targets an authoritative socket path with cwd and preserves wait/abort semantics", async () => {
 	const calls: Array<{ socketPath: string; command: RpcCommand; options?: RpcClientOptions }> = [];
 	const signal = new AbortController().signal;
 	const tool = setup(
@@ -234,7 +234,7 @@ test("send_to_session targets an authoritative socket path with cwd and preserve
 	assert.equal(calls[0]?.options?.signal, signal);
 });
 
-test("send_to_session distinguishes unknown member, offline endpoint, self, and conflicting targets", async () => {
+test("send_to_member distinguishes unknown member, offline endpoint, self, and conflicting targets", async () => {
 	let rpcCalls = 0;
 	const tool = setup(
 		async () => {
@@ -293,7 +293,7 @@ test("send_to_session distinguishes unknown member, offline endpoint, self, and 
 	assert.equal(rpcCalls, 1);
 });
 
-test("send_to_session includes callback metadata for asynchronous allow_reply", async () => {
+test("send_to_member includes callback metadata for asynchronous allow_reply", async () => {
 	const calls: Array<{ command: RpcCommand; options?: RpcClientOptions }> = [];
 	const tool = setup(async (_socketPath, command, options) => {
 		calls.push({ command, options });
