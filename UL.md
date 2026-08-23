@@ -132,6 +132,7 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Crew Intake/inbox:** Crew Intake is external-facing feature; Inbox is durable per-member delivery mechanism it reuses.
 - **Intake/contact fallback:** no configured contact means external intake is disabled; there is never a fallback to lead, product owner, first, or online member.
 - **Crew/contact:** messaging crew does not broadcast; configured crew contact owns triage, not automatic acceptance or execution.
+- **Crew contact/lead:** contact is the manifest-selected member triaging external Crew Intake; it is not lead, manager, authority, default internal recipient, or permission. Internal member communication still targets an exact member name or unique role.
 - **Broadcast/inbox:** Broadcast persists separate per-recipient copies through each member's Inbox; it is not a shared group mailbox and does not route or select a worker.
 - **Broadcast/redirect:** Broadcast is non-interrupting and cannot change what a recipient is doing; redirect targets one member's active work explicitly.
 - **Agent/session/member:** use _member_ for crew identity, _Pi session_ for runtime conversation, and _agent_ only for general actor.
