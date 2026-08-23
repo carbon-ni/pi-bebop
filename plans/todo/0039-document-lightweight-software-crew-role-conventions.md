@@ -2,7 +2,7 @@
 id: TASK-0039
 title: Document lightweight software crew role conventions
 status: todo
-depends_on: [TASK-0027, TASK-0033, TASK-0038, TASK-0041, TASK-0043, TASK-0045]
+depends_on: [TASK-0027, TASK-0033, TASK-0038, TASK-0041, TASK-0043, TASK-0045, TASK-0047]
 priority: normal
 tags: [crew, roles, instructions, workflow, docs]
 ---
@@ -35,6 +35,7 @@ Provide example, not mandatory framework. Crew manifest remains free to use othe
 - [ ] Example manifest demonstrates `instructionsFile` and explains that roles are descriptive, not permissions.
 - [ ] Multiple members may share one role; examples route exact ownership by member name when role is ambiguous.
 - [ ] README includes one minimal end-to-end flow: external actor messages configured product contact, product shapes/forwards problem, lead coordinates implementation and verification, and internal broadcast shares crew-wide constraints without assigning shared ownership.
+- [ ] Role templates teach members to publish/clear concise non-sensitive Focus and interpret Activity as mechanical runtime state, not task progress or availability.
 - [ ] Documentation teaches escalation ladder: Follow-up normally, Redirect to change next model step, Interrupt only to abort/recover awry active work.
 - [ ] Documentation states Interrupt cannot roll back side effects and crew startup/integration decisions remain user/lead responsibilities.
 - [ ] Docs/examples are validated through package and manifest tests; final watcher gate passes.
