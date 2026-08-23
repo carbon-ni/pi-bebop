@@ -3,7 +3,7 @@
 <img  width="250" alt="screenshot-2026-08-22_15-39-54" src="https://github.com/user-attachments/assets/9430855c-9060-4f1f-b7a8-e8d3b03ce232"  align="left"  />
 
 
-Give a small dysfunctional but effective crew to your Pi agents. 
+Give a small dysfunctional but effective crew to your Pi agents.
 
 </br>
 </br>
@@ -53,7 +53,7 @@ For an existing session, join a crew endpoint with:
 /crew join .pi/bebop/sockets/lead.sock
 ```
 
-Use `/crew members` to inspect the authoritative roster for the active membership. It renders directly (without an `[intray-status]` or other custom header), in manifest order:
+Use `/crew members` to inspect the authoritative roster for the active membership.
 
 ```text
 Crew: /project/.pi/bebop/crew.json
@@ -71,15 +71,14 @@ other endpoints are probed independently. If not joined, `/crew members` prints
 output is displayed without starting an agent turn. Use `/crew status`,
 `/crew leave`, or `/crew stop` to inspect or release the current identity.
 
+### Presence activity
+
 Presence activity is enabled by default for joined manifests and appears as
 chat-only `[crew]` activity (`triggerTurn: false`); disable it with
 `"presence": { "notifications": false }`. Online means reachable at the last
-observation, not idle or available. Initial reconciliation runs immediately,
-then every 5 seconds; peer hints are best-effort and a crash can take two
-failed observations to render as left. `/crew members` remains the authoritative
-reachable roster, including when activity is disabled. The
-configured socket name is authoritative (including extensionless names); `dev`
-is not silently changed to `dev.sock`.
+observation, not idle or available.
+
+### External project members
 
 Selections may target another trusted worktree from the current project. Both
 startup and runtime commands use the manifest adjacent to the absolute endpoint
@@ -102,35 +101,6 @@ pi-bebop send --socket .pi/bebop/sockets/lead.sock \
 printf 'line one\nline two\n' | pi-bebop send --socket .pi/crew/sockets/lead.sock --stdin --wait accepted --format json
 ```
 
-The default is `--mode steer`, `--wait turn_end`, `--timeout 5m`, and `--format
- toon`. Repeat `--instruction <text>` to attach ordered user-level instructions, and
-use `--from <label>` for explicitly claimed external attribution (never verified
-crew identity). `--instruction` values are bounded by the shared UTF-8 payload
-limits; missing values and blank labels are usage errors. Stdin is content only.
-Use `--wait accepted` for acknowledgement-only automation, `--format text`
-for concise human output, and `--full` to disable the 2,000-character response
-preview. JSON and TOON always include `ok`, `target`, `status`, and response/error
-data; exit status is 0 for success, 1 for operational failures, and 2 for
-invalid usage. The CLI never attaches callback metadata unless a caller explicitly uses the
-session tool; `--from` is attribution only and never a reply route.
-
-Release/package verification is intentionally separate from quick tests because it installs a pinned consumer dependency set and may require network or a warm npm cache:
-
-```bash
-make package-verify
-# equivalent: npm run verify:package
-```
-
-The quick test suite only packs/extracts locally and runs the bundled CLI; it does not perform registry IO.
-
-A Unix socket is a local capability. The effective boundary is permission to
-traverse its parent directories and connect to the socket (subject to the
-platform's Unix-socket permissions), not secrecy of the path. Path knowledge
-alone is not an authentication mechanism. Direct targeting supports both
-`.pi/bebop/sockets/*` and `.pi/crew/sockets/*`; no manifest or role lookup is
-performed. Malformed RPC payload classification remains a transport concern
-tracked for TASK-0024; this CLI currently reports the shared transport timeout.
-
 ## Role-based messaging
 
 Once joined, use `send_follow_up` by default:
@@ -149,3 +119,29 @@ unsupported because Pi lifecycle events cannot prove delivery-level response
 correlation; it never consumes an unrelated global `turn_end`. Members can be
 addressed by unique name or role. A live endpoint owned by another session is
 never overwritten; stale endpoints may be reclaimed.
+
+## Development
+
+```bash
+npm install
+npm run build
+```
+
+The package is published to npm as `pi-bebop` and `pi-bebop-cli`.
+
+### Testing
+
+```bash
+npm test
+```
+
+The quick test suite only packs/extracts locally and runs the bundled CLI; it does not perform registry IO.
+
+### Release
+
+```bash
+make package-verify
+# equivalent: npm run verify:package
+```
+
+Release verification is intentionally separate from quick tests because it installs a pinned consumer dependency set and may require network or a warm npm cache.
