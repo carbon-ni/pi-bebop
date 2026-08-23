@@ -33,6 +33,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **External crew message** *(proposed)* | Unverified one-way message accepted by Crew Intake and addressed to configured crew contact through Inbox. | broadcast, authenticated request, task |
 | **Accepted** | Target endpoint validated and live delivery request acknowledged. | delivered, completed, persisted |
 | **Persisted** | Inbox item durably stored; it does not mean offered, started, completed, or answered. | delivered, accepted |
+| **Handoff** | Act of offering one Inbox item to the recipient Pi session as a normal Follow-up, recorded as durable typed session evidence. | delivery, completion, processing |
 | **Direct** | Accepted message started target work while target was idle. | synchronous |
 | **Queued** | Accepted follow-up waits behind target active work in transient session queue. | inbox, pending response |
 | **Redirected** | Accepted redirect entered target active turn. | steered in product-facing language |
@@ -74,6 +75,7 @@ Crew manifest explicitly selects Crew contact
 Crew Intake accepts External crew message and addresses configured Crew contact
 Crew Intake persists External crew message through Inbox
 Inbox persists Inbox items independently from endpoint presence
+Inbox item is removed only after durable session evidence records its Handoff
 Bebop hands Inbox item to Pi as normal Follow-up without managing recipient workflow
 Presence observes Member endpoint; it does not prove availability
 ```
@@ -121,4 +123,7 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - `plans/done/0031-split-crew-follow-up-and-immediate-messaging-tools.md`
 - `plans/todo/0033-align-crew-messaging-tool-names-with-delivery-intent.md`
 - `plans/todo/0034-define-durable-member-inbox-semantics.md`
+- `plans/done/0035-implement-trusted-durable-inbox-storage.md`
+- `plans/done/0036-add-member-inbox-enqueue-operation-and-tool.md`
+- `plans/done/0037-hand-inbox-messages-to-pi-follow-up-delivery.md`
 - `plans/todo/0040-define-external-crew-intake-feature.md`
