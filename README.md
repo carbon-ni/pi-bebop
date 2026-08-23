@@ -48,6 +48,8 @@ pi --crew-socket "$PWD/.pi/bebop/sockets/developer.sock"
 
 `--crew-socket` starts Bebop's socket server and selects the member represented
 by that endpoint. Use `pi --crew` to start a server without joining a crew.
+Installing Bebop, or running its server, does not expose crew tools or context to
+the agent: only active joined membership enables those agent-facing surfaces.
 
 For an existing session, join a crew endpoint with:
 

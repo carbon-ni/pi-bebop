@@ -1,7 +1,7 @@
 ---
 id: TASK-0049
 title: Make Bebop agent context strictly membership-scoped
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, context, tools, lifecycle, tokens, privacy]
@@ -26,7 +26,7 @@ Define agent-facing lifecycle by active membership, not extension installation o
 
 ### Joined
 
-- Activate exactly `send_follow_up`, `redirect_member`, `send_to_inbox`, and `broadcast_to_crew`.
+- Activate exactly `send_follow_up`, `redirect_member`, `send_to_inbox`, `broadcast_to_crew`, and `interrupt_member` (the full post-0045 public surface; interrupt is a shipped public tool, not a hidden surface).
 - Inject membership identity/roster/current Role instructions.
 - Start existing Presence and Inbox behavior.
 
@@ -43,10 +43,10 @@ Existing historical messages cannot be removed when member leaves. "Zero unjoine
 
 ## Acceptance criteria
 
-- [ ] Fresh extension load leaves all four membership tools registered but inactive before first possible agent request.
+- [ ] Fresh extension load leaves all five membership tools registered but inactive before first possible agent request.
 - [ ] New session with no persisted membership and base-server-only `--crew` startup keep membership tools inactive.
 - [ ] Unjoined `before_agent_start` returns no replacement prompt/message and changes zero bytes.
-- [ ] Successful explicit join, startup socket join, and active persisted restore activate exactly four membership tools once.
+- [ ] Successful explicit join, startup socket join, and active persisted restore activate exactly five membership tools once.
 - [ ] Failed join/restore, inactive resume/fork state, leave, stop, and shutdown leave/remove membership tools from active set.
 - [ ] Activation/deactivation preserves order and membership of all unrelated built-in and extension tools and is idempotent.
 - [ ] Joined behavior still injects current identity, manifest-order names/roles, and only current member Role instructions.

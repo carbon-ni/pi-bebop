@@ -15,6 +15,7 @@ function setup() {
 		  }
 		| undefined;
 	const notifications: string[] = [];
+	const entries: Array<{ customType: string; data?: unknown }> = [];
 	const messages: Array<{ content: string; customType?: string; options?: unknown }> = [];
 	const pi = {
 		registerCommand: (_name: string, definition: typeof command) => {
@@ -22,6 +23,7 @@ function setup() {
 		},
 		sendMessage: (message: { content: string; customType?: string }, options?: unknown) =>
 			messages.push({ content: message.content, customType: message.customType, options }),
+		appendEntry: (customType: string, data?: unknown) => entries.push({ customType, data }),
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		hasUI: true,
@@ -31,7 +33,7 @@ function setup() {
 		sessionManager: { getSessionId: () => "local", getSessionName: () => "local-name" },
 	} as unknown as ExtensionContext;
 	const state = createSocketState();
-	return { pi, ctx, state, notifications, messages, getCommand: () => command! };
+	return { pi, ctx, state, notifications, entries, messages, getCommand: () => command! };
 }
 
 function baseDeps(overrides: Partial<ControlCommandDeps> = {}): ControlCommandDeps {
@@ -124,8 +126,8 @@ test("/crew join and leave use membership runtime without stopping base server",
 	assert.equal(presenceRefreshes, 2);
 	assert.equal(setupState.ctx.sessionManager.getSessionName(), "local-name");
 	await setupState.getCommand().handler("status", setupState.ctx);
-	assert.match(setupState.messages[0]!.content, /Crew: .*crew\.json/);
-	assert.match(setupState.messages[0]!.content, /Endpoint: .*dev\.sock/);
+	assert.match((setupState.entries.at(-1)!.data as { content: string }).content, /Crew: .*crew\.json/);
+	assert.match((setupState.entries.at(-1)!.data as { content: string }).content, /Endpoint: .*dev\.sock/);
 	await setupState.getCommand().handler("leave", setupState.ctx);
 	assert.deepEqual(
 		calls.map(({ operation }) => operation),
@@ -388,13 +390,13 @@ test("/crew members renders the manifest roster in order and never probes curren
 	pending.get(members[2]!.socketPath)!(false);
 	pending.get(members[0]!.socketPath)!(true);
 	await listing;
-	assert.equal(setupState.messages[0]!.customType, "crew-roster");
+	assert.equal(setupState.entries[0]!.customType, "crew-roster");
 	assert.equal(
-		setupState.messages[0]!.content,
+		(setupState.entries[0]!.data as { content: string }).content,
 		"Crew: /project/.pi/bebop/crew.json\nMembers (3):\n- lead (lead) — online — /project/.pi/bebop/sockets/lead.sock\n- Bob (dev) — current — /project/.pi/bebop/sockets/Bob.sock\n- Kelly (qa) — offline — /project/.pi/bebop/sockets/Kelly.sock",
 	);
-	assert.equal(setupState.messages[0]!.content.includes("global/uuid"), false);
-	assert.deepEqual(setupState.messages[0]!.options, { triggerTurn: false });
+	assert.equal((setupState.entries[0]!.data as { content: string }).content.includes("global/uuid"), false);
+	assert.equal(setupState.messages.length, 0, "roster must not participate in LLM context");
 });
 
 test("/crew members while unjoined gives exact guidance without probing", async () => {
@@ -411,9 +413,12 @@ test("/crew members while unjoined gives exact guidance without probing", async 
 		}),
 	);
 	await setupState.getCommand().handler("members", setupState.ctx);
-	assert.equal(setupState.messages[0]!.content, "Crew not joined. Use /crew join <socket>.");
+	assert.equal(
+		(setupState.entries[0]!.data as { content: string }).content,
+		"Crew not joined. Use /crew join <socket>.",
+	);
 	assert.equal(probes, 0);
-	assert.deepEqual(setupState.messages[0]!.options, { triggerTurn: false });
+	assert.equal(setupState.messages.length, 0, "unjoined roster must not reach LLM context");
 });
 
 test("/crew leave releases before broadcasting offline and stopping presence", async () => {
@@ -474,8 +479,8 @@ test("/crew status and stop observe state and stop base resources", async () => 
 	);
 
 	await setupState.getCommand().handler("status", setupState.ctx);
-	assert.equal(setupState.messages[0]?.content, "Crew stopped");
-	assert.deepEqual(setupState.messages[0]?.options, { triggerTurn: false });
+	assert.equal((setupState.entries[0]!.data as { content: string }).content, "Crew stopped");
+	assert.equal(setupState.messages.length, 0, "status must not participate in LLM context");
 
 	await setupState.getCommand().handler("stop", setupState.ctx);
 	assert.deepEqual(calls, ["stop"]);
@@ -543,11 +548,11 @@ test("/crew inbox status renders bounded pending metadata without content", asyn
 	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({ inboxBridge: bridge }));
 	await setupState.getCommand().handler("inbox status", setupState.ctx);
 	assert.equal(setupState.notifications.length, 0);
-	assert.equal(setupState.messages.length, 1);
-	assert.equal(setupState.messages[0]!.customType, "crew-inbox");
-	assert.match(setupState.messages[0]!.content, /Inbox active/);
-	assert.match(setupState.messages[0]!.content, /2 pending/);
-	assert.ok(setupState.messages[0]!.content.includes("inbox-0-abc"));
+	assert.equal(setupState.messages.length, 0, "inbox status must not participate in LLM context");
+	assert.equal(setupState.entries[0]!.customType, "crew-inbox");
+	assert.match((setupState.entries[0]!.data as { content: string }).content, /Inbox active/);
+	assert.match((setupState.entries[0]!.data as { content: string }).content, /2 pending/);
+	assert.ok((setupState.entries[0]!.data as { content: string }).content.includes("inbox-0-abc"));
 });
 
 test("/crew inbox pause and resume control automatic offering", async () => {

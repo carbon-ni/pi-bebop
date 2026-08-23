@@ -85,7 +85,7 @@ function isStaleContextError(error: unknown): boolean {
 	return String(error instanceof Error ? error.message : error).includes("This extension ctx is stale");
 }
 
-const MEMBERSHIP_TOOLS = [
+export const MEMBERSHIP_TOOLS = [
 	"send_follow_up",
 	"redirect_member",
 	"send_to_inbox",
@@ -93,16 +93,37 @@ const MEMBERSHIP_TOOLS = [
 	"interrupt_member",
 ] as const;
 
+/**
+ * Joined active set is the full post-0045 public surface: all five membership
+ * tools, `interrupt_member` included (it is a shipped public tool, not a
+ * hidden surface). Registered set and joined active set are identical.
+ */
 export function activateMembershipTool(pi: ExtensionAPI): void {
-	const active = pi.getActiveTools();
-	const additions = MEMBERSHIP_TOOLS.filter((name) => !active.includes(name));
-	if (additions.length > 0) pi.setActiveTools([...active, ...additions]);
+	reconcileMembershipTools(pi, true);
 }
 
 export function deactivateMembershipTool(pi: ExtensionAPI): void {
-	const active = pi.getActiveTools();
-	const filtered = active.filter((name) => !MEMBERSHIP_TOOLS.some((membershipTool) => membershipTool === name));
-	if (filtered.length !== active.length) pi.setActiveTools(filtered);
+	reconcileMembershipTools(pi, false);
+}
+
+/**
+ * Deterministically reconcile the active tool set against membership.
+ *
+ * Membership tools stay registered (getAllTools) but must not appear in the
+ * provider-active schema (getActiveTools) while unjoined. Pi auto-activates
+ * newly registered extension tools, so unjoined lifecycles (fresh load, new
+ * unjoined session, server-only startup, restore failure) must explicitly
+ * remove them, while join/restore adds them back. Unrelated tools are
+ * preserved in order and membership; the call is idempotent.
+ */
+export function reconcileMembershipTools(pi: ExtensionAPI, active: boolean): void {
+	const current = pi.getActiveTools();
+	const withoutMembership = current.filter(
+		(name) => !MEMBERSHIP_TOOLS.some((membershipTool) => membershipTool === name),
+	);
+	const next = active ? [...withoutMembership, ...MEMBERSHIP_TOOLS] : withoutMembership;
+	if (next.length === current.length && next.every((name, index) => name === current[index])) return;
+	pi.setActiveTools(next);
 }
 
 export type IntrayStatus = "stopped" | "online" | "joined";

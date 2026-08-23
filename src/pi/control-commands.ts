@@ -153,14 +153,12 @@ export function registerSessionControlCommand(
 				}
 				case "members": {
 					const content = await renderCrewRoster(state, deps);
-					pi.sendMessage({ customType: "crew-roster", content, display: true }, { triggerTurn: false });
+					// Durable TUI-only custom entry: human-visible, never in LLM context.
+					pi.appendEntry("crew-roster", { content });
 					return;
 				}
 				case "status":
-					pi.sendMessage(
-						{ customType: "crew-status", content: renderStatus(state), display: true },
-						{ triggerTurn: false },
-					);
+					pi.appendEntry("crew-status", { content: renderStatus(state) });
 					return;
 				case "inbox": {
 					const bridge = deps.inboxBridge;
@@ -171,10 +169,7 @@ export function registerSessionControlCommand(
 					}
 					if (sub === "status") {
 						const status = await bridge.status();
-						pi.sendMessage(
-							{ customType: "crew-inbox", content: formatInboxStatus(status), display: true },
-							{ triggerTurn: false },
-						);
+						pi.appendEntry("crew-inbox", { content: formatInboxStatus(status) });
 						return;
 					}
 					if (sub === "pause") {
