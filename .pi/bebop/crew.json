@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "members": [
+    { "name": "lead", "role": "lead", "socket": "sockets/lead.sock" },
+    { "name": "Bob", "role": "dev", "socket": "sockets/dev.sock" },
+    { "name": "Dave", "role": "dev1", "socket": "sockets/dev1.sock" },
+    { "name": "Kelly", "role": "qa", "socket": "sockets/qa.sock" },
+    { "name": "Dimmy", "role": "qa1", "socket": "sockets/qa1.sock" }
+  ]
+}
