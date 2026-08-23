@@ -1,7 +1,7 @@
 ---
 id: TASK-0036
 title: Add member inbox enqueue operation and tool
-status: todo
+status: done
 depends_on: [TASK-0035]
 priority: high
 tags: [crew, inbox, application, tools, messaging]
