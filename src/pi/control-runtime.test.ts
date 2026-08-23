@@ -10,6 +10,8 @@ import {
 	disableControlServer,
 	formatIntrayFooter,
 	handleCommand,
+	MEMBERSHIP_TOOLS,
+	reconcileMembershipTools,
 	refreshIntrayStatus,
 } from "./control-runtime.ts";
 
@@ -34,18 +36,45 @@ test("membership tool activation preserves unrelated tools and is idempotent", (
 	} as never;
 	activateMembershipTool(pi);
 	activateMembershipTool(pi);
-	assert.deepEqual(active, [
-		"read",
-		"grep",
-		"send_follow_up",
-		"redirect_member",
-		"send_to_inbox",
-		"broadcast_to_crew",
-		"interrupt_member",
-	]);
+	// Joined active set is the full post-0045 public surface: all five
+	// membership tools, interrupt_member included (shipped, not hidden).
+	assert.deepEqual(active, ["read", "grep", ...MEMBERSHIP_TOOLS]);
 	deactivateMembershipTool(pi);
 	deactivateMembershipTool(pi);
 	assert.deepEqual(active, ["read", "grep"]);
+});
+
+test("reconcile removes Pi-auto-activated membership tools on fresh load and restores order", () => {
+	// Pi auto-activates registered extension tools; reconcile(false) removes them
+	// while preserving unrelated tool order and membership.
+	let active = [
+		"read",
+		"bash",
+		"send_follow_up",
+		"redirect_member",
+		"edit",
+		"send_to_inbox",
+		"broadcast_to_crew",
+		"write",
+		"interrupt_member",
+	];
+	const calls: string[][] = [];
+	const pi = {
+		getActiveTools: () => active,
+		setActiveTools: (tools: string[]) => {
+			active = tools;
+			calls.push(tools);
+		},
+	} as never;
+	reconcileMembershipTools(pi, false);
+	assert.deepEqual(active, ["read", "bash", "edit", "write"]);
+	assert.equal(calls.length, 1);
+	// Idempotent: second reconcile(false) is a no-op.
+	reconcileMembershipTools(pi, false);
+	assert.equal(calls.length, 1);
+	// Re-activate appends the joined active set (all five membership tools).
+	reconcileMembershipTools(pi, true);
+	assert.deepEqual(active, ["read", "bash", "edit", "write", ...MEMBERSHIP_TOOLS]);
 });
 
 test("status derives stopped, online, and joined from server and crew state", () => {

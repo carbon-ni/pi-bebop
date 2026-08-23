@@ -3,7 +3,9 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import {
 	renderCrewPresence,
-	renderCrewRoster,
+	renderCrewRosterEntry,
+	renderCrewStatusEntry,
+	renderCrewInboxEntry,
 	renderSessionMessage,
 	renderCrewInterrupt,
 } from "./pi/message-renderer.ts";
@@ -27,6 +29,7 @@ import {
 	disableControlServer,
 	emitTurnEnd,
 	ensureControlServer,
+	reconcileMembershipTools,
 	refreshIntrayStatus,
 } from "./pi/control-runtime.ts";
 import { getSocketPath } from "./infra/intray-paths.ts";
@@ -59,9 +62,11 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
-	pi.registerMessageRenderer("crew-roster", renderCrewRoster);
 	pi.registerMessageRenderer("crew-presence", renderCrewPresence);
 	pi.registerMessageRenderer("crew-interrupt", renderCrewInterrupt);
+	pi.registerEntryRenderer("crew-roster", renderCrewRosterEntry);
+	pi.registerEntryRenderer("crew-status", renderCrewStatusEntry);
+	pi.registerEntryRenderer("crew-inbox", renderCrewInboxEntry);
 
 	const state = createSocketState();
 	state.membershipRuntime = createMembershipRuntime({
@@ -101,11 +106,15 @@ export default function (pi: ExtensionAPI) {
 	registerSendToInboxTool(pi, state);
 	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
 	registerInterruptMemberTool(pi, state);
+	// Fresh load: membership tools are registered but must stay inactive until a
+	// successful join/restore (Pi auto-activates newly registered extension tools).
+	reconcileMembershipTools(pi, false);
 	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
 		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
 	};
 	const announceMembership = (message: string) => {
-		pi.sendMessage({ customType: "crew-status", content: message, display: true }, { triggerTurn: false });
+		// Durable TUI-only custom entry: human-visible, never part of LLM context.
+		pi.appendEntry("crew-status", { content: message });
 	};
 
 	const presenceComposition = createPresenceComposition({
@@ -193,6 +202,8 @@ export default function (pi: ExtensionAPI) {
 		} else {
 			state.context = ctx;
 			state.socketPath = getSocketPath(ctx.sessionManager.getSessionId());
+			// New unjoined session: base server may be off; membership tools stay inactive.
+			reconcileMembershipTools(pi, false);
 		}
 		if (startupSocket) {
 			const joined = await maybeHandleStartupSocketJoin(
@@ -213,6 +224,9 @@ export default function (pi: ExtensionAPI) {
 				inboxBridge.establish(ownershipFromMembership(membership));
 				void inboxBridge.attemptOffer();
 				void recoverInterrupts();
+			} else {
+				// Startup socket selected but join failed: stay unjoined, tools inactive.
+				reconcileMembershipTools(pi, false);
 			}
 			return;
 		}
@@ -238,6 +252,9 @@ export default function (pi: ExtensionAPI) {
 				else console.error(`Crew membership restore failed: ${message}`);
 			},
 		});
+		// Inactive resume/fork state, restore failure, or server-only startup: ensure
+		// membership tools are not active for the model.
+		if (!state.membershipRuntime?.getMembership()) reconcileMembershipTools(pi, false);
 	});
 
 	pi.on("before_agent_start", async (event) => {

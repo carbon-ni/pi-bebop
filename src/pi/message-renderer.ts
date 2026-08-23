@@ -1,4 +1,4 @@
-import type { MessageRenderer } from "@earendil-works/pi-coding-agent";
+import type { EntryRenderer, MessageRenderer } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { TextContent } from "@earendil-works/pi-ai";
 import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
@@ -102,15 +102,34 @@ export const renderCrewPresence: MessageRenderer = (message, _options, theme) =>
 	return box;
 };
 
-export const renderCrewRoster: MessageRenderer = (message, _options, theme) => {
+function contentOfEntry(entry: { data?: unknown }): string {
+	const data = entry.data;
+	if (data && typeof data === "object" && typeof (data as { content?: unknown }).content === "string")
+		return (data as { content: string }).content;
+	return typeof data === "string" ? data : "";
+}
+
+const markdownEntry = (content: string, theme: Parameters<EntryRenderer>[2]): ReturnType<EntryRenderer> => {
 	const box = new Box(0, 0, (t) => theme.bg("customMessageBg", t));
 	box.addChild(
-		new Markdown(extractTextContent(message.content), 0, 0, getMarkdownTheme(), {
+		new Markdown(content, 0, 0, getMarkdownTheme(), {
 			color: (value: string) => theme.fg("customMessageText", value),
 		}),
 	);
 	return box;
 };
+
+/** TUI-only crew roster entry: durable, never part of LLM context. */
+export const renderCrewRosterEntry: EntryRenderer = (entry, _options, theme) =>
+	markdownEntry(contentOfEntry(entry), theme);
+
+/** TUI-only crew status entry: durable, never part of LLM context. */
+export const renderCrewStatusEntry: EntryRenderer = (entry, _options, theme) =>
+	markdownEntry(contentOfEntry(entry), theme);
+
+/** TUI-only crew inbox entry: durable, never part of LLM context. */
+export const renderCrewInboxEntry: EntryRenderer = (entry, _options, theme) =>
+	markdownEntry(contentOfEntry(entry), theme);
 
 export const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => {
 	const { text, senderText } = getMessageDisplayModel(message, expanded);

@@ -1,6 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getMessageDisplayModel, parseSenderInfo, stripMessageMetadata } from "./message-renderer.ts";
+import {
+	getMessageDisplayModel,
+	parseSenderInfo,
+	renderCrewInboxEntry,
+	renderCrewRosterEntry,
+	renderCrewStatusEntry,
+	stripMessageMetadata,
+} from "./message-renderer.ts";
+
+const fakeTheme = {
+	bg: () => "",
+	fg: () => "",
+} as never;
 
 const legacyInstruction =
 	"<reply_instruction>When responding, reply directly to the sender by calling send_to_member with the sessionId from sender_info. Do not use get_message polling.</reply_instruction>";
@@ -67,4 +79,31 @@ test("sender header parsing preserves valid identity and ignores malformed metad
 	});
 	assert.equal(parseSenderInfo("<sender_info>{bad}</sender_info>"), null);
 	assert.equal(parseSenderInfo("ordinary text"), null);
+});
+
+test("crew entry renderers surface content from custom entries as TUI components", () => {
+	const roster = { type: "custom", customType: "crew-roster", data: { content: "Crew: path\nMembers (2)" } } as never;
+	const status = { type: "custom", customType: "crew-status", data: { content: "Crew stopped" } } as never;
+	const inbox = { type: "custom", customType: "crew-inbox", data: { content: "Inbox active" } } as never;
+	const renders = [
+		renderCrewRosterEntry(roster, {} as never, fakeTheme),
+		renderCrewStatusEntry(status, {} as never, fakeTheme),
+		renderCrewInboxEntry(inbox, {} as never, fakeTheme),
+	];
+	for (const component of renders) {
+		assert.ok(component, "entry renderer must produce a component");
+		assert.equal(typeof component, "object");
+	}
+});
+
+test("crew entry renderers fall back to empty content for non-object data", () => {
+	const bare = { type: "custom", customType: "crew-status", data: undefined } as never;
+	const component = renderCrewStatusEntry(bare, {} as never, fakeTheme);
+	assert.ok(component);
+	const stringData = renderCrewStatusEntry(
+		{ type: "custom", customType: "crew-status", data: "plain" } as never,
+		{} as never,
+		fakeTheme,
+	);
+	assert.ok(stringData);
 });
