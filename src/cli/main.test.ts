@@ -624,6 +624,139 @@ test("packs and executes the bundled CLI locally without registry access", async
 	}
 });
 
+test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT paths", async (t) => {
+	const archiveDir = await mkdtemp(path.join(tmpdir(), "bebop-pack-idle-archive-"));
+	const extract = await mkdtemp(path.join(tmpdir(), "bebop-pack-idle-extract-"));
+	const home = await mkdtemp(path.join(tmpdir(), "bebop-pack-idle-home-"));
+	try {
+		const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root });
+		const archive = packed.stdout
+			.trim()
+			.split("\n")
+			.find((line) => line.endsWith(".tgz"))!;
+		await execFile("tar", ["-xzf", path.join(archiveDir, archive), "-C", extract, "--strip-components=1"]);
+		const artifact = path.join(extract, "dist/cli/main.js");
+		const helpLeaves = [
+			["send"],
+			["crew", "init"],
+			["member", "status"],
+			["member", "follow-up"],
+			["member", "redirect"],
+			["member", "inbox", "send"],
+			["member", "interrupt"],
+			["member", "focus", "set"],
+			["member", "focus", "clear"],
+			["member", "wait-idle"],
+			["crew", "broadcast"],
+			["session", "list"],
+		];
+		for (const leaf of helpLeaves) {
+			const result = await execFile(process.execPath, [artifact, ...leaf, "--help"], {
+				cwd: extract,
+				env: { ...process.env, HOME: home, NODE_PATH: "" },
+			});
+			assert.match(result.stdout, /Options:|Usage:|pi-bebop/);
+		}
+
+		const socketDir = path.join(home, ".pi", "bebop");
+		await mkdir(socketDir, { recursive: true });
+		const socketPath = path.join(socketDir, "packaged-idle.sock");
+		const respond = async (mode: "idle" | "timeout") => {
+			const server = net.createServer((socket) => {
+				socket.setEncoding("utf8");
+				let buffer = "";
+				socket.on("data", (chunk) => {
+					buffer += chunk;
+					const index = buffer.indexOf("\n");
+					if (index < 0) return;
+					const request = JSON.parse(buffer.slice(0, index)) as { id: string | number };
+					const subscriptionId = String(request.id);
+					socket.write(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: request.id,
+							result: { subscriptionId, event: "member_idle" },
+						}) + "\n",
+					);
+					if (mode === "idle") {
+						socket.write(
+							JSON.stringify({
+								jsonrpc: "2.0",
+								method: "member.idle_wait",
+								params: {
+									subscriptionId,
+									result: {
+										member: { name: "Bob", role: "developer" },
+										outcome: "idle",
+										disposition: "already-idle",
+										observedAt: "2026-08-24T12:00:00.000Z",
+									},
+								},
+							}) + "\n",
+						);
+					}
+				});
+			});
+			await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+			return server;
+		};
+		const runWait = async (format: "toon" | "json" | "text", timeout = "1s") =>
+			new Promise<{ code: number; stdout: string }>((resolve) => {
+				const child = spawn(
+					process.execPath,
+					[artifact, "member", "wait-idle", "Bob", "--timeout", timeout, "--format", format],
+					{
+						env: { ...process.env, HOME: home, PI_SESSION_ID: "packaged-idle", NODE_PATH: "" },
+						cwd: extract,
+						stdio: ["ignore", "pipe", "pipe"],
+					},
+				);
+				let stdout = "";
+				child.stdout.setEncoding("utf8");
+				child.stdout.on("data", (chunk) => (stdout += chunk));
+				child.once("exit", (code) => resolve({ code: code ?? 1, stdout }));
+			});
+
+		const idleServers: net.Server[] = [];
+		const idleByteCounts: Record<string, number> = {};
+		for (const format of ["json", "toon", "text"] as const) {
+			const server = await respond("idle");
+			idleServers.push(server);
+			const result = await runWait(format);
+			assert.equal(result.code, 0, result.stdout);
+			idleByteCounts[format] = Buffer.byteLength(result.stdout, "utf8");
+			if (format === "json") assert.equal(JSON.parse(result.stdout).data.result.outcome, "idle");
+			if (format === "toon") assert.equal((decode(result.stdout) as any).data.result.outcome, "idle");
+			if (format === "text") assert.match(result.stdout, /idle/);
+			await closeRpcServer(server);
+		}
+		assert.deepEqual(idleByteCounts, { json: 345, text: 68, toon: 343 });
+		const timeoutServer = await respond("timeout");
+		const timeoutResult = await runWait("json", "1s");
+		assert.equal(timeoutResult.code, 1);
+		assert.match(timeoutResult.stdout, /timeout/);
+		await closeRpcServer(timeoutServer);
+
+		const signalServer = await respond("timeout");
+		const child = spawn(process.execPath, [artifact, "member", "wait-idle", "Bob", "--timeout", "10m"], {
+			env: { ...process.env, HOME: home, PI_SESSION_ID: "packaged-idle", NODE_PATH: "" },
+			cwd: extract,
+			stdio: ["ignore", "pipe", "ignore"],
+		});
+		setTimeout(() => child.kill("SIGINT"), 100);
+		const signalCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
+		assert.notEqual(signalCode, 0);
+		await closeRpcServer(signalServer);
+		t.after(async () => {
+			for (const server of idleServers) await closeRpcServer(server).catch(() => undefined);
+		});
+	} finally {
+		await rm(archiveDir, { recursive: true, force: true });
+		await rm(extract, { recursive: true, force: true });
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
 test(
 	"reports real Unix socket directory permission denial",
 	{
