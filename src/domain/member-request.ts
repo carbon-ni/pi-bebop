@@ -1,11 +1,11 @@
-export const MAX_CREW_UPDATE_OUTBOUND = 8;
-export const MAX_CREW_UPDATE_INBOUND = 8;
-export const MAX_CREW_UPDATE_BUFFERED = 64;
-export const MAX_CREW_UPDATE_REQUEST_ID_BYTES = 128;
-export const MAX_CREW_UPDATE_TOMBSTONES = 64;
-export const DEFAULT_CREW_UPDATE_TIMEOUT_SECONDS = 300;
+export const MAX_MEMBER_REQUEST_OUTBOUND = 8;
+export const MAX_MEMBER_REQUEST_INBOUND = 8;
+export const MAX_MEMBER_REQUEST_BUFFERED = 64;
+export const MAX_REQUEST_ID_BYTES = 128;
+export const MAX_REQUEST_OUTCOME_TOMBSTONES = 64;
+export const DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS = 300;
 
-export type CrewUpdateFailureCode =
+export type RequestOutcomeFailureCode =
 	| "outbound-capacity"
 	| "inbound-capacity"
 	| "buffer-capacity"
@@ -18,89 +18,89 @@ export type CrewUpdateFailureCode =
 	| "already-terminal"
 	| "response-expired";
 
-export interface CrewUpdateMember {
+export interface MemberRequestMember {
 	readonly name: string;
 	readonly role: string;
 }
 
-export interface CrewUpdateResponse {
+export interface RequestOutcomeResponse {
 	readonly kind: "response";
 	readonly requestId: string;
-	readonly member: CrewUpdateMember;
+	readonly member: MemberRequestMember;
 	readonly message: string;
 	readonly instructions: readonly string[];
 }
-export interface CrewUpdateMechanical {
+export interface RequestOutcomeMechanical {
 	readonly kind: "idle-without-response" | "offline" | "timeout";
 	readonly requestId: string;
-	readonly member: CrewUpdateMember;
+	readonly member: MemberRequestMember;
 }
-export type CrewUpdate = CrewUpdateResponse | CrewUpdateMechanical;
+export type RequestOutcome = RequestOutcomeResponse | RequestOutcomeMechanical;
 
-export interface CrewUpdateOutboundRequest {
+export interface MemberRequestOutbound {
 	readonly requestId: string;
-	readonly member: CrewUpdateMember;
+	readonly member: MemberRequestMember;
 	readonly deadlineAt: number;
 	readonly accepted: boolean;
 	readonly idleArmed: boolean;
 }
-export interface CrewUpdateInboundRequest {
+export interface MemberRequestInbound {
 	readonly requestId: string;
-	readonly requester: CrewUpdateMember;
+	readonly requester: MemberRequestMember;
 	readonly message: string;
 	readonly instructions: readonly string[];
 	readonly accepted: boolean;
 	readonly idleArmed: boolean;
 }
 
-interface MutableOutbound extends CrewUpdateOutboundRequest {
+interface MutableOutbound extends MemberRequestOutbound {
 	accepted: boolean;
 	idleArmed: boolean;
 }
-interface MutableInbound extends CrewUpdateInboundRequest {
+interface MutableInbound extends MemberRequestInbound {
 	accepted: boolean;
 	idleArmed: boolean;
 }
 
-export type CrewUpdateOperation<T> = { ok: true; value: T } | { ok: false; code: CrewUpdateFailureCode };
-export type CrewUpdateWaitResult =
-	| { ok: true; kind: "update"; update: CrewUpdate }
+export type RequestOutcomeOperation<T> = { ok: true; value: T } | { ok: false; code: RequestOutcomeFailureCode };
+export type RequestOutcomeWaitResult =
+	| { ok: true; kind: "update"; update: RequestOutcome }
 	| { ok: true; kind: "waiting"; cancel: () => void }
 	| { ok: false; code: "already-waiting" | "no-pending-requests" };
 
-type TerminalState = { kind: CrewUpdate["kind"]; update?: CrewUpdate };
+type TerminalState = { kind: RequestOutcome["kind"]; update?: RequestOutcome };
 
 function validRequestId(requestId: string): boolean {
 	return (
 		requestId.trim() === requestId &&
 		requestId.length > 0 &&
-		Buffer.byteLength(requestId, "utf8") <= MAX_CREW_UPDATE_REQUEST_ID_BYTES
+		Buffer.byteLength(requestId, "utf8") <= MAX_REQUEST_ID_BYTES
 	);
 }
 
 /**
- * Pure request/update registry. It owns state transitions and ordering only;
+ * Pure Member request/Request outcome registry. It owns state transitions and ordering only;
  * callers own sockets, timers, Pi context visibility, and persistence.
  */
-export class CrewUpdateRegistry {
+export class RequestOutcomeRegistry {
 	private readonly outbound = new Map<string, MutableOutbound>();
 	private readonly inbound = new Map<string, MutableInbound>();
 	private readonly terminal = new Map<string, TerminalState>();
 	private readonly inboundTerminal = new Map<string, "response" | "idle-without-response">();
 	private readonly tombstoneOrder: string[] = [];
 	private readonly inboundTombstoneOrder: string[] = [];
-	private readonly buffered: Array<{ readonly update: CrewUpdate; readonly sequence: number }> = [];
+	private readonly buffered: Array<{ readonly update: RequestOutcome; readonly sequence: number }> = [];
 	private sequence = 0;
-	private waiter: ((update: CrewUpdate) => void) | undefined;
+	private waiter: ((update: RequestOutcome) => void) | undefined;
 
 	registerOutbound(input: {
 		readonly requestId: string;
-		readonly member: CrewUpdateMember;
+		readonly member: MemberRequestMember;
 		readonly now: number;
 		readonly timeoutSeconds?: number;
-	}): CrewUpdateOperation<CrewUpdateOutboundRequest> {
+	}): RequestOutcomeOperation<MemberRequestOutbound> {
 		if (!validRequestId(input.requestId)) return { ok: false, code: "invalid-request-id" };
-		const timeoutSeconds = input.timeoutSeconds ?? DEFAULT_CREW_UPDATE_TIMEOUT_SECONDS;
+		const timeoutSeconds = input.timeoutSeconds ?? DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS;
 		if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 600)
 			return { ok: false, code: "invalid-timeout" };
 		if (
@@ -109,8 +109,8 @@ export class CrewUpdateRegistry {
 			this.terminal.has(input.requestId)
 		)
 			return { ok: false, code: "duplicate-request" };
-		if (this.outbound.size >= MAX_CREW_UPDATE_OUTBOUND) return { ok: false, code: "outbound-capacity" };
-		if (this.buffered.length + this.outbound.size >= MAX_CREW_UPDATE_BUFFERED)
+		if (this.outbound.size >= MAX_MEMBER_REQUEST_OUTBOUND) return { ok: false, code: "outbound-capacity" };
+		if (this.buffered.length + this.outbound.size >= MAX_MEMBER_REQUEST_BUFFERED)
 			return { ok: false, code: "buffer-capacity" };
 		const request: MutableOutbound = {
 			requestId: input.requestId,
@@ -125,10 +125,10 @@ export class CrewUpdateRegistry {
 
 	registerInbound(input: {
 		readonly requestId: string;
-		readonly requester: CrewUpdateMember;
+		readonly requester: MemberRequestMember;
 		readonly message: string;
 		readonly instructions: readonly string[];
-	}): CrewUpdateOperation<CrewUpdateInboundRequest> {
+	}): RequestOutcomeOperation<MemberRequestInbound> {
 		if (!validRequestId(input.requestId)) return { ok: false, code: "invalid-request-id" };
 		if (
 			this.outbound.has(input.requestId) ||
@@ -136,27 +136,27 @@ export class CrewUpdateRegistry {
 			this.terminal.has(input.requestId)
 		)
 			return { ok: false, code: "duplicate-request" };
-		if (this.inbound.size >= MAX_CREW_UPDATE_INBOUND) return { ok: false, code: "inbound-capacity" };
+		if (this.inbound.size >= MAX_MEMBER_REQUEST_INBOUND) return { ok: false, code: "inbound-capacity" };
 		const request: MutableInbound = { ...input, accepted: false, idleArmed: false };
 		this.inbound.set(request.requestId, request);
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
 
-	acceptOutbound(requestId: string): CrewUpdateOperation<CrewUpdateOutboundRequest> {
+	acceptOutbound(requestId: string): RequestOutcomeOperation<MemberRequestOutbound> {
 		const request = this.outbound.get(requestId);
 		if (!request) return { ok: false, code: "unknown-request" };
 		request.accepted = true;
 		return { ok: true, value: { ...request } };
 	}
 
-	acceptInbound(requestId: string): CrewUpdateOperation<CrewUpdateInboundRequest> {
+	acceptInbound(requestId: string): RequestOutcomeOperation<MemberRequestInbound> {
 		const request = this.inbound.get(requestId);
 		if (!request) return { ok: false, code: "unknown-request" };
 		request.accepted = true;
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
 
-	armOutboundIdle(requestId: string): CrewUpdateOperation<CrewUpdateOutboundRequest> {
+	armOutboundIdle(requestId: string): RequestOutcomeOperation<MemberRequestOutbound> {
 		const request = this.outbound.get(requestId);
 		if (!request) return { ok: false, code: "unknown-request" };
 		if (!request.accepted) return { ok: false, code: "unknown-request" };
@@ -164,7 +164,7 @@ export class CrewUpdateRegistry {
 		return { ok: true, value: { ...request } };
 	}
 
-	armInboundIdle(requestId: string): CrewUpdateOperation<CrewUpdateInboundRequest> {
+	armInboundIdle(requestId: string): RequestOutcomeOperation<MemberRequestInbound> {
 		const request = this.inbound.get(requestId);
 		if (!request) return { ok: false, code: "unknown-request" };
 		if (!request.accepted) return { ok: false, code: "unknown-request" };
@@ -172,7 +172,7 @@ export class CrewUpdateRegistry {
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
 
-	failBeforeAcceptance(requestId: string): CrewUpdateOperation<null> {
+	failBeforeAcceptance(requestId: string): RequestOutcomeOperation<null> {
 		const outbound = this.outbound.get(requestId);
 		if (outbound && !outbound.accepted) {
 			this.outbound.delete(requestId);
@@ -186,7 +186,7 @@ export class CrewUpdateRegistry {
 		return { ok: false, code: "unknown-request" };
 	}
 
-	closeOutcomeUnknown(requestId: string): CrewUpdateOperation<null> {
+	closeOutcomeUnknown(requestId: string): RequestOutcomeOperation<null> {
 		if (!this.outbound.delete(requestId) && !this.inbound.delete(requestId))
 			return { ok: false, code: "unknown-request" };
 		return { ok: true, value: null };
@@ -194,10 +194,10 @@ export class CrewUpdateRegistry {
 
 	resolveResponse(input: {
 		readonly requestId: string;
-		readonly member: CrewUpdateMember;
+		readonly member: MemberRequestMember;
 		readonly message: string;
 		readonly instructions: readonly string[];
-	}): CrewUpdateOperation<CrewUpdateResponse> {
+	}): RequestOutcomeOperation<RequestOutcomeResponse> {
 		const request = this.outbound.get(input.requestId);
 		if (!request) {
 			const terminal = this.terminal.get(input.requestId);
@@ -207,7 +207,7 @@ export class CrewUpdateRegistry {
 				: { ok: false, code: "already-terminal" };
 		}
 		if (!request.accepted) return { ok: false, code: "unknown-request" };
-		const update: CrewUpdateResponse = {
+		const update: RequestOutcomeResponse = {
 			kind: "response",
 			requestId: input.requestId,
 			member: input.member,
@@ -220,31 +220,31 @@ export class CrewUpdateRegistry {
 		return { ok: true, value: update };
 	}
 
-	resolveIdle(requestId: string): CrewUpdateOperation<CrewUpdateMechanical> {
+	resolveIdle(requestId: string): RequestOutcomeOperation<RequestOutcomeMechanical> {
 		const request = this.outbound.get(requestId);
 		if (!request)
 			return this.terminal.has(requestId)
 				? { ok: false, code: "already-terminal" }
 				: { ok: false, code: "unknown-request" };
 		if (!request.accepted || !request.idleArmed) return { ok: false, code: "unknown-request" };
-		const update: CrewUpdateMechanical = { kind: "idle-without-response", requestId, member: request.member };
+		const update: RequestOutcomeMechanical = { kind: "idle-without-response", requestId, member: request.member };
 		this.outbound.delete(requestId);
 		this.setTerminal(requestId, { kind: update.kind, update });
 		this.publish(update);
 		return { ok: true, value: update };
 	}
 
-	resolveOffline(requestId: string): CrewUpdateOperation<CrewUpdateMechanical> {
+	resolveOffline(requestId: string): RequestOutcomeOperation<RequestOutcomeMechanical> {
 		return this.resolveMechanical(requestId, "offline");
 	}
-	resolveTimeout(requestId: string): CrewUpdateOperation<CrewUpdateMechanical> {
+	resolveTimeout(requestId: string): RequestOutcomeOperation<RequestOutcomeMechanical> {
 		return this.resolveMechanical(requestId, "timeout");
 	}
 
 	private setTerminal(requestId: string, state: TerminalState): void {
 		this.terminal.set(requestId, state);
 		this.tombstoneOrder.push(requestId);
-		while (this.tombstoneOrder.length > MAX_CREW_UPDATE_TOMBSTONES) {
+		while (this.tombstoneOrder.length > MAX_REQUEST_OUTCOME_TOMBSTONES) {
 			const evicted = this.tombstoneOrder.shift();
 			if (evicted !== undefined) this.terminal.delete(evicted);
 		}
@@ -253,17 +253,17 @@ export class CrewUpdateRegistry {
 	private resolveMechanical(
 		requestId: string,
 		kind: "offline" | "timeout",
-	): CrewUpdateOperation<CrewUpdateMechanical> {
+	): RequestOutcomeOperation<RequestOutcomeMechanical> {
 		const request = this.outbound.get(requestId);
 		if (!request) return { ok: false, code: "unknown-request" };
-		const update: CrewUpdateMechanical = { kind, requestId, member: request.member };
+		const update: RequestOutcomeMechanical = { kind, requestId, member: request.member };
 		this.outbound.delete(requestId);
 		this.setTerminal(requestId, { kind, update });
 		this.publish(update);
 		return { ok: true, value: update };
 	}
 
-	selectInbound(requestId?: string): CrewUpdateOperation<CrewUpdateInboundRequest> {
+	selectInbound(requestId?: string): RequestOutcomeOperation<MemberRequestInbound> {
 		if (requestId !== undefined) {
 			const request = this.inbound.get(requestId);
 			if (request) return { ok: true, value: { ...request, instructions: [...request.instructions] } };
@@ -280,7 +280,7 @@ export class CrewUpdateRegistry {
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
 
-	resolveInboundResponse(requestId: string): CrewUpdateOperation<CrewUpdateInboundRequest> {
+	resolveInboundResponse(requestId: string): RequestOutcomeOperation<MemberRequestInbound> {
 		const request = this.inbound.get(requestId);
 		if (!request) {
 			const terminal = this.inboundTerminal.get(requestId);
@@ -295,7 +295,7 @@ export class CrewUpdateRegistry {
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
 
-	resolveInboundIdle(requestId: string): CrewUpdateOperation<CrewUpdateInboundRequest> {
+	resolveInboundIdle(requestId: string): RequestOutcomeOperation<MemberRequestInbound> {
 		const request = this.inbound.get(requestId);
 		if (!request || !request.accepted || !request.idleArmed) return { ok: false, code: "unknown-request" };
 		this.inbound.delete(requestId);
@@ -303,7 +303,7 @@ export class CrewUpdateRegistry {
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
 
-	resolveInboundExpired(requestId: string): CrewUpdateOperation<null> {
+	resolveInboundExpired(requestId: string): RequestOutcomeOperation<null> {
 		if (!this.inbound.delete(requestId)) return { ok: false, code: "unknown-request" };
 		return { ok: true, value: null };
 	}
@@ -311,19 +311,19 @@ export class CrewUpdateRegistry {
 	private setInboundTerminal(requestId: string, kind: "response" | "idle-without-response"): void {
 		this.inboundTerminal.set(requestId, kind);
 		this.inboundTombstoneOrder.push(requestId);
-		while (this.inboundTombstoneOrder.length > MAX_CREW_UPDATE_TOMBSTONES) {
+		while (this.inboundTombstoneOrder.length > MAX_REQUEST_OUTCOME_TOMBSTONES) {
 			const evicted = this.inboundTombstoneOrder.shift();
 			if (evicted !== undefined) this.inboundTerminal.delete(evicted);
 		}
 	}
 
-	waitForUpdate(onUpdate: (update: CrewUpdate) => void): CrewUpdateWaitResult {
+	waitForUpdate(onUpdate: (update: RequestOutcome) => void): RequestOutcomeWaitResult {
 		const next = this.buffered.shift();
 		if (next) return { ok: true, kind: "update", update: next.update };
 		if (this.outbound.size === 0) return { ok: false, code: "no-pending-requests" };
 		if (this.waiter) return { ok: false, code: "already-waiting" };
 		let active = true;
-		const callback = (update: CrewUpdate) => {
+		const callback = (update: RequestOutcome) => {
 			if (!active) return;
 			active = false;
 			this.waiter = undefined;
@@ -341,14 +341,14 @@ export class CrewUpdateRegistry {
 		};
 	}
 
-	private publish(update: CrewUpdate): void {
+	private publish(update: RequestOutcome): void {
 		if (this.waiter) {
 			const waiter = this.waiter;
 			this.waiter = undefined;
 			waiter(update);
 			return;
 		}
-		if (this.buffered.length >= MAX_CREW_UPDATE_BUFFERED) return;
+		if (this.buffered.length >= MAX_MEMBER_REQUEST_BUFFERED) return;
 		this.buffered.push({ update, sequence: this.sequence++ });
 		this.buffered.sort(
 			(left, right) =>
@@ -368,7 +368,7 @@ export class CrewUpdateRegistry {
 	inboundRequestIds(): readonly string[] {
 		return [...this.inbound.keys()];
 	}
-	inboundSummaries(): ReadonlyArray<{ readonly requestId: string; readonly requester: CrewUpdateMember }> {
+	inboundSummaries(): ReadonlyArray<{ readonly requestId: string; readonly requester: MemberRequestMember }> {
 		return [...this.inbound.values()].map((request) => ({
 			requestId: request.requestId,
 			requester: request.requester,

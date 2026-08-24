@@ -9,7 +9,7 @@ import type { CrewManifest, CrewMember } from "./crew-manifest.ts";
  * event-driven wait until another configured member's Pi becomes mechanically
  * idle, goes offline, or the bounded deadline expires. It is distinct from:
  *
- *   - response waiting (delivery-level reply correlation is NOT proven);
+ *   - Request outcome waiting (idle never proves a correlated Response);
  *   - Member Status query (an immediate snapshot, not a blocking wait);
  *   - continuous monitoring / background polling (wait is transient, one-shot);
  *   - Presence (endpoint reachability) and availability (never claimed).

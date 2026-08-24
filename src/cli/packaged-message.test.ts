@@ -8,7 +8,7 @@ import * as net from "node:net";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
 import { sendRpcCommand, sendMemberRequest } from "../infra/rpc-client.ts";
-import { CrewUpdateFlow } from "../application/crew-update-flow.ts";
+import { MemberRequestFlow } from "../application/member-request-flow.ts";
 
 /**
  * TASK-0062 packaged proof: the built dist CLI delivers a follow-up and a
@@ -29,8 +29,8 @@ interface Sessions {
 	readonly sourceEntries: unknown[];
 	readonly setTargetIdle: (value: boolean) => void;
 	readonly getTargetAbortCount: () => number;
-	readonly sourceFlow: CrewUpdateFlow;
-	readonly targetFlow: CrewUpdateFlow;
+	readonly sourceFlow: MemberRequestFlow;
+	readonly targetFlow: MemberRequestFlow;
 	close(): Promise<void>;
 }
 
@@ -71,11 +71,11 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		hasPendingMessages: () => false,
 		isProjectTrusted: () => true,
 	} as never;
-	const targetFlow = new CrewUpdateFlow({
+	const targetFlow = new MemberRequestFlow({
 		resolveEndpoint: async (endpoint) => endpoint,
 		transport: { open: async () => ({ close: () => undefined }), respond: async () => undefined },
 	});
-	targetState.crewUpdateFlow = targetFlow;
+	targetState.memberRequestFlow = targetFlow;
 	const targetPi = {
 		sendMessage: (customMessage: { content: string }, _options: unknown) => {
 			targetMessages.push(customMessage.content);
@@ -108,7 +108,7 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		hasPendingMessages: () => false,
 		isProjectTrusted: () => true,
 	} as never;
-	const sourceFlow = new CrewUpdateFlow({
+	const sourceFlow = new MemberRequestFlow({
 		resolveEndpoint: async (endpoint) => endpoint,
 		transport: {
 			open: (endpoint, command, options) =>
@@ -120,7 +120,7 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 			respond: async () => undefined,
 		},
 	});
-	sourceState.crewUpdateFlow = sourceFlow;
+	sourceState.memberRequestFlow = sourceFlow;
 	const sourcePi = {
 		appendEntry: (customType: string, data: unknown) => sourceEntries.push({ type: "custom", customType, data }),
 	};
@@ -188,7 +188,7 @@ test("request transport rejects forged origin before inbound state or Pi visibil
 
 test("request flow uses persistent Unix channel and returns one correlated response", async (t) => {
 	const sessions = await startSessions(t);
-	const accepted = await sessions.sourceFlow.requestMember({
+	const accepted = await sessions.sourceFlow.sendMemberRequest({
 		membership: {
 			manifestPath: "/project/.pi/bebop/crew.json",
 			socketPath: sessions.sourceSocket,
@@ -213,7 +213,7 @@ test("request flow uses persistent Unix channel and returns one correlated respo
 	const updateArrived = new Promise<void>((resolve) => {
 		resolveUpdate = resolve;
 	});
-	const waited = sessions.sourceFlow.waitForCrewUpdate((update) => {
+	const waited = sessions.sourceFlow.waitForRequestOutcome((update) => {
 		updates.push(update);
 		resolveUpdate();
 	});
@@ -225,7 +225,7 @@ test("request flow uses persistent Unix channel and returns one correlated respo
 
 test("accepted request disconnect removes target inbound channel state", async (t) => {
 	const sessions = await startSessions(t);
-	const accepted = await sessions.sourceFlow.requestMember({
+	const accepted = await sessions.sourceFlow.sendMemberRequest({
 		membership: {
 			manifestPath: "/project/.pi/bebop/crew.json",
 			socketPath: sessions.sourceSocket,
