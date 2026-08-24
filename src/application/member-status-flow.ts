@@ -55,6 +55,7 @@ export interface MemberStatusSurface {
 	readonly getMembership: () => CrewMembership | null;
 	readonly isTrusted: () => boolean;
 	readonly isIdle: () => boolean;
+	readonly isCompacting?: () => boolean;
 	readonly hasPendingMessages: () => boolean;
 	readonly getEntries: () => readonly unknown[];
 	readonly appendEntry: (customType: string, data?: unknown) => void;

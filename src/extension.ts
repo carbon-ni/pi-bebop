@@ -338,4 +338,13 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_settled", (_event, ctx) => {
 		emitIdleSettled(state, ctx);
 	});
+
+	// Manual/branch compaction can settle while the agent run flag is already
+	// idle; re-evaluate the same combined predicate on Pi's balanced lifecycle end.
+	// TASK-0069 is supplied by the upgraded Pi peer. Keep loading compatible
+	// with older peers: the event is additive and the handler is inert there.
+	const onCompactionEnd = (_event: unknown, ctx: ExtensionContext) => {
+		emitIdleSettled(state, ctx);
+	};
+	pi.on("session_compaction_end" as never, onCompactionEnd as never);
 }

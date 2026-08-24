@@ -148,6 +148,12 @@ function isStaleContextError(error: unknown): boolean {
 	return String(error instanceof Error ? error.message : error).includes("This extension ctx is stale");
 }
 
+/** Read the TASK-0069 Pi API without caching or inferring compaction state. */
+export function contextIsCompacting(ctx: ExtensionContext): boolean {
+	const candidate = ctx as ExtensionContext & { isCompacting?: () => boolean };
+	return candidate.isCompacting?.() === true;
+}
+
 export const MEMBERSHIP_TOOLS = [
 	"send_follow_up",
 	"redirect_member",
@@ -360,6 +366,7 @@ export async function handleCommand(
 			status = createOnlineMemberStatus({
 				member: { name: membership.member.name, role: membership.member.role },
 				isIdle: ctx.isIdle(),
+				isCompacting: contextIsCompacting(ctx),
 				hasPendingMessages: ctx.hasPendingMessages(),
 				focus,
 				observedAt,
@@ -380,6 +387,7 @@ export async function handleCommand(
 			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
 			isTrusted: () => state.context?.isProjectTrusted?.() === true,
 			isIdle: () => ctx.isIdle(),
+			isCompacting: () => contextIsCompacting(ctx),
 			hasPendingMessages: () => ctx.hasPendingMessages(),
 			getEntries: () => ctx.sessionManager.getEntries(),
 			appendEntry: (customType, data) => pi.appendEntry(customType, data),
@@ -418,6 +426,7 @@ export async function handleCommand(
 			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
 			isTrusted: () => state.context?.isProjectTrusted?.() === true,
 			isIdle: () => ctx.isIdle(),
+			isCompacting: () => contextIsCompacting(ctx),
 			hasPendingMessages: () => ctx.hasPendingMessages(),
 			getEntries: () => ctx.sessionManager.getEntries(),
 			appendEntry: () => undefined,
@@ -629,8 +638,8 @@ export async function handleCommand(
 			return;
 		}
 		const subscriptionId = String(id);
-		if (ctx.isIdle()) {
-			// Already idle: complete directly without registering a lingering subscription.
+		if (ctx.isIdle() && !contextIsCompacting(ctx)) {
+			// Already fully idle: complete directly without registering a lingering subscription.
 			const observedAt = new Date().toISOString();
 			const result = createMemberIdleWaitResult(
 				{ name: membership.member.name, role: membership.member.role },
@@ -759,7 +768,7 @@ export async function handleCommand(
 	// Interrupt (target-owned recovery flow, TASK-0045)
 	if (command.type === "interrupt") {
 		const interruptFlow = createInterruptFlow({
-			isIdle: () => ctx.isIdle(),
+			isIdle: () => ctx.isIdle() && !contextIsCompacting(ctx),
 			abort: () => ctx.abort(),
 			sendMessage: (message, options) => pi.sendMessage(message as never, options as never),
 			appendEntry: (customType, data) => pi.appendEntry(customType, data),
@@ -807,7 +816,7 @@ export async function handleCommand(
 
 	// Clear session
 	if (command.type === "clear") {
-		if (!ctx.isIdle()) {
+		if (!ctx.isIdle() || contextIsCompacting(ctx)) {
 			respond(false, "clear", undefined, "Session is busy - wait for turn to complete");
 			return;
 		}
@@ -845,7 +854,7 @@ export async function handleCommand(
 		if (isInboxHint(payload)) state.onInboxHint?.();
 		const message = renderMessagePayload(payload);
 		const mode = command.delivery ?? "follow_up";
-		const isIdle = ctx.isIdle();
+		const isIdle = ctx.isIdle() && !contextIsCompacting(ctx);
 		const customMessage = {
 			customType: SESSION_MESSAGE_TYPE,
 			content: message,
@@ -1026,6 +1035,10 @@ export function emitTurnEnd(state: SocketState, event: TurnEndEvent, ctx: Extens
  * contains only name/role, outcome/disposition, and the observation timestamp.
  */
 export function emitIdleSettled(state: SocketState, ctx?: ExtensionContext): void {
+	// agent_settled and compaction end both use this path; only the combined
+	// predicate releases a waiter. `isIdle()` alone is true during manual
+	// compaction, so never report availability while compaction remains active.
+	if (ctx && (!ctx.isIdle() || contextIsCompacting(ctx))) return;
 	if (state.crewUpdateFlow)
 		setImmediate(() => {
 			void state.crewUpdateFlow?.settleAllInboundIdle();

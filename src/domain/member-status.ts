@@ -45,7 +45,7 @@ const OnlineMemberStatusSchema = Type.Object(
 	{
 		member: MemberStatusIdentitySchema,
 		presence: Type.Literal("online"),
-		activity: Type.Union([Type.Literal("idle"), Type.Literal("busy")]),
+		activity: Type.Union([Type.Literal("idle"), Type.Literal("busy"), Type.Literal("compacting")]),
 		hasPendingMessages: Type.Boolean(),
 		focus: AvailableMemberFocusSchema,
 		observedAt: IsoTimestampSchema,
@@ -131,7 +131,8 @@ function isReportedFocus(value: ReportedMemberFocus): boolean {
 	return isSafeBoundedText(value.text, MAX_MEMBER_FOCUS_BYTES) && isIsoTimestamp(value.updatedAt);
 }
 
-export function deriveMemberActivity(isIdle: boolean): MemberActivity {
+export function deriveMemberActivity(isIdle: boolean, isCompacting = false): MemberActivity {
+	if (isCompacting) return "compacting";
 	return isIdle ? "idle" : "busy";
 }
 
@@ -180,17 +181,22 @@ export function isMemberStatus(value: unknown): value is MemberStatus {
 export function createOnlineMemberStatus(input: {
 	readonly member: MemberStatusIdentity;
 	readonly isIdle: boolean;
+	readonly isCompacting?: boolean;
 	readonly hasPendingMessages: boolean;
 	readonly focus: AvailableMemberFocus;
 	readonly observedAt: string;
 }): OnlineMemberStatus {
-	if (typeof input.isIdle !== "boolean" || typeof input.hasPendingMessages !== "boolean") {
+	if (
+		typeof input.isIdle !== "boolean" ||
+		(input.isCompacting !== undefined && typeof input.isCompacting !== "boolean") ||
+		typeof input.hasPendingMessages !== "boolean"
+	) {
 		throw new TypeError("invalid online member status");
 	}
 	const status: OnlineMemberStatus = {
 		member: input.member,
 		presence: "online",
-		activity: deriveMemberActivity(input.isIdle),
+		activity: deriveMemberActivity(input.isIdle, input.isCompacting ?? false),
 		hasPendingMessages: input.hasPendingMessages,
 		focus: input.focus,
 		observedAt: input.observedAt,
