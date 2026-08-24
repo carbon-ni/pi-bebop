@@ -303,16 +303,29 @@ export const MemberInboxSendResultSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-const BroadcastDispositionSchema = Type.Object(
-	{
-		member: Type.String({ minLength: 1 }),
-		role: Type.String({ minLength: 1 }),
-		itemId: Type.String({ minLength: 1 }),
-		disposition: Type.Union([Type.Literal("persisted"), Type.Literal("already-persisted"), Type.Literal("failed")]),
-		code: Type.Optional(Type.String({ minLength: 1 })),
-	},
-	{ additionalProperties: false },
-);
+const BroadcastDispositionBaseSchema = {
+	member: Type.String({ minLength: 1 }),
+	role: Type.String({ minLength: 1 }),
+	itemId: Type.String({ minLength: 1 }),
+};
+const BroadcastDispositionSchema = Type.Union([
+	Type.Object(
+		{ ...BroadcastDispositionBaseSchema, disposition: Type.Literal("persisted") },
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{ ...BroadcastDispositionBaseSchema, disposition: Type.Literal("already-persisted") },
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			...BroadcastDispositionBaseSchema,
+			disposition: Type.Literal("failed"),
+			code: Type.String({ minLength: 1 }),
+		},
+		{ additionalProperties: false },
+	),
+]);
 const BroadcastSummarySchema = Type.Object(
 	{
 		persisted: Type.Integer({ minimum: 0 }),
