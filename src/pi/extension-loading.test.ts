@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 
 import extension from "../extension.ts";
 
@@ -16,6 +19,78 @@ const MEMBERSHIP_TOOLS = [
 	"update_member_focus",
 	"wait_for_member_idle",
 ];
+
+test("role rejection preflight leaves control server untouched for invalid, empty, missing, ambiguous, and resolver failure", async () => {
+	const cases: Array<{ name: string; role: string; setup?: (root: string) => Promise<void> }> = [
+		{ name: "invalid", role: "\0" },
+		{ name: "empty", role: "   " },
+		{ name: "missing", role: "developer" },
+		{
+			name: "ambiguous",
+			role: "developer",
+			setup: async (root) => {
+				const manifest = JSON.stringify({
+					version: 1,
+					members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+				});
+				await mkdir(path.join(root, ".pi", "bebop"), { recursive: true });
+				await mkdir(path.join(root, ".pi", "crew"), { recursive: true });
+				await writeFile(path.join(root, ".pi", "bebop", "crew.json"), manifest);
+				await writeFile(path.join(root, ".pi", "crew", "crew.json"), manifest);
+			},
+		},
+		{
+			name: "resolver failure",
+			role: "developer",
+			setup: async (root) => {
+				await mkdir(path.join(root, ".pi", "bebop"), { recursive: true });
+				await writeFile(path.join(root, ".pi", "bebop", "crew.json"), "{ invalid");
+			},
+		},
+	];
+	for (const item of cases) {
+		const root = await mkdtemp(path.join(os.tmpdir(), "bebop-role-preflight-"));
+		try {
+			await item.setup?.(root);
+			let sessionManagerAccesses = 0;
+			let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
+			const pi = {
+				registerFlag() {},
+				registerMessageRenderer() {},
+				registerEntryRenderer() {},
+				registerTool() {},
+				registerCommand() {},
+				getAllTools: () => MEMBERSHIP_TOOLS.map((name) => ({ name })),
+				getActiveTools: () => [...MEMBERSHIP_TOOLS],
+				setActiveTools() {},
+				getFlag: (name: string) => (name === "crew-role" ? item.role : false),
+				on: (event: string, handler: (event: unknown, ctx: unknown) => Promise<void>) => {
+					if (event === "session_start") sessionStart = handler;
+				},
+			} as never;
+			extension(pi);
+			const ctx = {
+				cwd: root,
+				hasUI: true,
+				ui: { notify() {} },
+				isProjectTrusted: () => true,
+				sessionManager: new Proxy(
+					{},
+					{
+						get() {
+							sessionManagerAccesses += 1;
+							throw new Error("control server started");
+						},
+					},
+				),
+			} as never;
+			await sessionStart?.({}, ctx);
+			assert.equal(sessionManagerAccesses, 0, item.name);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	}
+});
 
 test("fresh extension load registers membership tools and renderers without calling action methods", () => {
 	const flags: string[] = [];
