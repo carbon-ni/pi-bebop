@@ -594,8 +594,18 @@ export async function handleCommand(
 				controller.abort();
 			}
 		} catch (error) {
-			const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
-			respond(false, command.type, undefined, code ?? "transport-error");
+			const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+			const code =
+				error instanceof Error && error.name === "AbortError"
+					? "aborted"
+					: error instanceof Error && "code" in error && error.code === "outcome-unknown"
+						? "outcome-unknown"
+						: systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN"
+							? "offline"
+							: error instanceof Error && /timed? ?out|timeout/i.test(error.message)
+								? "timeout"
+								: "transport-error";
+			respond(false, command.type, undefined, code);
 		}
 		return;
 	}
