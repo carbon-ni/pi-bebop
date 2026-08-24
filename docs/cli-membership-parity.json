@@ -263,7 +263,11 @@
 					"allPersistedOrAlready": 0,
 					"partial": 1
 				},
-				"recipientPairing": "each failed recipient pairs disposition failed with a stable store-mapped code; persisted and already-persisted recipients carry no code"
+				"recipientPairing": {
+					"failed": "requires-stable-code",
+					"persisted": "no-code",
+					"already-persisted": "no-code"
+				}
 			},
 			"errors": [
 				"unknown-sender",
