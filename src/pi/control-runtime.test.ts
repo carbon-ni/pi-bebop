@@ -620,6 +620,88 @@ function delegationState(manifestMembers: Array<{ name: string; role: string; so
 	return { state, socket, writes };
 }
 
+function interruptDelegationState(
+	outcome: { response: { success: true; data: unknown; type: "response"; command: string; id: string } } | Error,
+) {
+	const writes: string[] = [];
+	const listeners = new Map<string, Set<() => void>>();
+	const socket = {
+		write: (value: string) => {
+			writes.push(value);
+			return true;
+		},
+		once: (event: string, listener: () => void) => {
+			const set = listeners.get(event) ?? new Set();
+			set.add(listener);
+			listeners.set(event, set);
+			return socket;
+		},
+		removeListener: (event: string, listener: () => void) => listeners.get(event)?.delete(listener),
+		emit: (event: string) => listeners.get(event)?.forEach((listener) => listener()),
+	} as never;
+	const state = delegationState([
+		{ name: "Tony", role: "lead", socket: "/project/.pi/bebop/sockets/lead.sock" },
+		{ name: "Kelly", role: "qa", socket: "/project/.pi/bebop/sockets/qa.sock" },
+	]);
+	state.state.memberInterruptResolveEndpoint = async (endpoint) => endpoint;
+	state.state.memberInterruptSend = async () => {
+		if (outcome instanceof Error) throw outcome;
+		return outcome;
+	};
+	return { ...state, socket, writes, listeners };
+}
+
+test("member_interrupt preserves target rejection codes and removes source listeners", async () => {
+	for (const code of ["abort-failed", "already-pending", "handoff-failed"] as const) {
+		const harness = interruptDelegationState(new Error(`remote-error: ${code}`));
+		await handleCommand(
+			{} as never,
+			harness.state,
+			{ type: "member_interrupt", target: "Kelly", message: "recover", id: `int-${code}` },
+			harness.socket,
+		);
+		assert.equal(harness.writes.length, 1, JSON.stringify(harness.writes));
+		assert.equal(JSON.parse(harness.writes[0]!).error.message, code);
+		assert.equal(harness.listeners.get("close")?.size ?? 0, 0);
+		assert.equal(harness.listeners.get("error")?.size ?? 0, 0);
+	}
+});
+
+test("member_interrupt maps timeout and disconnect cancellation without leaking listeners", async () => {
+	const timeout = interruptDelegationState(new Error("RPC request timeout"));
+	await handleCommand(
+		{} as never,
+		timeout.state,
+		{ type: "member_interrupt", target: "Kelly", message: "recover", id: "int-timeout" },
+		timeout.socket,
+	);
+	assert.equal(timeout.writes.length, 1, JSON.stringify(timeout.writes));
+	assert.equal(JSON.parse(timeout.writes[0]!).error.message, "timeout");
+	assert.equal(timeout.listeners.get("close")?.size ?? 0, 0);
+
+	const cancelled = interruptDelegationState(new Error("placeholder"));
+	cancelled.state.memberInterruptSend = (async (_endpoint, _command, options) => {
+		await new Promise<never>((_resolve, reject) => {
+			options.signal?.addEventListener(
+				"abort",
+				() => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+				{ once: true },
+			);
+			(cancelled.socket as unknown as { emit: (event: string) => void }).emit("close");
+		});
+	}) as never;
+	await handleCommand(
+		{} as never,
+		cancelled.state,
+		{ type: "member_interrupt", target: "Kelly", message: "recover", id: "int-cancel" },
+		cancelled.socket,
+	);
+	assert.equal(cancelled.writes.length, 1, JSON.stringify(cancelled.writes));
+	assert.equal(JSON.parse(cancelled.writes[0]!).error.message, "aborted");
+	assert.equal(cancelled.listeners.get("close")?.size ?? 0, 0);
+	assert.equal(cancelled.listeners.get("error")?.size ?? 0, 0);
+});
+
 const ONLINE_STATUS = {
 	member: { name: "Mary", role: "po" },
 	presence: "online",
