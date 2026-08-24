@@ -1,7 +1,7 @@
 ---
 id: TASK-0071
 title: Implement correlated crew-update coordination loop
-status: todo
+status: doing
 depends_on: [TASK-0068, TASK-0072]
 priority: high
 tags: [crew, messaging, response, correlation, orchestration, protocol, tdd]
