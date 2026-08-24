@@ -768,8 +768,9 @@ test("member_status_target aborts in-flight target IO when the CLI disconnects",
 	await new Promise((resolve) => setTimeout(resolve, 10));
 	closeHandler?.();
 	await pending;
-	// The aborted probe stops before any target RPC; the response is a compact offline result.
+	// The aborted probe stops before any target RPC; the wire reports the stable
+	// aborted code (never a successful offline observation).
 	assert.equal(requestStatusCalls, 0);
 	const response = JSON.parse(writes[0]!);
-	assert.equal(response.result.status.presence, "offline");
+	assert.equal(response.error?.message, "aborted");
 });

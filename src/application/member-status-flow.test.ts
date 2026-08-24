@@ -171,6 +171,29 @@ test("query treats malformed online peer output as protocol error", async () => 
 	);
 });
 
+test("signal-driven abort during probe yields aborted, never a successful offline status", async () => {
+	const controller = new AbortController();
+	const deps = surface({
+		probeEndpoint: async (_socketPath, signal) => {
+			// Simulates the real probe settling not-alive when the signal aborts.
+			await new Promise<void>((resolve) => signal!.addEventListener("abort", () => resolve(), { once: true }));
+			return false;
+		},
+		requestStatus: async () => {
+			throw new Error("must not query after abort");
+		},
+		signal: controller.signal,
+	});
+	const flow = createMemberStatusFlow(deps);
+	const pending = flow.queryStatus("Kelly");
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	controller.abort();
+	await assert.rejects(
+		() => pending,
+		(error: unknown) => error instanceof MemberStatusFlowError && error.code === "aborted",
+	);
+});
+
 test("query maps peer rejection, transport failure, and abort to deterministic codes", async () => {
 	const rejected = createMemberStatusFlow(
 		surface({ requestStatus: async () => ({ ok: false, code: "remote-rejected" }) }),
