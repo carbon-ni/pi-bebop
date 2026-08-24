@@ -128,7 +128,7 @@ test("member status default transport maps unavailable endpoints", async () => {
 });
 
 test("member status default transport covers valid, rejected, and malformed peers", async () => {
-	for (const mode of ["valid", "rejected", "malformed"] as const) {
+	for (const mode of ["valid", "rejected", "remote", "malformed"] as const) {
 		const dir = await mkdtemp(path.join(tmpdir(), "bebop-status-cli-"));
 		const socketPath = path.join(dir, "member.sock");
 		const server = net.createServer((socket) => {
@@ -140,7 +140,13 @@ test("member status default transport covers valid, rejected, and malformed peer
 						? { jsonrpc: "2.0", id: request.id, result: { status: ONLINE_STATUS } }
 						: mode === "rejected"
 							? { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "not-joined" } }
-							: { jsonrpc: "2.0", id: request.id, result: {} };
+							: mode === "remote"
+								? {
+										jsonrpc: "2.0",
+										id: request.id,
+										error: { code: -32000, message: "remote", data: { code: "unknown-member" } },
+									}
+								: { jsonrpc: "2.0", id: request.id, result: {} };
 				socket.write(JSON.stringify(wire) + "\n");
 			});
 		});
