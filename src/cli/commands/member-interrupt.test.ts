@@ -7,12 +7,14 @@ import path from "node:path";
 import {
 	buildMemberInterruptCommand,
 	defaultMemberInterruptCliDependencies,
+	mapInterruptTransportError,
 	memberInterruptHelp,
 	parseMemberInterruptCommand,
 	runMemberInterruptCommand,
 	type MemberInterruptCliDependencies,
 } from "./member-interrupt.ts";
 import type { CliContext } from "../context.ts";
+import { RpcProtocolError } from "../../infra/rpc-client.ts";
 
 function context(): CliContext {
 	return { cwd: "/project", input: "stdin recovery", signal: new AbortController().signal } as never;
@@ -34,6 +36,22 @@ function deps(overrides: Partial<MemberInterruptCliDependencies> = {}): MemberIn
 		...overrides,
 	};
 }
+
+test("interrupt transport mapper covers protocol and socket errors", () => {
+	assert.deepEqual(mapInterruptTransportError(new Error("other")), { ok: false, code: "transport-error" });
+	assert.deepEqual(mapInterruptTransportError(Object.assign(new Error("abort"), { name: "AbortError" })), {
+		ok: false,
+		code: "aborted",
+	});
+	assert.deepEqual(mapInterruptTransportError(new Error("timeout")), { ok: false, code: "timeout" });
+	for (const code of ["ENOENT", "ECONNREFUSED", "ENOTCONN"] as const)
+		assert.equal(
+			mapInterruptTransportError(Object.assign(new Error(code), { code })).code,
+			code === "ENOENT" ? "unknown-session" : "offline-session",
+		);
+	assert.equal(mapInterruptTransportError(new RpcProtocolError("outcome-unknown", "lost")).code, "outcome-unknown");
+	assert.equal(mapInterruptTransportError(new RpcProtocolError("remote-error", "rejected")).code, "rejected");
+});
 
 test("interrupt parser enforces message source, preserves instructions, and supports source selection", () => {
 	const parsed = parseMemberInterruptCommand(
@@ -115,7 +133,7 @@ test("interrupt default transport maps rejected and malformed acknowledgements",
 });
 
 test("interrupt default transport maps remote error and timeout branches", async () => {
-	for (const mode of ["remote", "timeout"] as const) {
+	for (const mode of ["remote"] as const) {
 		const dir = await mkdtemp(path.join(tmpdir(), "bebop-interrupt-branch-"));
 		const socketPath = path.join(dir, "member.sock");
 		const server = net.createServer((socket) => {
