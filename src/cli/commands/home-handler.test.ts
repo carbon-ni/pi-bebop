@@ -8,7 +8,7 @@ import { runHomeCommand } from "./home-handler.ts";
 test("home reports missing scaffold with crew init next command", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-home-"));
 	try {
-		const outcome = await runHomeCommand(dir, { HOME: "/fake" }, "/fake/pi-bebop");
+		const outcome = await runHomeCommand(dir, ["send", "crew init"], { HOME: "/fake" }, "/fake/pi-bebop");
 		assert.equal(outcome.kind, "result");
 		if (outcome.kind !== "result") return;
 		assert.equal(outcome.result.status, "home");
@@ -30,7 +30,7 @@ test("home reports present scaffold with socket next command", async () => {
 	try {
 		await mkdir(path.join(dir, ".pi/bebop"), { recursive: true });
 		await writeFile(path.join(dir, ".pi/bebop/crew.json"), "{}");
-		const outcome = await runHomeCommand(dir, { HOME: "/fake" }, "/fake/pi-bebop");
+		const outcome = await runHomeCommand(dir, ["send", "crew init"], { HOME: "/fake" }, "/fake/pi-bebop");
 		assert.equal(outcome.kind, "result");
 		if (outcome.kind !== "result") return;
 		const data = outcome.result.data as Record<string, unknown>;

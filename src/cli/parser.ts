@@ -1,10 +1,10 @@
 import path from "node:path";
 import { CommanderError } from "commander";
-import { createCliRegistry } from "./registry.ts";
 import { isCliFormat } from "./commands/crew-init.ts";
-import { readSendLeafOptions, type SendLeafOptions } from "./commands/send.ts";
+import { buildCrewInitCommand } from "./commands/crew-init.ts";
+import { buildSendCommand, readSendLeafOptions, type SendLeafOptions } from "./commands/send.ts";
 import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
-import { UsageError, type CliFormat, type CliCommand, type HomeCliOptions, type SendCliOptions } from "./arguments.ts";
+import { UsageError, type CliFormat, type SendCliOptions } from "./arguments.ts";
 
 export interface DeclarativeCrewInitOptions {
 	readonly command: "crew-init";
@@ -63,8 +63,7 @@ export function parseCrewInitCommand(args: string[], cwd = process.cwd()): Decla
 	}
 
 	// 2. Commander tokenization with injected argv and no ambient IO.
-	const program = createCliRegistry()
-		.crewInit()
+	const program = buildCrewInitCommand()
 		.exitOverride()
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
 	let opts: { project?: string; format?: string };
@@ -250,8 +249,7 @@ export function parseSendCommand(args: string[], cwd = process.cwd()): SendCliOp
 	}
 
 	// 2. Commander tokenization.
-	const program = createCliRegistry()
-		.send()
+	const program = buildSendCommand()
 		.exitOverride()
 		.configureOutput({
 			writeOut: () => {},
@@ -316,8 +314,8 @@ function mapSendCommanderError(error: CommanderError): UsageError {
 }
 
 // ============================================================================
-// TASK-0063: top-level parse dispatch (moved here so arguments.ts stays a pure
-// type/error module — arguments↔parser had a runtime import cycle).
+// TASK-0058: legacy send-only surface (command-word check + send facade).
+// The registry-driven top-level dispatch lives in registry.ts (parseCliCommand).
 // ============================================================================
 
 /**
@@ -328,19 +326,4 @@ function mapSendCommanderError(error: CommanderError): UsageError {
 export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliOptions {
 	if (args[0] !== "send") throw new UsageError(`Invalid command '${args[0] ?? ""}'; valid command: send`);
 	return parseSendCommand(args.slice(1), cwd);
-}
-
-/**
- * Top-level command dispatch. Exactly two commands are supported: `send`
- * (declarative since TASK-0058) and `crew init` (declarative since TASK-0057),
- * plus the no-argument home state. Unknown commands report valid alternatives
- * and exit 2 before any filesystem/network dependency is called.
- */
-export function parseCliCommand(args: string[], cwd = process.cwd()): CliCommand {
-	if (args.length === 0) return { command: "home" };
-	const command = args[0];
-	if (command === "send") return parseCliArguments(args, cwd);
-	if (command !== "crew") throw new UsageError(`Invalid command '${command ?? ""}'; valid commands: send, crew init`);
-	if (args[1] !== "init") throw new UsageError(`Invalid command 'crew ${args[1] ?? ""}'; valid command: crew init`);
-	return parseCrewInitCommand(args.slice(2), cwd);
 }

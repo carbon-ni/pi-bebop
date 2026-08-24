@@ -1,122 +1,190 @@
 import { Command } from "commander";
 import { buildCrewInitCommand } from "./commands/crew-init.ts";
-import { buildRootCommand } from "./commands/root.ts";
 import { buildSendCommand } from "./commands/send.ts";
+import { parseCrewInitCommand, parseSendCommand } from "./parser.ts";
 import { crewInitHelp } from "../domain/index.ts";
 import { sendHelp } from "./commands/send.ts";
 import { runHomeCommand } from "./commands/home-handler.ts";
 import { runCrewInitCommand } from "./commands/crew-init-handler.ts";
 import { runSendCommand } from "./commands/send-handler.ts";
-import {
-	UsageError,
-	type CliCommand,
-	type CrewInitCliOptions,
-	type HomeCliOptions,
-	type SendCliOptions,
-} from "./arguments.ts";
+import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./arguments.ts";
 import type { CliContext } from "./context.ts";
 import type { CliOutcome } from "./output.ts";
 
 /**
- * TASK-0063: the single owned CLI composition point (PO sequencing review).
+ * TASK-0063: the single owned CLI composition point (PO sequencing review,
+ * QA blocker resolution).
  *
- * Every command is one leaf module owning metadata/schema (build), help, and
- * a handler adapter (run). The registry composes those leaves; central
- * protocol/dispatch/parser files are never extended directly by a slice.
+ * Every command is ONE leaf module owning its vocabulary (`names`), schema
+ * metadata (`build`), help, parser (`parse`), and handler adapter (`run`).
+ * `composeRegistry` derives everything else from the ordered leaf list:
  *
- * Parallel-slice merge protocol (TASK-0061 owner): membership slices
- * (0061..0067) add ONE leaf module plus ONE entry in `leaves` (and the
- * corresponding command in the parse facade's typed union in arguments.ts).
- * Existing handler modules and the root dispatch (an indexed leaf lookup in
- * run.ts) are never edited. Registry-only edits are owned by the TASK-0061
- * integration owner to keep the union, parser, and leaf map in lockstep.
+ * - parse vocabulary (parseCliCommand matches the longest leaf name prefix),
+ * - command-tree metadata (root builds groups/leaves from leaf names),
+ * - help (leafById(id).help()),
+ * - dispatch (leafById(id).run(options, context)).
+ *
+ * Adding a membership leaf (TASK-0061..0067) is exactly ONE registry
+ * contribution: append one leaf module to the `leaves` array. No parser,
+ * root-tree, dispatch, or existing-handler edits are required. Registry-only
+ * edits are owned by the TASK-0061 integration owner.
  */
 
-/** A leaf command: isolated metadata/help/handler modules composed by the registry. */
-export interface CliLeaf<TOptions extends { command: string } = { command: string }> {
-	/** Stable leaf id; must equal the parsed command's `command` discriminator. */
-	readonly id: TOptions["command"];
-	/** Deterministic, zero-IO help text for this leaf. */
+export interface CliLeaf {
+	/** Stable leaf id; also the parse/dispatch key. */
+	readonly id: string;
+	/** Command vocabulary words, e.g. ["send"] or ["crew", "init"]. Empty for the no-argument home state. */
+	readonly names: readonly string[];
+	/** Commander schema metadata for this leaf (tokenization + generated help). */
+	readonly build: () => Command;
+	/** Deterministic, zero-IO help text. */
 	readonly help: () => string;
+	/** Leaf-owned tokenization + semantic validation; receives tokens after `names`. */
+	readonly parse: (tokens: readonly string[], cwd: string) => unknown;
 	/** Handler adapter — owns this command's business logic. */
-	readonly run: (options: TOptions, context: CliContext) => Promise<CliOutcome>;
+	readonly run: (options: unknown, context: CliContext) => Promise<CliOutcome>;
 }
 
-/**
- * Exhaustive leaf map over the typed command union. Adding a command to
- * `CliCommand` is a compile error here until a leaf is registered — the
- * registry is the only place command→handler wiring grows.
- */
-export type CliLeafMap = {
-	readonly [K in CliCommand["command"]]: CliLeaf<Extract<CliCommand, { command: K }>>;
-};
+export interface ParsedCommand {
+	readonly id: string;
+	readonly options: unknown;
+}
 
 export interface CliRegistry {
-	/** Declarative `crew init` leaf schema (single flag definition). */
-	readonly crewInit: () => Command;
-	/** Declarative `send` leaf schema (single flag definition, TASK-0058). */
-	readonly send: () => Command;
-	/** The declarative root tree (`pi-bebop send`, `pi-bebop crew init`). */
+	/** Ordered leaf composition — the only place command wiring grows. */
+	readonly leaves: readonly CliLeaf[];
+	/** Public command vocabulary in registry order (for help/home/usage errors). */
+	readonly vocabulary: () => readonly string[];
+	/**
+	 * Registry-driven parse: longest leaf-name-prefix match, then leaf.parse.
+	 * Returns the leaf's raw parsed options (the leaf id equals `.command`).
+	 */
+	readonly parseCliCommand: (args: readonly string[], cwd?: string) => unknown;
+	readonly leafById: (id: string) => CliLeaf;
+	/** Command tree derived from the ordered leaves (groups + leaves). */
 	readonly root: () => Command;
-	/** Exhaustive typed leaf composition (metadata/help/handler). */
-	readonly leaves: CliLeafMap;
 }
 
-export function createCliRegistry(): CliRegistry {
-	return {
-		crewInit: () => buildCrewInitCommand(),
-		send: () => buildSendCommand(),
-		root: () => buildRootCommand(),
-		leaves: {
-			home: {
-				id: "home",
-				help: () => "",
-				run: (_options, context) => runHomeCommand(context.cwd),
-			},
-			"crew-init": {
-				id: "crew-init",
-				help: () => crewInitHelp(),
-				run: (options, context) => runCrewInitCommand(options, context.cwd),
-			},
-			send: {
-				id: "send",
-				help: () => sendHelp(),
-				run: (options, context) => runSendCommand(options, context),
-			},
-		},
-	};
+function findOrCreate(parent: Command, name: string, description: string | undefined): Command {
+	const existing = parent.commands.find((candidate) => candidate.name() === name);
+	if (existing) return existing;
+	const child = new Command(name);
+	if (description !== undefined) child.description(description);
+	parent.addCommand(child);
+	return child;
+}
+
+const GROUP_DESCRIPTIONS: Record<string, string> = {
+	crew: "Crew commands",
+	member: "Member commands",
+	session: "Session commands",
+};
+
+/** Builds the declarative root tree from the ordered leaves (no hardcoded vocabulary). */
+export function buildRootCommand(leaves: readonly CliLeaf[]): Command {
+	const root = new Command("pi-bebop").description("Pi Bebop crew coordination CLI");
+	for (const leaf of leaves) {
+		if (leaf.names.length === 0) continue; // home has no command word
+		if (leaf.names.length === 1) {
+			root.addCommand(leaf.build());
+			continue;
+		}
+		let parent = root;
+		for (const word of leaf.names.slice(0, -1)) {
+			parent = findOrCreate(parent, word, GROUP_DESCRIPTIONS[word]);
+		}
+		parent.addCommand(leaf.build());
+	}
+	return root;
 }
 
 /**
- * Generic ordered leaf composition primitive (extension seam). Pure and
- * stateless: every call builds a fresh lookup over the given leaves, so
- * composing the same leaves twice yields independent, equivalent tables.
- * Synthetic-leaf contract tests prove deterministic help/dispatch/error
- * behavior here; membership slices integrate through this shape.
+ * Composes a full registry from an ordered leaf list. Pure and stateless:
+ * every call builds fresh lookups, so composing the same leaves twice yields
+ * independent, equivalent registries. The home leaf's run is wired to the
+ * computed vocabulary so home output derives from the same registry order.
  */
-export interface LeafTable {
-	/** Leaf ids in registration order. */
-	readonly ids: readonly string[];
-	readonly help: (id: string) => string;
-	readonly dispatch: (options: { command: string }, context: CliContext) => Promise<CliOutcome>;
-}
-
-export function composeLeafTable(leaves: readonly CliLeaf[]): LeafTable {
-	const byId = new Map(leaves.map((leaf) => [leaf.id, leaf] as const));
+export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
+	const vocabulary = leaves.filter((leaf) => leaf.names.length > 0).map((leaf) => leaf.names.join(" "));
+	const effectiveLeaves = leaves.map((leaf) =>
+		leaf.id === "home"
+			? {
+					...leaf,
+					run: (_options: unknown, context: CliContext) =>
+						runHomeCommand(context.cwd, vocabulary, process.env, process.argv[1]),
+				}
+			: leaf,
+	);
+	const byId = new Map(effectiveLeaves.map((leaf) => [leaf.id, leaf] as const));
 	return {
-		ids: leaves.map((leaf) => leaf.id),
-		help: (id) => {
+		leaves: effectiveLeaves,
+		vocabulary: () => vocabulary,
+		leafById: (id) => {
 			const leaf = byId.get(id);
 			if (leaf === undefined) throw new UsageError(`Unknown command '${id}'`);
-			return leaf.help();
+			return leaf;
 		},
-		dispatch: async (options, context) => {
-			const leaf = byId.get(options.command);
-			if (leaf === undefined) throw new UsageError(`Invalid command '${options.command}'; no handler registered`);
-			return leaf.run(options, context);
+		parseCliCommand: (args, cwd = process.cwd()) => {
+			if (args.length === 0) {
+				const home = byId.get("home");
+				if (home === undefined) throw new UsageError("No command provided");
+				return home.parse([], cwd);
+			}
+			let best: { leaf: CliLeaf; tokens: string[] } | undefined;
+			for (const leaf of effectiveLeaves) {
+				if (leaf.names.length === 0 || leaf.names.length > args.length) continue;
+				let matches = true;
+				for (let index = 0; index < leaf.names.length; index += 1) {
+					if (leaf.names[index] !== args[index]) {
+						matches = false;
+						break;
+					}
+				}
+				if (matches && (best === undefined || leaf.names.length > best.leaf.names.length)) {
+					best = { leaf, tokens: args.slice(leaf.names.length) };
+				}
+			}
+			if (best === undefined)
+				throw new UsageError(`Invalid command '${args[0] ?? ""}'; valid commands: ${vocabulary.join(", ")}`);
+			return best.leaf.parse(best.tokens, cwd);
 		},
+		root: () => buildRootCommand(effectiveLeaves),
 	};
 }
 
-// Re-exported for leaf modules that need the handler contract types.
-export type { CliContext, CliOutcome };
+const homeLeaf: CliLeaf = {
+	id: "home",
+	names: [],
+	build: () => new Command("home"), // never added to the root tree (no command word)
+	help: () => "",
+	parse: () => ({ command: "home" }),
+	// Vocabulary is wired by composeRegistry; this base body is never used.
+	run: (_options, context) => runHomeCommand(context.cwd, [], process.env, process.argv[1]),
+};
+
+const sendLeaf: CliLeaf = {
+	id: "send",
+	names: ["send"],
+	build: () => buildSendCommand(),
+	help: () => sendHelp(),
+	parse: (tokens, cwd) => parseSendCommand([...tokens], cwd),
+	run: (options, context) => runSendCommand(options as SendCliOptions, context),
+};
+
+const crewInitLeaf: CliLeaf = {
+	id: "crew-init",
+	names: ["crew", "init"],
+	build: () => buildCrewInitCommand(),
+	help: () => crewInitHelp(),
+	parse: (tokens, cwd) => parseCrewInitCommand([...tokens], cwd),
+	run: (options, context) => runCrewInitCommand(options as CrewInitCliOptions, context.cwd),
+};
+
+export function createCliRegistry(): CliRegistry {
+	return composeRegistry([homeLeaf, sendLeaf, crewInitLeaf]);
+}
+
+/** Convenience: parse against the built-in registry (registry-driven vocabulary). */
+export function parseCliCommand(args: readonly string[], cwd = process.cwd()): unknown {
+	return createCliRegistry().parseCliCommand(args, cwd);
+}
