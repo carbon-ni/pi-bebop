@@ -790,6 +790,20 @@ test("sendMemberIdleWait resolves the terminal event for a busy target that sett
 	);
 });
 
+test("sendMemberIdleWait maps a clean peer end to offline", async () => {
+	await withSocketServer(
+		(socket) => lines(socket, () => socket.end()),
+		async (socketPath) => {
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Bob" },
+				{ timeoutSeconds: 1 },
+			);
+			assert.deepEqual(outcome, { ok: false, code: "offline" });
+		},
+	);
+});
+
 test("sendMemberIdleWait returns offline when the socket closes before any terminal event", async () => {
 	await withSocketServer(
 		(socket) =>
@@ -1160,8 +1174,8 @@ test("sendMemberIdleWait rejects wrong acknowledgement ids and out-of-order noti
 			lines(socket, (request) =>
 				send(socket, {
 					jsonrpc: "2.0",
-					method: "member.idle_wait",
-					params: { subscriptionId: String(request.id), result: {} },
+					id: request.id,
+					result: {},
 				}),
 			),
 		async (socketPath) => {
