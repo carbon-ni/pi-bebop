@@ -1,18 +1,31 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-const targets = [
-	["src/cli/run.ts", "runCli"],
-	["src/cli/commands/member-status.ts", "runMemberStatusCommand"],
-	["src/cli/commands/member-message.ts", "runMemberMessageCommand"],
-	["src/cli/commands/member-focus.ts", "runMemberFocusCommand"],
-	["src/cli/commands/member-idle-wait.ts", "runMemberIdleWaitCommand"],
-	["src/cli/commands/member-interrupt.ts", "runMemberInterruptCommand"],
-	["src/cli/commands/durable-message.ts", "runDurableMessageCommand"],
-	["src/cli/commands/session-list.ts", "runSessionListCommand"],
-	["src/cli/commands/send-handler.ts", "runSendCommand"],
-	["src/cli/commands/crew-init-handler.ts", "runCrewInitCommand"],
-];
+const root = process.cwd();
+async function sourceFiles(dir) {
+	const files = [];
+	for (const entry of await readdir(dir, { withFileTypes: true })) {
+		const file = path.join(dir, entry.name);
+		if (entry.isDirectory()) files.push(...(await sourceFiles(file)));
+		else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) files.push(file);
+	}
+	return files;
+}
+const files = await sourceFiles(path.join(root, "src", "cli"));
+const registry = await readFile(path.join(root, "src", "cli", "registry.ts"), "utf8");
+const names = [...registry.matchAll(/\brun[A-Z]\w*Command\b/g)].map((match) => match[0]);
+const uniqueNames = [...new Set(["runCli", ...names])];
+const targets = [];
+for (const name of uniqueNames) {
+	const matches = [];
+	for (const file of files) {
+		if ((await readFile(file, "utf8")).match(new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\b`)))
+			matches.push(file);
+	}
+	if (matches.length !== 1)
+		throw new Error(`${name} must resolve to exactly one CLI leaf function; found ${matches.length}`);
+	targets.push([path.relative(root, matches[0]), name]);
+}
 
 function bodyOf(source, name) {
 	const match = source.match(new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\b`));
