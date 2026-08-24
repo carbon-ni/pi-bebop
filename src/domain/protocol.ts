@@ -536,7 +536,22 @@ export function isMemberInboxSendResult(value: unknown): value is MemberInboxSen
 	return Value.Check(MemberInboxSendResultSchema, value);
 }
 export function isCrewBroadcastResult(value: unknown): value is CrewBroadcastRpcResult {
-	return Value.Check(CrewBroadcastResultSchema, value);
+	if (!Value.Check(CrewBroadcastResultSchema, value)) return false;
+	const result = value as CrewBroadcastRpcResult;
+	let persisted = 0;
+	let alreadyPersisted = 0;
+	let failed = 0;
+	for (const disposition of result.dispositions) {
+		if (disposition.disposition === "persisted") persisted += 1;
+		else if (disposition.disposition === "already-persisted") alreadyPersisted += 1;
+		else failed += 1;
+	}
+	return (
+		result.summary.total === result.dispositions.length &&
+		result.summary.persisted === persisted &&
+		result.summary.alreadyPersisted === alreadyPersisted &&
+		result.summary.failed === failed
+	);
 }
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
 export type PresenceHintResult = Static<typeof PresenceHintResultSchema>;
