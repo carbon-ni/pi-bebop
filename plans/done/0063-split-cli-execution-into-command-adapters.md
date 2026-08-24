@@ -1,7 +1,7 @@
 ---
 id: TASK-0063
 title: Split CLI execution into command adapters
-status: doing
+status: done
 depends_on: [TASK-0058]
 priority: high
 tags: [cli, application, adapters, separation-of-concerns, tdd]
