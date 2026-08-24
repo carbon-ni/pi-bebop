@@ -103,6 +103,11 @@ from either.
 Lead sends targeted assignment through Inbox when it must be durable. Shared
 constraint goes through Broadcast, but ownership remains targeted to one member.
 
+The planned [Correlated Crew Update Workflow](CORRELATED-CREW-UPDATE-WORKFLOW.md)
+defines a non-blocking lead loop for parallel delegated requests. It is not a
+current capability until TASK-0071 ships; current Follow-up and idle semantics
+remain unchanged meanwhile.
+
 ### 4. Implementation
 
 Developer publishes concise Focus, for example `Implementing Inbox enqueue`.
