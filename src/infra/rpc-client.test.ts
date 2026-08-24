@@ -4,7 +4,42 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { sendRpcCommand, sendMemberIdleWait, sendMemberRequest, RpcProtocolError } from "./rpc-client.ts";
+import {
+	mapIdleRemoteError,
+	mapIdleSocketError,
+	sendRpcCommand,
+	sendMemberIdleWait,
+	sendMemberRequest,
+	RpcProtocolError,
+} from "./rpc-client.ts";
+
+test("idle socket error mapping preserves stable endpoint categories", () => {
+	assert.deepEqual(mapIdleSocketError({ code: "ENOENT" }), {
+		ok: false,
+		code: "transport-error",
+		transportCode: "ENOENT",
+	});
+	assert.deepEqual(mapIdleSocketError({ code: "ECONNREFUSED" }), {
+		ok: false,
+		code: "transport-error",
+		transportCode: "ECONNREFUSED",
+	});
+	assert.deepEqual(mapIdleSocketError({ code: "ENOTCONN" }), {
+		ok: false,
+		code: "transport-error",
+		transportCode: "ENOTCONN",
+	});
+	assert.deepEqual(mapIdleSocketError({ code: "ECONNRESET" }), { ok: false, code: "transport-error" });
+	assert.deepEqual(mapIdleSocketError(undefined), { ok: false, code: "transport-error" });
+});
+
+test("idle remote error mapping preserves stable rejection categories", () => {
+	assert.equal(mapIdleRemoteError("capacity exceeded"), "capacity-exceeded");
+	for (const message of ["not-joined", "unknown member", "ambiguous member", "self-wait"])
+		assert.equal(mapIdleRemoteError(message), "remote-rejected");
+	assert.equal(mapIdleRemoteError("other remote failure"), "remote-rejected");
+	assert.equal(mapIdleRemoteError(undefined), "remote-rejected");
+});
 
 async function withSocketServer(
 	handle: (socket: net.Socket) => void,

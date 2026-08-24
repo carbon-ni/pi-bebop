@@ -5,7 +5,7 @@ import { runSendCommand, type SendHandlerAdapters } from "./send-handler.ts";
 import { UsageError, type SendCliOptions } from "../arguments.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
-import { sendHelp } from "./send.ts";
+import { buildSendCommand, readSendLeafOptions, sendHelp } from "./send.ts";
 
 function sendOptions(overrides: Partial<SendCliOptions> = {}): SendCliOptions {
 	return {
@@ -38,6 +38,49 @@ function fakeAdapters(overrides: Partial<SendHandlerAdapters> = {}): SendHandler
 		...overrides,
 	};
 }
+
+test("send leaf metadata preserves defaults and explicit option values", () => {
+	const command = buildSendCommand();
+	command.parse(
+		[
+			"--crew",
+			"/tmp/crew.json",
+			"--message",
+			"hello",
+			"--instruction",
+			"one",
+			"--from",
+			"CI",
+			"--mode",
+			"follow_up",
+			"--wait",
+			"accepted",
+			"--timeout",
+			"1s",
+			"--format",
+			"json",
+			"--stdin",
+			"--full",
+		],
+		{ from: "user" },
+	);
+	const explicit = readSendLeafOptions(command);
+	assert.equal(explicit.crewPath, "/tmp/crew.json");
+	assert.equal(explicit.origin?.label, "CI");
+	assert.equal(explicit.mode, "follow_up");
+	assert.equal(explicit.wait, "accepted");
+	assert.equal(explicit.timeout, "1s");
+	assert.equal(explicit.format, "json");
+	assert.equal(explicit.stdin, true);
+	assert.deepEqual(explicit.instructions, ["one"]);
+	assert.equal(explicit.full, true);
+	const defaults = readSendLeafOptions(buildSendCommand());
+	assert.deepEqual(defaults.instructions, []);
+	assert.equal(defaults.mode, "steer");
+	assert.equal(defaults.wait, "turn_end");
+	assert.equal(defaults.full, false);
+	assert.match(sendHelp(command), /--instruction/);
+});
 
 test("send --help returns deterministic local help with zero IO", async () => {
 	const outcome = await runSendCommand(sendOptions({ help: true }), context());

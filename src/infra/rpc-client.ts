@@ -245,6 +245,22 @@ export async function sendRpcCommand(
  * terminal event returns `offline`; caller cancellation returns `aborted`.
  * Malformed online peer output is a protocol error.
  */
+export function mapIdleSocketError(error: unknown): MemberIdleWaitClientOutcome {
+	const code = (error as NodeJS.ErrnoException)?.code;
+	if (code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTCONN")
+		return { ok: false, code: "transport-error", transportCode: code };
+	return { ok: false, code: "transport-error" };
+}
+
+export function mapIdleRemoteError(message: unknown): "capacity-exceeded" | "remote-rejected" {
+	const text = String(message ?? "");
+	return /capacity/i.test(text)
+		? "capacity-exceeded"
+		: /not-joined|unknown|ambiguous|self-wait/i.test(text)
+			? "remote-rejected"
+			: "remote-rejected";
+}
+
 export async function sendMemberIdleWait(
 	socketPath: string,
 	command: MemberIdleWaitCommand,
@@ -320,13 +336,7 @@ export async function sendMemberIdleWait(
 					return;
 				}
 				if ("error" in value) {
-					const message = String(value.error.message ?? "");
-					const code = /capacity/i.test(message)
-						? "capacity-exceeded"
-						: /not-joined|unknown|ambiguous|self-wait/i.test(message)
-							? "remote-rejected"
-							: "remote-rejected";
-					finish({ ok: false, code });
+					finish({ ok: false, code: mapIdleRemoteError(value.error.message) });
 					return;
 				}
 				if (!isMemberIdleWaitSubscribeResult(value.result)) {
@@ -336,12 +346,7 @@ export async function sendMemberIdleWait(
 				subscriptionAcknowledged = true;
 			}
 		});
-		socket.on("error", (error) => {
-			const code = (error as NodeJS.ErrnoException).code;
-			if (code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTCONN")
-				finish({ ok: false, code: "transport-error", transportCode: code });
-			else finish({ ok: false, code: "transport-error" });
-		});
+		socket.on("error", (error) => finish(mapIdleSocketError(error)));
 		socket.on("end", () => finish({ ok: false, code: "offline" }));
 		socket.on("close", () => {
 			if (!settled && !terminalReceived) finish({ ok: false, code: "offline" });

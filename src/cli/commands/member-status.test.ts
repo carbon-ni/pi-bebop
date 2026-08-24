@@ -223,6 +223,7 @@ test("status transport mapper covers abort, socket, timeout, and fallback errors
 	});
 	assert.deepEqual(mapTransportError(new Error("RPC timeout")), { ok: false, code: "timeout" });
 	assert.deepEqual(mapTransportError(new Error("other")), { ok: false, code: "transport-error" });
+	assert.deepEqual(mapTransportError(undefined), { ok: false, code: "transport-error" });
 	assert.deepEqual(mapTransportError("other"), { ok: false, code: "transport-error" });
 });
 

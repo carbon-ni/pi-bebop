@@ -12,10 +12,13 @@ export { errorCode } from "./errors.ts";
  * adapter wiring, and exit assignment. All parsing, dispatch, rendering, and
  * command logic lives in run.ts / handlers / shared adapters.
  */
-if (
-	process.argv[1]?.replaceAll("\\\\", "/").endsWith("/dist/cli/main.js") &&
-	import.meta.url.endsWith("/dist/cli/main.js")
-) {
+export function isCliEntrypoint(argv1: string | undefined, moduleUrl: string): boolean {
+	return (
+		Boolean(argv1?.replaceAll("\\\\", "/").endsWith("/dist/cli/main.js")) && moduleUrl.endsWith("/dist/cli/main.js")
+	);
+}
+
+if (isCliEntrypoint(process.argv[1], import.meta.url)) {
 	runCli(process.argv.slice(2))
 		.then((code) => {
 			process.exitCode = code;

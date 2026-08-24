@@ -4,40 +4,21 @@ import path from "node:path";
 
 const root = process.cwd();
 const tests = [];
-async function collect(dir) {
+const cliProduction = [];
+async function collect(dir, production = false) {
 	for (const entry of await readdir(dir, { withFileTypes: true })) {
 		const file = path.join(dir, entry.name);
-		if (entry.isDirectory()) await collect(file);
+		if (entry.isDirectory()) await collect(file, production);
 		else if (entry.name.endsWith(".test.ts")) tests.push(file);
+		else if (production && entry.name.endsWith(".ts")) cliProduction.push(path.relative(root, file));
 	}
 }
-await collect(path.join(root, "src", "cli"));
+await collect(path.join(root, "src", "cli"), true);
 await collect(path.join(root, "src", "infra"));
 
 tests.sort();
-const include = [
-	"src/cli/arguments.ts",
-	"src/cli/errors.ts",
-	"src/cli/message-input.ts",
-	"src/cli/output.ts",
-	"src/cli/source-session.ts",
-	"src/cli/run.ts",
-	"src/cli/parser.ts",
-	"src/cli/registry.ts",
-	"src/cli/commands/send-handler.ts",
-	"src/cli/commands/direct-send-adapter.ts",
-	"src/cli/commands/crew-init-handler.ts",
-	"src/cli/commands/crew-intake-adapter.ts",
-	"src/cli/commands/member-status.ts",
-	"src/cli/commands/member-message.ts",
-	"src/cli/commands/member-focus.ts",
-	"src/cli/commands/member-idle-wait.ts",
-	"src/cli/commands/member-interrupt.ts",
-	"src/cli/commands/durable-message.ts",
-	"src/cli/commands/session-list.ts",
-	"src/infra/rpc-client.ts",
-	"src/infra/rpc-server.ts",
-];
+cliProduction.sort();
+const include = [...cliProduction, "src/infra/rpc-client.ts", "src/infra/rpc-server.ts"];
 const args = [
 	"--test",
 	"--experimental-test-coverage",
