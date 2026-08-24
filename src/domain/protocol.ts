@@ -321,7 +321,16 @@ const BroadcastDispositionSchema = Type.Union([
 		{
 			...BroadcastDispositionBaseSchema,
 			disposition: Type.Literal("failed"),
-			code: Type.String({ minLength: 1 }),
+			code: Type.Union([
+				Type.Literal("inbox-full"),
+				Type.Literal("inbox-untrusted-path"),
+				Type.Literal("untrusted-project"),
+				Type.Literal("storage-unavailable"),
+				Type.Literal("storage-failed"),
+				Type.Literal("invalid-payload"),
+				Type.Literal("invalid-item-id"),
+				Type.Literal("aborted"),
+			]),
 		},
 		{ additionalProperties: false },
 	),
