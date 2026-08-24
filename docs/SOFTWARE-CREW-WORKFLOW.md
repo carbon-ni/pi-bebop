@@ -14,13 +14,13 @@ permissions.
 Roles describe responsibility; they do not grant permissions. Multiple members
 may share one role. Use member name when ownership must be exact.
 
-| Actor | Responsibility |
-| --- | --- |
-| External actor | Sends one-way request into Crew Intake without becoming member. |
+| Actor           | Responsibility                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------- |
+| External actor  | Sends one-way request into Crew Intake without becoming member.                                       |
 | Product contact | Triages external request, clarifies problem and acceptance, then forwards actionable outcome to lead. |
-| Lead | Coordinates ownership, timing, independent verification, and integration decisions. |
-| Developer | Implements one owned change using project conventions and reports evidence or blockers. |
-| Quality | Independently verifies acceptance and failure paths, then reports findings and verdict. |
+| Lead            | Coordinates ownership, timing, independent verification, and integration decisions.                   |
+| Developer       | Implements one owned change using project conventions and reports evidence or blockers.               |
+| Quality         | Independently verifies acceptance and failure paths, then reports findings and verdict.               |
 
 Product owner is recommended Crew Intake contact for software crew, but manifest
 must select exact member explicitly. Bebop never infers contact from `product`,
@@ -55,17 +55,17 @@ member-authored activity, and Role instructions are behavioral guidance.
 
 Choose least disruptive operation that solves coordination need.
 
-| Need | Capability | Typical user | Behavior |
-| --- | --- | --- | --- |
-| Inspect reachability | `/crew members` | Any joined member | Shows current/online/offline only; online does not mean available. |
-| Inspect timing and stated work | `get_member_status` | Usually lead, but any joined member | Returns live `idle|busy|compacting`, pending-message signal, and optional self-reported Focus. Never reads conversation. |
-| Publish stated work | `update_member_focus` | Every member for themselves | Sets or clears bounded crew-visible Focus note. It is not verified progress. |
-| Normal targeted coordination | `send_follow_up` | Any joined member | Safe default. Waits behind target active work. |
-| Durable targeted message | `send_to_inbox` | Any joined member | Persists for online/offline recipient and survives restart. Success means persisted, not completed. |
-| Change next model step | Redirect (`redirect_member`) | Any joined member, commonly lead or quality | Pi steer enters after current assistant turn/tool calls and before next model step. It does not abort current operation. |
-| Stop and recover awry active work | `interrupt_member` | Any joined member, exceptionally | Records recovery, requests best-effort abort, then introduces guidance ahead of older Follow-ups. Cannot roll back completed side effects. |
-| Share one constraint with everyone else | `broadcast_to_crew` | Any joined member | Persists separate non-interrupting Inbox copy for every other member. Never redirect-all. |
-| Message crew from outside | Crew Intake | External actor | Persists one-way message for configured contact, who owns triage rather than automatic acceptance. |
+| Need                                    | Capability                   | Typical user                                | Behavior                                                                                                                                   |
+| --------------------------------------- | ---------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------ |
+| Inspect reachability                    | `/crew members`              | Any joined member                           | Shows current/online/offline only; online does not mean available.                                                                         |
+| Inspect timing and stated work          | `get_member_status`          | Usually lead, but any joined member         | Returns live `idle                                                                                                                         | busy | compacting`, pending-message signal, and optional self-reported Focus. Never reads conversation. |
+| Publish stated work                     | `update_member_focus`        | Every member for themselves                 | Sets or clears bounded crew-visible Focus note. It is not verified progress.                                                               |
+| Normal targeted coordination            | `send_follow_up`             | Any joined member                           | Safe default. Waits behind target active work.                                                                                             |
+| Durable targeted message                | `send_to_inbox`              | Any joined member                           | Persists for online/offline recipient and survives restart. Success means persisted, not completed.                                        |
+| Change next model step                  | Redirect (`redirect_member`) | Any joined member, commonly lead or quality | Pi steer enters after current assistant turn/tool calls and before next model step. It does not abort current operation.                   |
+| Stop and recover awry active work       | `interrupt_member`           | Any joined member, exceptionally            | Records recovery, requests best-effort abort, then introduces guidance ahead of older Follow-ups. Cannot roll back completed side effects. |
+| Share one constraint with everyone else | `broadcast_to_crew`          | Any joined member                           | Persists separate non-interrupting Inbox copy for every other member. Never redirect-all.                                                  |
+| Message crew from outside               | Crew Intake                  | External actor                              | Persists one-way message for configured contact, who owns triage rather than automatic acceptance.                                         |
 
 Do not query status before every message. `send_follow_up` is safe default even
 when target is busy. Query status only when ownership or timing decision depends
@@ -103,10 +103,10 @@ from either.
 Lead sends targeted assignment through Inbox when it must be durable. Shared
 constraint goes through Broadcast, but ownership remains targeted to one member.
 
-The planned [Correlated Crew Update Workflow](CORRELATED-CREW-UPDATE-WORKFLOW.md)
-defines a non-blocking lead loop for parallel delegated requests. It is not a
-current capability until TASK-0071 ships; current Follow-up and idle semantics
-remain unchanged meanwhile.
+The [Member Request Workflow](MEMBER-REQUEST-WORKFLOW.md) defines a
+non-blocking lead loop for parallel delegated requests. It preserves ordinary
+Follow-up and Member Idle Wait semantics while adding bounded Response
+correlation.
 
 ### 4. Implementation
 

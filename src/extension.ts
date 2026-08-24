@@ -18,9 +18,9 @@ import {
 	registerGetMemberStatusTool,
 	registerUpdateMemberFocusTool,
 	registerWaitForMemberIdleTool,
-	registerRequestMemberTool,
+	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
-	registerWaitForCrewUpdateTool,
+	registerWaitForRequestOutcomeTool,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
@@ -55,7 +55,7 @@ import { maybeHandleStartupSocketJoin } from "./pi/startup-send.ts";
 import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
-import { CrewUpdateFlow } from "./application/crew-update-flow.ts";
+import { MemberRequestFlow } from "./application/member-request-flow.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
@@ -106,7 +106,7 @@ export default function (pi: ExtensionAPI) {
 		await interruptFlow.recoverPending();
 	};
 
-	state.crewUpdateFlow = new CrewUpdateFlow({
+	state.memberRequestFlow = new MemberRequestFlow({
 		transport: {
 			open: (endpoint, command, options) =>
 				sendMemberRequest(endpoint, command, {
@@ -118,9 +118,9 @@ export default function (pi: ExtensionAPI) {
 		},
 		resolveEndpoint: resolveMemberEndpoint,
 	});
-	registerRequestMemberTool(pi, state);
+	registerSendMemberRequestTool(pi, state);
 	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForCrewUpdateTool(pi, state);
+	registerWaitForRequestOutcomeTool(pi, state);
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,

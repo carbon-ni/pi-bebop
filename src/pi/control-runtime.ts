@@ -73,7 +73,7 @@ import {
 	type BroadcastStoreDependencies,
 } from "../application/crew-broadcast.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
-import { CrewUpdateFlow } from "../application/crew-update-flow.ts";
+import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import { writeMemberUpdateEvent } from "../infra/rpc-server.ts";
 
 // ============================================================================
@@ -110,7 +110,7 @@ export interface SocketState {
 	/** Injectable durable broadcast action dependencies (TASK-0064). */
 	broadcastStoreDependencies?: BroadcastStoreDependencies;
 	/** Correlated request/update lifecycle (TASK-0071). */
-	crewUpdateFlow?: CrewUpdateFlow;
+	memberRequestFlow?: MemberRequestFlow;
 	/** Injectable source-to-target interrupt transport for deterministic recovery tests (TASK-0065). */
 	memberInterruptSend?: typeof sendRpcCommand;
 	memberInterruptResolveEndpoint?: typeof resolveMemberEndpoint;
@@ -163,9 +163,9 @@ export const MEMBERSHIP_TOOLS = [
 	"get_member_status",
 	"update_member_focus",
 	"wait_for_member_idle",
-	"request_member",
+	"send_member_request",
 	"respond_to_member_request",
-	"wait_for_crew_update",
+	"wait_for_request_outcome",
 ] as const;
 
 /**
@@ -256,7 +256,7 @@ export async function handleCommand(
 
 	if (command.type === "member_request") {
 		const membership = state.membershipRuntime?.getMembership();
-		const flow = state.crewUpdateFlow;
+		const flow = state.memberRequestFlow;
 		const origin = command.payload.origin;
 		if (!membership || !flow) {
 			respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
@@ -321,7 +321,7 @@ export async function handleCommand(
 
 	if (command.type === "member_response") {
 		const membership = state.membershipRuntime?.getMembership();
-		const flow = state.crewUpdateFlow;
+		const flow = state.memberRequestFlow;
 		if (!membership || !flow) {
 			respond(false, command.type, undefined, !membership ? "not-joined" : "no-pending-request");
 			return;
@@ -1039,9 +1039,9 @@ export function emitIdleSettled(state: SocketState, ctx?: ExtensionContext): voi
 	// predicate releases a waiter. `isIdle()` alone is true during manual
 	// compaction, so never report availability while compaction remains active.
 	if (ctx && (!ctx.isIdle() || contextIsCompacting(ctx))) return;
-	if (state.crewUpdateFlow)
+	if (state.memberRequestFlow)
 		setImmediate(() => {
-			void state.crewUpdateFlow?.settleAllInboundIdle();
+			void state.memberRequestFlow?.settleAllInboundIdle();
 		});
 	if (state.idleWaitSubscriptions.length === 0) return;
 	const membership = state.membershipRuntime?.getMembership();

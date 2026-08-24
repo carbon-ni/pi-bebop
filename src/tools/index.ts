@@ -7,7 +7,7 @@ export { registerGetMemberStatusTool } from "./get-member-status.ts";
 export { registerUpdateMemberFocusTool } from "./update-member-focus.ts";
 export { registerWaitForMemberIdleTool } from "./wait-for-member-idle.ts";
 export {
-	registerRequestMemberTool,
+	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
-	registerWaitForCrewUpdateTool,
-} from "./crew-update.ts";
+	registerWaitForRequestOutcomeTool,
+} from "./member-request.ts";

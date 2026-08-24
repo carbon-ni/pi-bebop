@@ -1,35 +1,35 @@
 import { isMessagePayload, type MemberRequestCommand, type MemberUpdateResult } from "../domain/index.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
 import {
-	CrewUpdateRegistry,
-	DEFAULT_CREW_UPDATE_TIMEOUT_SECONDS,
-	type CrewUpdate,
-	type CrewUpdateInboundRequest,
-	type CrewUpdateMember,
+	RequestOutcomeRegistry,
+	DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
+	type RequestOutcome,
+	type MemberRequestInbound,
+	type MemberRequestMember,
 } from "../domain/index.ts";
 import { resolveTarget, MemberMessageError, type CrewMembership, type CrewMember } from "./member-message.ts";
 
-export interface CrewUpdateRequestTransport {
+export interface MemberRequestTransport {
 	open(
 		endpoint: string,
 		command: MemberRequestCommand,
 		options: { signal?: AbortSignal; timeoutMs: number; onUpdate: (update: MemberUpdateResult) => void },
 	): Promise<{ close: () => void }>;
-	respond(channel: CrewUpdateResponseChannel, update: MemberUpdateResult): Promise<void>;
+	respond(channel: MemberRequestResponseChannel, update: MemberUpdateResult): Promise<void>;
 }
-export interface CrewUpdateResponseChannel {
+export interface MemberRequestResponseChannel {
 	readonly send: (update: MemberUpdateResult) => Promise<void>;
 	readonly close?: () => void;
 }
-export interface CrewUpdateFlowDependencies {
-	readonly transport: CrewUpdateRequestTransport;
+export interface MemberRequestFlowDependencies {
+	readonly transport: MemberRequestTransport;
 	readonly resolveEndpoint: (socketPath: string) => Promise<string>;
 	readonly now?: () => number;
 	readonly createRequestId?: () => string;
 	readonly setTimeout?: (callback: () => void, delayMs: number) => ReturnType<typeof globalThis.setTimeout>;
 	readonly clearTimeout?: (handle: ReturnType<typeof globalThis.setTimeout>) => void;
 }
-export interface RequestMemberInput {
+export interface SendMemberRequestInput {
 	readonly membership: CrewMembership | null;
 	readonly member: string;
 	readonly message: string;
@@ -37,7 +37,7 @@ export interface RequestMemberInput {
 	readonly timeoutSeconds?: number;
 	readonly signal?: AbortSignal;
 }
-export interface RequestMemberAccepted {
+export interface SendMemberRequestAccepted {
 	readonly requestId: string;
 	readonly member: CrewMember;
 }
@@ -47,9 +47,9 @@ function defaultRequestId(): string {
 }
 
 /** Application orchestration around the pure request/update registry. */
-export class CrewUpdateFlow {
-	readonly registry = new CrewUpdateRegistry();
-	private readonly channels = new Map<string, CrewUpdateResponseChannel>();
+export class MemberRequestFlow {
+	readonly registry = new RequestOutcomeRegistry();
+	private readonly channels = new Map<string, MemberRequestResponseChannel>();
 	private readonly closes = new Map<string, () => void>();
 	private readonly completed = new Set<string>();
 	private readonly timers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
@@ -58,14 +58,14 @@ export class CrewUpdateFlow {
 	private readonly setTimer: (callback: () => void, delayMs: number) => ReturnType<typeof globalThis.setTimeout>;
 	private readonly clearTimer: (handle: ReturnType<typeof globalThis.setTimeout>) => void;
 
-	constructor(private readonly dependencies: CrewUpdateFlowDependencies) {
+	constructor(private readonly dependencies: MemberRequestFlowDependencies) {
 		this.now = dependencies.now ?? Date.now;
 		this.createRequestId = dependencies.createRequestId ?? defaultRequestId;
 		this.setTimer = dependencies.setTimeout ?? ((callback, delay) => globalThis.setTimeout(callback, delay));
 		this.clearTimer = dependencies.clearTimeout ?? ((handle) => globalThis.clearTimeout(handle));
 	}
 
-	async requestMember(input: RequestMemberInput): Promise<RequestMemberAccepted> {
+	async sendMemberRequest(input: SendMemberRequestInput): Promise<SendMemberRequestAccepted> {
 		if (!input.membership) throw new MemberMessageError("not-joined", "Not joined to a crew");
 		const target = resolveTarget(input.membership, input.member.trim());
 		const origin = {
@@ -81,7 +81,7 @@ export class CrewUpdateFlow {
 		if (!isMessagePayload(payload))
 			throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
 		const requestId = this.createRequestId();
-		const timeoutSeconds = input.timeoutSeconds ?? DEFAULT_CREW_UPDATE_TIMEOUT_SECONDS;
+		const timeoutSeconds = input.timeoutSeconds ?? DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS;
 		const registration = this.registry.registerOutbound({
 			requestId,
 			member: { name: target.name, role: target.role },
@@ -151,17 +151,17 @@ export class CrewUpdateFlow {
 		this.finishRequest(requestId);
 	}
 
-	waitForCrewUpdate(onUpdate: (update: CrewUpdate) => void) {
+	waitForRequestOutcome(onUpdate: (update: RequestOutcome) => void) {
 		return this.registry.waitForUpdate(onUpdate);
 	}
 
 	registerInboundRequest(input: {
 		readonly requestId: string;
-		readonly requester: CrewUpdateMember;
+		readonly requester: MemberRequestMember;
 		readonly message: string;
 		readonly instructions: readonly string[];
-		readonly channel: CrewUpdateResponseChannel;
-	}): CrewUpdateInboundRequest {
+		readonly channel: MemberRequestResponseChannel;
+	}): MemberRequestInbound {
 		const registered = this.registry.registerInbound(input);
 		if (registered.ok === false) throw new Error(registered.code);
 		this.channels.set(input.requestId, input.channel);
@@ -182,7 +182,7 @@ export class CrewUpdateFlow {
 		readonly message: string;
 		readonly instructions?: readonly string[];
 		readonly requestId?: string;
-		readonly member: CrewUpdateMember;
+		readonly member: MemberRequestMember;
 	}): Promise<void> {
 		const selected = this.registry.selectInbound(input.requestId);
 		if (selected.ok === false) {

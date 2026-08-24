@@ -229,13 +229,13 @@ export const MemberRedirectCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-const CrewUpdateRequestIdSchema = Type.String({ minLength: 1, maxLength: 128 });
-const CrewUpdateTimeoutSchema = Type.Integer({ minimum: 1, maximum: 600 });
+const RequestOutcomeRequestIdSchema = Type.String({ minLength: 1, maxLength: 128 });
+const RequestOutcomeTimeoutSchema = Type.Integer({ minimum: 1, maximum: 600 });
 export const MemberRequestParamsSchema = Type.Object(
 	{
-		requestId: CrewUpdateRequestIdSchema,
+		requestId: RequestOutcomeRequestIdSchema,
 		payload: MessagePayloadSchema,
-		timeoutSeconds: CrewUpdateTimeoutSchema,
+		timeoutSeconds: RequestOutcomeTimeoutSchema,
 	},
 	{ additionalProperties: false },
 );
@@ -259,7 +259,7 @@ export const MemberRequestCommandSchema = Type.Object(
 export const MemberRequestResultSchema = Type.Object(
 	{
 		accepted: Type.Literal(true),
-		requestId: CrewUpdateRequestIdSchema,
+		requestId: RequestOutcomeRequestIdSchema,
 		member: Type.Object(
 			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
 			{ additionalProperties: false },
@@ -269,7 +269,7 @@ export const MemberRequestResultSchema = Type.Object(
 );
 export const MemberResponseParamsSchema = Type.Object(
 	{
-		requestId: CrewUpdateRequestIdSchema,
+		requestId: RequestOutcomeRequestIdSchema,
 		message: MemberMessageContentSchema,
 		instructions: MessageInstructionsSchema,
 	},
@@ -295,7 +295,7 @@ export const MemberResponseCommandSchema = Type.Object(
 const MemberUpdateResponseSchema = Type.Object(
 	{
 		kind: Type.Literal("response"),
-		requestId: CrewUpdateRequestIdSchema,
+		requestId: RequestOutcomeRequestIdSchema,
 		member: Type.Object(
 			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
 			{ additionalProperties: false },
@@ -308,7 +308,7 @@ const MemberUpdateResponseSchema = Type.Object(
 const MemberUpdateMechanicalSchema = Type.Object(
 	{
 		kind: Type.Union([Type.Literal("idle-without-response"), Type.Literal("offline"), Type.Literal("timeout")]),
-		requestId: CrewUpdateRequestIdSchema,
+		requestId: RequestOutcomeRequestIdSchema,
 		member: Type.Object(
 			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
 			{ additionalProperties: false },

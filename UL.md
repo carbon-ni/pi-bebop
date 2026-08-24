@@ -25,6 +25,9 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **External actor**       | Local process or Pi session that sends a crew message without joined member identity.                                                                                        | crew member, authenticated caller                      |
 | **Crew contact**         | Explicitly configured member selected by exact name, responsible for triaging Crew Intake messages; product owner is recommended for software crews but never inferred.      | lead by default, first online member                   |
 | **Crew Broadcast**       | Internal durable fan-out initiated by a current joined member; the same message persists to every other configured member and is later handed to each as a normal Follow-up. | intake, shared inbox, redirect-all, team broadcast     |
+| **Member request**        | Non-interrupting Member message that expects exactly one correlated Response before a finite deadline; Accepted never means answered or completed. | task assignment, interrupt, progress stream |
+| **Request outcome**       | Oldest terminal outcome of one outbound Member request: Response, idle without Response, offline, or timeout. It is not progress, task state, or Crew activity. | monitoring, status, completion proof |
+| **Request ID**            | Opaque bounded identifier correlating one Member request with its Response; it is not a Delivery ID, task ID, proof of identity, or authority credential. | authentication, task ID, identity proof |
 
 ## Collaboration language
 
@@ -44,7 +47,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Direct**                | Accepted message started target work while target was idle.                                                                         | synchronous                                           |
 | **Queued**                | Accepted follow-up waits behind target active work in transient session queue.                                                      | inbox, pending response                               |
 | **Redirected**            | Accepted redirect entered target active turn.                                                                                       | steered in product-facing language                    |
-| **Response**              | Assistant output correlated to one member message.                                                                                  | turn end                                              |
+| **Response**              | Assistant output correlated to exactly one Member request. Ordinary Follow-up has no implicit Response expectation. | turn end, completion proof |
 | **Presence activity**     | Non-interrupting chat record that reports observed crew reachability changes.                                                       | notification when referring to model-visible activity |
 
 ## Transport language
@@ -69,6 +72,9 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
 | Inspect one member timing and stated work | `get_member_status` | Returns reachability, mechanical Activity, pending signal, and self-reported Focus without reading conversation. |
 | Publish or clear own crew-visible Focus | `update_member_focus` | Explicit opt-in note for coordination; member can update only own Focus. |
+| Send a Member request requiring one Response | `send_member_request` | Accepted non-interrupting delivery with opaque Request ID; never implies answer or completion. |
+| Respond to a Member request | `respond_to_member_request` | Correlates one Response using active request context or opaque Request ID; not ordinary Follow-up. |
+| Wait for the oldest terminal outbound Request outcome | `wait_for_request_outcome` | No arguments, no polling, and no unrelated activity; only Response, idle without Response, offline, or timeout. |
 | Block until another member's Pi is mechanically idle, goes offline, or times out | `wait_for_member_idle` | One-shot bounded wait; never implies reply, task completion, or availability. |
 
 `send_follow_up` is canonical normal delivery. `redirect_member` names the
@@ -94,6 +100,10 @@ Crew Intake persists External crew message through Inbox
 Inbox persists Inbox items independently from endpoint presence
 Crew Broadcast is initiated only by a Current joined member
 Crew Broadcast excludes the sender by canonical member identity
+Current member sends a Member request when exactly one Response is required
+Member request carries an opaque Request ID
+Response correlates to exactly one Member request
+Request outcome is the oldest terminal outbound outcome, not unrelated Crew activity
 Crew Broadcast persists the same message to every other member through Inbox
 Each Crew Broadcast recipient receives own Inbox item through normal Follow-up
 Inbox item is removed only after durable session evidence records its Handoff
@@ -140,10 +150,12 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Activity/Focus:** Activity is mechanically derived and cannot be claimed; Focus is explicitly member-reported and unverified.
 - **Focus/privacy:** Focus is crew-visible and must never contain secrets or private prompt/session content; absence is `unspecified`, offline is `unavailable`.
 - **Online/available:** online means endpoint reachable; it does not mean idle, ready, or responsive.
-- **Idle/reply:** mechanical idle proves the Pi runtime settled; it never proves the target saw a message, finished a task, intends to reply, or will remain idle. Reply correlation remains unsupported.
+- **Idle/reply:** mechanical idle proves only that the Pi runtime settled; it never proves the target saw a message, finished a task, intends to reply, or will remain idle. Response correlation is supported only through the Member request workflow.
 - **Idle wait/monitoring:** idle wait is one-shot, transient, and bounded; monitoring is continuous background observation.
 - **Idle wait/Member Status:** Member Status is an immediate snapshot; idle wait blocks until a mechanical transition or deadline.
-- **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or response produced.
+- **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or Response produced.
+- **Member request/Follow-up:** a Member request expects exactly one correlated Response; ordinary Follow-up has no implicit Response expectation.
+- **Request outcome/activity:** Request outcome wait returns only the oldest terminal outbound Member request outcome; it never monitors or returns unrelated Crew activity.
 - **Follow-up/inbox:** follow-up requires online target and uses transient Pi delivery; inbox survives recipient downtime and restarts.
 - **Follow-up:** in ordinary conversation it can mean another conversational message; in Bebop it specifically means safe queued delivery when target is busy.
 - **Interrupt/Redirect/Follow-up/Inbox/shutdown:** Follow-up waits; Redirect changes direction after current assistant tool calls without aborting; Inbox persists for later or offline handoff; Interrupt requests best-effort abort and recovery precedence; shutdown ends the runtime and is not message delivery or recovery.
