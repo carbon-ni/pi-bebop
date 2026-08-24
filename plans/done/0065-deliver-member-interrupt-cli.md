@@ -1,7 +1,7 @@
 ---
 id: TASK-0065
 title: Deliver member interrupt CLI
-status: doing
+status: done
 depends_on: [TASK-0061]
 priority: high
 tags: [cli, rpc, interrupt, recovery, cancellation, tdd]
