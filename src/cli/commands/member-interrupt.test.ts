@@ -114,6 +114,37 @@ test("interrupt default transport maps rejected and malformed acknowledgements",
 	}
 });
 
+test("interrupt default transport maps remote error and timeout branches", async () => {
+	for (const mode of ["remote", "timeout"] as const) {
+		const dir = await mkdtemp(path.join(tmpdir(), "bebop-interrupt-branch-"));
+		const socketPath = path.join(dir, "member.sock");
+		const server = net.createServer((socket) => {
+			if (mode === "remote") {
+				socket.setEncoding("utf8");
+				socket.on("data", (chunk) => {
+					const request = JSON.parse(String(chunk)) as { id: string | number };
+					socket.write(
+						JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "remote" } }) +
+							"\n",
+					);
+				});
+			}
+		});
+		await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+		try {
+			const outcome = await defaultMemberInterruptCliDependencies.deliverInterrupt(
+				{ ok: true, kind: "id", idSocketPath: socketPath, aliasSocketPath: socketPath },
+				{ type: "member_interrupt", target: "Kelly", message: "stop" },
+				new AbortController().signal,
+			);
+			assert.equal(outcome.ok, false);
+		} finally {
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+			await rm(dir, { recursive: true, force: true });
+		}
+	}
+});
+
 test("interrupt default transport maps an unavailable endpoint", async () => {
 	const outcome = await defaultMemberInterruptCliDependencies.deliverInterrupt(
 		{
