@@ -950,6 +950,39 @@ test("sendMemberIdleWait maps remote rejection and malformed terminal results", 
 	);
 });
 
+test("sendMemberRequest abort after acceptance closes with offline update", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "member.request")
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { accepted: true, requestId: "r-abort", member: { name: "Bob", role: "dev" } },
+					});
+			}),
+		async (socketPath) => {
+			const controller = new AbortController();
+			const updates: unknown[] = [];
+			const result = await sendMemberRequest(
+				socketPath,
+				{
+					type: "member_request",
+					id: "r-abort",
+					requestId: "r-abort",
+					payload: { content: "x" },
+					timeoutSeconds: 1,
+				},
+				{ signal: controller.signal, onUpdate: (update) => updates.push(update) },
+			);
+			controller.abort();
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			assert.equal((updates[0] as { kind: string } | undefined)?.kind, "offline");
+			result.close();
+		},
+	);
+});
+
 test("sendMemberRequest maps remote errors, invalid results, and mismatched ids", async () => {
 	for (const mode of ["error", "invalid", "mismatch"] as const) {
 		await withSocketServer(

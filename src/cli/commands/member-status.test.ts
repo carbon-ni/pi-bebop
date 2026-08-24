@@ -159,6 +159,44 @@ test("member status default transport covers valid, rejected, and malformed peer
 	}
 });
 
+test("member status default transport reports unknown when both id and alias are stale", async () => {
+	const result = await defaultMemberStatusCliDependencies.sendStatus(
+		{
+			ok: true,
+			kind: "id",
+			idSocketPath: "/tmp/missing-status-id.sock",
+			aliasSocketPath: "/tmp/missing-status-alias.sock",
+		},
+		"Kelly",
+		new AbortController().signal,
+	);
+	assert.deepEqual(result, { ok: false, code: "unknown-session" });
+});
+
+test("member status default transport falls back from stale id to alias", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-status-alias-"));
+	const aliasPath = path.join(dir, "alias.sock");
+	const server = net.createServer((socket) => {
+		socket.setEncoding("utf8");
+		socket.on("data", (chunk) => {
+			const request = JSON.parse(String(chunk)) as { id: string | number };
+			socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { status: ONLINE_STATUS } }) + "\n");
+		});
+	});
+	await new Promise<void>((resolve) => server.listen(aliasPath, resolve));
+	try {
+		const result = await defaultMemberStatusCliDependencies.sendStatus(
+			{ ok: true, kind: "id", idSocketPath: path.join(dir, "missing.sock"), aliasSocketPath: aliasPath },
+			"Kelly",
+			new AbortController().signal,
+		);
+		assert.equal(result.ok, true);
+	} finally {
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 // --- run: source selection ---
 
 test("member status run: session-required is usage-class exit 2 with stable code", async () => {
