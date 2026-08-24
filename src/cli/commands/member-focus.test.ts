@@ -80,6 +80,16 @@ test("focus transport failures preserve stable offline, malformed, and cancellat
 	assert.deepEqual(mapMemberFocusTransportError(refused), { ok: false, code: "offline-session" });
 	assert.deepEqual(mapMemberFocusTransportError(notConnected), { ok: false, code: "offline-session" });
 	assert.deepEqual(mapMemberFocusTransportError(cancelled), { ok: false, code: "aborted" });
+	for (const [code, expected] of [
+		["ENOENT", "unknown-session"],
+		["ECONNREFUSED", "offline-session"],
+		["ENOTCONN", "offline-session"],
+	] as const)
+		assert.deepEqual(mapMemberFocusTransportError(Object.assign(new Error(code), { code })), {
+			ok: false,
+			code: expected,
+		});
+	assert.deepEqual(mapMemberFocusTransportError(new Error("timeout")), { ok: false, code: "timeout" });
 	assert.deepEqual(mapMemberFocusTransportError(new Error("unexpected socket failure")), {
 		ok: false,
 		code: "transport-error",
@@ -96,6 +106,13 @@ test("focus transport failures preserve stable offline, malformed, and cancellat
 });
 
 test("focus command maps source resolution and stdin outcomes", async () => {
+	const help = await runMemberFocusCommand(
+		{ command: "member-focus-set", action: "set", stdin: false, format: "json", help: true },
+		context(),
+		deps(),
+	);
+	assert.equal(help.kind, "help");
+	assert.throws(() => parseMemberFocusCommand([], "set", "/project"), /Missing Focus/);
 	const sourceFailure = await runMemberFocusCommand(
 		{ command: "member-focus-set", action: "set", focus: "Working", stdin: false, format: "json" },
 		context(),
@@ -108,6 +125,15 @@ test("focus command maps source resolution and stdin outcomes", async () => {
 		deps(),
 	);
 	assert.equal(stdin.kind, "result");
+	await assert.rejects(
+		() =>
+			runMemberFocusCommand(
+				{ command: "member-focus-set", action: "set", stdin: true, format: "json" },
+				context(""),
+				deps({ readStdin: async () => "" }),
+			),
+		/Focus/,
+	);
 });
 
 test("focus help and result semantics are explicit and self-scoped", async () => {
