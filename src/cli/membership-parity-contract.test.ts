@@ -518,8 +518,11 @@ test("broadcast recipient fields, disposition, and code pairing are exact", () =
 	const broadcast = entry("broadcast_to_crew");
 	assert.deepEqual(broadcast.result.recipientFields, ["member", "role", "itemId", "disposition", "code"]);
 	assert.deepEqual(broadcast.result.recipientDisposition, ["persisted", "already-persisted", "failed"]);
-	assert.match(String(broadcast.result.recipientPairing), /failed/);
-	assert.match(String(broadcast.result.recipientPairing), /no code/);
+	assert.deepEqual(broadcast.result.recipientPairing, {
+		failed: "requires-stable-code",
+		persisted: "no-code",
+		"already-persisted": "no-code",
+	});
 	assert.match(broadcast.delivery, /one independent non-interrupting Inbox copy/);
 });
 
