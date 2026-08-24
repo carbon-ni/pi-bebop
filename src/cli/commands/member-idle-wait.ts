@@ -126,6 +126,10 @@ export function parseMemberIdleWaitCommand(args: string[], _cwd = process.cwd())
 	};
 }
 
+type MemberIdleWaitCliOutcome =
+	| MemberIdleWaitClientOutcome
+	| { readonly ok: false; readonly code: "unknown-session" | "offline-session" };
+
 export interface MemberIdleWaitCliDependencies {
 	readonly resolveSource: (input: { explicitSession?: string; environmentSession?: string }) => SourceResolution;
 	readonly sendWait: (
@@ -133,8 +137,25 @@ export interface MemberIdleWaitCliDependencies {
 		target: string,
 		timeoutSeconds: number,
 		signal: AbortSignal,
-	) => Promise<MemberIdleWaitClientOutcome>;
+	) => Promise<MemberIdleWaitCliOutcome>;
 	readonly environmentSession: () => string | undefined;
+}
+
+function mapIdleWaitTransportError(error: unknown): MemberIdleWaitCliOutcome {
+	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+	const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+	if (code === "ENOENT") return { ok: false, code: "unknown-session" };
+	if (code === "ECONNREFUSED" || code === "ENOTCONN") return { ok: false, code: "offline-session" };
+	if (error instanceof Error && /timed? ?out|timeout/i.test(error.message)) return { ok: false, code: "timeout" };
+	return { ok: false, code: "transport-error" };
+}
+
+function normalizeIdleWaitTransportOutcome(outcome: MemberIdleWaitClientOutcome): MemberIdleWaitCliOutcome {
+	if (outcome.ok || !("transportCode" in outcome)) return outcome;
+	if (outcome.transportCode === "ENOENT") return { ok: false, code: "unknown-session" };
+	if (outcome.transportCode === "ECONNREFUSED" || outcome.transportCode === "ENOTCONN")
+		return { ok: false, code: "offline-session" };
+	return outcome;
 }
 
 async function waitThroughSocket(
@@ -142,17 +163,27 @@ async function waitThroughSocket(
 	target: string,
 	timeoutSeconds: number,
 	signal: AbortSignal,
-): Promise<MemberIdleWaitClientOutcome> {
-	const resolved = await resolveMemberEndpoint(socketPath);
-	return sendMemberIdleWait(resolved, { type: "member_idle_wait", member: target }, { timeoutSeconds, signal });
+): Promise<MemberIdleWaitCliOutcome> {
+	try {
+		const resolved = await resolveMemberEndpoint(socketPath);
+		return normalizeIdleWaitTransportOutcome(
+			await sendMemberIdleWait(
+				resolved,
+				{ type: "member_idle_wait", member: target },
+				{ timeoutSeconds, signal },
+			),
+		);
+	} catch (error) {
+		return mapIdleWaitTransportError(error);
+	}
 }
 
 export const defaultMemberIdleWaitCliDependencies: MemberIdleWaitCliDependencies = {
 	resolveSource: (input) => resolveSourceSession(input),
 	sendWait: async (source, target, timeoutSeconds, signal) => {
 		const primary = await waitThroughSocket(source.idSocketPath, target, timeoutSeconds, signal);
-		if (primary.ok || !("code" in primary) || primary.code !== "transport-error") return primary;
-		// A value may be an alias symlink; retry once through the alias candidate.
+		if (primary.ok || !("code" in primary) || primary.code !== "unknown-session") return primary;
+		// A stale id socket may have a valid alias; retry exactly once.
 		return waitThroughSocket(source.aliasSocketPath, target, timeoutSeconds, signal);
 	},
 	environmentSession: () => process.env.PI_SESSION_ID,
@@ -178,7 +209,12 @@ export async function runMemberIdleWaitCommand(
 			format: options.format,
 			full: false,
 		};
-	const outcome = await deps.sendWait(source, options.member, options.timeoutSeconds, context.signal);
+	let outcome: MemberIdleWaitCliOutcome;
+	try {
+		outcome = await deps.sendWait(source, options.member, options.timeoutSeconds, context.signal);
+	} catch (error) {
+		outcome = mapIdleWaitTransportError(error);
+	}
 	if (!outcome.ok)
 		return {
 			kind: "result",
