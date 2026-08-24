@@ -178,7 +178,8 @@
 				"invalid-payload",
 				"offline",
 				"remote-rejected",
-				"invalid-ack"
+				"invalid-ack",
+				"outcome-unknown"
 			],
 			"delivery": "online normal Follow-up; direct when target idle, queued behind active work when busy; accepted never means reply, delivered work, or completion",
 			"cancellation": "before dispatch prevents delivery; while queued/transporting returns aborted and releases local wait; no acknowledgement means delivery outcome may be unknown and cancellation never rolls back a target that already accepted"
@@ -207,7 +208,8 @@
 				"invalid-payload",
 				"offline",
 				"remote-rejected",
-				"invalid-ack"
+				"invalid-ack",
+				"outcome-unknown"
 			],
 			"delivery": "online Redirect; direct when target idle, otherwise enters before target next model step after current assistant tool calls; never aborts and accepted never means reply or completion",
 			"cancellation": "before dispatch prevents redirect; after target acceptance cannot retract steering; missing acknowledgement is outcome-unknown and never a rollback claim"

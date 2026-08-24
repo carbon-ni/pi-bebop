@@ -257,6 +257,8 @@ export interface MemberMessageCliDependencies {
 }
 
 function mapTransportError(error: unknown): { ok: false; code: string } {
+	if (error instanceof RpcProtocolError && error.code === "outcome-unknown")
+		return { ok: false, code: "outcome-unknown" };
 	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
 	const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
 	if (systemCode === "ENOENT") return { ok: false, code: "unknown-session" };

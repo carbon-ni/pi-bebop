@@ -254,7 +254,77 @@ test("rejects promptly when aborted, socket ends, or timeout occurs", async () =
 		async (socketPath) => {
 			await assert.rejects(
 				() => sendRpcCommand(socketPath, { type: "send", message: "hello" }, { timeout: 1000 }),
-				/ended|closed/i,
+				/ended|closed|outcome-unknown/i,
+			);
+		},
+	);
+});
+
+test("dispatch barrier distinguishes pre-dispatch abort from accepted-before-ack loss", async () => {
+	await withSocketServer(
+		() => undefined,
+		async (socketPath) => {
+			const controller = new AbortController();
+			const pending = sendRpcCommand(
+				socketPath,
+				{ type: "send", message: "cancel before write" },
+				{ timeout: 1000, signal: controller.signal },
+			);
+			controller.abort();
+			await assert.rejects(pending, (error: unknown) => {
+				assert.equal(error instanceof RpcProtocolError, false);
+				assert.match(String(error), /abort/i);
+				assert.doesNotMatch(String(error), /outcome-unknown/i);
+				return true;
+			});
+		},
+	);
+
+	let targetAccepted = false;
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "message.send") return;
+				// Simulate the target accepting the delivery, followed by loss of
+				// the outer source acknowledgement before the caller receives it.
+				targetAccepted = true;
+				socket.end();
+			}),
+		async (socketPath) => {
+			await assert.rejects(
+				() =>
+					sendRpcCommand(socketPath, { type: "send", message: "accepted then ack lost" }, { timeout: 1000 }),
+				(error: unknown) => {
+					assert.equal(targetAccepted, true);
+					assert.equal(error instanceof RpcProtocolError, true);
+					assert.equal((error as RpcProtocolError).code, "outcome-unknown");
+					return true;
+				},
+			);
+		},
+	);
+
+	let abortAfterDispatch: (() => void) | undefined;
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "message.send") abortAfterDispatch?.();
+			}),
+		async (socketPath) => {
+			const controller = new AbortController();
+			abortAfterDispatch = () => controller.abort();
+			await assert.rejects(
+				() =>
+					sendRpcCommand(
+						socketPath,
+						{ type: "send", message: "accepted before caller abort" },
+						{ timeout: 1000, signal: controller.signal },
+					),
+				(error: unknown) => {
+					assert.equal(error instanceof RpcProtocolError, true);
+					assert.equal((error as RpcProtocolError).code, "outcome-unknown");
+					return true;
+				},
 			);
 		},
 	);
