@@ -229,6 +229,103 @@ export const MemberRedirectCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+const CrewUpdateRequestIdSchema = Type.String({ minLength: 1, maxLength: 128 });
+const CrewUpdateTimeoutSchema = Type.Integer({ minimum: 1, maximum: 600 });
+export const MemberRequestParamsSchema = Type.Object(
+	{
+		requestId: CrewUpdateRequestIdSchema,
+		payload: MessagePayloadSchema,
+		timeoutSeconds: CrewUpdateTimeoutSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.request"),
+		params: MemberRequestParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_request"),
+		...MemberRequestParamsSchema.properties,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestResultSchema = Type.Object(
+	{
+		accepted: Type.Literal(true),
+		requestId: CrewUpdateRequestIdSchema,
+		member: Type.Object(
+			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+export const MemberResponseParamsSchema = Type.Object(
+	{
+		requestId: CrewUpdateRequestIdSchema,
+		message: MemberMessageContentSchema,
+		instructions: MessageInstructionsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberResponseRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.respond"),
+		params: MemberResponseParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberResponseCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_response"),
+		...MemberResponseParamsSchema.properties,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+const MemberUpdateResponseSchema = Type.Object(
+	{
+		kind: Type.Literal("response"),
+		requestId: CrewUpdateRequestIdSchema,
+		member: Type.Object(
+			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
+			{ additionalProperties: false },
+		),
+		message: MemberMessageContentSchema,
+		instructions: Type.Optional(MessageInstructionsSchema),
+	},
+	{ additionalProperties: false },
+);
+const MemberUpdateMechanicalSchema = Type.Object(
+	{
+		kind: Type.Union([Type.Literal("idle-without-response"), Type.Literal("offline"), Type.Literal("timeout")]),
+		requestId: CrewUpdateRequestIdSchema,
+		member: Type.Object(
+			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+export const MemberUpdateNotificationSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		method: Type.Literal("member.update"),
+		params: Type.Union([MemberUpdateResponseSchema, MemberUpdateMechanicalSchema]),
+	},
+	{ additionalProperties: false },
+);
+export const MemberUpdateResultSchema = Type.Union([MemberUpdateResponseSchema, MemberUpdateMechanicalSchema]);
+
 export const MemberInterruptParamsSchema = Type.Object(
 	{
 		target: MemberStatusTargetSchema,
@@ -496,6 +593,8 @@ export const KnownRequestSchema = Type.Union([
 	PresenceHintRequestSchema,
 	MemberStatusRequestSchema,
 	MemberStatusTargetRequestSchema,
+	MemberRequestRequestSchema,
+	MemberResponseRequestSchema,
 	MemberFocusRequestSchema,
 	MemberFollowUpRequestSchema,
 	MemberRedirectRequestSchema,
@@ -561,6 +660,8 @@ export const RpcMethodResultSchema = Type.Union([
 	SubscribeResultSchema,
 	PresenceHintResultSchema,
 	MemberStatusResultSchema,
+	MemberRequestResultSchema,
+	MemberUpdateResultSchema,
 	MemberFocusResultSchema,
 	MemberMessageResultSchema,
 	MemberInterruptResultSchema,
@@ -613,6 +714,12 @@ export type MemberStatusCommand = Static<typeof MemberStatusCommandSchema>;
 export type MemberStatusResult = Static<typeof MemberStatusResultSchema>;
 export type MemberStatusTargetParams = Static<typeof MemberStatusTargetParamsSchema>;
 export type MemberStatusTargetCommand = Static<typeof MemberStatusTargetCommandSchema>;
+export type MemberRequestParams = Static<typeof MemberRequestParamsSchema>;
+export type MemberRequestCommand = Static<typeof MemberRequestCommandSchema>;
+export type MemberRequestResult = Static<typeof MemberRequestResultSchema>;
+export type MemberResponseParams = Static<typeof MemberResponseParamsSchema>;
+export type MemberResponseCommand = Static<typeof MemberResponseCommandSchema>;
+export type MemberUpdateResult = Static<typeof MemberUpdateResultSchema>;
 export type MemberFocusParams = Static<typeof MemberFocusParamsSchema>;
 export type MemberFocusCommand = Static<typeof MemberFocusCommandSchema>;
 export type MemberFocusResult = Static<typeof MemberFocusResultSchema>;
@@ -679,7 +786,8 @@ export type RpcWireResponse = Static<typeof RpcResponseSchema>;
 export type RpcMethodResult = Static<typeof RpcMethodResultSchema>;
 export type RpcNotification =
 	| Static<typeof TurnEndNotificationSchema>
-	| Static<typeof MemberIdleWaitNotificationSchema>;
+	| Static<typeof MemberIdleWaitNotificationSchema>
+	| Static<typeof MemberUpdateNotificationSchema>;
 export type RpcCommand =
 	| Static<typeof MessageSendCommandSchema>
 	| Static<typeof InterruptCommandSchema>
@@ -691,6 +799,8 @@ export type RpcCommand =
 	| Static<typeof PresenceHintCommandSchema>
 	| Static<typeof MemberStatusCommandSchema>
 	| Static<typeof MemberStatusTargetCommandSchema>
+	| Static<typeof MemberRequestCommandSchema>
+	| Static<typeof MemberResponseCommandSchema>
 	| Static<typeof MemberFocusCommandSchema>
 	| Static<typeof MemberInterruptCommandSchema>
 	| Static<typeof MemberFollowUpCommandSchema>
@@ -710,6 +820,8 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof PresenceHintCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusTargetCommandSchema>>
+	| RequiredId<Static<typeof MemberRequestCommandSchema>>
+	| RequiredId<Static<typeof MemberResponseCommandSchema>>
 	| RequiredId<Static<typeof MemberFocusCommandSchema>>
 	| RequiredId<Static<typeof MemberInterruptCommandSchema>>
 	| RequiredId<Static<typeof MemberFollowUpCommandSchema>>
@@ -838,6 +950,9 @@ export function isRpcResponse(value: unknown): value is RpcWireResponse {
 export function isTurnEndNotification(value: unknown): value is Static<typeof TurnEndNotificationSchema> {
 	return Value.Check(TurnEndNotificationSchema, value);
 }
+export function isMemberUpdateNotification(value: unknown): value is Static<typeof MemberUpdateNotificationSchema> {
+	return Value.Check(MemberUpdateNotificationSchema, value);
+}
 export function methodResultSchema(method: string) {
 	return method === "session.status"
 		? StatusResultSchema
@@ -849,31 +964,35 @@ export function methodResultSchema(method: string) {
 					? MemberStatusResultSchema
 					: method === "member.status_target"
 						? MemberStatusResultSchema
-						: method === "member.focus"
-							? MemberFocusResultSchema
-							: method === "member.interrupt"
-								? MemberInterruptResultSchema
-								: method === "member.follow_up"
-									? MemberMessageResultSchema
-									: method === "member.redirect"
-										? MemberMessageResultSchema
-										: method === "member.inbox_send"
-											? MemberInboxSendResultSchema
-											: method === "crew.broadcast"
-												? CrewBroadcastResultSchema
-												: method === "member.idle_wait"
-													? MemberIdleWaitSubscribeResultSchema
-													: method === "session.get_message"
-														? GetMessageResultSchema
-														: method === "session.clear"
-															? ClearResultSchema
-															: method === "session.abort"
-																? EmptyResultSchema
-																: method === "event.subscribe"
-																	? SubscribeResultSchema
-																	: method === "presence.hint"
-																		? PresenceHintResultSchema
-																		: undefined;
+						: method === "member.request"
+							? MemberRequestResultSchema
+							: method === "member.respond"
+								? EmptyResultSchema
+								: method === "member.focus"
+									? MemberFocusResultSchema
+									: method === "member.interrupt"
+										? MemberInterruptResultSchema
+										: method === "member.follow_up"
+											? MemberMessageResultSchema
+											: method === "member.redirect"
+												? MemberMessageResultSchema
+												: method === "member.inbox_send"
+													? MemberInboxSendResultSchema
+													: method === "crew.broadcast"
+														? CrewBroadcastResultSchema
+														: method === "member.idle_wait"
+															? MemberIdleWaitSubscribeResultSchema
+															: method === "session.get_message"
+																? GetMessageResultSchema
+																: method === "session.clear"
+																	? ClearResultSchema
+																	: method === "session.abort"
+																		? EmptyResultSchema
+																		: method === "event.subscribe"
+																			? SubscribeResultSchema
+																			: method === "presence.hint"
+																				? PresenceHintResultSchema
+																				: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -887,6 +1006,9 @@ export function isInterruptResult(value: unknown): value is InterruptResult {
 }
 export function isMemberStatusResult(value: unknown): value is MemberStatusResult {
 	return Value.Check(MemberStatusResultSchema, value);
+}
+export function isMemberRequestResult(value: unknown): value is MemberRequestResult {
+	return Value.Check(MemberRequestResultSchema, value);
 }
 export function isMemberIdleWaitSubscribeResult(
 	value: unknown,
@@ -934,6 +1056,11 @@ export function buildTurnEndNotification(
 	if (!isTurnEndNotification(value)) throw new Error("Invalid turn-end notification");
 	return value;
 }
+export function buildMemberUpdateNotification(update: MemberUpdateResult): RpcNotification {
+	const value: RpcNotification = { jsonrpc: JSON_RPC_VERSION, method: "member.update", params: update };
+	if (!isMemberUpdateNotification(value)) throw new Error("Invalid member update notification");
+	return value;
+}
 export function serializeRequest(request: RpcRequest): string {
 	if (!isRpcRequest(request)) throw new Error("Invalid JSON-RPC request");
 	return `${JSON.stringify(request)}\n`;
@@ -942,7 +1069,8 @@ export function serializeProtocolMessage(value: RpcWireResponse | RpcNotificatio
 	if (
 		!Value.Check(RpcResponseSchema, value) &&
 		!Value.Check(TurnEndNotificationSchema, value) &&
-		!Value.Check(MemberIdleWaitNotificationSchema, value)
+		!Value.Check(MemberIdleWaitNotificationSchema, value) &&
+		!Value.Check(MemberUpdateNotificationSchema, value)
 	)
 		throw new Error("Invalid JSON-RPC message");
 	return `${JSON.stringify(value)}\n`;
@@ -964,6 +1092,24 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status", params: { member: command.member } };
 	if (command.type === "member_status_target")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status_target", params: { target: command.target } };
+	if (command.type === "member_request")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "member.request",
+			params: { requestId: command.requestId, payload: command.payload, timeoutSeconds: command.timeoutSeconds },
+		};
+	if (command.type === "member_response")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "member.respond",
+			params: {
+				requestId: command.requestId,
+				message: command.message,
+				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+			},
+		};
 	if (command.type === "member_focus")
 		return {
 			jsonrpc: JSON_RPC_VERSION,
@@ -1088,6 +1234,16 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 	if (request.method === "member.status_target") {
 		if (!Value.Check(MemberStatusTargetParamsSchema, params)) return invalid("Invalid member.status_target params");
 		return { type: "member_status_target", target: (params as MemberStatusTargetParams).target, id: request.id };
+	}
+	if (request.method === "member.request") {
+		if (!Value.Check(MemberRequestParamsSchema, params)) return invalid("Invalid member.request params");
+		const requestParams = params as MemberRequestParams;
+		if (!isMessagePayload(requestParams.payload)) return invalid("Invalid member.request payload");
+		return { type: "member_request", ...requestParams, id: request.id };
+	}
+	if (request.method === "member.respond") {
+		if (!Value.Check(MemberResponseParamsSchema, params)) return invalid("Invalid member.respond params");
+		return { type: "member_response", ...(params as MemberResponseParams), id: request.id };
 	}
 	if (request.method === "member.focus") {
 		if (!Value.Check(MemberFocusParamsSchema, params)) return invalid("Invalid member.focus params");

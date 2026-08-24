@@ -3,6 +3,7 @@ import {
 	buildErrorResponse,
 	buildResultResponse,
 	buildTurnEndNotification,
+	buildMemberUpdateNotification,
 	isMemberIdleWaitNotification,
 	parseRequest,
 	requestToCommand,
@@ -55,6 +56,10 @@ function methodForCommand(command: string): string | undefined {
 			return "member.status";
 		case "member_status_target":
 			return "member.status_target";
+		case "member_request":
+			return "member.request";
+		case "member_response":
+			return "member.respond";
 		case "member_interrupt":
 			return "member.interrupt";
 		case "member_focus":
@@ -109,6 +114,16 @@ export function writeEvent(socket: RpcSocket, event: RpcTurnEndNotification): vo
 	);
 	try {
 		write(socket, notification);
+	} catch {
+		/* Socket may be closed. */
+	}
+}
+export function writeMemberUpdateEvent(
+	socket: RpcSocket,
+	update: import("../domain/index.ts").MemberUpdateResult,
+): void {
+	try {
+		write(socket, buildMemberUpdateNotification(update));
 	} catch {
 		/* Socket may be closed. */
 	}

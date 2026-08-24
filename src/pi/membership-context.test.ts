@@ -106,7 +106,7 @@ test("membership context without descriptions stays byte-compatible with prior c
 	const plain = formatMembershipContext(membership);
 	assert.match(
 		plain,
-		/Members: dev \(developer\), qa \(reviewer\)\nCrew contact: none \(Crew Intake disabled\)\nRole instructions: Build it/,
+		/Members: dev \(developer\), qa \(reviewer\)\nCrew contact: none \(Crew Intake disabled\)\nCoordination: use request_member.*\nRole instructions: Build it/,
 	);
 	// No member gains a ": description" suffix when none is configured.
 	assert.doesNotMatch(plain, /\(developer\): |\(reviewer\): /);

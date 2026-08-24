@@ -73,6 +73,8 @@ import {
 	type BroadcastStoreDependencies,
 } from "../application/crew-broadcast.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
+import { CrewUpdateFlow } from "../application/crew-update-flow.ts";
+import { writeMemberUpdateEvent } from "../infra/rpc-server.ts";
 
 // ============================================================================
 // Subscription Management
@@ -107,6 +109,8 @@ export interface SocketState {
 	memberInboxMessageDependencies?: MemberInboxMessageDependencies;
 	/** Injectable durable broadcast action dependencies (TASK-0064). */
 	broadcastStoreDependencies?: BroadcastStoreDependencies;
+	/** Correlated request/update lifecycle (TASK-0071). */
+	crewUpdateFlow?: CrewUpdateFlow;
 	/** Injectable source-to-target interrupt transport for deterministic recovery tests (TASK-0065). */
 	memberInterruptSend?: typeof sendRpcCommand;
 	memberInterruptResolveEndpoint?: typeof resolveMemberEndpoint;
@@ -153,6 +157,9 @@ export const MEMBERSHIP_TOOLS = [
 	"get_member_status",
 	"update_member_focus",
 	"wait_for_member_idle",
+	"request_member",
+	"respond_to_member_request",
+	"wait_for_crew_update",
 ] as const;
 
 /**
@@ -240,6 +247,92 @@ export async function handleCommand(
 	}
 
 	void syncAlias(state, ctx);
+
+	if (command.type === "member_request") {
+		const membership = state.membershipRuntime?.getMembership();
+		const flow = state.crewUpdateFlow;
+		const origin = command.payload.origin;
+		if (!membership || !flow) {
+			respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
+			return;
+		}
+		if (state.context?.isProjectTrusted?.() !== true) {
+			respond(false, command.type, undefined, "untrusted");
+			return;
+		}
+		if (!origin || origin.kind !== "crew") {
+			respond(false, command.type, undefined, "invalid-payload");
+			return;
+		}
+		const configuredOrigin = membership.manifest.members.find(
+			(member) => member.name === origin.name && member.role === origin.role,
+		);
+		if (!configuredOrigin || configuredOrigin.name === membership.member.name) {
+			respond(false, command.type, undefined, "invalid-origin");
+			return;
+		}
+		try {
+			flow.registerInboundRequest({
+				requestId: command.requestId,
+				requester: { name: origin.name, role: origin.role },
+				message: command.payload.content,
+				instructions: command.payload.instructions ?? [],
+				channel: {
+					send: async (update) => writeMemberUpdateEvent(socket, update),
+					close: () => undefined,
+				},
+			});
+			const cleanupInbound = () => {
+				flow.removeInboundRequest(command.requestId);
+			};
+			socket.once("close", cleanupInbound);
+			socket.once("error", cleanupInbound);
+			// Registration precedes Pi visibility. Once sendMessage accepts the
+			// request into context, arm idle handling and acknowledge delivery.
+			const message = renderMessagePayload(command.payload);
+			pi.sendMessage(
+				{
+					customType: SESSION_MESSAGE_TYPE,
+					content: message,
+					details: { messagePayload: command.payload, crewRequestId: command.requestId },
+					display: true,
+				},
+				{ triggerTurn: true },
+			);
+			flow.acceptInboundRequest(command.requestId);
+			flow.armInboundRequest(command.requestId);
+			respond(true, command.type, {
+				accepted: true,
+				requestId: command.requestId,
+				member: { name: membership.member.name, role: membership.member.role },
+			});
+		} catch (error) {
+			flow.registry.failBeforeAcceptance(command.requestId);
+			respond(false, command.type, undefined, error instanceof Error ? error.message : "delivery-failed");
+		}
+		return;
+	}
+
+	if (command.type === "member_response") {
+		const membership = state.membershipRuntime?.getMembership();
+		const flow = state.crewUpdateFlow;
+		if (!membership || !flow) {
+			respond(false, command.type, undefined, !membership ? "not-joined" : "no-pending-request");
+			return;
+		}
+		try {
+			await flow.respondToMemberRequest({
+				message: command.message,
+				instructions: command.instructions,
+				requestId: command.requestId,
+				member: { name: membership.member.name, role: membership.member.role },
+			});
+			respond(true, command.type, {});
+		} catch (error) {
+			respond(false, command.type, undefined, error instanceof Error ? error.message : "response-failed");
+		}
+		return;
+	}
 
 	if (command.type === "presence_hint") {
 		const accepted =
@@ -933,6 +1026,10 @@ export function emitTurnEnd(state: SocketState, event: TurnEndEvent, ctx: Extens
  * contains only name/role, outcome/disposition, and the observation timestamp.
  */
 export function emitIdleSettled(state: SocketState, ctx?: ExtensionContext): void {
+	if (state.crewUpdateFlow)
+		setImmediate(() => {
+			void state.crewUpdateFlow?.settleAllInboundIdle();
+		});
 	if (state.idleWaitSubscriptions.length === 0) return;
 	const membership = state.membershipRuntime?.getMembership();
 	if (!membership) {

@@ -6,3 +6,8 @@ export { registerInterruptMemberTool } from "./interrupt-member.ts";
 export { registerGetMemberStatusTool } from "./get-member-status.ts";
 export { registerUpdateMemberFocusTool } from "./update-member-focus.ts";
 export { registerWaitForMemberIdleTool } from "./wait-for-member-idle.ts";
+export {
+	registerRequestMemberTool,
+	registerRespondToMemberRequestTool,
+	registerWaitForCrewUpdateTool,
+} from "./crew-update.ts";

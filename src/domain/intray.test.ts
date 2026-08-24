@@ -69,6 +69,9 @@ import {
 	isMemberInterruptResult,
 	MemberFocusRequestSchema,
 	MemberFocusCommandSchema,
+	MemberRequestRequestSchema,
+	MemberResponseRequestSchema,
+	MemberUpdateNotificationSchema,
 	MemberFocusResultSchema,
 	isMemberFocusResult,
 	MemberInboxSendRequestSchema,
@@ -812,6 +815,43 @@ test("parseSessionControlAction rejects removed direct actions and invalid arity
 	assert.deepEqual(parseSessionControlAction("status now"), {
 		error: "Too many arguments. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
 	});
+});
+
+test("member.request/respond round-trip strict coordination contracts", () => {
+	const request = {
+		jsonrpc: "2.0" as const,
+		id: "coord-1",
+		method: "member.request" as const,
+		params: {
+			requestId: "req-1",
+			payload: { content: "Please review", origin: { kind: "crew" as const, name: "dev", role: "developer" } },
+			timeoutSeconds: 300,
+		},
+	};
+	assert.equal(Value.Check(MemberRequestRequestSchema, request), true);
+	assert.deepEqual(requestToCommand(request), {
+		type: "member_request",
+		requestId: "req-1",
+		payload: request.params.payload,
+		timeoutSeconds: 300,
+		id: "coord-1",
+	});
+	const response = {
+		jsonrpc: "2.0" as const,
+		id: "coord-2",
+		method: "member.respond" as const,
+		params: { requestId: "req-1", message: "Response", instructions: ["next"] },
+	};
+	assert.equal(Value.Check(MemberResponseRequestSchema, response), true);
+	assert.deepEqual(requestToCommand(response), { type: "member_response", ...response.params, id: "coord-2" });
+	assert.equal(
+		Value.Check(MemberUpdateNotificationSchema, {
+			jsonrpc: "2.0",
+			method: "member.update",
+			params: { kind: "idle-without-response", requestId: "req-1", member: { name: "qa", role: "reviewer" } },
+		}),
+		true,
+	);
 });
 
 test("member.focus round-trips with closed self-scoped set/clear results", () => {

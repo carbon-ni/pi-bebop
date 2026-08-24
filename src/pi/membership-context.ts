@@ -53,7 +53,9 @@ export function formatMembershipContext(membership: Membership): string {
 	const contactLine = contact
 		? `Crew contact: ${contact.name} (${contact.role}) — external Intake triage`
 		: "Crew contact: none (Crew Intake disabled)";
-	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}\n${contactLine}${instructions}`;
+	const coordination =
+		"Coordination: use request_member when a response is required; use send_follow_up for information only; use respond_to_member_request for active request context; use wait_for_crew_update only when no immediate coordination action remains.";
+	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}\n${contactLine}\n${coordination}${instructions}`;
 }
 
 export function appendMembershipContext(systemPrompt: string, membership: Membership | null): string {
