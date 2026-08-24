@@ -1,11 +1,39 @@
 {
   "version": 1,
   "members": [
-    { "name": "Tony", "role": "lead", "socket": "sockets/lead.sock" },
-    { "name": "Mary", "role": "po", "socket": "sockets/po.sock" },
-    { "name": "Bob", "role": "dev", "socket": "sockets/dev.sock" },
-    { "name": "Dave", "role": "dev1", "socket": "sockets/dev1.sock" },
-    { "name": "Kelly", "role": "qa", "socket": "sockets/qa.sock" },
-    { "name": "Dimmy", "role": "qa1", "socket": "sockets/qa1.sock" }
+    {
+      "name": "Tony",
+      "role": "lead",
+      "description": "You takes care to route tasks to right member, no develpment",
+      "socket": "sockets/lead.sock"
+    },
+    {
+      "name": "Mary",
+      "role": "po",
+      "description": "You own the product and make sure it follow the vision, no develpment",
+      "socket": "sockets/po.sock"
+    },
+    {
+      "name": "Bob",
+      "role": "dev",
+      "description": "You develop the product, by coding",
+      "socket": "sockets/dev.sock"
+    },
+    {
+      "name": "Dave",
+      "role": "dev1",
+      "socket": "sockets/dev1.sock"
+    },
+    {
+      "name": "Kelly",
+      "role": "qa",
+      "description": "You look for flaws in the product and implementation",
+      "socket": "sockets/qa.sock"
+    },
+    {
+      "name": "Dimmy",
+      "role": "qa1",
+      "socket": "sockets/qa1.sock"
+    }
   ]
 }
