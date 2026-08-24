@@ -5,12 +5,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
 	enqueueMemberInboxMessage,
+	mapStoreError,
 	MemberInboxMessageError,
 	type InboxHintTransport,
 	type MemberInboxMessageDependencies,
 	type MemberInboxMessageRequest,
 } from "./member-inbox-message.ts";
 import type { RpcCommand, RpcCommandResponse } from "../domain/index.ts";
+import { MemberInboxStoreError } from "../infra/member-inbox-store.ts";
+
+test("inbox store errors map to stable application categories", () => {
+	assert.equal(mapStoreError(new Error("unknown")).code, "storage-failed");
+	assert.equal(mapStoreError(new MemberInboxStoreError("capacity-exceeded", "full")).code, "inbox-full");
+	assert.equal(mapStoreError(new MemberInboxStoreError("untrusted-path", "path")).code, "inbox-untrusted-path");
+	assert.equal(mapStoreError(new MemberInboxStoreError("untrusted-project", "project")).code, "untrusted-project");
+	assert.equal(mapStoreError(new MemberInboxStoreError("lock-conflict", "lock")).code, "storage-unavailable");
+	assert.equal(mapStoreError(new MemberInboxStoreError("other" as never, "other")).code, "storage-failed");
+});
 
 const manifestMembers = [
 	{ name: "Bob", role: "dev", socket: "sockets/Bob.sock", socketPath: "/project/.pi/bebop/sockets/Bob.sock" },

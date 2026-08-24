@@ -102,7 +102,7 @@ const storeErrorCodeMap: Record<string, MemberInboxMessageErrorCode> = {
 
 const storageUnavailableCodes = new Set(["lock-conflict", "write-failed", "read-failed", "quarantine-failed"]);
 
-function mapStoreError(error: unknown): MemberInboxMessageError {
+export function mapStoreError(error: unknown): MemberInboxMessageError {
 	if (!(error instanceof MemberInboxStoreError))
 		return new MemberInboxMessageError("storage-failed", "Inbox storage failed", { cause: error });
 	const mapped =

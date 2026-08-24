@@ -1,11 +1,36 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { createInterruptFlow } from "./interrupt-flow.ts";
+import { createInterruptFlow, hasPendingInterrupt, latestInterruptEvidence } from "./interrupt-flow.ts";
 import type { MessagePayload } from "../domain/index.ts";
 
 const PAYLOAD = (content: string): MessagePayload => ({
 	content,
 	origin: { kind: "crew", name: "Tony", role: "lead" },
+});
+
+test("interrupt evidence ignores malformed records and finds the latest valid phase", () => {
+	const valid = {
+		type: "custom",
+		customType: "intray-interrupt",
+		data: { phase: "pending", interruptId: "i1", targetName: "Bob", senderName: "Tony", abortRequested: true },
+	};
+	assert.deepEqual(
+		latestInterruptEvidence([
+			{ type: "message" },
+			{ type: "custom", customType: "intray-interrupt", data: {} },
+			valid,
+		]),
+		{
+			phase: "pending",
+			interruptId: "i1",
+			targetName: "Bob",
+			senderName: "Tony",
+			abortRequested: true,
+		},
+	);
+	assert.equal(latestInterruptEvidence([]), null);
+	assert.equal(hasPendingInterrupt([valid], "Bob"), true);
+	assert.equal(hasPendingInterrupt([{ ...valid, data: { ...valid.data, phase: "handed-off" } }], "Bob"), false);
 });
 
 interface Surface {
