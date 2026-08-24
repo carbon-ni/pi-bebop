@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
 import {
+	defaultMemberStatusCliDependencies,
 	parseMemberStatusCommand,
 	runMemberStatusCommand,
 	memberStatusHelp,
@@ -105,6 +106,21 @@ test("member status parse: --help short-circuits requirements but validates prov
 	// Help with provided member still parses.
 	assert.equal(parseMemberStatusCommand(["Kelly", "--help"]).member, "Kelly");
 	assert.throws(() => parseMemberStatusCommand(["--help", "--format", "xml"]), /Invalid --format/);
+});
+
+test("member status default transport maps unavailable endpoints", async () => {
+	const result = await defaultMemberStatusCliDependencies.sendStatus(
+		{
+			ok: true,
+			kind: "id",
+			idSocketPath: "/tmp/missing-status.sock",
+			aliasSocketPath: "/tmp/missing-status.alias",
+		},
+		"Kelly",
+		new AbortController().signal,
+	);
+	assert.equal(result.ok, false);
+	if (!result.ok) assert.equal(result.code, "unknown-session");
 });
 
 // --- run: source selection ---

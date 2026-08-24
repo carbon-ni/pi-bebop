@@ -34,6 +34,10 @@ test("member wait-idle parser covers help, duplicate, unknown, and target valida
 	assert.throws(() => parseMemberIdleWaitCommand(["x", "--format", "xml"]), /Invalid --format/);
 	assert.throws(() => parseMemberIdleWaitCommand(["x", "--timeout", "0s"]), /Invalid --timeout/);
 	assert.throws(() => parseMemberIdleWaitCommand(["x", "--timeout", "1s", "--timeout", "2s"]), /Duplicate flag/);
+	assert.equal(parseMemberIdleWaitCommand(["Bob", "--session=s-1", "--timeout=1s", "--format=text"]).format, "text");
+	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--session", "a", "--session", "b"]), /Duplicate flag/);
+	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--format", "json", "--format", "text"]), /Duplicate flag/);
+	assert.throws(() => parseMemberIdleWaitCommand(["x".repeat(257)]), /at most 256/);
 });
 
 test("member wait-idle delegates source selection and renders terminal result", async () => {
