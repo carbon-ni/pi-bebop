@@ -55,6 +55,8 @@ function methodForCommand(command: string): string | undefined {
 			return "member.status";
 		case "member_status_target":
 			return "member.status_target";
+		case "member_interrupt":
+			return "member.interrupt";
 		case "member_follow_up":
 			return "member.follow_up";
 		case "member_redirect":

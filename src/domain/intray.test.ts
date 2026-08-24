@@ -63,6 +63,10 @@ import {
 	MemberRedirectRequestSchema,
 	MemberFollowUpCommandSchema,
 	MemberRedirectCommandSchema,
+	MemberInterruptResultSchema,
+	MemberInterruptRequestSchema,
+	MemberInterruptCommandSchema,
+	isMemberInterruptResult,
 	MemberInboxSendRequestSchema,
 	CrewBroadcastRequestSchema,
 	MemberInboxSendCommandSchema,
@@ -804,6 +808,46 @@ test("parseSessionControlAction rejects removed direct actions and invalid arity
 	assert.deepEqual(parseSessionControlAction("status now"), {
 		error: "Too many arguments. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
 	});
+});
+
+test("member.interrupt round-trips through the delegated source command contract", () => {
+	const request = {
+		jsonrpc: "2.0" as const,
+		id: "member-int-1",
+		method: "member.interrupt" as const,
+		params: { target: "qa", message: "stop", instructions: ["recover"] },
+	};
+	assert.deepEqual(requestToCommand(request), {
+		type: "member_interrupt",
+		target: "qa",
+		message: "stop",
+		instructions: ["recover"],
+		id: "member-int-1",
+	});
+	assert.deepEqual(
+		commandToRequest(
+			{ type: "member_interrupt", target: "qa", message: "stop", instructions: ["recover"] },
+			"member-int-1",
+		),
+		request,
+	);
+	assert.deepEqual(methodResultSchema("member.interrupt"), MemberInterruptResultSchema);
+	assert.equal(
+		isMemberInterruptResult({
+			member: { name: "Kelly", role: "qa" },
+			interruptId: "interrupt-1",
+			disposition: "direct",
+		}),
+		true,
+	);
+	assert.equal(
+		isMemberInterruptResult({
+			member: { name: "Kelly", role: "qa" },
+			interruptId: "interrupt-1",
+			disposition: "done",
+		}),
+		false,
+	);
 });
 
 test("message.interrupt round-trips through requestToCommand with a structured payload", () => {
