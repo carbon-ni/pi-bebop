@@ -151,6 +151,25 @@ test("member wait-idle maps source and malformed outcomes", async () => {
 	if (malformed.kind === "result") assert.equal(malformed.result.error?.code, "malformed-response");
 });
 
+test("member wait-idle maps thrown transport errors deterministically", async () => {
+	for (const [error, code] of [
+		[Object.assign(new Error("refused"), { code: "ECONNREFUSED" }), "offline-session"],
+		[Object.assign(new Error("not connected"), { code: "ENOTCONN" }), "offline-session"],
+		[new Error("RPC request timeout"), "timeout"],
+		[Object.assign(new Error("abort"), { name: "AbortError" }), "aborted"],
+	] as const) {
+		const outcome = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
+			resolveSource: () => source,
+			environmentSession: () => undefined,
+			sendWait: async () => {
+				throw error;
+			},
+		});
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind === "result") assert.equal(outcome.result.error?.code, code);
+	}
+});
+
 test("member wait-idle preserves aborted outcome and does not reinterpret it", async () => {
 	const outcome = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
 		resolveSource: () => source,

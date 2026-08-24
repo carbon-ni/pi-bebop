@@ -12,6 +12,7 @@ async function collect(dir) {
 	}
 }
 await collect(path.join(root, "src", "cli"));
+await collect(path.join(root, "src", "infra"));
 
 tests.sort();
 const include = [

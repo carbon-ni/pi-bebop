@@ -5,7 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 
-import { closeRpcServer, createRpcServer, writeEvent, writeResponse } from "./rpc-server.ts";
+import {
+	closeRpcServer,
+	createRpcServer,
+	writeEvent,
+	writeMemberIdleWaitEvent,
+	writeMemberUpdateEvent,
+	writeResponse,
+} from "./rpc-server.ts";
 import type { RpcInboundCommand } from "../domain/index.ts";
 import type { RpcSocket } from "./rpc-server.ts";
 
@@ -313,6 +320,27 @@ test("writeEvent ignores closed socket write errors", () => {
 	);
 });
 
+test("writeResponse maps non-durable failures and member response commands", () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	writeResponse(socket, {
+		type: "response",
+		command: "member_response",
+		success: false,
+		error: "remote-rejected",
+		id: "r-1",
+	});
+	assert.equal(JSON.parse(writes[0]!).error.message, "remote-rejected");
+	writeResponse(socket, {
+		type: "response",
+		command: "member_response",
+		success: true,
+		data: { accepted: true },
+		id: "r-2",
+	});
+	assert.deepEqual(JSON.parse(writes[1]!).result, { accepted: true });
+});
+
 test("writeResponse serializes an interrupt acknowledgement", () => {
 	const writes: string[] = [];
 	const socket = {
@@ -333,6 +361,21 @@ test("writeResponse serializes an interrupt acknowledgement", () => {
 		id: "int-1",
 		result: { interruptId: "int-1", disposition: "interrupt-requested" },
 	});
+});
+
+test("writeMemberUpdateEvent and idle events serialize valid notifications", () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	writeMemberUpdateEvent(socket, {
+		kind: "response",
+		requestId: "req-1",
+		member: { name: "Bob", role: "dev" },
+		message: "done",
+	});
+	writeMemberIdleWaitEvent(socket, { subscriptionId: "sub-1", result: { outcome: "idle" } });
+	assert.equal(writes.length, 2);
+	assert.equal(JSON.parse(writes[0]!).params.requestId, "req-1");
+	assert.equal(JSON.parse(writes[1]!).params.subscriptionId, "sub-1");
 });
 
 test("writeResponse serializes a member.status result under the member.status method", () => {
