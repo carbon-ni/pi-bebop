@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
 	memberFocusHelp,
+	mapMemberFocusTransportError,
 	parseMemberFocusCommand,
 	runMemberFocusCommand,
 	type MemberFocusCliDependencies,
@@ -59,6 +60,28 @@ test("focus parser rejects unsafe local values before delivery", () => {
 	for (const value of ["", " ", "x\ny", "x\0y", "é".repeat(200)])
 		assert.throws(() => parseMemberFocusCommand(["--", value], "set", "/project"));
 	assert.throws(() => parseMemberFocusCommand(["text", "extra"], "set", "/project"));
+});
+
+test("focus transport failures preserve stable offline, malformed, and cancellation codes", async () => {
+	const refused = Object.assign(new Error("connect refused"), { code: "ECONNREFUSED" });
+	const notConnected = Object.assign(new Error("not connected"), { code: "ENOTCONN" });
+	const cancelled = Object.assign(new Error("cancelled"), { name: "AbortError" });
+	assert.deepEqual(mapMemberFocusTransportError(refused), { ok: false, code: "offline-session" });
+	assert.deepEqual(mapMemberFocusTransportError(notConnected), { ok: false, code: "offline-session" });
+	assert.deepEqual(mapMemberFocusTransportError(cancelled), { ok: false, code: "aborted" });
+	assert.deepEqual(mapMemberFocusTransportError(new Error("unexpected socket failure")), {
+		ok: false,
+		code: "transport-error",
+	});
+	for (const code of ["offline-session", "malformed-response", "aborted"]) {
+		const outcome = await runMemberFocusCommand(
+			{ command: "member-focus-set", action: "set", focus: "Working", stdin: false, format: "json" },
+			context(),
+			deps({ deliverFocus: async () => ({ ok: false, code }) }),
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind === "result") assert.equal(outcome.result.error?.code, code);
+	}
 });
 
 test("focus help and result semantics are explicit and self-scoped", async () => {
