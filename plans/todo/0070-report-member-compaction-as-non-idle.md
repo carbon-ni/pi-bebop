@@ -1,7 +1,7 @@
 ---
 id: TASK-0070
 title: Report member compaction as non-idle
-status: todo
+status: doing
 depends_on: [TASK-0069, TASK-0061]
 priority: high
 tags: [crew, status, idle, compaction, lifecycle, protocol, tdd]
