@@ -68,9 +68,19 @@ export function createMemberMessageCoordinator(): MemberMessageCoordinator {
 	return new EndpointQueueCoordinator();
 }
 
+export type MemberMessageErrorCode =
+	| "unknown-member"
+	| "ambiguous-member"
+	| "self-send"
+	| "not-joined"
+	| "response-correlation-unsupported"
+	| "invalid-payload"
+	| "remote-rejected"
+	| "invalid-ack";
+
 export class MemberMessageError extends Error {
-	readonly code: string;
-	constructor(code: string, message: string) {
+	readonly code: MemberMessageErrorCode;
+	constructor(code: MemberMessageErrorCode, message: string) {
 		super(message);
 		this.name = "MemberMessageError";
 		this.code = code;

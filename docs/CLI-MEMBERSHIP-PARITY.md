@@ -86,16 +86,18 @@ pi-bebop session list [--format toon|json|text]
 sessions[N]{sessionId,aliases,membership}
 ```
 
-`membership` is `joined`, `unjoined`, or `unknown`. Invalid/stale control entries are skipped. A live socket whose bounded status query fails remains visible as `unknown`; it is never guessed joined. Sessions and aliases use deterministic lexical order.
+and the top-level result is always `{sessions, total, omitted}`.
+
+`membership` is `joined`, `unjoined`, or `unknown`. Invalid/stale control entries are skipped. A live socket whose bounded status query fails remains visible as `unknown`; it is never guessed joined. Sessions and aliases use deterministic lexical order (safe primary alias then session id, locale-independent). Only safe explicit session-name and branch aliases are reported; aliases that resolve to private/foreign session ids, unsafe slugs, or exceed the per-session cap are excluded and reported as safe slugs only — never raw paths or ids.
 
 Bounds:
 
 - scan at most 256 control-directory entries;
 - return at most 100 sessions and 8 safe aliases per session;
 - use a 500 ms per-session probe deadline;
-- report omitted count when truncated.
+- report the `omitted` count (0 when nothing is truncated) whenever the session cap, alias cap, or scan cap cuts results short.
 
-Forbidden output: socket/manifest paths, messages, prompts, model/provider, instructions, tool history, Focus, or session content. Empty state exits 0 and explains how to start/join Pi. Control-directory failure exits 1 as `control-store-unavailable`.
+Forbidden output: socket/manifest paths, messages, prompts, model/provider, instructions, tool history, Focus, or session content. Empty state exits 0, returns `omitted: 0`, and explains how to start/join Pi. Control-directory failure exits 1 as `control-store-unavailable`.
 
 ## Shared inputs
 
@@ -112,7 +114,11 @@ Message-taking leaves accept exactly one:
 --stdin
 ```
 
-They accept ordered repeatable `--instruction <text>` only where the corresponding tool does. Limits remain the Message Payload contract: content at most 1,000,000 UTF-8 bytes, at most 32 instructions, each at most 100,000 bytes, and aggregate payload at most 1,000,000 bytes. Empty/invalid input fails locally before stdin/session/target IO.
+They accept ordered repeatable `--instruction <text>` only where the corresponding tool does.
+
+Validation order is fixed: flag, combination, and limit validation completes before any stdin read; the stdin read is then bounded and cancellable; content validation (empty, NUL, UTF-8 bytes, aggregate) applies after the read and still before any session or target IO. Empty/invalid input is a usage error (exit 2) with no partial side effects.
+
+Limits are the Message Payload contract and are asserted by the schema guard: content at most 1,000,000 UTF-8 bytes, at most 32 instructions, each instruction at most 100,000 bytes and trimmed/NUL-free, aggregate payload at most 1,000,000 bytes. Message text is preserved verbatim (no trim); whitespace-only content counts as empty. Content and every instruction must be NUL-free.
 
 Follow-up and Redirect are accepted-delivery only. There is no CLI `wait_for` flag because Pi cannot prove delivery-level response correlation. Help must say accepted does not mean replied or completed.
 
@@ -145,26 +151,37 @@ The source semantic idle timeout wins simultaneous operation/transport expiry. S
 
 The JSON artifact is normative for full fields and error lists. Summary:
 
-| CLI                 | Success/expected result                                        | Delivery meaning                                                                  | Cancellation boundary                                                        |
-| ------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `member follow-up`  | `accepted`; member, delivery id, `direct                       | queued`                                                                           | Online normal message; waits behind busy work. No reply/completion claim.    | Before dispatch prevents; after acceptance cannot retract; lost ack is unknown. |
-| `member redirect`   | `accepted`; member, delivery id, `direct                       | steered`                                                                          | Online direction change before next model step; no abort.                    | After acceptance cannot retract steering.                                       |
-| `member inbox send` | `persisted`; member, item id, hint sent/skipped                | One durable Inbox item, online or offline; persisted only.                        | No rollback after write; lost ack is outcome unknown, not safe blind retry.  |
-| `crew broadcast`    | `persisted                                                     | partial`; broadcast id, summary, recipient dispositions                           | Deterministic durable copy for every other member; idempotent retry.         | Completed writes remain; same request reuses ids; remaining may be aborted.     |
-| `member interrupt`  | `accepted`; interrupt id, `direct                              | interrupt-requested`                                                              | Pending recovery evidence, best-effort abort, priority handoff; no rollback. | After evidence, cancellation cannot remove recovery; ack may be unknown.        |
-| `member status`     | `observed`; closed online/offline Member Status                | Read-only. Target offline is successful unavailable snapshot, never stale Focus.  | Abort finite probe/RPC; no state mutation.                                   |
-| `member focus set   | clear`                                                         | `updated                                                                          | cleared                                                                      | unchanged`; Focus state                                                         | Self-only context-free session entry; no target/network action. | After append cannot roll back; status is authoritative after lost ack. |
-| `member wait-idle`  | `observed`; idle/offline/timeout and optional idle disposition | One-shot event wait, no polling/message; no acknowledgement/completion inference. | Abort cleans subscription once; expected timeout/offline still exit 0.       |
+- `member follow-up` — success `accepted` with member identity, delivery id, disposition `direct|queued`. Delivery: online normal message; waits behind busy work; accepted never means reply, delivered work, or completion. Cancellation: before dispatch prevents; after acceptance cannot retract; lost ack is outcome-unknown.
+- `member redirect` — success `accepted` with member identity, delivery id, disposition `direct|steered`. Delivery: online direction change before the target's next model step; never aborts. Cancellation: after acceptance cannot retract steering.
+- `member inbox send` — success `persisted` with member identity, `itemId`, `persisted: true`, hint `sent|skipped`. Delivery: one durable Inbox item whether online or offline; persisted only. Cancellation: no rollback after write; lost ack is `outcome-unknown`, never a safe blind retry.
+- `crew broadcast` — success `persisted|partial` with `broadcastId`, summary counts, and per-recipient dispositions; per-recipient failure codes are the store-mapped set (`inbox-full`, `inbox-untrusted-path`, `untrusted-project`, `storage-unavailable`, `storage-failed`, `invalid-payload`, `invalid-item-id`, `aborted`). Delivery: deterministic durable copy for every other member; identical retry reuses ids and reports `already-persisted`. Cancellation: completed writes remain; remaining recipients report `aborted`.
+- `member interrupt` — success `accepted` with interrupt id, disposition `direct|interrupt-requested`. Delivery: pending recovery evidence, best-effort abort, priority handoff; no rollback. Cancellation: after evidence cannot remove recovery; ack may be unknown.
+- `member status` — success `observed` with the closed online/offline Member Status shape (see discriminated shapes). Delivery: read-only; target offline is a successful unavailable snapshot, never stale Focus. Cancellation: aborts the finite probe/RPC; no state mutation.
+- `member focus set|clear` — success `updated|cleared|unchanged` with `focus.state/text/updatedAt`; clear while unspecified is unchanged. Delivery: self-only context-free session entry. Cancellation: after append cannot roll back; status is authoritative after a lost ack.
+- `member wait-idle` — success `observed` with discriminated outcome `idle` (disposition `already-idle|became-idle`), `offline`, or `timeout`. Delivery: one-shot event wait, no polling/message; no acknowledgement/completion inference. Cancellation: cleans the subscription once; expected timeout/offline still exit 0.
 
 ## Error and exit policy
 
-Every action inherits source errors and adds only errors listed in `cli-membership-parity.json`.
+Every action's closed error vocabulary is `sourceSelection.errors` (shared, inherited) **plus** its `tools[].errors` list; the two are disjoint, and a code appears at most once across the whole artifact. Codes are reconciled with the stable application/domain error unions (see the schema guard); only `offline` (target transport) and `outcome-unknown` (unreconstructable mutation outcome after lost acknowledgement) are CLI-layer codes.
+
+Reconciled action code names: member-targeted commands share `unknown-member`, `ambiguous-member`, and action-specific self codes (`self-send`, `self-query`, `self-wait`, `self-interrupt`); Inbox send uses `ambiguous-role` plus the store-mapped `inbox-full`, `inbox-untrusted-path`, `storage-unavailable`, `storage-failed`; Broadcast adds per-recipient `already-persisted` (disposition, not an error) and the store-mapped recipient failure codes; Interrupt uses the resolution codes (`self-interrupt`, `not-a-member`) plus the flow codes (`already-pending`, `abort-failed`, `no-context`, `handoff-failed`).
 
 - Exit 0: accepted, persisted, observed, updated, cleared, unchanged, target-offline status, idle-wait offline, idle-wait timeout, empty session list.
 - Exit 1: operational/action error, partial broadcast, aborted, or outcome unknown.
 - Exit 2: command/flag/value/limit/combination usage error.
 
 TOON and JSON encode the same semantic object. Text is concise human presentation and must not remove distinctions such as accepted versus persisted, partial, offline, timeout, or unknown outcome.
+
+### Discriminated result shapes
+
+Closed result shapes, identical in TOON and JSON:
+
+- Follow-up/Redirect/Interrupt: `status: accepted` plus member identity, delivery/interrupt id, and a closed `disposition` (`direct|queued`, `direct|steered`, `direct|interrupt-requested`).
+- Inbox send: `status: persisted` plus member identity, `itemId`, `persisted: true`, and a best-effort `hint` (`sent|skipped`).
+- Broadcast: `status: persisted|partial` plus `broadcastId`, `persisted`, `alreadyPersisted`, `failed`, `total`, and per-recipient `{member, role, itemId, disposition: persisted|already-persisted|failed, code}`; per-recipient failure codes come from the store mapping: `inbox-full`, `inbox-untrusted-path`, `untrusted-project`, `storage-unavailable`, `storage-failed`, `invalid-payload`, `invalid-item-id`, `aborted`.
+- Status: `status: observed` and a discriminated member object — online: `{presence, activity: idle|busy, hasPendingMessages, focus: reported|unspecified}`; offline: `{activity: unavailable, hasPendingMessages: unavailable, focus: unavailable}` — plus `observedAt`.
+- Focus: `status: updated|cleared|unchanged` plus `focus.state`, `focus.text`, `focus.updatedAt`; clear while unspecified is unchanged.
+- Wait-idle: `status: observed` and a discriminated outcome — `idle` (with `disposition: already-idle|became-idle`), `offline`, or `timeout` — plus member identity and `observedAt`; idle-wait offline and timeout still exit 0.
 
 ## Cancellation principles
 
@@ -177,6 +194,10 @@ Cancellation is request-scoped and best-effort. It never implies rollback:
 - Focus entry already appended remains authoritative.
 
 When acknowledgement is impossible after a mutation, return bounded `outcome-unknown` where the action cannot be reconstructed safely. Broadcast is the exception: deterministic broadcast and item ids make identical retry safe and report `already-persisted`.
+
+## Pending decisions
+
+`idempotency-conflict` (broadcast) is reserved but its semantics are **pending product wording**. Identical-retry id reuse and `already-persisted` reporting are approved; what happens when a conflicting request claims the same broadcast identity is not yet decided and must not be implemented or asserted until product wording arrives.
 
 ## Help and home discovery
 
