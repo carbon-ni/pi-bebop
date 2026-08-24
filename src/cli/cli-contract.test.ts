@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { parseCliCommand, parseCliArguments, UsageError } from "./arguments.ts";
+import { parseCliCommand, parseCliArguments } from "./parser.ts";
+import { UsageError } from "./arguments.ts";
 import { renderCliResult, type CliResult } from "./output.ts";
 import { runCli } from "./main.ts";
 

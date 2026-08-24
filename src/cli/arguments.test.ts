@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { parseCliArguments, parseCliCommand, UsageError } from "./arguments.ts";
+import { parseCliArguments, parseCliCommand } from "./parser.ts";
+import { UsageError } from "./arguments.ts";
 
 const cwd = "/project";
 
