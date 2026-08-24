@@ -59,14 +59,14 @@ test("sendRpcCommand completes a turn subscription without optional event fields
 					send(socket, {
 						jsonrpc: "2.0",
 						id: request.id,
-						result: { subscriptionId: request.params.subscriptionId, event: "turn_end" },
+						result: { subscriptionId: String(request.id), event: "turn_end" },
 					});
 					setTimeout(
 						() =>
 							send(socket, {
 								jsonrpc: "2.0",
 								method: "session.turn_end",
-								params: { subscriptionId: request.params.subscriptionId },
+								params: { subscriptionId: String(request.id) },
 							}),
 						1,
 					);
@@ -79,7 +79,7 @@ test("sendRpcCommand completes a turn subscription without optional event fields
 				{ waitForEvent: "turn_end", timeout: 1_000 },
 			);
 			assert.equal(result.response.success, true);
-			assert.deepEqual(result.event, {});
+			assert.deepEqual(result.event, { message: undefined, turnIndex: undefined });
 		},
 	);
 });
