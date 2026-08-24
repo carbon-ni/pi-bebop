@@ -65,8 +65,10 @@ legacy `{ type, ... }` envelope; JSON-RPC does not add authentication.
 ## Runtime lifecycle
 
 - `pi --crew` starts Bebop's socket server.
+- `pi --crew-role <role>` starts the server and adopts the exact role's
+  manifest-configured member from the trusted local project.
 - `pi --crew-socket <path>` starts the server and adopts the configured member
-  represented by that endpoint.
+  represented by that endpoint; it remains the explicit cross-worktree escape hatch.
 - `/crew join <socket>` starts the server if needed, validates project trust,
   then claims the member endpoint.
 - `/crew leave` releases only the current endpoint.

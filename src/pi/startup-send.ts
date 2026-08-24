@@ -1,10 +1,13 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
+import { readTrustedCrewManifest, selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 import { getSocketPath } from "../infra/intray-paths.ts";
 import { isSocketAlive, resolveSessionIdFromAlias } from "../infra/control-store.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
+import { promises as fs } from "node:fs";
+import { getTrustedCrewManifestPaths } from "../infra/crew-layout.ts";
+import { selectCrewMemberByRole } from "../domain/index.ts";
 import {
 	isSafeSessionId,
 	normalizeMode,
@@ -88,6 +91,81 @@ export interface StartupSocketSelectionFlags {
 	socket: string;
 }
 
+export interface StartupRoleSelectionFlags {
+	role: string;
+}
+
+export type StartupRoleSelection =
+	| { readonly ok: true; readonly manifestPath: string; readonly socketPath: string }
+	| {
+			readonly ok: false;
+			readonly code:
+				| "untrusted-project"
+				| "empty-role"
+				| "unknown-role"
+				| "ambiguous-role"
+				| "missing-manifest"
+				| "ambiguous-manifest";
+			readonly role: string;
+			readonly availableRoles?: readonly string[];
+			readonly omittedRoleCount?: number;
+	  };
+
+export interface StartupRoleResolverDependencies {
+	readonly manifestExists: (manifestPath: string) => Promise<boolean>;
+	readonly readManifest: (
+		manifestPath: string,
+		projectRoot: string,
+	) => Promise<import("../domain/index.ts").CrewManifest>;
+}
+
+const defaultStartupRoleResolverDependencies: StartupRoleResolverDependencies = {
+	manifestExists: async (manifestPath) => {
+		try {
+			await fs.access(manifestPath);
+			return true;
+		} catch {
+			return false;
+		}
+	},
+	readManifest: (manifestPath, projectRoot) => readTrustedCrewManifest(manifestPath, projectRoot, () => true),
+};
+
+export async function resolveStartupCrewRole(
+	role: string,
+	cwd: string,
+	isProjectTrusted: boolean,
+	dependencies: StartupRoleResolverDependencies = defaultStartupRoleResolverDependencies,
+): Promise<StartupRoleSelection> {
+	if (!isProjectTrusted) return { ok: false, code: "untrusted-project", role: role.trim() };
+	const normalizedRole = role.trim();
+	if (!normalizedRole) return { ok: false, code: "empty-role", role };
+	const manifestPaths = getTrustedCrewManifestPaths(cwd);
+	const existing = (
+		await Promise.all(
+			manifestPaths.map(async (manifestPath) => ({
+				manifestPath,
+				exists: await dependencies.manifestExists(manifestPath),
+			})),
+		)
+	).filter((item) => item.exists);
+	if (existing.length === 0) return { ok: false, code: "missing-manifest", role: normalizedRole };
+	if (existing.length > 1) return { ok: false, code: "ambiguous-manifest", role: normalizedRole };
+	const manifestPath = existing[0]!.manifestPath;
+	const manifest = await dependencies.readManifest(manifestPath, cwd);
+	const selection = selectCrewMemberByRole(manifest, normalizedRole);
+	if (selection.kind === "match") return { ok: true, manifestPath, socketPath: selection.member.socketPath };
+	if (selection.kind === "ambiguous-role") return { ok: false, code: selection.kind, role: selection.role };
+	if (selection.kind === "empty-role") return { ok: false, code: selection.kind, role: selection.role };
+	return {
+		ok: false,
+		code: selection.kind,
+		role: selection.role,
+		availableRoles: selection.availableRoles,
+		omittedRoleCount: selection.omittedRoleCount,
+	};
+}
+
 export function normalizeStartupSocketPath(rawPath: string, cwd: string): string | null {
 	const value = rawPath.trim();
 	if (!value) return null;
@@ -147,6 +225,68 @@ export async function maybeHandleStartupSocketJoin(
 	});
 	if ("error" in result) {
 		reportStartupControlSend(ctx, `Crew startup join failed: ${result.error.message}`, "error");
+		return false;
+	}
+	reportStartupControlSend(
+		ctx,
+		`Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
+	);
+	return true;
+}
+
+export async function maybeHandleStartupRoleJoin(
+	ctx: ExtensionContext,
+	pi: ExtensionAPI,
+	flags: StartupRoleSelectionFlags,
+	membershipRuntime: MembershipRuntime | null,
+	globalSocketPath: string | null,
+	resolver: (role: string, cwd: string, trusted: boolean) => Promise<StartupRoleSelection> = resolveStartupCrewRole,
+): Promise<boolean> {
+	const rawRole = getStringFlag(pi, flags.role);
+	if (!rawRole) return false;
+	if (!ctx.isProjectTrusted()) {
+		reportStartupControlSend(ctx, "Crew startup role join failed: project is not trusted", "error");
+		return false;
+	}
+	if (!membershipRuntime || !globalSocketPath) {
+		reportStartupControlSend(ctx, "Crew startup role join failed: membership runtime is unavailable", "error");
+		return false;
+	}
+	let selection: StartupRoleSelection;
+	try {
+		selection = await resolver(rawRole, ctx.cwd, true);
+	} catch (error) {
+		reportStartupControlSend(
+			ctx,
+			`Crew startup role selection failed: ${error instanceof Error ? error.message : "manifest read failed"}`,
+			"error",
+		);
+		return false;
+	}
+	if ("code" in selection) {
+		let detail = `role '${selection.role}'`;
+		if (selection.code === "unknown-role") {
+			const roles = selection.availableRoles ?? [];
+			detail += ` is unknown; available roles: [${roles.join(", ")}] (omittedRoleCount=${selection.omittedRoleCount ?? 0})`;
+		} else if (selection.code === "ambiguous-role") {
+			detail += " is ambiguous; use --crew-socket to select an explicit endpoint";
+		} else if (selection.code === "missing-manifest") {
+			detail = "no supported crew manifest found beneath the project";
+		} else if (selection.code === "ambiguous-manifest") {
+			detail = "both supported crew manifests exist; remove one or use --crew-socket";
+		} else if (selection.code === "empty-role") {
+			detail = "role must be non-empty";
+		}
+		reportStartupControlSend(ctx, `Crew startup role join failed: ${detail}`, "error");
+		return false;
+	}
+	const result = await membershipRuntime.join({
+		manifestPath: selection.manifestPath,
+		socketPath: selection.socketPath,
+		globalSocketPath,
+	});
+	if ("error" in result) {
+		reportStartupControlSend(ctx, `Crew startup role join failed: ${result.error.message}`, "error");
 		return false;
 	}
 	reportStartupControlSend(
