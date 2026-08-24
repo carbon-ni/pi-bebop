@@ -15,6 +15,13 @@ import {
 	type MemberStatusCliOptions,
 } from "./commands/member-status.ts";
 import {
+	parseMemberIdleWaitCommand,
+	runMemberIdleWaitCommand,
+	memberIdleWaitHelp,
+	buildMemberIdleWaitCommand,
+	type MemberIdleWaitCliOptions,
+} from "./commands/member-idle-wait.ts";
+import {
 	parseSessionListCommand,
 	runSessionListCommand,
 	sessionListHelp,
@@ -232,6 +239,16 @@ const memberStatusLeaf: CliLeaf = {
 	run: (options, context) => runMemberStatusCommand(options as MemberStatusCliOptions, context),
 };
 
+/** TASK-0067: `member wait-idle` leaf — one registry contribution. */
+const memberIdleWaitLeaf: CliLeaf = {
+	id: "member-idle-wait",
+	names: ["member", "wait-idle"],
+	build: () => buildMemberIdleWaitCommand(),
+	help: () => memberIdleWaitHelp(),
+	parse: (tokens, cwd) => parseMemberIdleWaitCommand([...tokens], cwd),
+	run: (options, context) => runMemberIdleWaitCommand(options as MemberIdleWaitCliOptions, context),
+};
+
 /** TASK-0061: `session list` leaf — one registry contribution. */
 const sessionListLeaf: CliLeaf = {
 	id: "session-list",
@@ -317,6 +334,7 @@ export function createCliRegistry(): CliRegistry {
 		sendLeaf,
 		crewInitLeaf,
 		memberStatusLeaf,
+		memberIdleWaitLeaf,
 		sessionListLeaf,
 		memberFollowUpLeaf,
 		memberRedirectLeaf,
