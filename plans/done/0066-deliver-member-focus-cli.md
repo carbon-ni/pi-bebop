@@ -1,7 +1,7 @@
 ---
 id: TASK-0066
 title: Deliver member focus CLI
-status: doing
+status: done
 depends_on: [TASK-0061]
 priority: high
 tags: [cli, rpc, focus, status, persistence, tdd]
