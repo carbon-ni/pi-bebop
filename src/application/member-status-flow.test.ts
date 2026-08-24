@@ -35,6 +35,7 @@ function surface(overrides: Partial<MemberStatusSurface> = {}): MemberStatusSurf
 		getMembership: () => membership,
 		isTrusted: () => true,
 		isIdle: () => true,
+		isCompacting: () => false,
 		hasPendingMessages: () => false,
 		getEntries: () => entries,
 		appendEntry: (customType, data) => entries.push({ type: "custom", customType, data }),

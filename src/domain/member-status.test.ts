@@ -20,9 +20,11 @@ const observedAt = "2026-08-23T12:03:00.000Z";
 const bobIdentity = "/project/.pi/bebop/sockets/dev.sock";
 
 describe("member activity and status", () => {
-	test("derives activity only from Pi idle state", () => {
+	test("derives compacting before busy before idle", () => {
 		assert.equal(deriveMemberActivity(true), "idle");
 		assert.equal(deriveMemberActivity(false), "busy");
+		assert.equal(deriveMemberActivity(true, true), "compacting");
+		assert.equal(deriveMemberActivity(false, true), "compacting");
 	});
 
 	test("builds online status with mechanical pending state and reported focus", () => {
@@ -52,6 +54,20 @@ describe("member activity and status", () => {
 		});
 		assert.equal(isMemberStatus(status), true);
 		assert.equal(Value.Check(MemberStatusSchema, status), true);
+	});
+
+	test("reports compacting without exposing compaction details", () => {
+		const status = createOnlineMemberStatus({
+			member: bob,
+			isIdle: true,
+			isCompacting: true,
+			hasPendingMessages: false,
+			focus: { state: "unspecified" },
+			observedAt,
+		});
+		assert.equal(status.activity, "compacting");
+		assert.equal(isMemberStatus(status), true);
+		assert.equal(Object.keys(status).includes("reason"), false);
 	});
 
 	test("represents unspecified focus while online", () => {

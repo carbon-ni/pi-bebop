@@ -198,12 +198,14 @@ test("member.status target handler reports mechanical idle/busy, pending, and fo
 		}),
 	} as never;
 	let sent = 0;
-	state.context = {
+	const context = {
 		hasUI: false,
 		sessionManager: { getSessionId: () => "session", getEntries: () => entries },
 		isIdle: () => false,
+		isCompacting: () => false,
 		hasPendingMessages: () => true,
-	} as never;
+	};
+	state.context = context as never;
 	const pi = {
 		sendMessage: () => {
 			sent += 1;
@@ -223,6 +225,11 @@ test("member.status target handler reports mechanical idle/busy, pending, and fo
 	});
 	assert.equal(sent, 0, "member.status must never trigger a turn");
 	assert.ok(response.result.status.observedAt, "observedAt must be present");
+	context.isIdle = () => true;
+	context.isCompacting = () => true;
+	await handleCommand(pi, state, { type: "member_status", member: "Bob", id: "ms-c" }, socket);
+	const compactingResponse = JSON.parse(writes[1]!);
+	assert.equal(compactingResponse.result.status.activity, "compacting");
 });
 
 test("member.status target handler reports idle/unspecified and rejects unjoined", async () => {
@@ -479,6 +486,36 @@ test("member_idle_wait on an already-idle target completes directly without a li
 	// No lingering subscription: settled emission writes nothing more.
 	await emitIdleSettled(state);
 	assert.equal(writes.length, 2);
+});
+
+test("member_idle_wait stays pending while compaction is active despite idle streaming state", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const state = createSocketState();
+	state.server = {} as never;
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: "/project/.pi/bebop/sockets/Tony.sock",
+			member: { name: "Tony", role: "lead", socketPath: "/project/.pi/bebop/sockets/Tony.sock" },
+			manifest: { members: [] },
+		}),
+	} as never;
+	const context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "session", getEntries: () => [] },
+		isIdle: () => true,
+		isCompacting: () => true,
+	};
+	state.context = context as never;
+	await handleCommand({} as never, state, { type: "member_idle_wait", member: "Bob", id: "iw-c" }, socket);
+	assert.equal(JSON.parse(writes[0]!).result.event, "member_idle");
+	await emitIdleSettled(state, context as never);
+	assert.equal(writes.length, 1, "compaction must keep the wait pending");
+	context.isCompacting = () => false;
+	await emitIdleSettled(state, context as never);
+	assert.equal(writes.length, 2);
+	assert.equal(JSON.parse(writes[1]!).params.result.disposition, "became-idle");
 });
 
 test("member_idle_wait on a busy target registers a one-shot subscription and settles to became-idle", async () => {
