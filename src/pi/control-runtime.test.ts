@@ -971,3 +971,53 @@ test("member message delivery maps offline, timeout, abort, and invalid ack dist
 	);
 	assert.equal(JSON.parse(unknownOutcome.writes[0]!).error?.message, "outcome-unknown");
 });
+
+test("member_inbox_send delegates to the durable Inbox application operation", async () => {
+	const { state, socket, writes } = delegationState([
+		{ name: "Tony", role: "lead", socket: "/project/.pi/bebop/sockets/lead.sock" },
+		{ name: "Kelly", role: "qa", socket: "/project/.pi/bebop/sockets/qa.sock" },
+	]);
+	let opened = 0;
+	state.memberInboxMessageDependencies = {
+		isProjectTrusted: () => true,
+		openStore: async () => {
+			opened += 1;
+			return { enqueue: async () => ({ item: { id: "inbox-1" } }) } as never;
+		},
+		hintTransport: null,
+	} as never;
+	await handleCommand(
+		{} as never,
+		state,
+		{ type: "member_inbox_send", target: "Kelly", message: "hello", id: "in-1" },
+		socket,
+	);
+	const response = JSON.parse(writes[0]!);
+	assert.equal(response.result.member.name, "Kelly");
+	assert.equal(response.result.itemId, "inbox-1");
+	assert.equal(response.result.persisted, true);
+	assert.equal(opened, 1);
+});
+
+test("crew_broadcast delegates to the durable broadcast application operation and preserves manifest order", async () => {
+	const { state, socket, writes } = delegationState([
+		{ name: "Tony", role: "lead", socket: "/project/.pi/bebop/sockets/lead.sock" },
+		{ name: "Mary", role: "po", socket: "/project/.pi/bebop/sockets/po.sock" },
+		{ name: "Kelly", role: "qa", socket: "/project/.pi/bebop/sockets/qa.sock" },
+	]);
+	state.broadcastStoreDependencies = {
+		isProjectTrusted: () => true,
+		openStore: async () => ({ enqueueWithId: async () => ({ item: {} }) }) as never,
+	} as never;
+	await handleCommand({} as never, state, { type: "crew_broadcast", message: "hello", id: "bc-1" }, socket);
+	const response = JSON.parse(writes[0]!);
+	assert.equal(response.result.broadcastId.startsWith("broadcast-"), true);
+	assert.deepEqual(
+		response.result.dispositions.map((item: { member: string }) => item.member),
+		["Mary", "Kelly"],
+	);
+	assert.deepEqual(
+		response.result.dispositions.map((item: { disposition: string }) => item.disposition),
+		["persisted", "persisted"],
+	);
+});

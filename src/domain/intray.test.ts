@@ -63,6 +63,14 @@ import {
 	MemberRedirectRequestSchema,
 	MemberFollowUpCommandSchema,
 	MemberRedirectCommandSchema,
+	MemberInboxSendRequestSchema,
+	CrewBroadcastRequestSchema,
+	MemberInboxSendCommandSchema,
+	CrewBroadcastCommandSchema,
+	MemberInboxSendResultSchema,
+	CrewBroadcastResultSchema,
+	isMemberInboxSendResult,
+	isCrewBroadcastResult,
 	MemberMessageResultSchema,
 	isMemberMessageResult,
 	isSendResult,
@@ -938,4 +946,89 @@ test("member.follow_up / member.redirect round-trip with the delivery-ack result
 		false,
 	);
 	assert.equal(isMemberMessageResult({ deliveryId: "d-1", disposition: "queued" }), false);
+});
+
+test("member.inbox_send and crew.broadcast are closed persistence commands", () => {
+	assert.equal(
+		Value.Check(MemberInboxSendRequestSchema, {
+			jsonrpc: "2.0",
+			id: "i-1",
+			method: "member.inbox_send",
+			params: { target: "Kelly", message: "hello", instructions: ["careful"] },
+		}),
+		true,
+	);
+	assert.equal(
+		Value.Check(MemberInboxSendRequestSchema, {
+			jsonrpc: "2.0",
+			id: "i-1",
+			method: "member.inbox_send",
+			params: { target: "Kelly", message: "hello", source: "caller" },
+		}),
+		false,
+	);
+	assert.equal(
+		Value.Check(CrewBroadcastRequestSchema, {
+			jsonrpc: "2.0",
+			id: "b-1",
+			method: "crew.broadcast",
+			params: { message: "hello", instructions: ["careful"] },
+		}),
+		true,
+	);
+	assert.equal(
+		Value.Check(CrewBroadcastRequestSchema, {
+			jsonrpc: "2.0",
+			id: "b-1",
+			method: "crew.broadcast",
+			params: { message: "hello", manifestPath: "/tmp/crew.json" },
+		}),
+		false,
+	);
+	assert.equal(
+		Value.Check(MemberInboxSendCommandSchema, { type: "member_inbox_send", target: "Kelly", message: "hello" }),
+		true,
+	);
+	assert.equal(Value.Check(CrewBroadcastCommandSchema, { type: "crew_broadcast", message: "hello" }), true);
+	assert.equal(
+		Value.Check(CrewBroadcastCommandSchema, { type: "crew_broadcast", message: "hello", socketPath: "/x" }),
+		false,
+	);
+	assert.deepEqual(
+		requestToCommand({
+			jsonrpc: "2.0",
+			id: "i-2",
+			method: "member.inbox_send",
+			params: { target: "Kelly", message: "hello" },
+		}),
+		{ type: "member_inbox_send", target: "Kelly", message: "hello", id: "i-2" },
+	);
+	assert.deepEqual(
+		requestToCommand({
+			jsonrpc: "2.0",
+			id: "b-2",
+			method: "crew.broadcast",
+			params: { message: "hello" },
+		}),
+		{ type: "crew_broadcast", message: "hello", id: "b-2" },
+	);
+	assert.deepEqual(methodResultSchema("member.inbox_send"), MemberInboxSendResultSchema);
+	assert.deepEqual(methodResultSchema("crew.broadcast"), CrewBroadcastResultSchema);
+	assert.equal(
+		isMemberInboxSendResult({
+			member: { name: "Kelly", role: "qa" },
+			itemId: "inbox-1",
+			persisted: true,
+			hint: "skipped",
+		}),
+		true,
+	);
+	assert.equal(
+		isCrewBroadcastResult({
+			broadcastId: "broadcast-1",
+			dispositions: [],
+			summary: { persisted: 0, alreadyPersisted: 0, failed: 0, total: 0 },
+		}),
+		true,
+	);
 });

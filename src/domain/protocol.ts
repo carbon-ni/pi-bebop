@@ -229,6 +229,55 @@ export const MemberRedirectCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+export const MemberInboxSendParamsSchema = Type.Object(
+	{
+		target: MemberStatusTargetSchema,
+		message: MemberMessageContentSchema,
+		instructions: MessageInstructionsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const CrewBroadcastParamsSchema = Type.Object(
+	{ message: MemberMessageContentSchema, instructions: MessageInstructionsSchema },
+	{ additionalProperties: false },
+);
+export const MemberInboxSendRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.inbox_send"),
+		params: MemberInboxSendParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const CrewBroadcastRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("crew.broadcast"),
+		params: CrewBroadcastParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberInboxSendCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_inbox_send"),
+		target: MemberStatusTargetSchema,
+		message: MemberMessageContentSchema,
+		instructions: MessageInstructionsSchema,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+export const CrewBroadcastCommandSchema = Type.Object(
+	{
+		type: Type.Literal("crew_broadcast"),
+		message: MemberMessageContentSchema,
+		instructions: MessageInstructionsSchema,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
 /** Delivery acknowledgement to the CLI: resolved member identity plus the
  * delivery ack. Accepted-delivery only; never a response correlation. */
 export const MemberMessageResultSchema = Type.Object(
@@ -239,6 +288,45 @@ export const MemberMessageResultSchema = Type.Object(
 		),
 		deliveryId: Type.String({ minLength: 1 }),
 		disposition: Type.Union([Type.Literal("direct"), Type.Literal("queued"), Type.Literal("steered")]),
+	},
+	{ additionalProperties: false },
+);
+export const MemberInboxSendResultSchema = Type.Object(
+	{
+		member: Type.Object(
+			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
+			{ additionalProperties: false },
+		),
+		itemId: Type.String({ minLength: 1 }),
+		persisted: Type.Literal(true),
+		hint: Type.Union([Type.Literal("sent"), Type.Literal("skipped")]),
+	},
+	{ additionalProperties: false },
+);
+const BroadcastDispositionSchema = Type.Object(
+	{
+		member: Type.String({ minLength: 1 }),
+		role: Type.String({ minLength: 1 }),
+		itemId: Type.String({ minLength: 1 }),
+		disposition: Type.Union([Type.Literal("persisted"), Type.Literal("already-persisted"), Type.Literal("failed")]),
+		code: Type.Optional(Type.String({ minLength: 1 })),
+	},
+	{ additionalProperties: false },
+);
+const BroadcastSummarySchema = Type.Object(
+	{
+		persisted: Type.Integer({ minimum: 0 }),
+		alreadyPersisted: Type.Integer({ minimum: 0 }),
+		failed: Type.Integer({ minimum: 0 }),
+		total: Type.Integer({ minimum: 0 }),
+	},
+	{ additionalProperties: false },
+);
+export const CrewBroadcastResultSchema = Type.Object(
+	{
+		broadcastId: Type.String({ minLength: 1 }),
+		dispositions: Type.Array(BroadcastDispositionSchema),
+		summary: BroadcastSummarySchema,
 	},
 	{ additionalProperties: false },
 );
@@ -300,6 +388,8 @@ export const KnownRequestSchema = Type.Union([
 	MemberStatusTargetRequestSchema,
 	MemberFollowUpRequestSchema,
 	MemberRedirectRequestSchema,
+	MemberInboxSendRequestSchema,
+	CrewBroadcastRequestSchema,
 	MemberIdleWaitRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
@@ -360,6 +450,8 @@ export const RpcMethodResultSchema = Type.Union([
 	PresenceHintResultSchema,
 	MemberStatusResultSchema,
 	MemberMessageResultSchema,
+	MemberInboxSendResultSchema,
+	CrewBroadcastResultSchema,
 	MemberIdleWaitSubscribeResultSchema,
 	EmptyResultSchema,
 ]);
@@ -410,11 +502,19 @@ export type MemberStatusTargetCommand = Static<typeof MemberStatusTargetCommandS
 export type MemberMessageParams = Static<typeof MemberMessageParamsSchema>;
 export type MemberFollowUpParams = Static<typeof MemberFollowUpParamsSchema>;
 export type MemberRedirectParams = Static<typeof MemberRedirectParamsSchema>;
+export type MemberInboxSendParams = Static<typeof MemberInboxSendParamsSchema>;
+export type CrewBroadcastParams = Static<typeof CrewBroadcastParamsSchema>;
 export type MemberFollowUpCommand = Static<typeof MemberFollowUpCommandSchema>;
 export type MemberRedirectCommand = Static<typeof MemberRedirectCommandSchema>;
 export type MemberMessageResult = Static<typeof MemberMessageResultSchema>;
 export function isMemberMessageResult(value: unknown): value is MemberMessageResult {
 	return Value.Check(MemberMessageResultSchema, value);
+}
+export function isMemberInboxSendResult(value: unknown): value is MemberInboxSendResult {
+	return Value.Check(MemberInboxSendResultSchema, value);
+}
+export function isCrewBroadcastResult(value: unknown): value is CrewBroadcastRpcResult {
+	return Value.Check(CrewBroadcastResultSchema, value);
 }
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
 export type PresenceHintResult = Static<typeof PresenceHintResultSchema>;
@@ -452,6 +552,8 @@ export type RpcCommand =
 	| Static<typeof MemberStatusTargetCommandSchema>
 	| Static<typeof MemberFollowUpCommandSchema>
 	| Static<typeof MemberRedirectCommandSchema>
+	| Static<typeof MemberInboxSendCommandSchema>
+	| Static<typeof CrewBroadcastCommandSchema>
 	| Static<typeof MemberIdleWaitCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
@@ -467,6 +569,8 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof MemberStatusTargetCommandSchema>>
 	| RequiredId<Static<typeof MemberFollowUpCommandSchema>>
 	| RequiredId<Static<typeof MemberRedirectCommandSchema>>
+	| RequiredId<Static<typeof MemberInboxSendCommandSchema>>
+	| RequiredId<Static<typeof CrewBroadcastCommandSchema>>
 	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
@@ -476,6 +580,10 @@ export type GetMessageCommand = Static<typeof GetMessageCommandSchema>;
 export type ClearCommand = Static<typeof ClearCommandSchema>;
 export type AbortCommand = Static<typeof AbortCommandSchema>;
 export type PresenceHintCommand = Static<typeof PresenceHintCommandSchema>;
+export type MemberInboxSendCommand = Static<typeof MemberInboxSendCommandSchema>;
+export type CrewBroadcastCommand = Static<typeof CrewBroadcastCommandSchema>;
+export type MemberInboxSendResult = Static<typeof MemberInboxSendResultSchema>;
+export type CrewBroadcastRpcResult = Static<typeof CrewBroadcastResultSchema>;
 export type MemberIdleWaitCommand = Static<typeof MemberIdleWaitCommandSchema>;
 export type MemberIdleWaitSubscribeResult = Static<typeof MemberIdleWaitSubscribeResultSchema>;
 export type RpcSendCommand = MessageSendCommand;
@@ -600,19 +708,23 @@ export function methodResultSchema(method: string) {
 							? MemberMessageResultSchema
 							: method === "member.redirect"
 								? MemberMessageResultSchema
-								: method === "member.idle_wait"
-									? MemberIdleWaitSubscribeResultSchema
-									: method === "session.get_message"
-										? GetMessageResultSchema
-										: method === "session.clear"
-											? ClearResultSchema
-											: method === "session.abort"
-												? EmptyResultSchema
-												: method === "event.subscribe"
-													? SubscribeResultSchema
-													: method === "presence.hint"
-														? PresenceHintResultSchema
-														: undefined;
+								: method === "member.inbox_send"
+									? MemberInboxSendResultSchema
+									: method === "crew.broadcast"
+										? CrewBroadcastResultSchema
+										: method === "member.idle_wait"
+											? MemberIdleWaitSubscribeResultSchema
+											: method === "session.get_message"
+												? GetMessageResultSchema
+												: method === "session.clear"
+													? ClearResultSchema
+													: method === "session.abort"
+														? EmptyResultSchema
+														: method === "event.subscribe"
+															? SubscribeResultSchema
+															: method === "presence.hint"
+																? PresenceHintResultSchema
+																: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -725,6 +837,27 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
 			},
 		};
+	if (command.type === "member_inbox_send")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "member.inbox_send",
+			params: {
+				target: command.target,
+				message: command.message,
+				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+			},
+		};
+	if (command.type === "crew_broadcast")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "crew.broadcast",
+			params: {
+				message: command.message,
+				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+			},
+		};
 	if (command.type === "member_idle_wait")
 		return {
 			jsonrpc: JSON_RPC_VERSION,
@@ -803,6 +936,27 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 		return {
 			type: "member_redirect",
 			target: delivery.target,
+			message: delivery.message,
+			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+			id: request.id,
+		};
+	}
+	if (request.method === "member.inbox_send") {
+		if (!Value.Check(MemberInboxSendParamsSchema, params)) return invalid("Invalid member.inbox_send params");
+		const delivery = params as Static<typeof MemberInboxSendParamsSchema>;
+		return {
+			type: "member_inbox_send",
+			target: delivery.target,
+			message: delivery.message,
+			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+			id: request.id,
+		};
+	}
+	if (request.method === "crew.broadcast") {
+		if (!Value.Check(CrewBroadcastParamsSchema, params)) return invalid("Invalid crew.broadcast params");
+		const delivery = params as Static<typeof CrewBroadcastParamsSchema>;
+		return {
+			type: "crew_broadcast",
 			message: delivery.message,
 			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
 			id: request.id,
