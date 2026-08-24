@@ -37,6 +37,7 @@ the owned registries.
 - [ ] Output returns interrupt id/disposition or stable bounded error, never target completion.
 - [ ] CLI/tool parity and existing interrupt recovery regression tests pass.
 - [ ] Packaged command proves busy and idle scenarios deterministically with mocked external timing.
+- [ ] An online idle target succeeds with disposition `direct`: persist pending evidence, do not call abort, hand off one immediate recovery turn, then persist handed-off evidence. A busy target has disposition `interrupt-requested` and abort remains best-effort. Offline is an operational error; idle is neither an error nor a no-op.
 
 ## Out of scope
 

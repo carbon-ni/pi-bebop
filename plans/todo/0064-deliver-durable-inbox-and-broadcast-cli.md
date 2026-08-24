@@ -41,6 +41,8 @@ them through the owned registries.
 - [ ] CLI/tool parity tests cover happy and unhappy paths for both operations.
 - [ ] Existing status, messaging, and public CLI regressions remain green.
 - [ ] Packaged commands/help work from isolated trusted and untrusted fixtures.
+- [ ] Broadcast identity is the deterministic function of canonical sender name, exact message bytes, and ordered instruction bytes, stable for the retained Inbox-item lifetime. An identical request is always a retry and returns `already-persisted`; intentionally sending an indistinguishable second broadcast is unsupported in this slice and help states this limitation. A payload change creates a distinct broadcast.
+- [ ] If a retained deterministic item id has a non-identical payload, return stable `idempotency-conflict`; never overwrite or continue recipient delivery.
 
 ## Out of scope
 

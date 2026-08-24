@@ -83,3 +83,7 @@ code load a manifest and impersonate a member.
 
 TASK-0060 changes no standalone CLI membership parser, RPC action, handler, or runtime behavior. TASK-0061 owns the first vertical slice.
 
+## Closure requirements (product review)
+
+Before moving this task to done, Markdown and JSON must agree on: closed cancellation/error/result/exit/recovery shapes for Follow-up, Redirect, Interrupt, and each Broadcast recipient; discriminated Focus and Idle result shapes; Broadcast idempotency scope and `idempotency-conflict`; validation-before-stdin versus bounded stdin-content validation; session-list ordering, scan-cap `omitted` count, and bounded/classified alias privacy; and aggregate payload, trim, and NUL rules. The guard must assert enums, defaults, limits, and stable application error codes—not only tool/property names. Run the strengthened focused contract test plus a fresh final gate.
+
