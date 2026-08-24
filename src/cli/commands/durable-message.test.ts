@@ -8,6 +8,8 @@ import {
 	type DurableMessageCliDependencies,
 } from "./durable-message.ts";
 import type { CliContext } from "../context.ts";
+import { registerSendToInboxTool } from "../../tools/send-to-inbox.ts";
+import { registerBroadcastToCrewTool } from "../../tools/broadcast-to-crew.ts";
 
 const source = {
 	ok: true as const,
@@ -124,6 +126,115 @@ test("durable commands run Inbox persistence and broadcast partial outcomes with
 	assert.equal(broadcast.result.ok, false);
 	assert.equal(broadcast.result.status, "partial");
 	assert.equal(broadcast.result.error?.code, "partial");
+});
+
+test("tool and CLI parity preserve persisted Inbox and broadcast outcomes", async () => {
+	const membership = {
+		manifestPath: "/project/.pi/bebop/crew.json",
+		socketPath: "/project/.pi/bebop/sockets/lead.sock",
+		member: {
+			name: "Tony",
+			role: "lead",
+			socket: "/project/.pi/bebop/sockets/lead.sock",
+			socketPath: "/project/.pi/bebop/sockets/lead.sock",
+		},
+		manifest: {
+			members: [
+				{
+					name: "Tony",
+					role: "lead",
+					socket: "/project/.pi/bebop/sockets/lead.sock",
+					socketPath: "/project/.pi/bebop/sockets/lead.sock",
+				},
+				{
+					name: "Mary",
+					role: "po",
+					socket: "/project/.pi/bebop/sockets/po.sock",
+					socketPath: "/project/.pi/bebop/sockets/po.sock",
+				},
+			],
+		},
+	};
+	const state = {
+		membershipRuntime: { getMembership: () => membership },
+		context: { isProjectTrusted: () => true },
+	} as never;
+	const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+	const pi = {
+		registerTool: (tool: { name: string; execute: (...args: any[]) => Promise<any> }) =>
+			registered.set(tool.name, tool),
+	} as never;
+	registerSendToInboxTool(pi, state, {
+		isProjectTrusted: () => true,
+		hintTransport: null,
+		openStore: async () => ({ enqueue: async () => ({ item: { id: "inbox-parity" } }) }) as never,
+	});
+	registerBroadcastToCrewTool(pi, state, {
+		isProjectTrusted: () => true,
+		openStore: async () =>
+			({ enqueueWithId: async (_payload: unknown, _now: number, id: string) => ({ item: { id } }) }) as never,
+	} as never);
+	const inboxTool = await registered
+		.get("send_to_inbox")!
+		.execute("call", { member: "Mary", message: "hello", instructions: ["one"] });
+	assert.equal(inboxTool.details.itemId, "inbox-parity");
+	const inboxCli = await runDurableMessageCommand(
+		{
+			command: "member-inbox-send",
+			intent: "inbox",
+			member: "Mary",
+			message: "hello",
+			instructions: ["one"],
+			stdin: false,
+			format: "json",
+		},
+		context(),
+		deps({
+			deliver: async () => ({
+				ok: true,
+				result: {
+					member: { name: "Mary", role: "po" },
+					itemId: "inbox-parity",
+					persisted: true,
+					hint: "skipped",
+				},
+			}),
+		}),
+	);
+	assert.equal(inboxCli.kind, "result");
+	if (inboxCli.kind === "result")
+		assert.equal((inboxCli.result.data as { itemId: string }).itemId, inboxTool.details.itemId);
+	const broadcastTool = await registered
+		.get("broadcast_to_crew")!
+		.execute("call", { message: "hello", instructions: ["one"] });
+	assert.equal(broadcastTool.details.broadcastId.startsWith("broadcast-"), true);
+	const broadcastCli = await runDurableMessageCommand(
+		{
+			command: "crew-broadcast",
+			intent: "broadcast",
+			message: "hello",
+			instructions: ["one"],
+			stdin: false,
+			format: "json",
+		},
+		context(),
+		deps({
+			deliver: async () => ({
+				ok: true,
+				result: {
+					broadcastId: broadcastTool.details.broadcastId,
+					dispositions: [{ member: "Mary", role: "po", itemId: "x", disposition: "persisted" }],
+					summary: { persisted: 1, alreadyPersisted: 0, failed: 0, total: 1 },
+				},
+			}),
+		}),
+	);
+	assert.equal(broadcastCli.kind, "result");
+	if (broadcastCli.kind === "result")
+		assert.equal(
+			(broadcastCli.result.data as { broadcastId: string }).broadcastId,
+			broadcastTool.details.broadcastId,
+		);
 });
 
 test("durable help teaches persistence-only semantics and broadcast limitation", () => {

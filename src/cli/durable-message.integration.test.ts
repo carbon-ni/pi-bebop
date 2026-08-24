@@ -120,6 +120,26 @@ test("durable Inbox and broadcast CLI leaves delegate over a real source dispatc
 	assert.equal(broadcast.result.status, "persisted");
 	const data = broadcast.result.data as { summary: { persisted: number; total: number } };
 	assert.deepEqual(data.summary, { persisted: 2, alreadyPersisted: 0, failed: 0, total: 2 });
+	const retry = await runDurableMessageCommand(
+		{
+			command: "crew-broadcast",
+			intent: "broadcast",
+			message: "share all",
+			instructions: ["ordered"],
+			stdin: false,
+			format: "json",
+		},
+		context(),
+		dependencies,
+	);
+	assert.equal(retry.kind, "result");
+	if (retry.kind !== "result") throw new Error("expected retry result");
+	assert.deepEqual((retry.result.data as { summary: unknown }).summary, {
+		persisted: 0,
+		alreadyPersisted: 2,
+		failed: 0,
+		total: 2,
+	});
 
 	const inboxStore = await openTrustedMemberInboxStore({
 		manifestPath,
