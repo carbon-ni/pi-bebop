@@ -23,6 +23,9 @@ interface Sessions {
 	readonly sourceServer: net.Server;
 	readonly targetServer: net.Server;
 	readonly targetMessages: string[];
+	readonly targetEntries: unknown[];
+	readonly setTargetIdle: (value: boolean) => void;
+	readonly getTargetAbortCount: () => number;
 	close(): Promise<void>;
 }
 
@@ -33,6 +36,9 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 	const sourceSocket = path.join(controlDir, "source-session-1.sock");
 	const targetSocket = path.join(controlDir, "target.sock");
 	const targetMessages: string[] = [];
+	const targetEntries: unknown[] = [];
+	let targetIdle = false;
+	let targetAbortCount = 0;
 
 	const targetState = createSocketState();
 	targetState.server = {} as never;
@@ -46,8 +52,11 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 	} as never;
 	targetState.context = {
 		hasUI: false,
-		sessionManager: { getSessionId: () => "target", getSessionName: () => null, getEntries: () => [] },
-		isIdle: () => false,
+		sessionManager: { getSessionId: () => "target", getSessionName: () => null, getEntries: () => targetEntries },
+		isIdle: () => targetIdle,
+		abort: () => {
+			targetAbortCount += 1;
+		},
 		hasPendingMessages: () => false,
 		isProjectTrusted: () => true,
 	} as never;
@@ -55,6 +64,7 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		sendMessage: (customMessage: { content: string }, _options: unknown) => {
 			targetMessages.push(customMessage.content);
 		},
+		appendEntry: (customType: string, data: unknown) => targetEntries.push({ type: "custom", customType, data }),
 	} as never;
 	const targetServer = await createRpcServer(targetSocket, (command, socket) =>
 		handleCommand(targetPi, targetState, command, socket),
@@ -98,6 +108,11 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		sourceServer,
 		targetServer,
 		targetMessages,
+		targetEntries,
+		setTargetIdle: (value) => {
+			targetIdle = value;
+		},
+		getTargetAbortCount: () => targetAbortCount,
 		close: async () => {
 			await closeRpcServer(sourceServer);
 			await closeRpcServer(targetServer);
@@ -161,6 +176,45 @@ test("packaged CLI delivers follow-up and redirect end to end with accepted disp
 	assert.equal(sessions.targetMessages.length, 2);
 	assert.match(sessions.targetMessages[0]!, /wrap up/);
 	assert.match(sessions.targetMessages[1]!, /change course/);
+});
+
+test("packaged CLI interrupt proves idle direct and busy best-effort recovery dispositions", async (t) => {
+	const sessions = await startSessions(t);
+	sessions.setTargetIdle(true);
+	const idle = await packagedMessage(sessions.root, [
+		"member",
+		"interrupt",
+		"Kelly",
+		"--session",
+		"source-session-1",
+		"--message",
+		"recover idle",
+		"--format",
+		"json",
+	]);
+	assert.equal(idle.code, 0, idle.stdout);
+	assert.equal(JSON.parse(idle.stdout).data.disposition, "direct");
+	assert.equal(sessions.getTargetAbortCount(), 0);
+	assert.deepEqual(
+		sessions.targetEntries.map((entry) => (entry as { data: { phase: string } }).data.phase),
+		["pending", "handed-off"],
+	);
+
+	sessions.setTargetIdle(false);
+	const busy = await packagedMessage(sessions.root, [
+		"member",
+		"interrupt",
+		"Kelly",
+		"--session",
+		"source-session-1",
+		"--message",
+		"recover busy",
+		"--format",
+		"json",
+	]);
+	assert.equal(busy.code, 0, busy.stdout);
+	assert.equal(JSON.parse(busy.stdout).data.disposition, "interrupt-requested");
+	assert.equal(sessions.getTargetAbortCount(), 1);
 });
 
 test("packaged CLI rejects a wait flag with accepted-only recovery and no delivery", async (t) => {

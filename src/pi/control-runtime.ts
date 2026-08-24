@@ -8,7 +8,14 @@ import {
 	removeSocket,
 } from "../infra/control-store.ts";
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
-import { isMessagePayload, renderMessagePayload } from "../domain/index.ts";
+import {
+	isMessagePayload,
+	isInterruptResult,
+	renderMessagePayload,
+	createInterruptRecoveryPayload,
+	resolveInterruptTarget,
+	type MemberInterruptRequest,
+} from "../domain/index.ts";
 import {
 	createMemberIdleWaitResult,
 	createOnlineMemberStatus,
@@ -531,6 +538,65 @@ export async function handleCommand(
 	if (command.type === "abort") {
 		ctx.abort();
 		respond(true, "abort", {});
+		return;
+	}
+
+	// Delegated hard recovery (CLI -> source session -> target, TASK-0065).
+	if (command.type === "member_interrupt") {
+		const membership = state.membershipRuntime?.getMembership() ?? null;
+		if (!membership) {
+			respond(false, command.type, undefined, "not-joined");
+			return;
+		}
+		if (state.context?.isProjectTrusted?.() !== true) {
+			respond(false, command.type, undefined, "untrusted");
+			return;
+		}
+		const resolution = resolveInterruptTarget(membership.manifest, membership.member.name, command.target);
+		if (resolution.ok === false) {
+			respond(false, command.type, undefined, resolution.code);
+			return;
+		}
+		const request: MemberInterruptRequest = {
+			senderName: membership.member.name,
+			targetName: resolution.target.name,
+			message: command.message,
+			instructions: command.instructions,
+			requestedAt: Date.now(),
+		};
+		try {
+			const payload = createInterruptRecoveryPayload(membership.member, request);
+			const endpoint = await resolveMemberEndpoint(resolution.target.socketPath);
+			const controller = new AbortController();
+			const onDisconnect = () => controller.abort();
+			socket.once("close", onDisconnect);
+			socket.once("error", onDisconnect);
+			try {
+				const { response } = await sendRpcCommand(
+					endpoint,
+					{ type: "interrupt", payload },
+					{ timeout: 5000, signal: controller.signal, classifyLostAck: true },
+				);
+				if (!response.success) {
+					respond(false, command.type, undefined, response.error ?? "remote-rejected");
+					return;
+				}
+				if (!isInterruptResult(response.data)) {
+					respond(false, command.type, undefined, "invalid-ack");
+					return;
+				}
+				respond(true, command.type, {
+					member: { name: resolution.target.name, role: resolution.target.role },
+					interruptId: response.data.interruptId,
+					disposition: response.data.disposition,
+				});
+			} finally {
+				controller.abort();
+			}
+		} catch (error) {
+			const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
+			respond(false, command.type, undefined, code ?? "transport-error");
+		}
 		return;
 	}
 

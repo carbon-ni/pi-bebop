@@ -35,6 +35,13 @@ import {
 	buildDurableMessageCommand,
 	type DurableMessageCliOptions,
 } from "./commands/durable-message.ts";
+import {
+	parseMemberInterruptCommand,
+	runMemberInterruptCommand,
+	memberInterruptHelp,
+	buildMemberInterruptCommand,
+	type MemberInterruptCliOptions,
+} from "./commands/member-interrupt.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./arguments.ts";
 import type { CliContext } from "./context.ts";
 import type { CliOutcome } from "./output.ts";
@@ -258,6 +265,16 @@ const memberInboxSendLeaf: CliLeaf = {
 	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
 };
 
+/** TASK-0065: hard recovery interrupt leaf. */
+const memberInterruptLeaf: CliLeaf = {
+	id: "member-interrupt",
+	names: ["member", "interrupt"],
+	build: () => buildMemberInterruptCommand(),
+	help: () => memberInterruptHelp(),
+	parse: (tokens, cwd) => parseMemberInterruptCommand([...tokens], cwd),
+	run: (options, context) => runMemberInterruptCommand(options as MemberInterruptCliOptions, context),
+};
+
 /** TASK-0064: `crew broadcast` durable fan-out leaf. */
 const crewBroadcastLeaf: CliLeaf = {
 	id: "crew-broadcast",
@@ -277,6 +294,7 @@ export function createCliRegistry(): CliRegistry {
 		sessionListLeaf,
 		memberFollowUpLeaf,
 		memberRedirectLeaf,
+		memberInterruptLeaf,
 		memberInboxSendLeaf,
 		crewBroadcastLeaf,
 	]);
