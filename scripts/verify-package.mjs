@@ -62,6 +62,15 @@ try {
 		if (!/crew init/.test(initHelp.stdout) || !/\.pi\/bebop\/crew\.json/.test(initHelp.stdout))
 			throw new Error("Installed CLI crew init --help missing layout/docs");
 
+		// TASK-0058: send help is additive, deterministic, exit 0, no IO.
+		const sendHelp = await execFile(process.execPath, [cli, "send", "--help"], { cwd: initDir, env: environment });
+		if (
+			!/pi-bebop send /.test(sendHelp.stdout) ||
+			!/--crew <manifest>/.test(sendHelp.stdout) ||
+			!/--timeout/.test(sendHelp.stdout)
+		)
+			throw new Error("Installed CLI send --help missing metadata defaults");
+
 		// TASK-0057: no-argument home must render compact TOON project state
 		// (scaffold missing -> copyable crew init hint), not full help.
 		const home = await execFile(process.execPath, [cli], { cwd: initDir, env: environment });

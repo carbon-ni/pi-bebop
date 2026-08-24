@@ -2,6 +2,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseCliCommand, UsageError, type CliCommand, type SendCliOptions } from "./arguments.ts";
+import { sendHelp } from "./commands/send.ts";
 import { renderCliResult, type CliResult } from "./output.ts";
 import { crewInitHelp } from "../domain/index.ts";
 import { createCrewInitFlow } from "../application/crew-init-flow.ts";
@@ -234,7 +235,12 @@ export async function runCli(
 			return 1;
 		}
 	}
-	let message = (options as SendCliOptions).message;
+	const sendOptions = options as SendCliOptions;
+	if (sendOptions.help) {
+		output.write(sendHelp());
+		return 0;
+	}
+	let message = sendOptions.message;
 	const controller = new AbortController();
 	const abortError = Object.assign(new Error("Operation aborted"), { name: "AbortError" });
 	const abort = () => controller.abort(abortError);

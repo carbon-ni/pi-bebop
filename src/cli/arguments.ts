@@ -1,6 +1,12 @@
-import path from "node:path";
-import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
-import { parseCrewInitCommand } from "./parser.ts";
+import { parseCrewInitCommand, parseSendCommand } from "./parser.ts";
+
+/**
+ * TASK-0058: this module is reduced to types and the top-level dispatch.
+ * The hand-written send token loop and duration/origin validators were deleted;
+ * tokenization is owned by Commander (see commands/send.ts, commands/crew-init.ts)
+ * and cross-flag/domain validation lives in the parser facade (parser.ts),
+ * both per the 0056 framework boundary.
+ */
 
 export type CliFormat = "toon" | "json" | "text";
 export interface SendCliOptions {
@@ -16,137 +22,12 @@ export interface SendCliOptions {
 	timeoutMs: number;
 	format: CliFormat;
 	full: boolean;
+	/** Additive command-local help (TASK-0058 AC 6); only present when requested. */
+	help?: boolean;
 }
 
 export class UsageError extends Error {
 	readonly code = "usage";
-}
-
-function duration(value: string): number {
-	const match = /^(\d+)(ms|s|m)$/.exec(value);
-	if (!match || Number(match[1]) < 1)
-		throw new UsageError(`Invalid --timeout '${value}'; use a positive duration such as 500ms, 30s, or 5m`);
-	const multiplier = match[2] === "m" ? 60000 : match[2] === "s" ? 1000 : 1;
-	const result = Number(match[1]) * multiplier;
-	if (!Number.isSafeInteger(result)) throw new UsageError(`Invalid --timeout '${value}'; duration is too large`);
-	return result;
-}
-
-export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliOptions {
-	if (args[0] !== "send") throw new UsageError(`Invalid command '${args[0] ?? ""}'; valid command: send`);
-	const values = new Map<string, string>();
-	const instructions: string[] = [];
-	let origin: { kind: "external"; label: string } | undefined;
-	let stdin = false;
-	let full = false;
-	const valueFlags = new Set([
-		"--socket",
-		"--crew",
-		"--message",
-		"--mode",
-		"--wait",
-		"--timeout",
-		"--format",
-		"--instruction",
-		"--from",
-	]);
-	for (let index = 1; index < args.length; index += 1) {
-		const rawFlag = args[index]!;
-		const equals = rawFlag.indexOf("=");
-		const flag = equals > 0 ? rawFlag.slice(0, equals) : rawFlag;
-		const inlineValue = equals > 0 ? rawFlag.slice(equals + 1) : undefined;
-		if (flag === "--stdin" || flag === "--full") {
-			if ((flag === "--stdin" && stdin) || (flag === "--full" && full))
-				throw new UsageError(`Duplicate flag: ${flag}`);
-			if (flag === "--stdin") stdin = true;
-			else full = true;
-			continue;
-		}
-		if (!valueFlags.has(flag))
-			throw new UsageError(
-				`Unknown flag '${flag}'; valid flags: --socket, --message, --stdin, --instruction, --from, --mode, --wait, --timeout, --format, --full`,
-			);
-		if (flag === "--instruction") {
-			let value = inlineValue ?? args[++index];
-			let escaped = false;
-			if (value === "--") {
-				value = args[++index];
-				escaped = true;
-			}
-			if (value === undefined || (inlineValue === undefined && !escaped && value.startsWith("--")))
-				throw new UsageError("Missing value for --instruction");
-			instructions.push(value);
-			if (instructions.length > MAX_MESSAGE_INSTRUCTIONS)
-				throw new UsageError(`Too many --instruction values; maximum is ${MAX_MESSAGE_INSTRUCTIONS}`);
-			continue;
-		}
-		if (values.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-		let value = inlineValue ?? args[++index];
-		let escaped = false;
-		if (value === "--") {
-			value = args[++index];
-			escaped = true;
-		}
-		if (value === undefined || (inlineValue === undefined && !escaped && value.startsWith("--")))
-			throw new UsageError(`Missing value for ${flag}`);
-		values.set(flag, value);
-	}
-	const socket = values.get("--socket");
-	const crew = values.get("--crew");
-	if ((socket === undefined) === (crew === undefined))
-		throw new UsageError(
-			"Choose exactly one target: --socket <path> for direct delivery or --crew <manifest> for durable intake",
-		);
-	if (crew !== undefined) {
-		for (const incompatible of ["--mode", "--wait", "--timeout"]) {
-			if (values.has(incompatible))
-				throw new UsageError(
-					`${incompatible} is not supported with --crew; external intake is one-way persisted delivery`,
-				);
-		}
-	}
-	const message = values.get("--message");
-	const from = values.get("--from");
-	if (from !== undefined) {
-		if (
-			from.trim().length === 0 ||
-			from !== from.trim() ||
-			from.includes("\0") ||
-			Buffer.byteLength(from, "utf8") > MAX_MESSAGE_ORIGIN_FIELD_BYTES
-		)
-			throw new UsageError(
-				"--from must be trimmed, non-empty, within the UTF-8 byte limit, and must not contain NUL",
-			);
-		origin = { kind: "external", label: from };
-	}
-	if (message !== undefined && stdin)
-		throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
-	if (message === undefined && !stdin)
-		throw new UsageError("Missing message source; use --message <text> or --stdin");
-	if (message !== undefined && message.length === 0) throw new UsageError("--message must not be empty");
-	const mode = values.get("--mode") ?? "steer";
-	if (mode !== "steer" && mode !== "follow_up")
-		throw new UsageError(`Invalid --mode '${mode}'; valid alternatives: steer, follow_up`);
-	const wait = values.get("--wait") ?? "turn_end";
-	if (wait !== "turn_end" && wait !== "accepted")
-		throw new UsageError(`Invalid --wait '${wait}'; valid alternatives: turn_end, accepted`);
-	const format = values.get("--format") ?? "toon";
-	if (format !== "toon" && format !== "json" && format !== "text")
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	return {
-		command: "send",
-		...(socket === undefined ? {} : { socketPath: path.resolve(cwd, socket) }),
-		...(crew === undefined ? {} : { crewPath: path.resolve(cwd, crew) }),
-		message,
-		instructions,
-		...(origin === undefined ? {} : { origin }),
-		stdin,
-		mode,
-		wait,
-		timeoutMs: duration(values.get("--timeout") ?? "5m"),
-		format,
-		full,
-	};
 }
 
 export type CrewInitCliOptions = {
@@ -163,10 +44,20 @@ export type HomeCliOptions = {
 export type CliCommand = SendCliOptions | CrewInitCliOptions | HomeCliOptions;
 
 /**
+ * Compatibility surface for the characterized `send` parser (same signature and
+ * semantics as the deleted token loop). Validates the command word, then
+ * delegates tokenization + semantic validation to the declarative facade.
+ */
+export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliOptions {
+	if (args[0] !== "send") throw new UsageError(`Invalid command '${args[0] ?? ""}'; valid command: send`);
+	return parseSendCommand(args.slice(1), cwd);
+}
+
+/**
  * Top-level command dispatch. Exactly two commands are supported: `send`
- * (existing behavior, byte-compatible) and `crew init` (deterministic scaffold,
- * TASK-0054). Unknown commands report valid alternatives and exit 2 before any
- * filesystem/network dependency is called.
+ * (declarative since TASK-0058) and `crew init` (declarative since TASK-0057),
+ * plus the no-argument home state. Unknown commands report valid alternatives
+ * and exit 2 before any filesystem/network dependency is called.
  */
 export function parseCliCommand(args: string[], cwd = process.cwd()): CliCommand {
 	if (args.length === 0) return { command: "home" };
