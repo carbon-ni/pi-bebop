@@ -1,7 +1,7 @@
 ---
 id: TASK-0069
 title: Expose compaction activity to Pi extensions
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [pi-api, extensions, compaction, lifecycle, activity, tdd]
