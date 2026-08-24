@@ -240,6 +240,17 @@ test("update_focus clear persists a typed clear entry and reports unspecified", 
 	});
 });
 
+test("update_focus_result distinguishes updated, replaced, cleared, and unchanged without duplicate clear writes", async () => {
+	const deps = surface();
+	const flow = createMemberStatusFlow(deps);
+	assert.equal((await flow.updateFocusResult("set", "first")).status, "updated");
+	assert.equal((await flow.updateFocusResult("set", "second")).status, "replaced");
+	assert.equal((await flow.updateFocusResult("clear")).status, "cleared");
+	const entriesAfterClear = deps.entries.length;
+	assert.equal((await flow.updateFocusResult("clear")).status, "unchanged");
+	assert.equal(deps.entries.length, entriesAfterClear);
+});
+
 test("update_focus rejects invalid action and nonblank bounded focus without persisting", async () => {
 	const deps = surface();
 	const flow = createMemberStatusFlow(deps);

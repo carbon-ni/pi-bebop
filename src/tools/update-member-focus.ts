@@ -55,15 +55,23 @@ export function registerUpdateMemberFocusTool(pi: ExtensionAPI, state: SocketSta
 			};
 			const flow = createMemberStatusFlow(surface);
 			try {
-				const result = await flow.updateFocus(action, focus);
-				if (result.state === "reported")
+				const result = await flow.updateFocusResult(action, focus);
+				if (result.focus.state === "reported")
 					return {
-						content: [{ type: "text", text: `Focus (member-reported): ${result.text}` }],
-						details: { focus: result },
+						content: [{ type: "text", text: `Focus (member-reported): ${result.focus.text}` }],
+						details: { focus: result.focus, status: result.status },
 					};
 				return {
-					content: [{ type: "text", text: "Focus cleared (unspecified)" }],
-					details: { focus: result },
+					content: [
+						{
+							type: "text",
+							text:
+								result.status === "unchanged"
+									? "Focus already clear (unchanged; unspecified)"
+									: "Focus cleared (unspecified)",
+						},
+					],
+					details: { focus: result.focus, status: result.status },
 				};
 			} catch (error) {
 				if (error instanceof MemberStatusFlowError)

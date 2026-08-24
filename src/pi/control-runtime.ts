@@ -279,6 +279,35 @@ export async function handleCommand(
 		return;
 	}
 
+	// Self-scoped Focus mutation (TASK-0066): the active runtime supplies the
+	// canonical member identity and the existing status/focus flow owns validation
+	// plus durable session-entry persistence. The request carries no identity.
+	if (command.type === "member_focus") {
+		const surface: MemberStatusSurface = {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			isIdle: () => ctx.isIdle(),
+			hasPendingMessages: () => ctx.hasPendingMessages(),
+			getEntries: () => ctx.sessionManager.getEntries(),
+			appendEntry: (customType, data) => pi.appendEntry(customType, data),
+			probeEndpoint: async () => true,
+			requestStatus: async () => ({ ok: false, code: "transport-error" }),
+			now: () => new Date().toISOString(),
+		};
+		try {
+			const result = await createMemberStatusFlow(surface).updateFocusResult(command.action, command.focus);
+			respond(true, command.type, result);
+		} catch (error) {
+			respond(
+				false,
+				command.type,
+				undefined,
+				error instanceof MemberStatusFlowError ? error.code : "invalid-focus",
+			);
+		}
+		return;
+	}
+
 	// Delegated member status (TASK-0061): a CLI asks this joined session for
 	// the status of a TARGET member. The session derives membership/trust from
 	// its own active runtime (never from request fields) and runs the same

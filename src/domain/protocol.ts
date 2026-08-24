@@ -267,6 +267,55 @@ export const MemberInterruptResultSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+const MemberFocusTextSchema = Type.String({ minLength: 1, maxLength: 256 });
+const MemberFocusValueSchema = Type.Union([
+	Type.Object(
+		{
+			state: Type.Literal("reported"),
+			text: MemberFocusTextSchema,
+			updatedAt: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$" }),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object({ state: Type.Literal("unspecified") }, { additionalProperties: false }),
+]);
+export const MemberFocusParamsSchema = Type.Object(
+	{
+		action: Type.Union([Type.Literal("set"), Type.Literal("clear")]),
+		focus: Type.Optional(MemberFocusTextSchema),
+	},
+	{ additionalProperties: false },
+);
+export const MemberFocusRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.focus"),
+		params: MemberFocusParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberFocusCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_focus"),
+		action: Type.Union([Type.Literal("set"), Type.Literal("clear")]),
+		focus: Type.Optional(MemberFocusTextSchema),
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+export const MemberFocusResultSchema = Type.Object(
+	{
+		status: Type.Union([
+			Type.Literal("updated"),
+			Type.Literal("replaced"),
+			Type.Literal("cleared"),
+			Type.Literal("unchanged"),
+		]),
+		focus: MemberFocusValueSchema,
+	},
+	{ additionalProperties: false },
+);
 export const MemberInboxSendParamsSchema = Type.Object(
 	{
 		target: MemberStatusTargetSchema,
@@ -447,6 +496,7 @@ export const KnownRequestSchema = Type.Union([
 	PresenceHintRequestSchema,
 	MemberStatusRequestSchema,
 	MemberStatusTargetRequestSchema,
+	MemberFocusRequestSchema,
 	MemberFollowUpRequestSchema,
 	MemberRedirectRequestSchema,
 	MemberInterruptRequestSchema,
@@ -511,6 +561,7 @@ export const RpcMethodResultSchema = Type.Union([
 	SubscribeResultSchema,
 	PresenceHintResultSchema,
 	MemberStatusResultSchema,
+	MemberFocusResultSchema,
 	MemberMessageResultSchema,
 	MemberInterruptResultSchema,
 	MemberInboxSendResultSchema,
@@ -562,6 +613,9 @@ export type MemberStatusCommand = Static<typeof MemberStatusCommandSchema>;
 export type MemberStatusResult = Static<typeof MemberStatusResultSchema>;
 export type MemberStatusTargetParams = Static<typeof MemberStatusTargetParamsSchema>;
 export type MemberStatusTargetCommand = Static<typeof MemberStatusTargetCommandSchema>;
+export type MemberFocusParams = Static<typeof MemberFocusParamsSchema>;
+export type MemberFocusCommand = Static<typeof MemberFocusCommandSchema>;
+export type MemberFocusResult = Static<typeof MemberFocusResultSchema>;
 export type MemberInterruptParams = Static<typeof MemberInterruptParamsSchema>;
 export type MemberInterruptCommand = Static<typeof MemberInterruptCommandSchema>;
 export type MemberInterruptResult = Static<typeof MemberInterruptResultSchema>;
@@ -573,6 +627,9 @@ export type CrewBroadcastParams = Static<typeof CrewBroadcastParamsSchema>;
 export type MemberFollowUpCommand = Static<typeof MemberFollowUpCommandSchema>;
 export type MemberRedirectCommand = Static<typeof MemberRedirectCommandSchema>;
 export type MemberMessageResult = Static<typeof MemberMessageResultSchema>;
+export function isMemberFocusResult(value: unknown): value is MemberFocusResult {
+	return Value.Check(MemberFocusResultSchema, value);
+}
 export function isMemberInterruptResult(value: unknown): value is MemberInterruptResult {
 	return Value.Check(MemberInterruptResultSchema, value);
 }
@@ -634,6 +691,7 @@ export type RpcCommand =
 	| Static<typeof PresenceHintCommandSchema>
 	| Static<typeof MemberStatusCommandSchema>
 	| Static<typeof MemberStatusTargetCommandSchema>
+	| Static<typeof MemberFocusCommandSchema>
 	| Static<typeof MemberInterruptCommandSchema>
 	| Static<typeof MemberFollowUpCommandSchema>
 	| Static<typeof MemberRedirectCommandSchema>
@@ -652,6 +710,7 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof PresenceHintCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusTargetCommandSchema>>
+	| RequiredId<Static<typeof MemberFocusCommandSchema>>
 	| RequiredId<Static<typeof MemberInterruptCommandSchema>>
 	| RequiredId<Static<typeof MemberFollowUpCommandSchema>>
 	| RequiredId<Static<typeof MemberRedirectCommandSchema>>
@@ -790,29 +849,31 @@ export function methodResultSchema(method: string) {
 					? MemberStatusResultSchema
 					: method === "member.status_target"
 						? MemberStatusResultSchema
-						: method === "member.interrupt"
-							? MemberInterruptResultSchema
-							: method === "member.follow_up"
-								? MemberMessageResultSchema
-								: method === "member.redirect"
+						: method === "member.focus"
+							? MemberFocusResultSchema
+							: method === "member.interrupt"
+								? MemberInterruptResultSchema
+								: method === "member.follow_up"
 									? MemberMessageResultSchema
-									: method === "member.inbox_send"
-										? MemberInboxSendResultSchema
-										: method === "crew.broadcast"
-											? CrewBroadcastResultSchema
-											: method === "member.idle_wait"
-												? MemberIdleWaitSubscribeResultSchema
-												: method === "session.get_message"
-													? GetMessageResultSchema
-													: method === "session.clear"
-														? ClearResultSchema
-														: method === "session.abort"
-															? EmptyResultSchema
-															: method === "event.subscribe"
-																? SubscribeResultSchema
-																: method === "presence.hint"
-																	? PresenceHintResultSchema
-																	: undefined;
+									: method === "member.redirect"
+										? MemberMessageResultSchema
+										: method === "member.inbox_send"
+											? MemberInboxSendResultSchema
+											: method === "crew.broadcast"
+												? CrewBroadcastResultSchema
+												: method === "member.idle_wait"
+													? MemberIdleWaitSubscribeResultSchema
+													: method === "session.get_message"
+														? GetMessageResultSchema
+														: method === "session.clear"
+															? ClearResultSchema
+															: method === "session.abort"
+																? EmptyResultSchema
+																: method === "event.subscribe"
+																	? SubscribeResultSchema
+																	: method === "presence.hint"
+																		? PresenceHintResultSchema
+																		: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -903,6 +964,16 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status", params: { member: command.member } };
 	if (command.type === "member_status_target")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status_target", params: { target: command.target } };
+	if (command.type === "member_focus")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "member.focus",
+			params: {
+				action: command.action,
+				...(command.focus === undefined ? {} : { focus: command.focus }),
+			},
+		};
 	if (command.type === "member_interrupt")
 		return {
 			jsonrpc: JSON_RPC_VERSION,
@@ -1017,6 +1088,16 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 	if (request.method === "member.status_target") {
 		if (!Value.Check(MemberStatusTargetParamsSchema, params)) return invalid("Invalid member.status_target params");
 		return { type: "member_status_target", target: (params as MemberStatusTargetParams).target, id: request.id };
+	}
+	if (request.method === "member.focus") {
+		if (!Value.Check(MemberFocusParamsSchema, params)) return invalid("Invalid member.focus params");
+		const focus = params as MemberFocusParams;
+		return {
+			type: "member_focus",
+			action: focus.action,
+			...(focus.focus === undefined ? {} : { focus: focus.focus }),
+			id: request.id,
+		};
 	}
 	if (request.method === "member.interrupt") {
 		if (!Value.Check(MemberInterruptParamsSchema, params)) return invalid("Invalid member.interrupt params");

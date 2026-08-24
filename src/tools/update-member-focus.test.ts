@@ -115,13 +115,12 @@ describe("update_member_focus tool", () => {
 		assert.equal(entries.length, 1);
 	});
 
-	test("clear persists a typed clear entry and reports unspecified", async () => {
+	test("clear while already unspecified is an explicit no-op", async () => {
 		const { tool, appended } = setup(membership);
 		const result = await tool.execute("id", { action: "clear" });
 		assert.equal(result.isError, undefined);
 		assert.match(result.content[0]!.text, /unspecified/);
-		assert.deepEqual((appended[0]!.data as { action?: string }).action, "clear");
-		assert.equal("focus" in (appended[0]!.data as Record<string, unknown>), false);
+		assert.equal(appended.length, 0);
 	});
 
 	test("set rejects blank, padded, multiline, and oversized focus without persisting", async () => {

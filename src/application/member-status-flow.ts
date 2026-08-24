@@ -145,11 +145,25 @@ export function createMemberStatusFlow(surface: MemberStatusSurface) {
 		return { state: "reported", text: entry.focus, updatedAt: entry.updatedAt };
 	};
 
+	const updateFocusResult = async (
+		action: "set" | "clear",
+		focus?: string,
+	): Promise<{
+		readonly status: "updated" | "replaced" | "cleared" | "unchanged";
+		readonly focus: AvailableMemberFocus;
+	}> => {
+		const before = currentFocus();
+		if (action === "clear" && before.state === "unspecified") return { status: "unchanged", focus: before };
+		const next = await updateFocus(action, focus);
+		if (action === "clear") return { status: "cleared", focus: next };
+		return { status: before.state === "reported" ? "replaced" : "updated", focus: next };
+	};
+
 	/** Current member's latest matching focus/clear entry, scoped to canonical identity. */
 	const currentFocus = (): AvailableMemberFocus => {
 		const membership = requireJoined(surface);
 		return restoreMemberFocus(surface.getEntries(), membership.member.socketPath);
 	};
 
-	return { queryStatus, updateFocus, currentFocus };
+	return { queryStatus, updateFocus, updateFocusResult, currentFocus };
 }
