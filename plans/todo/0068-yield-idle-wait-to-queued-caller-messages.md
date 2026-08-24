@@ -55,6 +55,9 @@ time delay.
 - [ ] Deterministic tests cover pending and non-pending snapshots for idle, pending timeout/offline, pending arrival before settled, cancellation, and the documented parallel-batch fallback.
 - [ ] A Pi lifecycle integration test proves `terminate: true` skips the ordinary post-tool model call and lets an already-queued follow-up drive the next run; the test uses event/barrier control rather than wall-clock sleeps.
 - [ ] Standalone CLI idle-wait semantics in TASK-0067 remain unchanged because a CLI invocation has no active caller model turn to yield.
+- [ ] `nextAction: "yield"` and its end-run instruction are emitted only when this is the sole terminating tool result in the batch. With a non-terminating parallel sibling, use an explicit best-effort/ordinary-continuation fallback that does not claim Pi will yield; test that sibling case.
+- [ ] The lifecycle test controls and asserts this barrier trace with `finally` cleanup: subscribed → queued/pending observable → settled → result finalized → next model run. It proves zero automatic model runs and exactly one queued continuation after a sole terminating result.
+- [ ] Negative tests prove caller pending metadata and `terminate` exist only in the tool envelope; domain member-wait result, RPC payload, formatter, and TASK-0067 CLI output/exit remain byte/semantic-compatible.
 
 ## Out of scope
 
