@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
+import net from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
 	defaultMemberStatusCliDependencies,
 	parseMemberStatusCommand,
@@ -121,6 +125,38 @@ test("member status default transport maps unavailable endpoints", async () => {
 	);
 	assert.equal(result.ok, false);
 	if (!result.ok) assert.equal(result.code, "unknown-session");
+});
+
+test("member status default transport covers valid, rejected, and malformed peers", async () => {
+	for (const mode of ["valid", "rejected", "malformed"] as const) {
+		const dir = await mkdtemp(path.join(tmpdir(), "bebop-status-cli-"));
+		const socketPath = path.join(dir, "member.sock");
+		const server = net.createServer((socket) => {
+			socket.setEncoding("utf8");
+			socket.on("data", (chunk) => {
+				const request = JSON.parse(String(chunk)) as { id: string | number };
+				const wire =
+					mode === "valid"
+						? { jsonrpc: "2.0", id: request.id, result: { status: ONLINE_STATUS } }
+						: mode === "rejected"
+							? { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "not-joined" } }
+							: { jsonrpc: "2.0", id: request.id, result: {} };
+				socket.write(JSON.stringify(wire) + "\n");
+			});
+		});
+		await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+		try {
+			const outcome = await defaultMemberStatusCliDependencies.sendStatus(
+				{ ok: true, kind: "id", idSocketPath: socketPath, aliasSocketPath: socketPath },
+				"Kelly",
+				new AbortController().signal,
+			);
+			assert.equal(outcome.ok, mode === "valid");
+		} finally {
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+			await rm(dir, { recursive: true, force: true });
+		}
+	}
 });
 
 // --- run: source selection ---

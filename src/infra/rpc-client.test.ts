@@ -45,6 +45,45 @@ function lines(socket: net.Socket, handler: (value: Record<string, unknown>) => 
 	});
 }
 
+test("sendRpcCommand completes a turn subscription without optional event fields", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "message.send")
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { deliveryId: "d", disposition: "direct" },
+					});
+				if (request.method === "event.subscribe") {
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { subscriptionId: request.params.subscriptionId, event: "turn_end" },
+					});
+					setTimeout(
+						() =>
+							send(socket, {
+								jsonrpc: "2.0",
+								method: "session.turn_end",
+								params: { subscriptionId: request.params.subscriptionId },
+							}),
+						1,
+					);
+				}
+			}),
+		async (socketPath) => {
+			const result = await sendRpcCommand(
+				socketPath,
+				{ type: "send", message: "x" },
+				{ waitForEvent: "turn_end", timeout: 1_000 },
+			);
+			assert.equal(result.response.success, true);
+			assert.deepEqual(result.event, {});
+		},
+	);
+});
+
 test("sendRpcCommand covers explicit ids and abort reason normalization", async () => {
 	for (const reason of [new Error("reason"), "string reason", undefined]) {
 		const controller = new AbortController();
