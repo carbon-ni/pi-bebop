@@ -239,6 +239,40 @@ describe("submitCrewBroadcast", () => {
 		for (const inbox of enqueued.values()) assert.equal(inbox.items.length, 1);
 	});
 
+	test("idempotency conflict stops later recipient writes and preserves the existing item", async () => {
+		const { crew } = makeCrew();
+		const enqueued = new Map<string, FakeInbox>();
+		const base = makeDeps({ crew, enqueued });
+		let opened = 0;
+		const openStore = async (options: Parameters<typeof base.openStore>[0]) => {
+			opened += 1;
+			const store = await base.openStore(options);
+			if (options.member.name === "Tony") {
+				return {
+					...store,
+					enqueueWithId: async () => {
+						throw new MemberInboxStoreError("idempotency-conflict", "different payload");
+					},
+				};
+			}
+			return store;
+		};
+		const result = await submitCrewBroadcast(
+			{ membership: makeMembership(crew, "Bob"), message: "conflict", now: 1 },
+			{ isProjectTrusted: () => true, openStore },
+		);
+		assert.equal(result.ok, true);
+		if (!result.ok) return;
+		assert.equal(opened, 1, "conflict stops the fan-out before later store opens");
+		assert.equal(result.summary.failed, 3);
+		assert.ok(result.dispositions.every((item) => item.code === "idempotency-conflict"));
+		assert.deepEqual(
+			Array.from(enqueued.entries()).map(([name, inbox]) => [name, inbox.items.length]),
+			[["Tony", 0]],
+			"conflict does not overwrite or deliver later recipients",
+		);
+	});
+
 	test("full inbox maps to a failed disposition with inbox-full and others persist", async () => {
 		const { crew } = makeCrew();
 		const enqueued = new Map<string, FakeInbox>();

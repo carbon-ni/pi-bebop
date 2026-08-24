@@ -330,6 +330,7 @@ const BroadcastDispositionSchema = Type.Union([
 				Type.Literal("invalid-payload"),
 				Type.Literal("invalid-item-id"),
 				Type.Literal("aborted"),
+				Type.Literal("idempotency-conflict"),
 			]),
 		},
 		{ additionalProperties: false },

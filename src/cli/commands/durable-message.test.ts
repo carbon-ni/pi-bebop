@@ -126,6 +126,39 @@ test("durable commands run Inbox persistence and broadcast partial outcomes with
 	assert.equal(broadcast.result.ok, false);
 	assert.equal(broadcast.result.status, "partial");
 	assert.equal(broadcast.result.error?.code, "partial");
+
+	const conflict = await runDurableMessageCommand(
+		{
+			command: "crew-broadcast",
+			intent: "broadcast",
+			message: "changed",
+			instructions: [],
+			stdin: false,
+			format: "json",
+		},
+		context(),
+		deps({
+			deliver: async () => ({
+				ok: true,
+				result: {
+					broadcastId: "broadcast-1",
+					dispositions: [
+						{
+							member: "Mary",
+							role: "po",
+							itemId: "item-1",
+							disposition: "failed",
+							code: "idempotency-conflict",
+						},
+					],
+					summary: { persisted: 0, alreadyPersisted: 0, failed: 1, total: 1 },
+				},
+			}),
+		}),
+	);
+	assert.equal(conflict.kind, "result");
+	if (conflict.kind !== "result") return;
+	assert.equal(conflict.result.error?.code, "idempotency-conflict");
 });
 
 test("tool and CLI parity preserve persisted Inbox and broadcast outcomes", async () => {
@@ -240,5 +273,5 @@ test("tool and CLI parity preserve persisted Inbox and broadcast outcomes", asyn
 test("durable help teaches persistence-only semantics and broadcast limitation", () => {
 	assert.match(durableMessageHelp("inbox"), /persisted.*never read, delivered/i);
 	assert.match(durableMessageHelp("inbox"), /no wait_for flag/i);
-	assert.match(durableMessageHelp("broadcast"), /idempotency-conflict remains reserved/i);
+	assert.match(durableMessageHelp("broadcast"), /idempotency-conflict/i);
 });
