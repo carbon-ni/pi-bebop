@@ -762,6 +762,31 @@ test("sendMemberIdleWait returns timeout when the deadline expires before a term
 	);
 });
 
+test("sendMemberIdleWait covers malformed envelope and acknowledgement validation", async () => {
+	const responses = [
+		"not-json",
+		JSON.stringify({ jsonrpc: "2.0", id: "x", foo: true }),
+		JSON.stringify({ jsonrpc: "2.0", id: "wrong", result: { subscriptionId: "wrong", event: "member_idle" } }),
+		JSON.stringify({ jsonrpc: "2.0", id: "x", result: { subscriptionId: "x", event: "wrong" } }),
+	];
+	for (const response of responses)
+		await withSocketServer(
+			(socket) =>
+				lines(socket, () => {
+					if (response === "not-json") socket.write("not-json\n");
+					else socket.write(`${response}\n`);
+				}),
+			async (socketPath) => {
+				const outcome = await sendMemberIdleWait(
+					socketPath,
+					{ type: "member_idle_wait", member: "Bob" },
+					{ timeoutSeconds: 1 },
+				);
+				assert.deepEqual(outcome, { ok: false, code: "malformed-response" });
+			},
+		);
+});
+
 test("sendMemberIdleWait maps each stable remote rejection category", async () => {
 	for (const message of ["not-joined", "unknown member", "ambiguous role", "self-wait", "other rejection"]) {
 		await withSocketServer(
