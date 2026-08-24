@@ -19,7 +19,7 @@ export interface MemberMessageTransport {
 	send(
 		endpoint: string,
 		command: RpcCommand,
-		options: { signal?: AbortSignal },
+		options: { signal?: AbortSignal; classifyLostAck?: boolean },
 	): Promise<{ response: RpcCommandResponse }>;
 }
 export interface MemberMessageCoordinator {
@@ -135,7 +135,10 @@ export async function sendMemberMessage(
 	const deliver = async (): Promise<MemberMessageOutcome> => {
 		let result: { response: RpcCommandResponse };
 		try {
-			result = await dependencies.transport.send(endpoint, command, { signal: request.signal });
+			result = await dependencies.transport.send(endpoint, command, {
+				signal: request.signal,
+				classifyLostAck: true,
+			});
 		} catch (error) {
 			const code =
 				error instanceof Error && "code" in error ? (error as Error & { code?: unknown }).code : undefined;

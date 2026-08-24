@@ -187,7 +187,10 @@ test("uses follow-up by default and maps immediate to explicit steering", async 
 	assert.equal(calls[1].command.delivery, "immediate");
 	assert.deepEqual(
 		calls.map((call) => call.options),
-		[{ signal: undefined }, { signal: undefined }],
+		[
+			{ signal: undefined, classifyLostAck: true },
+			{ signal: undefined, classifyLostAck: true },
+		],
 	);
 });
 

@@ -22,6 +22,8 @@ export interface RpcClientOptions {
 	timeout?: number;
 	waitForEvent?: "turn_end";
 	signal?: AbortSignal;
+	/** Member-message delivery requires conservative lost-ack classification. */
+	classifyLostAck?: boolean;
 }
 
 export type MemberIdleWaitClientOutcome =
@@ -69,7 +71,7 @@ export async function sendRpcCommand(
 	command: RpcCommand,
 	options: RpcClientOptions = {},
 ): Promise<{ response: RpcCommandResponse; event?: { message?: ExtractedMessage; turnIndex?: number } }> {
-	const { timeout = 5000, waitForEvent, signal } = options;
+	const { timeout = 5000, waitForEvent, signal, classifyLostAck = false } = options;
 	const requestId = command.id ?? nextId();
 	const request = commandToRequest(command, requestId);
 	const subscriptionId = nextId();
@@ -111,9 +113,12 @@ export async function sendRpcCommand(
 				"outcome-unknown",
 				"Delivery outcome unknown: the request was dispatched but its acknowledgement was lost",
 			);
-		const onAbort = () => settle(dispatched ? outcomeUnknown() : getAbortError(signal!));
+		const onAbort = () => settle(classifyLostAck && dispatched ? outcomeUnknown() : getAbortError(signal!));
 		signal?.addEventListener("abort", onAbort, { once: true });
-		timeoutHandle = setTimeout(() => settle(new Error("RPC request timeout")), timeout);
+		timeoutHandle = setTimeout(
+			() => settle(classifyLostAck && dispatched ? outcomeUnknown() : new Error("RPC request timeout")),
+			timeout,
+		);
 		socket.on("connect", () => {
 			try {
 				socket.write(serializeRequest(request));
@@ -217,10 +222,12 @@ export async function sendRpcCommand(
 				}
 			}
 		});
-		socket.on("error", (error) => settle(dispatched ? outcomeUnknown() : error));
-		socket.on("end", () => settle(dispatched ? outcomeUnknown() : new Error("Socket ended before RPC completed")));
+		socket.on("error", (error) => settle(classifyLostAck && dispatched ? outcomeUnknown() : error));
+		socket.on("end", () =>
+			settle(classifyLostAck && dispatched ? outcomeUnknown() : new Error("Socket ended before RPC completed")),
+		);
 		socket.on("close", () =>
-			settle(dispatched ? outcomeUnknown() : new Error("Socket closed before RPC completed")),
+			settle(classifyLostAck && dispatched ? outcomeUnknown() : new Error("Socket closed before RPC completed")),
 		);
 	});
 }
