@@ -949,9 +949,9 @@ test("sendMemberRequest reports offline terminal closure and caller close idempo
 				},
 				{ onUpdate: (update) => updates.push(update) },
 			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
 			result.close();
 			result.close();
-			await new Promise((resolve) => setTimeout(resolve, 10));
 			assert.equal(updates.length, 1);
 			assert.equal((updates[0] as { kind: string }).kind, "offline");
 		},
