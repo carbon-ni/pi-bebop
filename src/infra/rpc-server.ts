@@ -89,8 +89,13 @@ export function writeResponse(socket: RpcSocket, response: RpcCommandResponse): 
 		writeWireError(socket, response.id, RPC_ERROR.internal, "Unknown command", { code: "unknown-command" });
 		return;
 	}
-	if (response.success) writeWireResponse(socket, response.id, method, response.data);
-	else writeWireError(socket, response.id, RPC_ERROR.internal, response.error ?? "Internal error");
+	if (response.success) {
+		writeWireResponse(socket, response.id, method, response.data);
+		return;
+	}
+	const durableCommand = response.command === "member_inbox_send" || response.command === "crew_broadcast";
+	const error = response.error ?? "Internal error";
+	writeWireError(socket, response.id, RPC_ERROR.internal, error, durableCommand ? { code: error } : undefined);
 }
 export function writeEvent(socket: RpcSocket, event: RpcTurnEndNotification): void {
 	const notification = buildTurnEndNotification(
