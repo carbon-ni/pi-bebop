@@ -56,6 +56,16 @@ import {
 	isMemberStatusResult,
 	MemberStatusTargetParamsSchema,
 	MemberStatusTargetCommandSchema,
+	MemberMessageParamsSchema,
+	MemberFollowUpParamsSchema,
+	MemberRedirectParamsSchema,
+	MemberFollowUpRequestSchema,
+	MemberRedirectRequestSchema,
+	MemberFollowUpCommandSchema,
+	MemberRedirectCommandSchema,
+	MemberMessageResultSchema,
+	isMemberMessageResult,
+	isSendResult,
 	methodResultSchema,
 	MemberIdleWaitParamsSchema,
 	MemberIdleWaitRequestSchema,
@@ -811,4 +821,121 @@ test("interrupt result schema and guard accept only the two dispositions", () =>
 	assert.equal(isInterruptResult({ interruptId: "int-1", disposition: "queued" }), false);
 	assert.equal(isInterruptResult({ interruptId: "", disposition: "direct" }), false);
 	assert.equal(isInterruptResult({ interruptId: "int-1", disposition: "direct", extra: true }), false);
+});
+
+test("member.follow_up / member.redirect params are strict: bounded target, verbatim message, bounded instructions", () => {
+	const params = { target: "Kelly", message: "wrap up", instructions: ["one", "two"] };
+	assert.equal(Value.Check(MemberFollowUpParamsSchema, params), true);
+	assert.equal(Value.Check(MemberRedirectParamsSchema, params), true);
+	assert.equal(Value.Check(MemberFollowUpParamsSchema, { target: "Kelly", message: "hi" }), true);
+	assert.equal(Value.Check(MemberFollowUpParamsSchema, { target: "Kelly" }), false);
+	assert.equal(Value.Check(MemberFollowUpParamsSchema, { target: "Kelly", message: "" }), false);
+	assert.equal(Value.Check(MemberFollowUpParamsSchema, { target: "", message: "hi" }), false);
+	assert.equal(Value.Check(MemberFollowUpParamsSchema, { target: "Kelly", message: "hi", extra: true }), false);
+	assert.equal(Value.Check(MemberFollowUpParamsSchema, { target: "Kelly", message: "hi", instructions: [] }), false);
+	assert.equal(
+		Value.Check(MemberFollowUpParamsSchema, { target: "Kelly", message: "hi", instructions: ["ok", "ok", "ok"] }),
+		true,
+	);
+	assert.equal(Value.Check(MemberFollowUpParamsSchema, { target: "x".repeat(1000), message: "hi" }), false);
+});
+
+test("member_follow_up and member_redirect commands are closed and discriminated by type", () => {
+	assert.equal(
+		Value.Check(MemberFollowUpCommandSchema, { type: "member_follow_up", target: "Kelly", message: "hi" }),
+		true,
+	);
+	assert.equal(
+		Value.Check(MemberRedirectCommandSchema, { type: "member_redirect", target: "Kelly", message: "hi" }),
+		true,
+	);
+	assert.equal(
+		Value.Check(MemberFollowUpCommandSchema, { type: "member_redirect", target: "Kelly", message: "hi" }),
+		false,
+	);
+	assert.equal(Value.Check(MemberFollowUpCommandSchema, { type: "member_follow_up", target: "Kelly" }), false);
+	assert.equal(
+		Value.Check(MemberFollowUpCommandSchema, {
+			type: "member_follow_up",
+			target: "Kelly",
+			message: "hi",
+			id: "m1",
+		}),
+		true,
+	);
+	assert.equal(
+		Value.Check(MemberFollowUpCommandSchema, {
+			type: "member_follow_up",
+			target: "Kelly",
+			message: "hi",
+			wait_for: "response",
+		}),
+		false,
+	);
+});
+
+test("member.follow_up / member.redirect round-trip with the delivery-ack result schema", () => {
+	const request = {
+		jsonrpc: "2.0" as const,
+		id: "m-1",
+		method: "member.follow_up" as const,
+		params: { target: "Kelly", message: "wrap up", instructions: ["careful"] },
+	};
+	assert.deepEqual(requestToCommand(request), {
+		type: "member_follow_up",
+		target: "Kelly",
+		message: "wrap up",
+		instructions: ["careful"],
+		id: "m-1",
+	});
+	assert.deepEqual(requestToCommand({ ...request, method: "member.redirect" as const }), {
+		type: "member_redirect",
+		target: "Kelly",
+		message: "wrap up",
+		instructions: ["careful"],
+		id: "m-1",
+	});
+
+	const followUp = { type: "member_follow_up" as const, target: "Kelly", message: "wrap up", id: "m-2" };
+	assert.deepEqual(commandToRequest(followUp, "m-2"), {
+		jsonrpc: "2.0",
+		id: "m-2",
+		method: "member.follow_up",
+		params: { target: "Kelly", message: "wrap up" },
+	});
+	const redirect = { type: "member_redirect" as const, target: "Kelly", message: "go", instructions: ["now"] };
+	assert.deepEqual(commandToRequest(redirect, "m-3"), {
+		jsonrpc: "2.0",
+		id: "m-3",
+		method: "member.redirect",
+		params: { target: "Kelly", message: "go", instructions: ["now"] },
+	});
+
+	// Delivery acknowledgement result with resolved identity; never a response
+	// correlation field, and the closed member.message result is not the raw
+	// target-side send ack.
+	assert.deepEqual(methodResultSchema("member.follow_up"), MemberMessageResultSchema);
+	assert.deepEqual(methodResultSchema("member.redirect"), MemberMessageResultSchema);
+	assert.equal(
+		isMemberMessageResult({
+			member: { name: "Kelly", role: "qa" },
+			deliveryId: "d-1",
+			disposition: "queued",
+		}),
+		true,
+	);
+	assert.equal(
+		isMemberMessageResult({ member: { name: "Kelly", role: "qa" }, deliveryId: "d-1", disposition: "replied" }),
+		false,
+	);
+	assert.equal(
+		isMemberMessageResult({
+			member: { name: "Kelly", role: "qa" },
+			deliveryId: "d-1",
+			disposition: "queued",
+			reply: "x",
+		}),
+		false,
+	);
+	assert.equal(isMemberMessageResult({ deliveryId: "d-1", disposition: "queued" }), false);
 });

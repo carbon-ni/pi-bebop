@@ -25,7 +25,7 @@ const cwd = "/project";
 // Command tree
 // ---------------------------------------------------------------------------
 
-test("command tree: home, send, crew init, member status, session list are the public commands", () => {
+test("command tree: home, send, crew init, member status, session list, member follow-up, member redirect are the public commands", () => {
 	assert.deepEqual(parseCliCommand([], cwd), { command: "home" });
 	assert.equal(parseCliCommand(["send", "--socket", "/x", "--message", "m"], cwd).command, "send");
 	assert.equal(parseCliCommand(["crew", "init"], cwd).command, "crew-init");
@@ -37,7 +37,7 @@ test("command tree: home, send, crew init, member status, session list are the p
 test("usage errors name valid alternatives", () => {
 	assert.throws(
 		() => parseCliCommand(["frobnicate"], cwd),
-		/valid commands: send, crew init, member status, session list/,
+		/valid commands: send, crew init, member status, session list, member follow-up, member redirect/,
 	);
 	// send with no target still reports the target requirement (not a framework help dump)
 	assert.throws(() => parseCliCommand(["send"], cwd), /Choose exactly one target/);
@@ -272,7 +272,7 @@ test("gap: text format is concise plain text, never TOON/JSON keys", async () =>
 	const textUsage = await usageOutput(["bogus", "--format", "text"]);
 	assert.equal(
 		textUsage.trim(),
-		"Invalid command 'bogus'; valid commands: send, crew init, member status, session list",
+		"Invalid command 'bogus'; valid commands: send, crew init, member status, session list, member follow-up, member redirect",
 	);
 	assert.ok(!textUsage.includes("ok:") && !textUsage.includes('{"'), "text usage has no structured scaffolding");
 	// success text is a short human line
@@ -358,7 +358,7 @@ test("PO: --session is not a global/root flag today; it must be added as an expl
 	// root-global without a tested contract change.
 	assert.throws(
 		() => parseCliCommand(["--session", "abc", "send", "--socket", "/x", "--message", "m"], cwd),
-		/Invalid command '--session'; valid commands: send, crew init, member status, session list/,
+		/Invalid command '--session'; valid commands: send, crew init, member status, session list, member follow-up, member redirect/,
 	);
 });
 

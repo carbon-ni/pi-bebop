@@ -46,6 +46,14 @@ import {
 	type MemberStatusSurface,
 } from "../application/member-status-flow.ts";
 import { createMemberStatusTransport, type MemberStatusTransport } from "../infra/member-status-transport.ts";
+import {
+	createMemberMessageCoordinator,
+	sendMemberMessage,
+	MemberMessageError,
+	type MemberMessageDependencies,
+} from "../application/member-message.ts";
+import { sendRpcCommand } from "../infra/rpc-client.ts";
+import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 
 // ============================================================================
 // Subscription Management
@@ -74,6 +82,8 @@ export interface SocketState {
 	onInboxHint?: () => void;
 	/** Injectable member-status transport (TASK-0061); defaults to the shared real transport. */
 	memberStatusTransport?: MemberStatusTransport;
+	/** Injectable member-message transport/coordinator (TASK-0062); defaults to the shared real dependencies. */
+	memberMessageDependencies?: MemberMessageDependencies;
 }
 
 // ============================================================================
@@ -275,6 +285,68 @@ export async function handleCommand(
 		} catch (error) {
 			if (error instanceof MemberStatusFlowError) respond(false, "member_status_target", undefined, error.code);
 			else respond(false, "member_status_target", undefined, "transport-error");
+		} finally {
+			controller.abort();
+		}
+		return;
+	}
+
+	// Delegated message delivery (TASK-0062): a CLI asks this joined session to
+	// deliver a follow-up or redirect to a TARGET member. The session derives
+	// membership/trust from its own active runtime (never from request fields)
+	// and runs the SAME member-message application operation the in-agent tools
+	// use, with delivery intent from the command type. Accepted-delivery only:
+	// the acknowledgement carries resolved identity, deliveryId, and
+	// disposition; no response correlation is invented. The CLI's disconnect
+	// aborts the in-flight transport so a cancelled CLI cannot continue target IO.
+	if (command.type === "member_follow_up" || command.type === "member_redirect") {
+		const membership = state.membershipRuntime?.getMembership() ?? null;
+		if (!membership) {
+			respond(false, command.type, undefined, "not-joined");
+			return;
+		}
+		if (state.context?.isProjectTrusted?.() !== true) {
+			respond(false, command.type, undefined, "untrusted");
+			return;
+		}
+		const dependencies = state.memberMessageDependencies ?? {
+			transport: { send: sendRpcCommand },
+			resolveEndpoint: resolveMemberEndpoint,
+			coordinator: createMemberMessageCoordinator(),
+		};
+		const controller = new AbortController();
+		const onDisconnect = () => controller.abort();
+		socket.once("close", onDisconnect);
+		socket.once("error", onDisconnect);
+		try {
+			const outcome = await sendMemberMessage(
+				{
+					membership,
+					member: command.target,
+					message: command.message,
+					instructions: command.instructions,
+					intent: command.type === "member_redirect" ? "immediate" : "follow_up",
+					signal: controller.signal,
+				},
+				dependencies,
+			);
+			respond(true, command.type, {
+				member: { name: outcome.target.name, role: outcome.target.role },
+				deliveryId: outcome.deliveryId,
+				disposition: outcome.disposition,
+			});
+		} catch (error) {
+			if (error instanceof MemberMessageError) respond(false, command.type, undefined, error.code);
+			else if (error instanceof Error && error.name === "AbortError")
+				respond(false, command.type, undefined, "aborted");
+			else {
+				const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+				if (systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN")
+					respond(false, command.type, undefined, "offline");
+				else if (error instanceof Error && /timed? ?out|timeout/i.test(error.message))
+					respond(false, command.type, undefined, "timeout");
+				else respond(false, command.type, undefined, "transport-error");
+			}
 		} finally {
 			controller.abort();
 		}

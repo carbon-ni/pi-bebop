@@ -166,6 +166,82 @@ export const MemberStatusTargetCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+
+/**
+ * Delegated message delivery (CLI -> source session, TASK-0062): one bounded
+ * target label, verbatim message content (bounded, non-blank), ordered
+ * instructions within the Message Payload limits, and explicit delivery
+ * intent via the command type (member_follow_up vs member_redirect). The CLI
+ * never supplies source identity; the source session runs the shared
+ * member-message application operation. Accepted-delivery only: the result
+ * is the delivery acknowledgement (deliveryId + disposition), never a
+ * response correlation.
+ */
+const MemberMessageContentSchema = Type.String({
+	minLength: 1,
+	maxLength: MAX_MESSAGE_CONTENT_BYTES,
+});
+export const MemberMessageParamsSchema = Type.Object(
+	{
+		target: MemberStatusTargetSchema,
+		message: MemberMessageContentSchema,
+		instructions: MessageInstructionsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberFollowUpParamsSchema = MemberMessageParamsSchema;
+export const MemberRedirectParamsSchema = MemberMessageParamsSchema;
+export const MemberFollowUpRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.follow_up"),
+		params: MemberFollowUpParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberRedirectRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.redirect"),
+		params: MemberRedirectParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberFollowUpCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_follow_up"),
+		target: MemberStatusTargetSchema,
+		message: MemberMessageContentSchema,
+		instructions: MessageInstructionsSchema,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+export const MemberRedirectCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_redirect"),
+		target: MemberStatusTargetSchema,
+		message: MemberMessageContentSchema,
+		instructions: MessageInstructionsSchema,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+/** Delivery acknowledgement to the CLI: resolved member identity plus the
+ * delivery ack. Accepted-delivery only; never a response correlation. */
+export const MemberMessageResultSchema = Type.Object(
+	{
+		member: Type.Object(
+			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
+			{ additionalProperties: false },
+		),
+		deliveryId: Type.String({ minLength: 1 }),
+		disposition: Type.Union([Type.Literal("direct"), Type.Literal("queued"), Type.Literal("steered")]),
+	},
+	{ additionalProperties: false },
+);
 export const MAX_MEMBER_IDLE_WAIT_TIMEOUT = 600;
 const MemberIdleWaitTimeoutSchema = Type.Integer({ minimum: 1, maximum: MAX_MEMBER_IDLE_WAIT_TIMEOUT });
 /** One-shot idle wait: one bounded member label and an optional bounded timeout. */
@@ -222,6 +298,8 @@ export const KnownRequestSchema = Type.Union([
 	PresenceHintRequestSchema,
 	MemberStatusRequestSchema,
 	MemberStatusTargetRequestSchema,
+	MemberFollowUpRequestSchema,
+	MemberRedirectRequestSchema,
 	MemberIdleWaitRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
@@ -281,6 +359,7 @@ export const RpcMethodResultSchema = Type.Union([
 	SubscribeResultSchema,
 	PresenceHintResultSchema,
 	MemberStatusResultSchema,
+	MemberMessageResultSchema,
 	MemberIdleWaitSubscribeResultSchema,
 	EmptyResultSchema,
 ]);
@@ -328,6 +407,15 @@ export type MemberStatusCommand = Static<typeof MemberStatusCommandSchema>;
 export type MemberStatusResult = Static<typeof MemberStatusResultSchema>;
 export type MemberStatusTargetParams = Static<typeof MemberStatusTargetParamsSchema>;
 export type MemberStatusTargetCommand = Static<typeof MemberStatusTargetCommandSchema>;
+export type MemberMessageParams = Static<typeof MemberMessageParamsSchema>;
+export type MemberFollowUpParams = Static<typeof MemberFollowUpParamsSchema>;
+export type MemberRedirectParams = Static<typeof MemberRedirectParamsSchema>;
+export type MemberFollowUpCommand = Static<typeof MemberFollowUpCommandSchema>;
+export type MemberRedirectCommand = Static<typeof MemberRedirectCommandSchema>;
+export type MemberMessageResult = Static<typeof MemberMessageResultSchema>;
+export function isMemberMessageResult(value: unknown): value is MemberMessageResult {
+	return Value.Check(MemberMessageResultSchema, value);
+}
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
 export type PresenceHintResult = Static<typeof PresenceHintResultSchema>;
 export type MessageSendParams = Static<typeof MessageSendParamsSchema>;
@@ -362,6 +450,8 @@ export type RpcCommand =
 	| Static<typeof PresenceHintCommandSchema>
 	| Static<typeof MemberStatusCommandSchema>
 	| Static<typeof MemberStatusTargetCommandSchema>
+	| Static<typeof MemberFollowUpCommandSchema>
+	| Static<typeof MemberRedirectCommandSchema>
 	| Static<typeof MemberIdleWaitCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
@@ -375,6 +465,8 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof PresenceHintCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusTargetCommandSchema>>
+	| RequiredId<Static<typeof MemberFollowUpCommandSchema>>
+	| RequiredId<Static<typeof MemberRedirectCommandSchema>>
 	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
@@ -504,19 +596,23 @@ export function methodResultSchema(method: string) {
 					? MemberStatusResultSchema
 					: method === "member.status_target"
 						? MemberStatusResultSchema
-						: method === "member.idle_wait"
-							? MemberIdleWaitSubscribeResultSchema
-							: method === "session.get_message"
-								? GetMessageResultSchema
-								: method === "session.clear"
-									? ClearResultSchema
-									: method === "session.abort"
-										? EmptyResultSchema
-										: method === "event.subscribe"
-											? SubscribeResultSchema
-											: method === "presence.hint"
-												? PresenceHintResultSchema
-												: undefined;
+						: method === "member.follow_up"
+							? MemberMessageResultSchema
+							: method === "member.redirect"
+								? MemberMessageResultSchema
+								: method === "member.idle_wait"
+									? MemberIdleWaitSubscribeResultSchema
+									: method === "session.get_message"
+										? GetMessageResultSchema
+										: method === "session.clear"
+											? ClearResultSchema
+											: method === "session.abort"
+												? EmptyResultSchema
+												: method === "event.subscribe"
+													? SubscribeResultSchema
+													: method === "presence.hint"
+														? PresenceHintResultSchema
+														: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -607,6 +703,28 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status", params: { member: command.member } };
 	if (command.type === "member_status_target")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status_target", params: { target: command.target } };
+	if (command.type === "member_follow_up")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "member.follow_up",
+			params: {
+				target: command.target,
+				message: command.message,
+				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+			},
+		};
+	if (command.type === "member_redirect")
+		return {
+			jsonrpc: JSON_RPC_VERSION,
+			id,
+			method: "member.redirect",
+			params: {
+				target: command.target,
+				message: command.message,
+				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+			},
+		};
 	if (command.type === "member_idle_wait")
 		return {
 			jsonrpc: JSON_RPC_VERSION,
@@ -667,6 +785,28 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 	if (request.method === "member.status_target") {
 		if (!Value.Check(MemberStatusTargetParamsSchema, params)) return invalid("Invalid member.status_target params");
 		return { type: "member_status_target", target: (params as MemberStatusTargetParams).target, id: request.id };
+	}
+	if (request.method === "member.follow_up") {
+		if (!Value.Check(MemberFollowUpParamsSchema, params)) return invalid("Invalid member.follow_up params");
+		const delivery = params as MemberFollowUpParams;
+		return {
+			type: "member_follow_up",
+			target: delivery.target,
+			message: delivery.message,
+			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+			id: request.id,
+		};
+	}
+	if (request.method === "member.redirect") {
+		if (!Value.Check(MemberRedirectParamsSchema, params)) return invalid("Invalid member.redirect params");
+		const delivery = params as MemberRedirectParams;
+		return {
+			type: "member_redirect",
+			target: delivery.target,
+			message: delivery.message,
+			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+			id: request.id,
+		};
 	}
 	if (request.method === "member.idle_wait") {
 		if (!Value.Check(MemberIdleWaitParamsSchema, params)) return invalid("Invalid member.idle_wait params");

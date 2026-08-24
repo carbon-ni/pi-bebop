@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPresenceObserver } from "../application/presence-observer.ts";
+import { createMemberMessageCoordinator } from "../application/member-message.ts";
 
 import {
 	activateMembershipTool,
@@ -773,4 +774,191 @@ test("member_status_target aborts in-flight target IO when the CLI disconnects",
 	assert.equal(requestStatusCalls, 0);
 	const response = JSON.parse(writes[0]!);
 	assert.equal(response.error?.message, "aborted");
+});
+
+// ============================================================================
+// TASK-0062: delegated message delivery (member_follow_up / member_redirect)
+// ============================================================================
+
+interface MessageAck {
+	readonly deliveryId: string;
+	readonly disposition: "direct" | "queued" | "steered";
+}
+
+function messageState(
+	ack: MessageAck | Error,
+	manifestMembers: Array<{ name: string; role: string; socket: string }> = [
+		{ name: "Tony", role: "lead", socket: "/project/.pi/bebop/sockets/lead.sock" },
+		{ name: "Mary", role: "po", socket: "/project/.pi/bebop/sockets/po.sock" },
+		{ name: "Kelly", role: "qa", socket: "/project/.pi/bebop/sockets/qa.sock" },
+		{ name: "Dimmy", role: "qa", socket: "/project/.pi/bebop/sockets/qa2.sock" },
+	],
+): {
+	state: ReturnType<typeof createSocketState>;
+	socket: { write: (value: string) => boolean; once: () => never };
+	writes: string[];
+	sent: string[];
+} {
+	const writes: string[] = [];
+	const socket = {
+		write: (value: string) => {
+			writes.push(value);
+			return true;
+		},
+		once: () => socket,
+	} as never;
+	const state = createSocketState();
+	state.server = {} as never;
+	const sockets = manifestMembers.map((member) => ({
+		name: member.name,
+		role: member.role,
+		socket: member.socket,
+		socketPath: member.socket,
+	}));
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: "/project/.pi/bebop/sockets/lead.sock",
+			member: { name: "Tony", role: "lead", socketPath: "/project/.pi/bebop/sockets/lead.sock" },
+			manifest: { members: sockets },
+		}),
+	} as never;
+	state.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "session", getSessionName: () => null, getEntries: () => [] },
+		isIdle: () => false,
+		hasPendingMessages: () => false,
+		isProjectTrusted: () => true,
+	} as never;
+	const sent: string[] = [];
+	state.memberMessageDependencies = {
+		transport: {
+			send: async (endpoint, command) => {
+				sent.push(`${endpoint}:${command.type}`);
+				if (ack instanceof Error) throw ack;
+				return { response: { type: "response", command: "send", success: true, data: ack, id: command.id } };
+			},
+		},
+		resolveEndpoint: async (socketPath) => socketPath,
+		coordinator: createMemberMessageCoordinator(),
+	} as never;
+	return { state, socket, writes, sent };
+}
+
+test("member_follow_up delegates to the shared member-message op: queued and direct acknowledgements", async () => {
+	for (const disposition of ["queued", "direct"] as const) {
+		const { state, socket, writes, sent } = messageState({ deliveryId: `d-${disposition}`, disposition });
+		await handleCommand(
+			{} as never,
+			state,
+			{ type: "member_follow_up", target: "Kelly", message: "wrap up", id: "fu-1" },
+			socket,
+		);
+		const response = JSON.parse(writes[0]!);
+		assert.equal(response.result.member.name, "Kelly");
+		assert.equal(response.result.member.role, "qa");
+		assert.equal(response.result.deliveryId, `d-${disposition}`);
+		assert.equal(response.result.disposition, disposition);
+		assert.equal(sent[0], "/project/.pi/bebop/sockets/qa.sock:send");
+	}
+});
+
+test("member_redirect delegates with immediate intent: steered and direct acknowledgements", async () => {
+	for (const disposition of ["steered", "direct"] as const) {
+		const { state, socket, writes, sent } = messageState({ deliveryId: `d-${disposition}`, disposition });
+		await handleCommand(
+			{} as never,
+			state,
+			{ type: "member_redirect", target: "po", message: "change course", id: "rd-1" },
+			socket,
+		);
+		const response = JSON.parse(writes[0]!);
+		assert.equal(response.result.member.name, "Mary");
+		assert.equal(response.result.disposition, disposition);
+		assert.equal(sent[0], "/project/.pi/bebop/sockets/po.sock:send");
+	}
+});
+
+test("member message delivery rejects unknown/ambiguous/self targets with stable codes", async () => {
+	const cases: Array<{ target: string; code: string }> = [
+		{ target: "qa", code: "ambiguous-member" },
+		{ target: "nobody", code: "unknown-member" },
+		{ target: "Tony", code: "self-send" },
+	];
+	const { state, socket, writes } = messageState({ deliveryId: "d-1", disposition: "direct" });
+	for (const [index, item] of cases.entries()) {
+		await handleCommand(
+			{} as never,
+			state,
+			{ type: "member_follow_up", target: item.target, message: "hi", id: `fu-${index}` },
+			socket,
+		);
+		const response = JSON.parse(writes[index]!);
+		assert.equal(response.error?.message, item.code, item.target);
+	}
+});
+
+test("member message delivery requires joined and trusted membership before any transport", async () => {
+	const unjoined = messageState({ deliveryId: "d-1", disposition: "direct" });
+	unjoined.state.membershipRuntime = null;
+	await handleCommand(
+		{} as never,
+		unjoined.state,
+		{ type: "member_follow_up", target: "Kelly", message: "hi", id: "fu-u" },
+		unjoined.socket,
+	);
+	assert.equal(JSON.parse(unjoined.writes[0]!).error?.message, "not-joined");
+
+	const untrusted = messageState({ deliveryId: "d-1", disposition: "direct" });
+	untrusted.state.context = {
+		...untrusted.state.context,
+		isProjectTrusted: () => false,
+	} as never;
+	await handleCommand(
+		{} as never,
+		untrusted.state,
+		{ type: "member_follow_up", target: "Kelly", message: "hi", id: "fu-t" },
+		untrusted.socket,
+	);
+	assert.equal(JSON.parse(untrusted.writes[0]!).error?.message, "untrusted");
+	assert.equal(untrusted.sent.length, 0);
+});
+
+test("member message delivery maps offline, timeout, abort, and invalid ack distinctly", async () => {
+	const offlineError = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+	const offline = messageState(offlineError);
+	await handleCommand(
+		{} as never,
+		offline.state,
+		{ type: "member_redirect", target: "Mary", message: "x", id: "rd-o" },
+		offline.socket,
+	);
+	assert.equal(JSON.parse(offline.writes[0]!).error?.message, "offline");
+
+	const timeout = messageState(new Error("RPC request timeout"));
+	await handleCommand(
+		{} as never,
+		timeout.state,
+		{ type: "member_follow_up", target: "Mary", message: "x", id: "fu-t" },
+		timeout.socket,
+	);
+	assert.equal(JSON.parse(timeout.writes[0]!).error?.message, "timeout");
+
+	const aborted = messageState(Object.assign(new Error("Operation aborted"), { name: "AbortError" }));
+	await handleCommand(
+		{} as never,
+		aborted.state,
+		{ type: "member_follow_up", target: "Mary", message: "x", id: "fu-a" },
+		aborted.socket,
+	);
+	assert.equal(JSON.parse(aborted.writes[0]!).error?.message, "aborted");
+
+	const invalidAck = messageState(new Error("nope"));
+	await handleCommand(
+		{} as never,
+		invalidAck.state,
+		{ type: "member_follow_up", target: "Mary", message: "x", id: "fu-i" },
+		invalidAck.socket,
+	);
+	assert.equal(JSON.parse(invalidAck.writes[0]!).error?.message, "transport-error");
 });
