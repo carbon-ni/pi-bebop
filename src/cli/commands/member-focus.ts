@@ -148,6 +148,15 @@ export interface MemberFocusCliDependencies {
 	readonly environmentSession: () => string | undefined;
 }
 
+export function mapMemberFocusTransportError(error: unknown): { ok: false; code: string } {
+	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+	const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+	if (systemCode === "ENOENT") return { ok: false, code: "unknown-session" };
+	if (systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN") return { ok: false, code: "offline-session" };
+	if (error instanceof Error && /timeout/i.test(error.message)) return { ok: false, code: "timeout" };
+	return { ok: false, code: "transport-error" };
+}
+
 async function deliverFocus(source: SourceResolution & { ok: true }, command: FocusCommand, signal: AbortSignal) {
 	try {
 		const { response } = await sendRpcCommand(source.idSocketPath, command, { timeout: 5000, signal });
@@ -157,10 +166,7 @@ async function deliverFocus(source: SourceResolution & { ok: true }, command: Fo
 	} catch (error) {
 		if (error instanceof RpcProtocolError && error.code === "remote-error")
 			return { ok: false as const, code: error.message.replace(/^remote-error:\s*/, "") };
-		if (error instanceof Error && error.name === "AbortError") return { ok: false as const, code: "aborted" };
-		if (error instanceof Error && /timeout/i.test(error.message)) return { ok: false as const, code: "timeout" };
-		const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-		return { ok: false as const, code: code === "ENOENT" ? "unknown-session" : "transport-error" };
+		return mapMemberFocusTransportError(error);
 	}
 }
 export const defaultMemberFocusCliDependencies: MemberFocusCliDependencies = {
