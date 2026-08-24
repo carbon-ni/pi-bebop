@@ -1,7 +1,7 @@
 ---
 id: TASK-0060
 title: Define CLI parity for membership tools
-status: todo
+status: doing
 depends_on: [TASK-0056]
 priority: high
 tags: [cli, tools, axi, protocol, product]
@@ -61,17 +61,25 @@ code load a manifest and impersonate a member.
 
 ## Acceptance criteria
 
-- [ ] One matrix maps every tool input, default, success result, error code, delivery semantics, and cancellation behavior to one non-interactive CLI command.
-- [ ] Command names use stable product language and remain grouped under `member` or `crew`; no command collides with existing `send` or `crew init` behavior.
-- [ ] Source-session selection contract fixes command-local `--session` placement, explicit-over-environment precedence, safe ID/alias validation, alias/ID resolution, missing/offline/unjoined errors, local-socket trust assumptions, and copyable recovery hints.
-- [ ] `session list` provides deterministic bounded source discovery with explicit empty state and privacy exclusions; missing/unknown-session errors point to it.
-- [ ] Message-taking commands consistently support `--message` or `--stdin`, ordered `--instruction` where the tool does, UTF-8 limits, and deterministic empty-input errors.
-- [ ] Immediate redirect, normal follow-up, durable inbox, hard interrupt, and broadcast remain separate commands; CLI terminology does not blur their different guarantees.
-- [ ] Follow-up/Redirect deliberately expose accepted-delivery only; CLI has no `wait_for` flag and explicitly states response correlation is unsupported.
-- [ ] Status/focus/wait commands preserve privacy boundaries, target-offline status semantics, self-target rejection, ambiguous-role handling, Focus set/clear semantics, and dash-leading Focus through `--`.
-- [ ] `--timeout` has one duration grammar across commands; idle wait separately defines connection/setup deadline, semantic operation deadline, response grace, and terminal precedence.
-- [ ] All outputs use existing TOON default and JSON/text opt-ins with exit 0/1/2; successful persistence/delivery never overclaims completion.
-- [ ] Inbox send syntax is effect-bearing (`member inbox send`) and reserves `member inbox status|pause|resume|cancel` for possible future local Inbox management.
-- [ ] Root/home and local help expose the new commands plus session discovery compactly without dumping all tool documentation.
-- [ ] Scope explicitly excludes Pi built-in tools (`read`, `bash`, `edit`, `write`) and covers Bebop membership tools only.
+- [x] One matrix maps every tool input, default, success result, error code, delivery semantics, and cancellation behavior to one non-interactive CLI command.
+- [x] Command names use stable product language and remain grouped under `member` or `crew`; no command collides with existing `send` or `crew init` behavior.
+- [x] Source-session selection contract fixes command-local `--session` placement, explicit-over-environment precedence, safe ID/alias validation, alias/ID resolution, missing/offline/unjoined errors, local-socket trust assumptions, and copyable recovery hints.
+- [x] `session list` provides deterministic bounded source discovery with explicit empty state and privacy exclusions; missing/unknown-session errors point to it.
+- [x] Message-taking commands consistently support `--message` or `--stdin`, ordered `--instruction` where the tool does, UTF-8 limits, and deterministic empty-input errors.
+- [x] Immediate redirect, normal follow-up, durable inbox, hard interrupt, and broadcast remain separate commands; CLI terminology does not blur their different guarantees.
+- [x] Follow-up/Redirect deliberately expose accepted-delivery only; CLI has no `wait_for` flag and explicitly states response correlation is unsupported.
+- [x] Status/focus/wait commands preserve privacy boundaries, target-offline status semantics, self-target rejection, ambiguous-role handling, Focus set/clear semantics, and dash-leading Focus through `--`.
+- [x] `--timeout` has one duration grammar across commands; idle wait separately defines connection/setup deadline, semantic operation deadline, response grace, and terminal precedence.
+- [x] All outputs use existing TOON default and JSON/text opt-ins with exit 0/1/2; successful persistence/delivery never overclaims completion.
+- [x] Inbox send syntax is effect-bearing (`member inbox send`) and reserves `member inbox status|pause|resume|cancel` for possible future local Inbox management.
+- [x] Root/home and local help expose the new commands plus session discovery compactly without dumping all tool documentation.
+- [x] Scope explicitly excludes Pi built-in tools (`read`, `bash`, `edit`, `write`) and covers Bebop membership tools only.
+
+## Decision artifacts
+
+- Human contract and rationale: `docs/CLI-MEMBERSHIP-PARITY.md`.
+- Normative machine-readable matrix: `docs/cli-membership-parity.json`.
+- Deterministic completeness/current-tool-schema guard: `src/cli/membership-parity-contract.test.ts`.
+
+TASK-0060 changes no standalone CLI membership parser, RPC action, handler, or runtime behavior. TASK-0061 owns the first vertical slice.
 
