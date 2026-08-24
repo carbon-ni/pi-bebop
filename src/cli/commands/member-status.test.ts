@@ -221,6 +221,7 @@ test("member status run: operational failures exit 1 with stable codes", async (
 		"timeout",
 		"aborted",
 		"transport-error",
+		"malformed-response",
 		"not-joined",
 		"unknown-member",
 		"ambiguous-member",
