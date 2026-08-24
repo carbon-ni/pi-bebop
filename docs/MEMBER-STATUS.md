@@ -3,7 +3,7 @@
 Member Status is an on-demand, privacy-safe coordination snapshot for one
 configured crew member. It answers two different questions honestly:
 
-1. Is member Pi runtime reachable and mechanically idle or busy?
+1. Is member Pi runtime reachable and mechanically idle, busy, or compacting?
 2. What short crew-visible Focus has member explicitly chosen to publish?
 
 It does not inspect conversation to infer work. Member Description is separate:
@@ -33,6 +33,7 @@ Activity is live Pi control-flow state:
 - `idle` — `ctx.isIdle()` reports runtime settled;
 - `busy` — Pi is processing agent run, retry, compaction retry, or queued
   continuation;
+- `compacting` — Pi is performing context maintenance; this is not available/idle.
 - `unavailable` — member endpoint is offline, so no live state exists.
 
 `hasPendingMessages` is separate mechanical boolean from

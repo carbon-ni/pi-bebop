@@ -58,7 +58,7 @@ Choose least disruptive operation that solves coordination need.
 | Need | Capability | Typical user | Behavior |
 | --- | --- | --- | --- |
 | Inspect reachability | `/crew members` | Any joined member | Shows current/online/offline only; online does not mean available. |
-| Inspect timing and stated work | `get_member_status` | Usually lead, but any joined member | Returns live `idle|busy`, pending-message signal, and optional self-reported Focus. Never reads conversation. |
+| Inspect timing and stated work | `get_member_status` | Usually lead, but any joined member | Returns live `idle|busy|compacting`, pending-message signal, and optional self-reported Focus. Never reads conversation. |
 | Publish stated work | `update_member_focus` | Every member for themselves | Sets or clears bounded crew-visible Focus note. It is not verified progress. |
 | Normal targeted coordination | `send_follow_up` | Any joined member | Safe default. Waits behind target active work. |
 | Durable targeted message | `send_to_inbox` | Any joined member | Persists for online/offline recipient and survives restart. Success means persisted, not completed. |
