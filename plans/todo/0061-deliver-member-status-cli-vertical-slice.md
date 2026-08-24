@@ -49,3 +49,6 @@ independently widen a central switch/union.
 - [ ] CLI and tool parity tests assert equivalent stable codes and semantic status data.
 - [ ] Existing RPC and CLI commands remain compatible; local socket permissions are documented as control boundary.
 - [ ] Packaged CLI proves one real end-to-end status query against a joined test session.
+- [ ] Every status result contains `observedAt` as canonical UTC RFC3339 with millisecond precision (`YYYY-MM-DDTHH:mm:ss.sssZ`): online preserves validated target observation time; offline records source-session time when the reachability probe terminates; CLI never invents or rewrites it.
+- [ ] Source resolution/connect and status probe/RPC each have a fixed 5-second deadline; timeout is exit 1/code `timeout`, abort is exit 1/code `aborted`, and all timers/listeners are removed once.
+- [ ] The packaged proof uses a joined source and configured target through real temporary Unix control sockets, without a mocked CLI handler, dispatcher, renderer, or RPC codec, and asserts online and offline semantic results.

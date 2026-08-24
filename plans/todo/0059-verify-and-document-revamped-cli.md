@@ -33,6 +33,9 @@ public commands.
 - [ ] Package lock, production dependency classification, license, build bundle, package file list, and consumer fixture are verified.
 - [ ] Focused coverage meets the existing risk gate for parser, dispatch, handlers, status, messaging, persistence, interrupt, Focus, idle waiting, output, and packaged entrypoint; no command-critical branch is uncovered.
 - [ ] Final complexity/module graph confirms no CLI cycles, thin composition root, and removal of manual parser hotspots.
+- [ ] For `src/cli/**` plus new membership RPC/action/handler modules, final coverage is 100% functions, at least 95% lines, and at least 90% branches. Every stable result/error-to-exit mapping, validation-before-IO branch, cancellation cleanup path, and output format has a named test regardless of aggregate coverage.
+- [ ] Record UTF-8 byte counts (no ANSI, LF endings) for success, usage error, operational error, empty list, and 100-session truncated-list fixtures in TOON/JSON/text. Any documented size comparison cites these exact fixtures; no format is called smaller unless its measured count is lower for that fixture.
+- [ ] Final analysis reports zero CLI module cycles, `runCli` cyclomatic complexity ≤5, and every leaf handler ≤10; exceeding a limit blocks close-out.
 
 ## Release note
 

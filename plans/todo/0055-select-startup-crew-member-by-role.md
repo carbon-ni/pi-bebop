@@ -32,7 +32,7 @@ from roles.
 - [ ] Tests first cover one exact role match and prove it joins the manifest-configured socket without filename guessing.
 - [ ] `pi --crew-role <role>` starts the control server and activates/persists membership exactly like `--crew-socket`.
 - [ ] Role matching is exact and case-sensitive; unknown and duplicate roles fail explicitly and leave the session unjoined.
-- [ ] Unknown-role errors list configured roles in bounded form; ambiguous-role errors direct the user to `--crew-socket`.
+- [ ] Unknown-role errors include at most the first 8 distinct configured roles in manifest order, omit names and paths, and include exact `omittedRoleCount`; zero configured roles returns an empty list and count 0. Ambiguous-role errors list no members/paths and direct the user to `--crew-socket`.
 - [ ] Empty role input fails explicitly; member names are not accepted as roles.
 - [ ] `--crew-role` reads only supported manifests beneath trusted `ctx.cwd`; an untrusted project is rejected before manifest IO.
 - [ ] Missing supported manifest fails explicitly without starting a partial membership.
