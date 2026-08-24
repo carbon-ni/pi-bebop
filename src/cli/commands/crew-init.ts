@@ -31,7 +31,8 @@ export function buildCrewInitCommand(): Command {
 		.description("Scaffold a canonical .pi/bebop software crew in a project")
 		.option("--project <directory>", "Target project root (default: current working directory)")
 		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
-		.showHelpAfterError(false);
+		.showHelpAfterError(false)
+		.helpOption(false); // --help handled by the app pre-pass; no short aliases
 }
 
 /** Reads the parsed leaf values from a command that was parsed with injected argv. */
