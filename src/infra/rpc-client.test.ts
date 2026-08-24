@@ -762,6 +762,25 @@ test("sendMemberIdleWait returns timeout when the deadline expires before a term
 	);
 });
 
+test("sendMemberIdleWait maps each stable remote rejection category", async () => {
+	for (const message of ["not-joined", "unknown member", "ambiguous role", "self-wait", "other rejection"]) {
+		await withSocketServer(
+			(socket) =>
+				lines(socket, (request) =>
+					send(socket, { jsonrpc: "2.0", id: request.id, error: { code: -32000, message } }),
+				),
+			async (socketPath) => {
+				const outcome = await sendMemberIdleWait(
+					socketPath,
+					{ type: "member_idle_wait", member: "Bob" },
+					{ timeoutSeconds: 1 },
+				);
+				assert.deepEqual(outcome, { ok: false, code: "remote-rejected" });
+			},
+		);
+	}
+});
+
 test("sendMemberIdleWait classifies endpoint errno and capacity outcomes", async () => {
 	const outcome = await sendMemberIdleWait(
 		`/tmp/missing-idle-ENOENT.sock`,
@@ -863,6 +882,124 @@ test("sendMemberIdleWait maps remote rejection and malformed terminal results", 
 				{ timeoutSeconds: 10 },
 			);
 			assert.deepEqual(outcome, { ok: false, code: "malformed-response" });
+		},
+	);
+});
+
+test("sendMemberRequest maps remote errors, invalid results, and mismatched ids", async () => {
+	for (const mode of ["error", "invalid", "mismatch"] as const) {
+		await withSocketServer(
+			(socket) =>
+				lines(socket, (request) =>
+					send(
+						socket,
+						mode === "error"
+							? {
+									jsonrpc: "2.0",
+									id: request.id,
+									error: { code: -32000, message: "not-joined", data: { code: "not-joined" } },
+								}
+							: { jsonrpc: "2.0", id: mode === "mismatch" ? "wrong" : request.id, result: {} },
+					),
+				),
+			async (socketPath) => {
+				await assert.rejects(
+					() =>
+						sendMemberRequest(
+							socketPath,
+							{
+								type: "member_request",
+								id: "r",
+								requestId: "r",
+								payload: { content: "x" },
+								timeoutSeconds: 1,
+							},
+							{ onUpdate: () => undefined },
+						),
+					/RPC|Invalid|mismatched|not-joined/i,
+				);
+			},
+		);
+	}
+});
+
+test("sendMemberRequest reports offline terminal closure and caller close idempotently", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "member.request") {
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { accepted: true, requestId: "r-off", member: { name: "Bob", role: "dev" } },
+					});
+					setTimeout(() => socket.end(), 2);
+				}
+			}),
+		async (socketPath) => {
+			const updates: unknown[] = [];
+			const result = await sendMemberRequest(
+				socketPath,
+				{
+					type: "member_request",
+					id: "r-off",
+					requestId: "r-off",
+					payload: { content: "x" },
+					timeoutSeconds: 1,
+				},
+				{ onUpdate: (update) => updates.push(update) },
+			);
+			result.close();
+			result.close();
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			assert.equal(updates.length, 1);
+			assert.equal((updates[0] as { kind: string }).kind, "offline");
+		},
+	);
+});
+
+test("sendMemberRequest covers pre-acceptance rejection and terminal lifecycle branches", async () => {
+	const controller = new AbortController();
+	controller.abort(new Error("cancelled"));
+	await assert.rejects(
+		() =>
+			sendMemberRequest(
+				"/tmp/not-used.sock",
+				{ type: "member_request", id: "r", requestId: "r", payload: { content: "x" }, timeoutSeconds: 1 },
+				{ signal: controller.signal, onUpdate: () => undefined },
+			),
+		/cancelled/,
+	);
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) =>
+				send(socket, {
+					jsonrpc: "2.0",
+					method: "member.update",
+					params: {
+						kind: "response",
+						requestId: "r",
+						member: { name: "Bob", role: "dev" },
+						message: "early",
+					},
+				}),
+			),
+		async (socketPath) => {
+			await assert.rejects(
+				() =>
+					sendMemberRequest(
+						socketPath,
+						{
+							type: "member_request",
+							id: "r",
+							requestId: "r",
+							payload: { content: "x" },
+							timeoutSeconds: 1,
+						},
+						{ onUpdate: () => undefined },
+					),
+				/out-of-order-update/,
+			);
 		},
 	);
 });

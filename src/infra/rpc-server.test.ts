@@ -320,6 +320,40 @@ test("writeEvent ignores closed socket write errors", () => {
 	);
 });
 
+test("writeResponse maps every command method and non-durable failures", () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	for (const [index, command] of [
+		"status",
+		"send",
+		"interrupt",
+		"member_status",
+		"member_status_target",
+		"member_request",
+		"member_response",
+		"member_interrupt",
+		"member_focus",
+		"member_follow_up",
+		"member_redirect",
+		"member_inbox_send",
+		"crew_broadcast",
+		"member_idle_wait",
+		"get_message",
+		"clear",
+		"abort",
+		"subscribe",
+		"presence_hint",
+	].entries())
+		writeResponse(socket, {
+			type: "response",
+			command,
+			success: false,
+			error: "remote-rejected",
+			id: `r-${index}`,
+		} as never);
+	assert.equal(writes.length, 19);
+});
+
 test("writeResponse maps non-durable failures and member response commands", () => {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
