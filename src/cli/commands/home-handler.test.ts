@@ -25,6 +25,20 @@ test("home reports missing scaffold with crew init next command", async () => {
 	}
 });
 
+test("home falls back to executable name and preserves paths without HOME", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-home-"));
+	try {
+		const outcome = await runHomeCommand(dir, [], {}, "");
+		if (outcome.kind !== "result") return;
+		const data = outcome.result.data as Record<string, unknown>;
+		assert.equal(data.executable, "pi-bebop");
+		assert.equal(data.project, dir);
+		assert.equal(data.scaffold, "missing");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("home reports present scaffold with socket next command", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-home-"));
 	try {

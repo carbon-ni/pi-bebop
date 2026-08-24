@@ -7,7 +7,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { errorCode, runCli } from "./main.ts";
+import { errorCode, isCliEntrypoint, runCli } from "./main.ts";
 import { crewInitHelp, MEMBER_FOCUS_ENTRY_TYPE } from "../domain/index.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
@@ -49,6 +49,13 @@ async function withEndpoint(
 		await rm(dir, { recursive: true, force: true });
 	}
 }
+
+test("CLI entrypoint detection only accepts the packaged main module", () => {
+	assert.equal(isCliEntrypoint("/tmp/dist/cli/main.js", "file:///tmp/dist/cli/main.js"), true);
+	assert.equal(isCliEntrypoint(undefined, "file:///tmp/dist/cli/main.js"), false);
+	assert.equal(isCliEntrypoint("/tmp/dist/cli/other.js", "file:///tmp/dist/cli/main.js"), false);
+	assert.equal(isCliEntrypoint("/tmp/dist/cli/main.js", "file:///tmp/dist/cli/other.js"), false);
+});
 
 test("runs against a live Unix socket and sends ordered instructions and claimed origin", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-"));

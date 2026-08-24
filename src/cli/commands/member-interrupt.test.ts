@@ -39,6 +39,7 @@ function deps(overrides: Partial<MemberInterruptCliDependencies> = {}): MemberIn
 
 test("interrupt transport mapper covers protocol and socket errors", () => {
 	assert.deepEqual(mapInterruptTransportError(new Error("other")), { ok: false, code: "transport-error" });
+	assert.deepEqual(mapInterruptTransportError("other"), { ok: false, code: "transport-error" });
 	assert.deepEqual(mapInterruptTransportError(Object.assign(new Error("abort"), { name: "AbortError" })), {
 		ok: false,
 		code: "aborted",
