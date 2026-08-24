@@ -163,6 +163,6 @@ test("packaged CLI trusted dispatcher rejects durable writes when runtime trust 
 		"json",
 	]);
 	assert.equal(outcome.code, 1, `${outcome.stdout}${outcome.stderr}`);
-	assert.match(outcome.stdout, /transport-error/);
+	assert.match(outcome.stdout, /untrusted-project/);
 	assert.equal(await fixture.stores.mary.count(), 0);
 });

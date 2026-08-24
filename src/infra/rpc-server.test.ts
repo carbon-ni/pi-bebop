@@ -195,6 +195,19 @@ test("writeResponse serializes strict presence hint acknowledgements", () => {
 	assert.deepEqual(JSON.parse(writes[0]!), { jsonrpc: "2.0", id: "hint", result: { accepted: true } });
 });
 
+test("writeResponse preserves durable application error codes for CLI mapping", () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	writeResponse(socket, {
+		type: "response",
+		command: "crew_broadcast",
+		success: false,
+		error: "untrusted-project",
+		id: "broadcast-error",
+	});
+	assert.deepEqual(JSON.parse(writes[0]!).error.data, { code: "untrusted-project" });
+});
+
 test("writeResponse ignores closed socket write errors", () => {
 	const socket = {
 		write() {

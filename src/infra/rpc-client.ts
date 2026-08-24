@@ -190,7 +190,7 @@ export async function sendRpcCommand(
 				seenIds.add(value.id);
 				const isPrimary = value.id === requestId;
 				if ("error" in value) {
-					settle(new RpcProtocolError("remote-error", value.error.message));
+					settle(new RpcProtocolError(value.error.data?.code ?? "remote-error", value.error.message));
 					return;
 				}
 				const method = isPrimary ? request.method : "event.subscribe";
