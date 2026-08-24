@@ -260,7 +260,7 @@ test("per-tool result shapes are closed (no unapproved fields)", () => {
 		send_follow_up: ["status", "fields", "disposition", "exit"],
 		redirect_member: ["status", "fields", "disposition", "exit"],
 		send_to_inbox: ["status", "fields", "hint", "exit"],
-		broadcast_to_crew: ["status", "fields", "recipientFields", "recipientDisposition", "exit"],
+		broadcast_to_crew: ["status", "fields", "recipientFields", "recipientDisposition", "recipientPairing", "exit"],
 		interrupt_member: ["status", "fields", "disposition", "exit"],
 		get_member_status: ["status", "fields", "online", "offline", "exit"],
 		update_member_focus: ["status", "fields", "rules", "exit"],
@@ -443,6 +443,84 @@ test("frozen enums: formats, exits, membership, and result discriminators", () =
 	const statusResult = entry("get_member_status").result.online as { activity: string[]; focus: string[] };
 	assertArrayEqualSets(statusResult.activity, ["idle", "busy"], "status activity");
 	assertArrayEqualSets(statusResult.focus, ["reported", "unspecified"], "status focus");
+});
+
+test("terminal result.status and ordered result.fields are exact for all eight tools", () => {
+	const expected: Record<string, { status: unknown; fields: string[] }> = {
+		send_follow_up: {
+			status: "accepted",
+			fields: ["member.name", "member.role", "deliveryId", "disposition"],
+		},
+		redirect_member: {
+			status: "accepted",
+			fields: ["member.name", "member.role", "deliveryId", "disposition"],
+		},
+		send_to_inbox: {
+			status: "persisted",
+			fields: ["member.name", "member.role", "itemId", "persisted", "hint"],
+		},
+		broadcast_to_crew: {
+			status: ["persisted", "partial"],
+			fields: ["broadcastId", "persisted", "alreadyPersisted", "failed", "total", "recipients"],
+		},
+		interrupt_member: {
+			status: "accepted",
+			fields: ["member.name", "member.role", "interruptId", "disposition"],
+		},
+		get_member_status: {
+			status: "observed",
+			fields: ["member.name", "member.role", "presence", "activity", "hasPendingMessages", "focus", "observedAt"],
+		},
+		update_member_focus: {
+			status: ["updated", "cleared", "unchanged"],
+			fields: ["focus.state", "focus.text", "focus.updatedAt"],
+		},
+		wait_for_member_idle: {
+			status: "observed",
+			fields: ["member.name", "member.role", "outcome", "disposition", "observedAt"],
+		},
+	};
+	for (const item of contract.tools) {
+		assert.deepEqual(item.result.status, expected[item.tool]!.status, `${item.tool} result.status`);
+		assert.deepEqual(item.result.fields, expected[item.tool]!.fields, `${item.tool} result.fields (exact order)`);
+	}
+});
+
+test("discriminated nested result shapes are exact for all eight tools", () => {
+	const status = entry("get_member_status");
+	assert.deepEqual(status.result.online, {
+		activity: ["idle", "busy"],
+		hasPendingMessages: "boolean",
+		focus: ["reported", "unspecified"],
+	});
+	assert.deepEqual(status.result.offline, {
+		activity: "unavailable",
+		hasPendingMessages: "unavailable",
+		focus: "unavailable",
+	});
+
+	const focus = entry("update_member_focus");
+	assert.deepEqual(focus.result.status, ["updated", "cleared", "unchanged"]);
+	assert.deepEqual(focus.result.fields, ["focus.state", "focus.text", "focus.updatedAt"]);
+	assert.match(String(focus.result.rules), /clear while unspecified is unchanged/i);
+
+	const idle = entry("wait_for_member_idle");
+	assert.deepEqual(idle.result.outcome, ["idle", "offline", "timeout"]);
+	assert.deepEqual(idle.result.idleDisposition, ["already-idle", "became-idle"]);
+
+	assert.deepEqual(entry("send_follow_up").result.disposition, ["direct", "queued"]);
+	assert.deepEqual(entry("redirect_member").result.disposition, ["direct", "steered"]);
+	assert.deepEqual(entry("interrupt_member").result.disposition, ["direct", "interrupt-requested"]);
+	assert.deepEqual(entry("send_to_inbox").result.hint, ["sent", "skipped"]);
+});
+
+test("broadcast recipient fields, disposition, and code pairing are exact", () => {
+	const broadcast = entry("broadcast_to_crew");
+	assert.deepEqual(broadcast.result.recipientFields, ["member", "role", "itemId", "disposition", "code"]);
+	assert.deepEqual(broadcast.result.recipientDisposition, ["persisted", "already-persisted", "failed"]);
+	assert.match(String(broadcast.result.recipientPairing), /failed/);
+	assert.match(String(broadcast.result.recipientPairing), /no code/);
+	assert.match(broadcast.delivery, /one independent non-interrupting Inbox copy/);
 });
 
 test("per-tool exit shapes are closed: success 0, broadcast partial 1", () => {

@@ -16,7 +16,11 @@
 	"formats": {
 		"default": "toon",
 		"alternatives": ["json", "text"],
-		"exitCodes": { "successOrExpectedOutcome": 0, "operational": 1, "usage": 2 }
+		"exitCodes": {
+			"successOrExpectedOutcome": 0,
+			"operational": 1,
+			"usage": 2
+		}
 	},
 	"errorPolicy": {
 		"inherited": "every membership action inherits sourceSelection.errors as part of its closed vocabulary",
@@ -102,7 +106,11 @@
 		},
 		"successStatus": "listed",
 		"operationalErrors": ["control-store-unavailable"],
-		"exit": { "listedOrEmpty": 0, "operational": 1, "usage": 2 }
+		"exit": {
+			"listedOrEmpty": 0,
+			"operational": 1,
+			"usage": 2
+		}
 	},
 	"sharedInputs": {
 		"memberTarget": {
@@ -133,7 +141,10 @@
 			"trim": "each instruction is trimmed and non-empty",
 			"optional": true
 		},
-		"format": { "flag": "--format toon|json|text", "default": "toon" }
+		"format": {
+			"flag": "--format toon|json|text",
+			"default": "toon"
+		}
 	},
 	"pendingDecisions": [
 		{
@@ -149,7 +160,11 @@
 				"pi-bebop member follow-up <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
 			],
 			"inputs": ["memberTarget", "message", "instructions", "sourceSelection", "format"],
-			"defaults": { "instructions": [], "format": "toon", "waitFor": "accepted-only; no CLI flag" },
+			"defaults": {
+				"instructions": [],
+				"format": "toon",
+				"waitFor": "accepted-only; no CLI flag"
+			},
 			"result": {
 				"status": "accepted",
 				"fields": ["member.name", "member.role", "deliveryId", "disposition"],
@@ -174,7 +189,11 @@
 				"pi-bebop member redirect <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
 			],
 			"inputs": ["memberTarget", "message", "instructions", "sourceSelection", "format"],
-			"defaults": { "instructions": [], "format": "toon", "waitFor": "accepted-only; no CLI flag" },
+			"defaults": {
+				"instructions": [],
+				"format": "toon",
+				"waitFor": "accepted-only; no CLI flag"
+			},
 			"result": {
 				"status": "accepted",
 				"fields": ["member.name", "member.role", "deliveryId", "disposition"],
@@ -199,7 +218,10 @@
 				"pi-bebop member inbox send <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
 			],
 			"inputs": ["memberTarget", "message", "instructions", "sourceSelection", "format"],
-			"defaults": { "instructions": [], "format": "toon" },
+			"defaults": {
+				"instructions": [],
+				"format": "toon"
+			},
 			"result": {
 				"status": "persisted",
 				"fields": ["member.name", "member.role", "itemId", "persisted", "hint"],
@@ -237,7 +259,11 @@
 				"fields": ["broadcastId", "persisted", "alreadyPersisted", "failed", "total", "recipients"],
 				"recipientFields": ["member", "role", "itemId", "disposition", "code"],
 				"recipientDisposition": ["persisted", "already-persisted", "failed"],
-				"exit": { "allPersistedOrAlready": 0, "partial": 1 }
+				"exit": {
+					"allPersistedOrAlready": 0,
+					"partial": 1
+				},
+				"recipientPairing": "each failed recipient pairs disposition failed with a stable store-mapped code; persisted and already-persisted recipients carry no code"
 			},
 			"errors": [
 				"unknown-sender",
@@ -265,7 +291,11 @@
 				"pi-bebop member interrupt <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
 			],
 			"inputs": ["memberTarget", "message", "instructions", "sourceSelection", "format"],
-			"defaults": { "instructions": [], "format": "toon", "target": "must be online" },
+			"defaults": {
+				"instructions": [],
+				"format": "toon",
+				"target": "must be online"
+			},
 			"result": {
 				"status": "accepted",
 				"fields": ["member.name", "member.role", "interruptId", "disposition"],
@@ -292,7 +322,9 @@
 			"tool": "get_member_status",
 			"commands": ["pi-bebop member status <member> [--session <id|alias>] [--format toon|json|text]"],
 			"inputs": ["memberTarget", "sourceSelection", "format"],
-			"defaults": { "format": "toon" },
+			"defaults": {
+				"format": "toon"
+			},
 			"result": {
 				"status": "observed",
 				"fields": [
@@ -309,7 +341,11 @@
 					"hasPendingMessages": "boolean",
 					"focus": ["reported", "unspecified"]
 				},
-				"offline": { "activity": "unavailable", "hasPendingMessages": "unavailable", "focus": "unavailable" },
+				"offline": {
+					"activity": "unavailable",
+					"hasPendingMessages": "unavailable",
+					"focus": "unavailable"
+				},
 				"exit": 0
 			},
 			"errors": ["unknown-member", "ambiguous-member", "self-query", "remote-rejected"],
@@ -328,7 +364,9 @@
 				"focusText": "required only for set; trimmed, single-line, NUL-free, maximum 256 UTF-8 bytes",
 				"dashLeading": "all flags precede --; text after -- is preserved verbatim"
 			},
-			"defaults": { "format": "toon" },
+			"defaults": {
+				"format": "toon"
+			},
 			"result": {
 				"status": ["updated", "cleared", "unchanged"],
 				"fields": ["focus.state", "focus.text", "focus.updatedAt"],
@@ -346,9 +384,14 @@
 			],
 			"inputs": ["memberTarget", "sourceSelection", "format", "timeout"],
 			"inputContract": {
-				"timeout": "shared duration grammar; exact whole 1–600 seconds only; reject sub/non-whole seconds without rounding"
+				"timeout": "shared duration grammar; exact whole 1\u2013600 seconds only; reject sub/non-whole seconds without rounding"
 			},
-			"defaults": { "format": "toon", "timeout": "5m", "setupDeadline": "5s", "responseGrace": "5s" },
+			"defaults": {
+				"format": "toon",
+				"timeout": "5m",
+				"setupDeadline": "5s",
+				"responseGrace": "5s"
+			},
 			"result": {
 				"status": "observed",
 				"fields": ["member.name", "member.role", "outcome", "disposition", "observedAt"],
