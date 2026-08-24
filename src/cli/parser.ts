@@ -4,7 +4,7 @@ import { createCliRegistry } from "./registry.ts";
 import { isCliFormat } from "./commands/crew-init.ts";
 import { readSendLeafOptions, type SendLeafOptions } from "./commands/send.ts";
 import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
-import { UsageError, type CliFormat, type SendCliOptions } from "./arguments.ts";
+import { UsageError, type CliFormat, type CliCommand, type HomeCliOptions, type SendCliOptions } from "./arguments.ts";
 
 export interface DeclarativeCrewInitOptions {
 	readonly command: "crew-init";
@@ -313,4 +313,34 @@ function mapSendCommanderError(error: CommanderError): UsageError {
 		return new UsageError(`Unknown flag '${positional}'; valid flags: ${SEND_VALID_FLAGS}`);
 	}
 	return new UsageError(error.message);
+}
+
+// ============================================================================
+// TASK-0063: top-level parse dispatch (moved here so arguments.ts stays a pure
+// type/error module — arguments↔parser had a runtime import cycle).
+// ============================================================================
+
+/**
+ * Compatibility surface for the characterized `send` parser (same signature and
+ * semantics as the deleted token loop). Validates the command word, then
+ * delegates tokenization + semantic validation to the declarative facade.
+ */
+export function parseCliArguments(args: string[], cwd = process.cwd()): SendCliOptions {
+	if (args[0] !== "send") throw new UsageError(`Invalid command '${args[0] ?? ""}'; valid command: send`);
+	return parseSendCommand(args.slice(1), cwd);
+}
+
+/**
+ * Top-level command dispatch. Exactly two commands are supported: `send`
+ * (declarative since TASK-0058) and `crew init` (declarative since TASK-0057),
+ * plus the no-argument home state. Unknown commands report valid alternatives
+ * and exit 2 before any filesystem/network dependency is called.
+ */
+export function parseCliCommand(args: string[], cwd = process.cwd()): CliCommand {
+	if (args.length === 0) return { command: "home" };
+	const command = args[0];
+	if (command === "send") return parseCliArguments(args, cwd);
+	if (command !== "crew") throw new UsageError(`Invalid command '${command ?? ""}'; valid commands: send, crew init`);
+	if (args[1] !== "init") throw new UsageError(`Invalid command 'crew ${args[1] ?? ""}'; valid command: crew init`);
+	return parseCrewInitCommand(args.slice(2), cwd);
 }

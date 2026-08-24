@@ -11,6 +11,29 @@ export interface CliResult {
 	readonly turnIndex?: number;
 }
 
+/**
+ * TASK-0063: renderable outcome produced by every command handler. Help is
+ * raw deterministic bytes (zero IO); results carry their own format/full
+ * flags so the single renderer boundary never needs command knowledge.
+ */
+export type CliOutcome =
+	| { readonly kind: "result"; readonly result: CliResult; readonly format: CliFormat; readonly full: boolean }
+	| { readonly kind: "help"; readonly text: string };
+
+/**
+ * The single renderer boundary: one output write per invocation. Exit codes
+ * are derived here: usage 2, help 0, success 0, operational failure 1.
+ */
+export function writeOutcome(output: NodeJS.WritableStream, outcome: CliOutcome): number {
+	if (outcome.kind === "help") {
+		output.write(outcome.text);
+		return 0;
+	}
+	output.write(`${renderCliResult(outcome.result, outcome.format, outcome.full)}\n`);
+	if (outcome.result.status === "usage") return 2;
+	return outcome.result.ok ? 0 : 1;
+}
+
 const MAX_RESPONSE = 2000;
 
 export function renderCliResult(result: CliResult, format: CliFormat, full: boolean): string {
