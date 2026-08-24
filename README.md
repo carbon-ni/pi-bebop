@@ -198,10 +198,10 @@ send_follow_up({
 
 Use `redirect_member` only when the message should change active work. Both
 return an accepted delivery acknowledgement with `deliveryId` and disposition
-(`direct`, `queued`, or `steered`). `wait_for: response` is explicitly
-unsupported because Pi lifecycle events cannot prove delivery-level response
-correlation; it never consumes an unrelated global `turn_end`. Members can be addressed by unique name or role. A live endpoint owned by another session is
-never overwritten; stale endpoints may be reclaimed.
+(`direct`, `queued`, or `steered`). Ordinary Follow-up only acknowledges
+accepted delivery; use `send_member_request` when one correlated Response is
+required. Members can be addressed by unique name or role. A live endpoint
+owned by another session is never overwritten; stale endpoints may be reclaimed.
 
 ### Hard interrupt
 

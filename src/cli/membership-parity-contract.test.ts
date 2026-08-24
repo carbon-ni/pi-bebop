@@ -280,7 +280,7 @@ const MEMBER_MESSAGE_CODES: readonly MemberMessageErrorCode[] = [
 	"ambiguous-member",
 	"self-send",
 	"not-joined",
-	"response-correlation-unsupported",
+	"response-wait-requires-member-request",
 	"invalid-payload",
 	"remote-rejected",
 	"invalid-ack",
