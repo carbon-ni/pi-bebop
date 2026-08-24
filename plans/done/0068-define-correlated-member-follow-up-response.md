@@ -87,6 +87,23 @@ and self-correcting errors. Lead role instruction should only express intent:
   task verification, automatic reassignment/escalation, CLI parity, or changing
   `wait_for_member_idle`.
 
+## Approved contract decisions
+
+The coordination contract additionally fixes these bounds and race semantics:
+
+- Capacities are 8 outbound requests, 8 inbound requests, and 64 buffered
+  terminal updates; request IDs are capped at 128 bytes (UTF-8).
+- Exactly one `wait_for_crew_update` waiter may be active per source session;
+  another waiter fails immediately with `already-waiting`.
+- The 300-second deadline starts before dispatch and covers delivery plus the
+  correlated response lifecycle.
+- A pre-accept failure cleans up both source and target state. If delivery is
+  accepted but its acknowledgement is lost, the result is `outcome-unknown`
+  and the request channel closes.
+- A response wins a same-settled idle race. Otherwise the first atomic terminal
+  transition wins; idle closes the request, and a later reply returns
+  `response-expired` with recovery to ordinary `send_follow_up`.
+
 ## Verification
 
 - Approve tool vocabulary, defaults, state race table, privacy, capacities,
