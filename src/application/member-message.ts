@@ -101,10 +101,14 @@ function resolveTarget(membership: CrewMembership, memberName: string): CrewMemb
 	return target;
 }
 
-export async function sendMemberMessage(
-	request: MemberMessageRequest,
-	dependencies: MemberMessageDependencies,
-): Promise<MemberMessageOutcome> {
+interface PreparedMemberDelivery {
+	readonly target: CrewMember;
+	readonly intent: MemberDeliveryIntent;
+	readonly signal?: AbortSignal;
+	readonly command: RpcCommand;
+}
+
+function prepareMemberDelivery(request: MemberMessageRequest): PreparedMemberDelivery {
 	if (!request.membership) throw new MemberMessageError("not-joined", "Not joined to a crew");
 	const intent = request.intent ?? "follow_up";
 	if (request.waitFor === "response")
@@ -126,35 +130,60 @@ export async function sendMemberMessage(
 	};
 	if (!isMessagePayload(payload))
 		throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
-	const endpoint = await dependencies.resolveEndpoint(target.socketPath);
-	const command: RpcCommand = {
-		type: "send",
-		payload,
-		delivery: intent,
+	return {
+		target,
+		intent,
+		signal: request.signal,
+		command: { type: "send", payload, delivery: intent },
 	};
-	const deliver = async (): Promise<MemberMessageOutcome> => {
-		let result: { response: RpcCommandResponse };
-		try {
-			result = await dependencies.transport.send(endpoint, command, {
-				signal: request.signal,
-				classifyLostAck: true,
-			});
-		} catch (error) {
-			const code =
-				error instanceof Error && "code" in error ? (error as Error & { code?: unknown }).code : undefined;
-			if (code === "outcome-unknown")
-				throw new MemberMessageError(
-					"outcome-unknown",
-					"Delivery outcome unknown: the target may have accepted the message but the acknowledgement was lost",
-				);
-			throw error;
-		}
-		if (!result.response.success)
-			throw new MemberMessageError("remote-rejected", result.response.error ?? "Member rejected message");
-		if (!isSendResult(result.response.data))
-			throw new MemberMessageError("invalid-ack", "Member returned an invalid delivery acknowledgement");
-		return { target, deliveryId: result.response.data.deliveryId, disposition: result.response.data.disposition };
+}
+
+async function deliverMemberMessage(
+	prepared: PreparedMemberDelivery,
+	endpoint: string,
+	transport: MemberMessageTransport,
+): Promise<MemberMessageOutcome> {
+	let result: { response: RpcCommandResponse };
+	try {
+		result = await transport.send(endpoint, prepared.command, {
+			signal: prepared.signal,
+			classifyLostAck: true,
+		});
+	} catch (error) {
+		const code = error instanceof Error && "code" in error ? (error as Error & { code?: unknown }).code : undefined;
+		if (code === "outcome-unknown")
+			throw new MemberMessageError(
+				"outcome-unknown",
+				"Delivery outcome unknown: the target may have accepted the message but the acknowledgement was lost",
+			);
+		throw error;
+	}
+	if (!result.response.success)
+		throw new MemberMessageError("remote-rejected", result.response.error ?? "Member rejected message");
+	if (!isSendResult(result.response.data))
+		throw new MemberMessageError("invalid-ack", "Member returned an invalid delivery acknowledgement");
+	return {
+		target: prepared.target,
+		deliveryId: result.response.data.deliveryId,
+		disposition: result.response.data.disposition,
 	};
-	if (intent === "immediate") return deliver();
-	return dependencies.coordinator.enqueue(endpoint, deliver, request.signal);
+}
+
+async function orderMemberDelivery(
+	prepared: PreparedMemberDelivery,
+	endpoint: string,
+	dependencies: MemberMessageDependencies,
+): Promise<MemberMessageOutcome> {
+	const deliver = () => deliverMemberMessage(prepared, endpoint, dependencies.transport);
+	if (prepared.intent === "immediate") return deliver();
+	return dependencies.coordinator.enqueue(endpoint, deliver, prepared.signal);
+}
+
+export async function sendMemberMessage(
+	request: MemberMessageRequest,
+	dependencies: MemberMessageDependencies,
+): Promise<MemberMessageOutcome> {
+	const prepared = prepareMemberDelivery(request);
+	const endpoint = await dependencies.resolveEndpoint(prepared.target.socketPath);
+	return orderMemberDelivery(prepared, endpoint, dependencies);
 }
