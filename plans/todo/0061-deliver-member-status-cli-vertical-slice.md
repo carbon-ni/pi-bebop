@@ -1,7 +1,7 @@
 ---
 id: TASK-0061
 title: Deliver member status CLI vertical slice
-status: todo
+status: doing
 depends_on: [TASK-0060, TASK-0063]
 priority: high
 tags: [cli, rpc, status, membership, security, tdd]
