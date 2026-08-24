@@ -313,6 +313,32 @@ test("dispatch barrier distinguishes pre-dispatch abort from accepted-before-ack
 		},
 	);
 
+	let durableAccepted = false;
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "crew.broadcast") return;
+				durableAccepted = true;
+				socket.end();
+			}),
+		async (socketPath) => {
+			await assert.rejects(
+				() =>
+					sendRpcCommand(
+						socketPath,
+						{ type: "crew_broadcast", message: "durable accepted then ack lost" },
+						{ timeout: 1000, classifyLostAck: true },
+					),
+				(error: unknown) => {
+					assert.equal(durableAccepted, true);
+					assert.equal(error instanceof RpcProtocolError, true);
+					assert.equal((error as RpcProtocolError).code, "outcome-unknown");
+					return true;
+				},
+			);
+		},
+	);
+
 	let abortAfterDispatch: (() => void) | undefined;
 	await withSocketServer(
 		(socket) =>

@@ -211,12 +211,12 @@ export type DurableMessageCommand =
 			readonly type: "member_inbox_send";
 			readonly target: string;
 			readonly message: string;
-			readonly instructions: readonly string[];
+			readonly instructions?: string[];
 	  }
 	| {
 			readonly type: "crew_broadcast";
 			readonly message: string;
-			readonly instructions: readonly string[];
+			readonly instructions?: string[];
 	  };
 export interface DurableMessageCliDependencies {
 	readonly resolveSource: (input: { explicitSession?: string; environmentSession?: string }) => SourceResolution;
@@ -228,9 +228,25 @@ export interface DurableMessageCliDependencies {
 	) => Promise<{ ok: true; result: MemberInboxSendResult | CrewBroadcastRpcResult } | { ok: false; code: string }>;
 	readonly environmentSession: () => string | undefined;
 }
+const REMOTE_DURABLE_CODES = new Set([
+	"not-joined",
+	"unknown-sender",
+	"unknown-member",
+	"ambiguous-role",
+	"self-send",
+	"invalid-payload",
+	"untrusted-project",
+	"inbox-full",
+	"inbox-untrusted-path",
+	"storage-unavailable",
+	"storage-failed",
+	"invalid-item-id",
+	"aborted",
+	"no-recipients",
+]);
 function transportError(error: unknown): { ok: false; code: string } {
-	if (error instanceof RpcProtocolError && error.code === "outcome-unknown")
-		return { ok: false, code: "outcome-unknown" };
+	if (error instanceof RpcProtocolError && (error.code === "outcome-unknown" || REMOTE_DURABLE_CODES.has(error.code)))
+		return { ok: false, code: error.code };
 	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
 	const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
 	if (systemCode === "ENOENT") return { ok: false, code: "unknown-session" };
@@ -245,7 +261,7 @@ async function deliverSocket(
 ) {
 	const { response } = await sendRpcCommand(
 		await resolveMemberEndpoint(source.idSocketPath),
-		{ ...command, instructions: [...command.instructions] },
+		{ ...command, ...(command.instructions === undefined ? {} : { instructions: [...command.instructions] }) },
 		{ timeout: 5000, signal, classifyLostAck: true },
 	);
 	if (!response.success) return { ok: false as const, code: response.error ?? "remote-rejected" };
@@ -296,15 +312,16 @@ export async function runDurableMessageCommand(
 		message = await deps.readStdin(context.input, context.signal);
 		validateContent(message, "stdin");
 	}
+	const instructions = options.instructions.length === 0 ? undefined : options.instructions;
 	const command: DurableMessageCommand =
 		options.intent === "inbox"
 			? {
 					type: "member_inbox_send",
 					target: options.member!,
 					message: message!,
-					instructions: options.instructions,
+					...(instructions === undefined ? {} : { instructions }),
 				}
-			: { type: "crew_broadcast", message: message!, instructions: options.instructions };
+			: { type: "crew_broadcast", message: message!, ...(instructions === undefined ? {} : { instructions }) };
 	const outcome = await deps.deliver(source, command, context.signal);
 	if (outcome.ok === false)
 		return {

@@ -301,6 +301,44 @@ describe("submitCrewBroadcast", () => {
 		assert.equal(enqueued.size, 0, "no IO after abort");
 	});
 
+	test("abort after one persistence preserves the first write and marks remaining recipients aborted", async () => {
+		const { crew } = makeCrew();
+		const enqueued = new Map<string, FakeInbox>();
+		const controller = new AbortController();
+		const base = makeDeps({ crew, enqueued });
+		let opened = 0;
+		const openStore = async (options: Parameters<typeof base.openStore>[0]) => {
+			const store = await base.openStore(options);
+			opened += 1;
+			if (opened !== 1) return store;
+			return {
+				...store,
+				enqueueWithId: async (...args: Parameters<MemberInboxStore["enqueueWithId"]>) => {
+					const result = await store.enqueueWithId(...args);
+					controller.abort();
+					return result;
+				},
+			};
+		};
+		const result = await submitCrewBroadcast(
+			{ membership: makeMembership(crew, "Bob"), message: "partial", now: 1, signal: controller.signal },
+			{ isProjectTrusted: () => true, openStore },
+		);
+		assert.equal(result.ok, true);
+		if (!result.ok) return;
+		assert.deepEqual(
+			result.dispositions.map((item) => item.status),
+			["persisted", "failed", "failed"],
+		);
+		assert.deepEqual(
+			result.dispositions.slice(1).map((item) => item.code),
+			["aborted", "aborted"],
+		);
+		assert.equal(result.summary.persisted, 1);
+		assert.equal(result.summary.failed, 2);
+		assert.equal(enqueued.size, 1, "abort stops IO for remaining recipients");
+	});
+
 	test("invalid payload rejects", async () => {
 		const { crew } = makeCrew();
 		const enqueued = new Map<string, FakeInbox>();
