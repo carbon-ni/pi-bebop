@@ -104,7 +104,15 @@ The coordination contract additionally fixes these bounds and race semantics:
   transition wins; idle closes the request, and a later reply returns
   `response-expired` with recovery to ordinary `send_follow_up`.
 
+## Approved contract decisions (product closure)
+
+- Capacities are fixed at 8 active outbound requests, 8 active inbound requests, 64 buffered terminal updates, and 128 UTF-8 bytes per `request_id`. Overflow rejects before delivery and never evicts existing state.
+- Exactly one `wait_for_crew_update` waiter is allowed per session. A second concurrent waiter returns `already-waiting`.
+- The deadline starts at local register-before-dispatch and covers delivery plus response. Failure/rejection before accepted removes both sides and returns a delivery error. Lost acknowledgement after acceptance preserves existing `outcome-unknown` semantics and closes the request.
+- Terminal arbitration is atomic: response beats idle within the same settled boundary; otherwise the first accepted terminal event wins among response, idle, offline, and timeout. Later events are ignored or recovery-only.
+- `idle-without-response` closes the request. A later response receives `response-expired` recovery via ordinary Follow-up.
+
 ## Verification
 
-- Approve tool vocabulary, defaults, state race table, privacy, capacities,
-  errors, and minimal lead instruction before TASK-0071.
+- Approve tool vocabulary, defaults, state race table, privacy, capacities, errors, and minimal lead instruction before TASK-0071.
+
