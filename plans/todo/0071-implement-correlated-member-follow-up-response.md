@@ -2,7 +2,7 @@
 id: TASK-0071
 title: Implement correlated crew-update coordination loop
 status: todo
-depends_on: [TASK-0068]
+depends_on: [TASK-0068, TASK-0072]
 priority: high
 tags: [crew, messaging, response, correlation, orchestration, protocol, tdd]
 ---
@@ -25,8 +25,10 @@ Implement TASK-0068 through isolated seams:
   `wait_for_crew_update` tool adapters;
 - composition and concise prompt guidelines in `src/extension.ts`.
 
-Reuse exact-name/unique-role resolution, structured Message Payload, and normal
-Follow-up enqueue behavior. Domain owns no Pi, socket, timer, or filesystem IO.
+Build on TASK-0072's explicit preparation/delivery seams. Reuse
+exact-name/unique-role resolution, structured Message Payload, and normal
+Follow-up enqueue behavior without growing the legacy send orchestrator. Domain
+owns no Pi, socket, timer, or filesystem IO.
 
 ## Acceptance criteria
 
