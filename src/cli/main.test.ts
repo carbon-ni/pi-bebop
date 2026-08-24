@@ -8,7 +8,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { errorCode, runCli } from "./main.ts";
-import { crewInitHelp } from "../domain/index.ts";
+import { crewInitHelp, createOnlineMemberStatus } from "../domain/index.ts";
+import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-server.ts";
+import { createMemberStatusFlow } from "../application/member-status-flow.ts";
+import { createMemberStatusTransport } from "../infra/member-status-transport.ts";
 import { decode } from "@toon-format/toon";
 
 const execFile = promisify(execFileCallback);
@@ -290,6 +293,139 @@ test("packaged artifact exposes the member status and session list leaves determ
 		assert.equal(code, 0, args.join(" "));
 		assert.match(stdout, /pi-bebop member status|pi-bebop session list/);
 	}
+});
+
+/**
+ * Packaged proof (TASK-0061): the built dist CLI, a joined source session, and
+ * a configured target member through real temporary Unix control sockets —
+ * no mocked CLI handler, dispatcher, renderer, or RPC codec. The source
+ * session runs the same member-status flow as production; the target answers
+ * self-status. Online and offline semantic results are asserted end to end.
+ */
+async function packagedMemberStatusQuery(options: {
+	envHome: string;
+	sessionId: string;
+	target: string;
+	format?: string;
+}): Promise<{ code: number; stdout: string }> {
+	const artifact = path.resolve("dist/cli/main.js");
+	const args = [
+		artifact,
+		"member",
+		"status",
+		options.target,
+		"--session",
+		options.sessionId,
+		...(options.format === undefined ? [] : ["--format", options.format]),
+	];
+	const child = spawn(process.execPath, args, {
+		env: { ...process.env, HOME: options.envHome },
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	let stdout = "";
+	child.stdout.setEncoding("utf8");
+	child.stdout.on("data", (chunk) => {
+		stdout += chunk;
+	});
+	const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
+	return { code, stdout };
+}
+
+test("packaged CLI proves a real end-to-end status query with online then offline target", async (t) => {
+	const root = await mkdtemp(path.join(tmpdir(), "bebop-packaged-"));
+	const controlDir = path.join(root, ".pi", "bebop");
+	await mkdir(controlDir, { recursive: true });
+	const sourceSocket = path.join(controlDir, "source-session-1.sock");
+	const targetSocket = path.join(controlDir, "target.sock");
+
+	const transport = createMemberStatusTransport(5000);
+	const targetServer = await createRpcServer(targetSocket, async (command, socket) => {
+		if (command.type !== "member_status") return;
+		const status = createOnlineMemberStatus({
+			member: { name: "Kelly", role: "qa" },
+			isIdle: false,
+			hasPendingMessages: true,
+			focus: { state: "reported", text: "Packaged proof", updatedAt: "2026-08-23T12:00:00.000Z" },
+			observedAt: "2026-08-23T12:03:00.000Z",
+		});
+		writeResponse(socket, {
+			type: "response",
+			command: "member_status",
+			success: true,
+			data: { status },
+			id: command.id,
+		});
+	});
+	const sourceServer = await createRpcServer(sourceSocket, async (command, socket) => {
+		if (command.type !== "member_status_target") return;
+		const flow = createMemberStatusFlow({
+			getMembership: () => ({
+				manifestPath: "/project/.pi/bebop/crew.json",
+				socketPath: sourceSocket,
+				member: { name: "Tony", role: "lead", socketPath: sourceSocket },
+				manifest: { members: [{ name: "Kelly", role: "qa", socketPath: targetSocket }] },
+			}),
+			isTrusted: () => true,
+			isIdle: () => false,
+			hasPendingMessages: () => false,
+			getEntries: () => [],
+			appendEntry: () => undefined,
+			probeEndpoint: transport.probeEndpoint,
+			requestStatus: transport.requestStatus,
+			now: () => "2026-08-23T12:03:00.000Z",
+		});
+		try {
+			const status = await flow.queryStatus(command.target ?? "");
+			writeResponse(socket, {
+				type: "response",
+				command: "member_status_target",
+				success: true,
+				data: { status },
+				id: command.id,
+			});
+		} catch (error) {
+			writeResponse(socket, {
+				type: "response",
+				command: "member_status_target",
+				success: false,
+				error: error instanceof Error ? error.message : "transport-error",
+				id: command.id,
+			});
+		}
+	});
+	t.after(async () => {
+		await closeRpcServer(sourceServer);
+		await closeRpcServer(targetServer);
+		await rm(root, { recursive: true, force: true });
+	});
+
+	// Online: configured target answers self-status; CLI exit 0, presence online.
+	const online = await packagedMemberStatusQuery({
+		envHome: root,
+		sessionId: "source-session-1",
+		target: "Kelly",
+		format: "json",
+	});
+	assert.equal(online.code, 0, online.stdout);
+	const onlineDecoded = JSON.parse(online.stdout);
+	assert.equal(onlineDecoded.status, "observed");
+	assert.equal(onlineDecoded.data.status.presence, "online");
+	assert.equal(onlineDecoded.data.status.member.name, "Kelly");
+	assert.equal(onlineDecoded.data.status.observedAt, "2026-08-23T12:03:00.000Z");
+
+	// Offline: target stops; probe terminates and the source records its own time.
+	await closeRpcServer(targetServer);
+	const offline = await packagedMemberStatusQuery({
+		envHome: root,
+		sessionId: "source-session-1",
+		target: "Kelly",
+		format: "json",
+	});
+	assert.equal(offline.code, 0, offline.stdout);
+	const offlineDecoded = JSON.parse(offline.stdout);
+	assert.equal(offlineDecoded.status, "observed");
+	assert.equal(offlineDecoded.data.status.presence, "offline");
+	assert.equal(offlineDecoded.data.status.activity, "unavailable");
 });
 
 test("uses injected output for selected-format usage errors", async () => {
