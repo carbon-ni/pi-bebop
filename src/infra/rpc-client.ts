@@ -41,6 +41,7 @@ export type MemberIdleWaitClientOutcome =
 				| "remote-rejected"
 				| "capacity-exceeded"
 				| "transport-error";
+			readonly transportCode?: "ENOENT" | "ECONNREFUSED" | "ENOTCONN";
 	  };
 
 export interface MemberIdleWaitClientOptions {
@@ -335,7 +336,12 @@ export async function sendMemberIdleWait(
 				subscriptionAcknowledged = true;
 			}
 		});
-		socket.on("error", () => finish({ ok: false, code: "transport-error" }));
+		socket.on("error", (error) => {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTCONN")
+				finish({ ok: false, code: "transport-error", transportCode: code });
+			else finish({ ok: false, code: "transport-error" });
+		});
 		socket.on("end", () => finish({ ok: false, code: "offline" }));
 		socket.on("close", () => {
 			if (!settled && !terminalReceived) finish({ ok: false, code: "offline" });
