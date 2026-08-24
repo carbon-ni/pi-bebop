@@ -25,7 +25,7 @@ const cwd = "/project";
 // Command tree
 // ---------------------------------------------------------------------------
 
-test("command tree: home, send, crew init are the only public commands", () => {
+test("command tree: home, send, crew init, member status, session list are the public commands", () => {
 	assert.deepEqual(parseCliCommand([], cwd), { command: "home" });
 	assert.equal(parseCliCommand(["send", "--socket", "/x", "--message", "m"], cwd).command, "send");
 	assert.equal(parseCliCommand(["crew", "init"], cwd).command, "crew-init");
@@ -35,7 +35,10 @@ test("command tree: home, send, crew init are the only public commands", () => {
 });
 
 test("usage errors name valid alternatives", () => {
-	assert.throws(() => parseCliCommand(["frobnicate"], cwd), /valid commands: send, crew init/);
+	assert.throws(
+		() => parseCliCommand(["frobnicate"], cwd),
+		/valid commands: send, crew init, member status, session list/,
+	);
 	// send with no target still reports the target requirement (not a framework help dump)
 	assert.throws(() => parseCliCommand(["send"], cwd), /Choose exactly one target/);
 });
@@ -267,7 +270,10 @@ test("gap: timeout default 5m equals explicit --timeout 5m and parses unit forms
 test("gap: text format is concise plain text, never TOON/JSON keys", async () => {
 	// usage in text mode is the bare message, no ok:/status:/error: scaffolding
 	const textUsage = await usageOutput(["bogus", "--format", "text"]);
-	assert.equal(textUsage.trim(), "Invalid command 'bogus'; valid commands: send, crew init");
+	assert.equal(
+		textUsage.trim(),
+		"Invalid command 'bogus'; valid commands: send, crew init, member status, session list",
+	);
 	assert.ok(!textUsage.includes("ok:") && !textUsage.includes('{"'), "text usage has no structured scaffolding");
 	// success text is a short human line
 	const success: CliResult = { ok: true, target: "/x", status: "created", response: "Scaffolded crew" };
@@ -352,7 +358,7 @@ test("PO: --session is not a global/root flag today; it must be added as an expl
 	// root-global without a tested contract change.
 	assert.throws(
 		() => parseCliCommand(["--session", "abc", "send", "--socket", "/x", "--message", "m"], cwd),
-		/Invalid command '--session'; valid commands: send, crew init/,
+		/Invalid command '--session'; valid commands: send, crew init, member status, session list/,
 	);
 });
 

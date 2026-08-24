@@ -53,6 +53,8 @@ function methodForCommand(command: string): string | undefined {
 			return "message.interrupt";
 		case "member_status":
 			return "member.status";
+		case "member_status_target":
+			return "member.status_target";
 		case "member_idle_wait":
 			return "member.idle_wait";
 		case "get_message":

@@ -40,6 +40,12 @@ import {
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 import type { PresenceObserver } from "../application/presence-observer.ts";
 import { createInterruptFlow } from "../application/interrupt-flow.ts";
+import {
+	createMemberStatusFlow,
+	MemberStatusFlowError,
+	type MemberStatusSurface,
+} from "../application/member-status-flow.ts";
+import { createMemberStatusTransport, type MemberStatusTransport } from "../infra/member-status-transport.ts";
 
 // ============================================================================
 // Subscription Management
@@ -66,6 +72,8 @@ export interface SocketState {
 	membershipRuntime: MembershipRuntime | null;
 	presenceObserver?: PresenceObserver;
 	onInboxHint?: () => void;
+	/** Injectable member-status transport (TASK-0061); defaults to the shared real transport. */
+	memberStatusTransport?: MemberStatusTransport;
 }
 
 // ============================================================================
@@ -232,6 +240,44 @@ export async function handleCommand(
 			return;
 		}
 		respond(true, "member_status", { status });
+		return;
+	}
+
+	// Delegated member status (TASK-0061): a CLI asks this joined session for
+	// the status of a TARGET member. The session derives membership/trust from
+	// its own active runtime (never from request fields) and runs the same
+	// member-status flow/dependencies as the in-agent tool, so target
+	// resolution and privacy validation are never copied into the CLI. The
+	// CLI path uses a fixed 5s target probe, and the CLI's disconnect aborts
+	// the in-flight probe/RPC so a cancelled CLI cannot continue target IO.
+	if (command.type === "member_status_target") {
+		const transport = state.memberStatusTransport ?? createMemberStatusTransport(5000);
+		const controller = new AbortController();
+		const onDisconnect = () => controller.abort();
+		socket.once("close", onDisconnect);
+		socket.once("error", onDisconnect);
+		const surface: MemberStatusSurface = {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			isIdle: () => ctx.isIdle(),
+			hasPendingMessages: () => ctx.hasPendingMessages(),
+			getEntries: () => ctx.sessionManager.getEntries(),
+			appendEntry: () => undefined,
+			probeEndpoint: transport.probeEndpoint,
+			requestStatus: transport.requestStatus,
+			signal: controller.signal,
+			now: () => new Date().toISOString(),
+		};
+		const flow = createMemberStatusFlow(surface);
+		try {
+			const status = await flow.queryStatus(command.target);
+			respond(true, "member_status_target", { status });
+		} catch (error) {
+			if (error instanceof MemberStatusFlowError) respond(false, "member_status_target", undefined, error.code);
+			else respond(false, "member_status_target", undefined, "transport-error");
+		} finally {
+			controller.abort();
+		}
 		return;
 	}
 

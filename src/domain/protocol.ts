@@ -140,6 +140,32 @@ export const MemberStatusCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+/**
+ * Delegated read-only status query (CLI -> source session, TASK-0061): one
+ * bounded target label, no caller-selected fields. The source session runs
+ * its own authoritative member-status flow; the CLI never supplies identity.
+ */
+export const MemberStatusTargetParamsSchema = Type.Object(
+	{ target: MemberStatusTargetSchema },
+	{ additionalProperties: false },
+);
+export const MemberStatusTargetRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.status_target"),
+		params: MemberStatusTargetParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberStatusTargetCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_status_target"),
+		target: MemberStatusTargetSchema,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
 export const MAX_MEMBER_IDLE_WAIT_TIMEOUT = 600;
 const MemberIdleWaitTimeoutSchema = Type.Integer({ minimum: 1, maximum: MAX_MEMBER_IDLE_WAIT_TIMEOUT });
 /** One-shot idle wait: one bounded member label and an optional bounded timeout. */
@@ -195,6 +221,7 @@ export const KnownRequestSchema = Type.Union([
 	AbortRequestSchema,
 	PresenceHintRequestSchema,
 	MemberStatusRequestSchema,
+	MemberStatusTargetRequestSchema,
 	MemberIdleWaitRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
@@ -299,6 +326,8 @@ export type MemberStatusParams = Static<typeof MemberStatusParamsSchema>;
 export type MemberIdleWaitParams = Static<typeof MemberIdleWaitParamsSchema>;
 export type MemberStatusCommand = Static<typeof MemberStatusCommandSchema>;
 export type MemberStatusResult = Static<typeof MemberStatusResultSchema>;
+export type MemberStatusTargetParams = Static<typeof MemberStatusTargetParamsSchema>;
+export type MemberStatusTargetCommand = Static<typeof MemberStatusTargetCommandSchema>;
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
 export type PresenceHintResult = Static<typeof PresenceHintResultSchema>;
 export type MessageSendParams = Static<typeof MessageSendParamsSchema>;
@@ -332,6 +361,7 @@ export type RpcCommand =
 	| Static<typeof AbortCommandSchema>
 	| Static<typeof PresenceHintCommandSchema>
 	| Static<typeof MemberStatusCommandSchema>
+	| Static<typeof MemberStatusTargetCommandSchema>
 	| Static<typeof MemberIdleWaitCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
@@ -344,6 +374,7 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof AbortCommandSchema>>
 	| RequiredId<Static<typeof PresenceHintCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusCommandSchema>>
+	| RequiredId<Static<typeof MemberStatusTargetCommandSchema>>
 	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
@@ -471,19 +502,21 @@ export function methodResultSchema(method: string) {
 				? InterruptResultSchema
 				: method === "member.status"
 					? MemberStatusResultSchema
-					: method === "member.idle_wait"
-						? MemberIdleWaitSubscribeResultSchema
-						: method === "session.get_message"
-							? GetMessageResultSchema
-							: method === "session.clear"
-								? ClearResultSchema
-								: method === "session.abort"
-									? EmptyResultSchema
-									: method === "event.subscribe"
-										? SubscribeResultSchema
-										: method === "presence.hint"
-											? PresenceHintResultSchema
-											: undefined;
+					: method === "member.status_target"
+						? MemberStatusResultSchema
+						: method === "member.idle_wait"
+							? MemberIdleWaitSubscribeResultSchema
+							: method === "session.get_message"
+								? GetMessageResultSchema
+								: method === "session.clear"
+									? ClearResultSchema
+									: method === "session.abort"
+										? EmptyResultSchema
+										: method === "event.subscribe"
+											? SubscribeResultSchema
+											: method === "presence.hint"
+												? PresenceHintResultSchema
+												: undefined;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -572,6 +605,8 @@ export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "message.interrupt", params: { payload: command.payload } };
 	if (command.type === "member_status")
 		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status", params: { member: command.member } };
+	if (command.type === "member_status_target")
+		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status_target", params: { target: command.target } };
 	if (command.type === "member_idle_wait")
 		return {
 			jsonrpc: JSON_RPC_VERSION,
@@ -628,6 +663,10 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 	if (request.method === "member.status") {
 		if (!Value.Check(MemberStatusParamsSchema, params)) return invalid("Invalid member.status params");
 		return { type: "member_status", member: (params as MemberStatusParams).member, id: request.id };
+	}
+	if (request.method === "member.status_target") {
+		if (!Value.Check(MemberStatusTargetParamsSchema, params)) return invalid("Invalid member.status_target params");
+		return { type: "member_status_target", target: (params as MemberStatusTargetParams).target, id: request.id };
 	}
 	if (request.method === "member.idle_wait") {
 		if (!Value.Check(MemberIdleWaitParamsSchema, params)) return invalid("Invalid member.idle_wait params");

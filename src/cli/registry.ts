@@ -7,6 +7,20 @@ import { sendHelp } from "./commands/send.ts";
 import { runHomeCommand } from "./commands/home-handler.ts";
 import { runCrewInitCommand } from "./commands/crew-init-handler.ts";
 import { runSendCommand } from "./commands/send-handler.ts";
+import {
+	parseMemberStatusCommand,
+	runMemberStatusCommand,
+	memberStatusHelp,
+	buildMemberStatusCommand,
+	type MemberStatusCliOptions,
+} from "./commands/member-status.ts";
+import {
+	parseSessionListCommand,
+	runSessionListCommand,
+	sessionListHelp,
+	buildSessionListCommand,
+	type SessionListCliOptions,
+} from "./commands/session-list.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./arguments.ts";
 import type { CliContext } from "./context.ts";
 import type { CliOutcome } from "./output.ts";
@@ -180,8 +194,28 @@ const crewInitLeaf: CliLeaf = {
 	run: (options, context) => runCrewInitCommand(options as CrewInitCliOptions, context.cwd),
 };
 
+/** TASK-0061: `member status <member>` leaf — one registry contribution. */
+const memberStatusLeaf: CliLeaf = {
+	id: "member-status",
+	names: ["member", "status"],
+	build: () => buildMemberStatusCommand(),
+	help: () => memberStatusHelp(),
+	parse: (tokens, cwd) => parseMemberStatusCommand([...tokens], cwd),
+	run: (options, context) => runMemberStatusCommand(options as MemberStatusCliOptions, context),
+};
+
+/** TASK-0061: `session list` leaf — one registry contribution. */
+const sessionListLeaf: CliLeaf = {
+	id: "session-list",
+	names: ["session", "list"],
+	build: () => buildSessionListCommand(),
+	help: () => sessionListHelp(),
+	parse: (tokens, cwd) => parseSessionListCommand([...tokens], cwd),
+	run: (options, context) => runSessionListCommand(options as SessionListCliOptions, context),
+};
+
 export function createCliRegistry(): CliRegistry {
-	return composeRegistry([homeLeaf, sendLeaf, crewInitLeaf]);
+	return composeRegistry([homeLeaf, sendLeaf, crewInitLeaf, memberStatusLeaf, sessionListLeaf]);
 }
 
 /** Convenience: parse against the built-in registry (registry-driven vocabulary). */

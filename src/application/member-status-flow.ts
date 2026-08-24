@@ -59,11 +59,14 @@ export interface MemberStatusSurface {
 	readonly getEntries: () => readonly unknown[];
 	readonly appendEntry: (customType: string, data?: unknown) => void;
 	/** Finite-time endpoint reachability; failure is a compact offline result, never an error. */
-	readonly probeEndpoint: (socketPath: string) => Promise<boolean>;
+	readonly probeEndpoint: (socketPath: string, signal?: AbortSignal) => Promise<boolean>;
 	readonly requestStatus: (
 		socketPath: string,
 		memberLabel: string,
+		signal?: AbortSignal,
 	) => Promise<{ ok: true; status: MemberStatus } | { ok: false; code: MemberStatusFlowErrorCode }>;
+	/** Cancellation signal propagated into the target probe/RPC (never leaves this surface). */
+	readonly signal?: AbortSignal;
 	readonly now: () => string;
 }
 
@@ -99,10 +102,10 @@ export function createMemberStatusFlow(surface: MemberStatusSurface) {
 		const observedAt = surface.now();
 
 		// Probe is the reachability boundary: failure is a compact offline result.
-		const alive = await surface.probeEndpoint(target.socketPath);
+		const alive = await surface.probeEndpoint(target.socketPath, surface.signal);
 		if (!alive) return createOfflineMemberStatus(identityOf(target), observedAt);
 
-		const outcome = await surface.requestStatus(target.socketPath, target.name);
+		const outcome = await surface.requestStatus(target.socketPath, target.name, surface.signal);
 		if (outcome.ok === false)
 			throw new MemberStatusFlowError(outcome.code, `Member status query failed: ${outcome.code}`);
 		const status = outcome.status;

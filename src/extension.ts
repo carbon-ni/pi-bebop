@@ -22,10 +22,11 @@ import {
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
+import { createMemberStatusTransport } from "./infra/member-status-transport.ts";
 import { sendMemberIdleWait, sendRpcCommand } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
-import { isMemberStatusResult, type MemberIdleWaitCommand } from "./domain/index.ts";
+import { type MemberIdleWaitCommand } from "./domain/index.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -111,28 +112,7 @@ export default function (pi: ExtensionAPI) {
 	registerSendToInboxTool(pi, state);
 	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
 	registerInterruptMemberTool(pi, state);
-	registerGetMemberStatusTool(pi, state, {
-		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
-		requestStatus: async (endpoint, memberLabel) => {
-			try {
-				const resolved = await resolveMemberEndpoint(endpoint);
-				const { response } = await sendRpcCommand(
-					resolved,
-					{ type: "member_status", member: memberLabel },
-					{ timeout: 5000 },
-				);
-				if (!response.success)
-					return { ok: false, code: response.error === "timeout" ? "timeout" : "remote-rejected" };
-				if (!isMemberStatusResult(response.data)) return { ok: false, code: "malformed-response" };
-				return { ok: true, status: response.data.status };
-			} catch (error) {
-				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
-				const message = error instanceof Error ? error.message : "";
-				if (/timed? ?out|timeout/i.test(message)) return { ok: false, code: "timeout" };
-				return { ok: false, code: "transport-error" };
-			}
-		},
-	});
+	registerGetMemberStatusTool(pi, state, createMemberStatusTransport());
 	registerUpdateMemberFocusTool(pi, state);
 	registerWaitForMemberIdleTool(pi, state, {
 		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),

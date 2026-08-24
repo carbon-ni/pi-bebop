@@ -54,6 +54,8 @@ import {
 	MemberStatusCommandSchema,
 	MemberStatusResultSchema,
 	isMemberStatusResult,
+	MemberStatusTargetParamsSchema,
+	MemberStatusTargetCommandSchema,
 	methodResultSchema,
 	MemberIdleWaitParamsSchema,
 	MemberIdleWaitRequestSchema,
@@ -247,6 +249,62 @@ test("member.status round-trips through requestToCommand and commandToRequest", 
 		true,
 	);
 	assert.equal("code" in requestToCommand({ jsonrpc: "2.0", id: "q-4", method: "member.status", params: {} }), true);
+});
+
+test("member.status_target is a strict delegated action with one bounded target label", () => {
+	assert.equal(Value.Check(MemberStatusTargetParamsSchema, { target: "Bob" }), true);
+	assert.equal(Value.Check(MemberStatusTargetParamsSchema, {}), false);
+	assert.equal(Value.Check(MemberStatusTargetParamsSchema, { target: "" }), false);
+	assert.equal(Value.Check(MemberStatusTargetParamsSchema, { target: "x", extra: true }), false);
+	assert.equal(Value.Check(MemberStatusTargetParamsSchema, { target: "x".repeat(1000) }), false);
+	assert.equal(Value.Check(MemberStatusTargetParamsSchema, { target: 42 }), false);
+
+	assert.equal(Value.Check(MemberStatusTargetCommandSchema, { type: "member_status_target", target: "Bob" }), true);
+	assert.equal(
+		Value.Check(MemberStatusTargetCommandSchema, { type: "member_status_target", target: "Bob", id: "q1" }),
+		true,
+	);
+	assert.equal(Value.Check(MemberStatusTargetCommandSchema, { type: "member_status_target" }), false);
+	assert.equal(
+		Value.Check(MemberStatusTargetCommandSchema, { type: "member_status_target", target: "", id: "q1" }),
+		false,
+	);
+	assert.equal(
+		Value.Check(MemberStatusTargetCommandSchema, { type: "member_status_target", target: "Bob", extra: true }),
+		false,
+	);
+});
+
+test("member.status_target round-trips through requestToCommand and commandToRequest with the closed result", () => {
+	const request = {
+		jsonrpc: "2.0" as const,
+		id: "q-1",
+		method: "member.status_target" as const,
+		params: { target: "Mary" },
+	};
+	assert.deepEqual(requestToCommand(request), { type: "member_status_target", target: "Mary", id: "q-1" });
+	const command = { type: "member_status_target" as const, target: "Mary", id: "q-2" };
+	assert.deepEqual(commandToRequest(command, "q-2"), {
+		jsonrpc: "2.0",
+		id: "q-2",
+		method: "member.status_target",
+		params: { target: "Mary" },
+	});
+	assert.equal(
+		"code" in
+			requestToCommand({
+				jsonrpc: "2.0",
+				id: "q-3",
+				method: "member.status_target",
+				params: { target: "Bob", x: 1 },
+			}),
+		true,
+	);
+	assert.equal(
+		"code" in requestToCommand({ jsonrpc: "2.0", id: "q-4", method: "member.status_target", params: {} }),
+		true,
+	);
+	assert.equal(methodResultSchema("member.status_target"), MemberStatusResultSchema);
 });
 
 test("member.status result schema and guard accept closed online/offline statuses only", () => {
