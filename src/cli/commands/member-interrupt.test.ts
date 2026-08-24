@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
 	buildMemberInterruptCommand,
+	defaultMemberInterruptCliDependencies,
 	memberInterruptHelp,
 	parseMemberInterruptCommand,
 	runMemberInterruptCommand,
@@ -45,6 +46,21 @@ test("interrupt parser enforces message source, preserves instructions, and supp
 		format: "toon",
 	});
 	assert.throws(() => parseMemberInterruptCommand(["Kelly", "--message", "x", "--stdin"], "/project"), /exactly one/);
+});
+
+test("interrupt default transport maps an unavailable endpoint", async () => {
+	const outcome = await defaultMemberInterruptCliDependencies.deliverInterrupt(
+		{
+			ok: true,
+			kind: "id",
+			idSocketPath: "/tmp/missing-interrupt.sock",
+			aliasSocketPath: "/tmp/missing-interrupt.alias",
+		},
+		{ type: "member_interrupt", target: "Kelly", message: "stop" },
+		new AbortController().signal,
+	);
+	assert.equal(outcome.ok, false);
+	if (!outcome.ok) assert.equal(outcome.code, "unknown-session");
 });
 
 test("interrupt help states hard-recovery best-effort and no-rollback semantics", () => {

@@ -160,55 +160,13 @@ export async function runSessionListCommand(
 		};
 	}
 
-	let omitted = Math.max(0, entries.length - MAX_FILESYSTEM_ENTRIES);
-	const scanned = entries.slice(0, MAX_FILESYSTEM_ENTRIES);
-	const aliasesBySession = new Map<string, string[]>();
-	const socketIds = new Set<string>();
-
-	for (const entry of scanned) {
-		if (entry.endsWith(".sock")) {
-			const id = entry.slice(0, -".sock".length);
-			if (isSafeSessionId(id)) socketIds.add(id);
-			continue;
-		}
-		if (entry.endsWith(".alias")) {
-			const alias = entry.slice(0, -".alias".length);
-			if (!isSafeAlias(alias)) continue;
-			const target = await deps.readAliasTarget(path.join(dir, entry));
-			if (target === null) continue;
-			const id = path.basename(target).endsWith(".sock")
-				? path.basename(target).slice(0, -".sock".length)
-				: path.basename(target);
-			if (!isSafeSessionId(id)) continue;
-			const list = aliasesBySession.get(id) ?? [];
-			if (list.length < MAX_ALIASES_PER_SESSION) list.push(alias);
-			aliasesBySession.set(id, list);
-		}
-	}
-
-	const ids = [...socketIds].sort((a, b) => {
-		const primaryA = aliasesBySession.get(a)?.slice().sort()[0] ?? "";
-		const primaryB = aliasesBySession.get(b)?.slice().sort()[0] ?? "";
+	const scanned = await scanSessionDirectory(dir, entries, deps);
+	const ids = [...scanned.socketIds].sort((a, b) => {
+		const primaryA = scanned.aliasesBySession.get(a)?.slice().sort()[0] ?? "";
+		const primaryB = scanned.aliasesBySession.get(b)?.slice().sort()[0] ?? "";
 		return primaryA === primaryB ? a.localeCompare(b) : primaryA.localeCompare(primaryB);
 	});
-
-	const sessions: SessionListEntry[] = [];
-	for (const id of ids) {
-		if (sessions.length >= MAX_OUTPUT_SESSIONS) {
-			omitted += 1;
-			continue;
-		}
-		const alive = await deps.probe(getSocketPathOf(id, deps));
-		if (!alive) continue; // skip non-live socket entries
-		const status = await deps.queryStatus(getSocketPathOf(id, deps));
-		const membership: SessionMembership =
-			status === "joined" ? "joined" : status === "online" ? "unjoined" : "unknown";
-		sessions.push({
-			sessionId: id,
-			aliases: (aliasesBySession.get(id) ?? []).slice().sort(),
-			membership,
-		});
-	}
+	const { sessions, omitted } = await collectLiveSessions(ids, scanned.aliasesBySession, scanned.omitted, deps);
 
 	if (sessions.length === 0) {
 		return {
@@ -240,6 +198,59 @@ export async function runSessionListCommand(
 		format: options.format,
 		full: false,
 	};
+}
+
+async function scanSessionDirectory(
+	dir: string,
+	entries: string[],
+	deps: SessionListDependencies,
+): Promise<{ omitted: number; aliasesBySession: Map<string, string[]>; socketIds: Set<string> }> {
+	const omitted = Math.max(0, entries.length - MAX_FILESYSTEM_ENTRIES);
+	const aliasesBySession = new Map<string, string[]>();
+	const socketIds = new Set<string>();
+	for (const entry of entries.slice(0, MAX_FILESYSTEM_ENTRIES)) {
+		if (entry.endsWith(".sock")) {
+			const id = entry.slice(0, -".sock".length);
+			if (isSafeSessionId(id)) socketIds.add(id);
+			continue;
+		}
+		if (!entry.endsWith(".alias")) continue;
+		const alias = entry.slice(0, -".alias".length);
+		if (!isSafeAlias(alias)) continue;
+		const target = await deps.readAliasTarget(path.join(dir, entry));
+		if (target === null) continue;
+		const base = path.basename(target);
+		const id = base.endsWith(".sock") ? base.slice(0, -".sock".length) : base;
+		if (!isSafeSessionId(id)) continue;
+		const list = aliasesBySession.get(id) ?? [];
+		if (list.length < MAX_ALIASES_PER_SESSION) list.push(alias);
+		aliasesBySession.set(id, list);
+	}
+	return { omitted, aliasesBySession, socketIds };
+}
+
+async function collectLiveSessions(
+	ids: string[],
+	aliasesBySession: Map<string, string[]>,
+	initialOmitted: number,
+	deps: SessionListDependencies,
+): Promise<{ sessions: SessionListEntry[]; omitted: number }> {
+	const sessions: SessionListEntry[] = [];
+	let omitted = initialOmitted;
+	for (const id of ids) {
+		if (sessions.length >= MAX_OUTPUT_SESSIONS) {
+			omitted += 1;
+			continue;
+		}
+		if (!(await deps.probe(getSocketPathOf(id, deps)))) continue;
+		const status = await deps.queryStatus(getSocketPathOf(id, deps));
+		sessions.push({
+			sessionId: id,
+			aliases: (aliasesBySession.get(id) ?? []).slice().sort(),
+			membership: status === "joined" ? "joined" : status === "online" ? "unjoined" : "unknown",
+		});
+	}
+	return { sessions, omitted };
 }
 
 function getSocketPathOf(id: string, deps: SessionListDependencies): string {

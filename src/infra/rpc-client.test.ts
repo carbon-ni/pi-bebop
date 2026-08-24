@@ -733,6 +733,34 @@ test("sendMemberIdleWait returns timeout when the deadline expires before a term
 	);
 });
 
+test("sendMemberIdleWait classifies endpoint errno and capacity outcomes", async () => {
+	for (const [code, transportCode] of [
+		["ENOENT", "ENOENT"],
+		["ECONNREFUSED", "ECONNREFUSED"],
+	] as const) {
+		const outcome = await sendMemberIdleWait(
+			`/tmp/missing-idle-${code}.sock`,
+			{ type: "member_idle_wait", member: "Bob" },
+			{ timeoutSeconds: 1 },
+		);
+		assert.deepEqual(outcome, { ok: false, code: "transport-error", transportCode });
+	}
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) =>
+				send(socket, { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "capacity exceeded" } }),
+			),
+		async (socketPath) => {
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Bob" },
+				{ timeoutSeconds: 1 },
+			);
+			assert.deepEqual(outcome, { ok: false, code: "capacity-exceeded" });
+		},
+	);
+});
+
 test("sendMemberIdleWait returns aborted when the caller signal fires", async () => {
 	await withSocketServer(
 		(socket) =>

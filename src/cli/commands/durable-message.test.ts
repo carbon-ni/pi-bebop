@@ -86,7 +86,7 @@ test("durable parsers cover help, duplicate flags, instruction validation, and s
 		() => parseDurableMessageCommand(["--instruction", " bad", "--message", "x"], "broadcast"),
 		/trimmed/,
 	);
-	assert.throws(() => parseDurableMessageCommand(["--instruction", "a\\0", "--message", "x"], "broadcast"), /NUL/);
+	assert.throws(() => parseDurableMessageCommand(["--instruction", "a\u0000", "--message", "x"], "broadcast"), /NUL/);
 	assert.throws(
 		() => parseDurableMessageCommand(["--format", "xml", "--message", "x"], "broadcast"),
 		/Invalid --format/,

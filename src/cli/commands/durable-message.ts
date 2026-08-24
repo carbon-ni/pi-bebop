@@ -291,6 +291,50 @@ export const defaultDurableMessageCliDependencies: DurableMessageCliDependencies
 	environmentSession: () => process.env.PI_SESSION_ID,
 };
 
+function inboxOutcome(result: MemberInboxSendResult, member: string | undefined, format: CliFormat): CliOutcome {
+	return {
+		kind: "result",
+		result: {
+			ok: true,
+			target: member ?? "member",
+			status: "persisted",
+			response: `${result.member.name} (${result.member.role}) — persisted ${result.itemId}`,
+			data: result,
+		},
+		format,
+		full: false,
+	};
+}
+
+function broadcastOutcome(result: CrewBroadcastRpcResult, format: CliFormat): CliOutcome {
+	const partial = result.summary.failed > 0;
+	const conflict = result.dispositions.some(
+		(disposition) => disposition.disposition === "failed" && disposition.code === "idempotency-conflict",
+	);
+	return {
+		kind: "result",
+		result: {
+			ok: !partial,
+			target: "crew",
+			status: partial ? "partial" : "persisted",
+			response: `${result.summary.persisted} persisted, ${result.summary.alreadyPersisted} already persisted, ${result.summary.failed} failed`,
+			data: result,
+			...(partial
+				? {
+						error: {
+							code: conflict ? "idempotency-conflict" : "partial",
+							message: conflict
+								? "Broadcast stopped after an idempotency conflict; no later recipients were written"
+								: "Broadcast partially persisted; retry is safe and will not duplicate",
+						},
+					}
+				: {}),
+		},
+		format,
+		full: false,
+	};
+}
+
 export async function runDurableMessageCommand(
 	options: DurableMessageCliOptions,
 	context: CliContext,
@@ -331,46 +375,7 @@ export async function runDurableMessageCommand(
 			format: options.format,
 			full: false,
 		};
-	if (options.intent === "inbox") {
-		const result = outcome.result as MemberInboxSendResult;
-		return {
-			kind: "result",
-			result: {
-				ok: true,
-				target: options.member ?? "member",
-				status: "persisted",
-				response: `${result.member.name} (${result.member.role}) — persisted ${result.itemId}`,
-				data: result,
-			},
-			format: options.format,
-			full: false,
-		};
-	}
-	const result = outcome.result as CrewBroadcastRpcResult;
-	const partial = result.summary.failed > 0;
-	const conflict = result.dispositions.some(
-		(disposition) => disposition.disposition === "failed" && disposition.code === "idempotency-conflict",
-	);
-	return {
-		kind: "result",
-		result: {
-			ok: !partial,
-			target: "crew",
-			status: partial ? "partial" : "persisted",
-			response: `${result.summary.persisted} persisted, ${result.summary.alreadyPersisted} already persisted, ${result.summary.failed} failed`,
-			data: result,
-			...(partial
-				? {
-						error: {
-							code: conflict ? "idempotency-conflict" : "partial",
-							message: conflict
-								? "Broadcast stopped after an idempotency conflict; no later recipients were written"
-								: "Broadcast partially persisted; retry is safe and will not duplicate",
-						},
-					}
-				: {}),
-		},
-		format: options.format,
-		full: false,
-	};
+	return options.intent === "inbox"
+		? inboxOutcome(outcome.result as MemberInboxSendResult, options.member, options.format)
+		: broadcastOutcome(outcome.result as CrewBroadcastRpcResult, options.format);
 }
