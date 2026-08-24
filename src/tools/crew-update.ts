@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { MessagePayloadSchema } from "../domain/index.ts";
 import { MemberMessageError } from "../application/member-message.ts";
+import { RpcProtocolError } from "../infra/rpc-client.ts";
 import { CrewUpdateFlow } from "../application/crew-update-flow.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
@@ -60,6 +61,12 @@ export function registerRequestMemberTool(pi: ExtensionAPI, state: SocketState):
 				);
 			} catch (error) {
 				if (error instanceof MemberMessageError) return failure(error.code, error.message);
+				if (error instanceof RpcProtocolError) return failure(error.code, error.message);
+				if (error instanceof Error && error.name === "AbortError") return failure("aborted", "Request aborted");
+				if (error instanceof Error && /timeout/i.test(error.message)) return failure("timeout", error.message);
+				const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+				if (systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN")
+					return failure("offline", "Member request channel is offline");
 				return failure("request-failed", error instanceof Error ? error.message : "Request failed");
 			}
 		},
@@ -85,11 +92,11 @@ export function registerRespondToMemberRequestTool(pi: ExtensionAPI, state: Sock
 				});
 				return success("Response sent to the active member request", { requestId: params.request_id });
 			} catch (error) {
-				const code = error instanceof Error ? error.message : "response-failed";
+				const message = error instanceof Error ? error.message : "response-failed";
+				const code = message.split(":", 1)[0]!;
 				if (code === "no-pending-request")
 					return failure(code, "No pending member request; use send_follow_up for an ordinary message.");
-				if (code === "ambiguous-request")
-					return failure(code, "Multiple requests are active; provide request_id.");
+				if (code === "ambiguous-request") return failure(code, `${message}; provide request_id.`);
 				if (code === "response-expired")
 					return failure(code, "Request expired; resend as ordinary send_follow_up.");
 				return failure(code, "Could not respond to member request");

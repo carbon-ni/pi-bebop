@@ -185,7 +185,16 @@ export class CrewUpdateFlow {
 		readonly member: CrewUpdateMember;
 	}): Promise<void> {
 		const selected = this.registry.selectInbound(input.requestId);
-		if (selected.ok === false) throw new Error(selected.code);
+		if (selected.ok === false) {
+			if (selected.code === "ambiguous-request") {
+				const summary = this.registry
+					.inboundSummaries()
+					.map((item) => `${item.requestId} (${item.requester.name}/${item.requester.role})`)
+					.join(", ");
+				throw new Error(`ambiguous-request: ${summary}`);
+			}
+			throw new Error(selected.code);
+		}
 		const closed = this.registry.resolveInboundResponse(selected.value.requestId);
 		if (closed.ok === false) throw new Error(closed.code);
 		const update: MemberUpdateResult = {

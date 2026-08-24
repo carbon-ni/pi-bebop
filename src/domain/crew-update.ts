@@ -368,4 +368,10 @@ export class CrewUpdateRegistry {
 	inboundRequestIds(): readonly string[] {
 		return [...this.inbound.keys()];
 	}
+	inboundSummaries(): ReadonlyArray<{ readonly requestId: string; readonly requester: CrewUpdateMember }> {
+		return [...this.inbound.values()].map((request) => ({
+			requestId: request.requestId,
+			requester: request.requester,
+		}));
+	}
 }

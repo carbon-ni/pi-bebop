@@ -134,7 +134,20 @@ test("inbound responder selection is zero/one/multiple and sends only through ac
 		instructions: [],
 		channel,
 	});
+	setupResult.flow.registerInboundRequest({
+		requestId: "in-2",
+		requester: { name: "lead", role: "lead" },
+		message: "y",
+		instructions: [],
+		channel,
+	});
+	await assert.rejects(
+		() =>
+			setupResult.flow.respondToMemberRequest({ member: { name: "qa", role: "reviewer" }, message: "response" }),
+		(error: unknown) => error instanceof Error && /ambiguous-request.*in-1.*in-2/.test(error.message),
+	);
 	setupResult.flow.acceptInboundRequest("in-1");
+	setupResult.flow.removeInboundRequest("in-2");
 	await setupResult.flow.respondToMemberRequest({ member: { name: "qa", role: "reviewer" }, message: "response" });
 	assert.equal(sent.length, 1);
 	await assert.rejects(
