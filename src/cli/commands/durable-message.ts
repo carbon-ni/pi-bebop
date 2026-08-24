@@ -79,7 +79,7 @@ export function durableMessageHelp(intent: DurableMessageIntent): string {
 				: "Success means persisted copies, never delivered, read, or completed; retries reuse deterministic ids.",
 			"There is no wait_for flag: persistence acknowledgement is the only guarantee.",
 			intent === "broadcast"
-				? "The broadcast id already contains a different payload; change the message or instructions and retry."
+				? "The broadcast id already contains a different payload (idempotency-conflict); change the message or instructions and retry."
 				: "",
 			"",
 			"Options:",
