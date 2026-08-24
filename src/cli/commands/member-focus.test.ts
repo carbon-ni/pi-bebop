@@ -56,6 +56,17 @@ test("focus parser preserves dash-leading text only after -- and keeps flags com
 	});
 });
 
+test("focus parser covers help, duplicates, missing values, and invalid formats", () => {
+	assert.equal(parseMemberFocusCommand(["--help"], "set", "/project").help, true);
+	assert.throws(() => parseMemberFocusCommand(["--help", "--help"], "set", "/project"), /Duplicate/);
+	assert.throws(() => parseMemberFocusCommand(["--session"], "set", "/project"), /Missing value/);
+	assert.throws(() => parseMemberFocusCommand(["--format", "xml"], "set", "/project"), /Invalid --format/);
+	assert.throws(() => parseMemberFocusCommand(["--stdin"], "clear", "/project"), /only for/);
+	assert.throws(() => parseMemberFocusCommand(["--stdin", "--stdin"], "set", "/project"), /Duplicate/);
+	assert.throws(() => parseMemberFocusCommand(["--", "one", "two"], "set", "/project"), /one argument/);
+	assert.throws(() => parseMemberFocusCommand(["text"], "clear", "/project"), /does not accept/);
+});
+
 test("focus parser rejects unsafe local values before delivery", () => {
 	for (const value of ["", " ", "x\ny", "x\0y", "é".repeat(200)])
 		assert.throws(() => parseMemberFocusCommand(["--", value], "set", "/project"));
@@ -82,6 +93,21 @@ test("focus transport failures preserve stable offline, malformed, and cancellat
 		assert.equal(outcome.kind, "result");
 		if (outcome.kind === "result") assert.equal(outcome.result.error?.code, code);
 	}
+});
+
+test("focus command maps source resolution and stdin outcomes", async () => {
+	const sourceFailure = await runMemberFocusCommand(
+		{ command: "member-focus-set", action: "set", focus: "Working", stdin: false, format: "json" },
+		context(),
+		deps({ resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }) }),
+	);
+	assert.equal(sourceFailure.kind, "result");
+	const stdin = await runMemberFocusCommand(
+		{ command: "member-focus-set", action: "set", stdin: true, format: "json" },
+		context("From stdin"),
+		deps(),
+	);
+	assert.equal(stdin.kind, "result");
 });
 
 test("focus help and result semantics are explicit and self-scoped", async () => {

@@ -78,6 +78,62 @@ test("durable commands parse target/message sources and preserve instruction ord
 	);
 });
 
+test("durable parsers cover help, duplicate flags, instruction validation, and source errors", () => {
+	assert.equal(parseDurableMessageCommand(["--help"], "broadcast").help, true);
+	assert.throws(() => parseDurableMessageCommand(["--help", "--help"], "broadcast"), /Duplicate flag/);
+	assert.throws(() => parseDurableMessageCommand(["--instruction"], "broadcast"), /Missing value/);
+	assert.throws(
+		() => parseDurableMessageCommand(["--instruction", " bad", "--message", "x"], "broadcast"),
+		/trimmed/,
+	);
+	assert.throws(() => parseDurableMessageCommand(["--instruction", "a\\0", "--message", "x"], "broadcast"), /NUL/);
+	assert.throws(
+		() => parseDurableMessageCommand(["--format", "xml", "--message", "x"], "broadcast"),
+		/Invalid --format/,
+	);
+	assert.throws(
+		() => parseDurableMessageCommand(["--message", "x", "--message", "y"], "broadcast"),
+		/Duplicate flag/,
+	);
+	assert.throws(() => parseDurableMessageCommand(["--message", "x"], "inbox"), /Missing <member>/);
+	assert.throws(() => parseDurableMessageCommand([" Bob", "--message", "x"], "inbox"), /trimmed/);
+});
+
+test("durable commands map source, stdin, and delivery failures", async () => {
+	const sourceFailure = await runDurableMessageCommand(
+		{
+			command: "crew-broadcast",
+			intent: "broadcast",
+			message: "x",
+			instructions: [],
+			stdin: false,
+			format: "json",
+		},
+		context(),
+		deps({ resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }) }),
+	);
+	assert.equal(sourceFailure.kind, "result");
+	const stdin = await runDurableMessageCommand(
+		{ command: "crew-broadcast", intent: "broadcast", instructions: [], stdin: true, format: "json" },
+		context(),
+		deps(),
+	);
+	assert.equal(stdin.kind, "result");
+	const failed = await runDurableMessageCommand(
+		{
+			command: "crew-broadcast",
+			intent: "broadcast",
+			message: "x",
+			instructions: [],
+			stdin: false,
+			format: "json",
+		},
+		context(),
+		deps({ deliver: async () => ({ ok: false, code: "offline-session" }) }),
+	);
+	assert.equal(failed.kind, "result");
+});
+
 test("durable commands run Inbox persistence and broadcast partial outcomes without delivery claims", async () => {
 	const inbox = await runDurableMessageCommand(
 		{
