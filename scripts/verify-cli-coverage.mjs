@@ -24,6 +24,7 @@ const include = [
 	"src/infra/rpc-client.ts",
 	"src/infra/rpc-server.ts",
 	"src/application/member-status-flow.ts",
+	"src/application/member-idle-wait-flow.ts",
 	"src/application/member-message.ts",
 	"src/application/member-inbox-message.ts",
 	"src/application/interrupt-flow.ts",
