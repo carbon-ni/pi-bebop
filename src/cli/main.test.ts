@@ -824,7 +824,10 @@ test("unknown command exits 2 with valid alternatives before any IO", async () =
 	});
 	const code = await runCli(["frobnicate"], process.cwd(), process.stdin, output);
 	assert.equal(code, 2);
-	assert.match(text, /valid commands: send, crew init, member status, session list/);
+	assert.match(
+		text,
+		/valid commands: send, crew init, member status, session list, member follow-up, member redirect/,
+	);
 });
 
 test("crew init creates a fresh canonical scaffold in a temp project with created status", async () => {
@@ -945,7 +948,14 @@ test("no arguments shows compact TOON home state with crew init hint when missin
 		assert.equal(decoded.status, "home");
 		assert.equal(decoded.data.scaffold, "missing");
 		assert.equal(decoded.data.next, "pi-bebop crew init");
-		assert.deepEqual(decoded.data.commands, ["send", "crew init", "member status", "session list"]);
+		assert.deepEqual(decoded.data.commands, [
+			"send",
+			"crew init",
+			"member status",
+			"session list",
+			"member follow-up",
+			"member redirect",
+		]);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

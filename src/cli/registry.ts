@@ -21,6 +21,13 @@ import {
 	buildSessionListCommand,
 	type SessionListCliOptions,
 } from "./commands/session-list.ts";
+import {
+	parseMemberMessageCommand,
+	runMemberMessageCommand,
+	memberMessageHelp,
+	buildMemberMessageCommand,
+	type MemberMessageCliOptions,
+} from "./commands/member-message.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./arguments.ts";
 import type { CliContext } from "./context.ts";
 import type { CliOutcome } from "./output.ts";
@@ -214,8 +221,36 @@ const sessionListLeaf: CliLeaf = {
 	run: (options, context) => runSessionListCommand(options as SessionListCliOptions, context),
 };
 
+/** TASK-0062: `member follow-up` leaf — one registry contribution. */
+const memberFollowUpLeaf: CliLeaf = {
+	id: "member-follow-up",
+	names: ["member", "follow-up"],
+	build: () => buildMemberMessageCommand("follow_up"),
+	help: () => memberMessageHelp("follow_up"),
+	parse: (tokens, cwd) => parseMemberMessageCommand([...tokens], "follow_up", cwd),
+	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
+};
+
+/** TASK-0062: `member redirect` leaf — one registry contribution. */
+const memberRedirectLeaf: CliLeaf = {
+	id: "member-redirect",
+	names: ["member", "redirect"],
+	build: () => buildMemberMessageCommand("redirect"),
+	help: () => memberMessageHelp("redirect"),
+	parse: (tokens, cwd) => parseMemberMessageCommand([...tokens], "redirect", cwd),
+	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
+};
+
 export function createCliRegistry(): CliRegistry {
-	return composeRegistry([homeLeaf, sendLeaf, crewInitLeaf, memberStatusLeaf, sessionListLeaf]);
+	return composeRegistry([
+		homeLeaf,
+		sendLeaf,
+		crewInitLeaf,
+		memberStatusLeaf,
+		sessionListLeaf,
+		memberFollowUpLeaf,
+		memberRedirectLeaf,
+	]);
 }
 
 /** Convenience: parse against the built-in registry (registry-driven vocabulary). */

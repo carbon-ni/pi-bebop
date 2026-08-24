@@ -68,7 +68,7 @@ test("synthetic nested/top-level leaves work through real parse/help/root/dispat
 	// Unknown commands list the full ordered vocabulary including the new leaves.
 	assert.throws(
 		() => registry.parseCliCommand(["nope"], "/p"),
-		/valid commands: send, crew init, member status, session list, ping, crew audit/,
+		/valid commands: send, crew init, member status, session list, member follow-up, member redirect, ping, crew audit/,
 	);
 
 	// Command-tree metadata derives from the registry: top-level leaf + nested leaf under the crew group.
@@ -108,7 +108,10 @@ test("composeRegistry yields deterministic ordered parse/help/dispatch without s
 		first.leaves.map((leaf) => leaf.id),
 		second.leaves.map((leaf) => leaf.id),
 	);
-	assert.equal(first.vocabulary().join(", "), "send, crew init, member status, session list, ping, crew audit");
+	assert.equal(
+		first.vocabulary().join(", "),
+		"send, crew init, member status, session list, member follow-up, member redirect, ping, crew audit",
+	);
 	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), second.parseCliCommand(["ping", "a"], "/p"));
 	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), first.parseCliCommand(["ping", "a"], "/p"));
 	assert.equal(first.leafById("ping").help(), second.leafById("ping").help());
@@ -120,9 +123,12 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	const registry = createCliRegistry();
 	assert.deepEqual(
 		registry.leaves.map((leaf) => leaf.id),
-		["home", "send", "crew-init", "member-status", "session-list"],
+		["home", "send", "crew-init", "member-status", "session-list", "member-follow-up", "member-redirect"],
 	);
-	assert.equal(registry.vocabulary().join(", "), "send, crew init, member status, session list");
+	assert.equal(
+		registry.vocabulary().join(", "),
+		"send, crew init, member status, session list, member follow-up, member redirect",
+	);
 	assert.equal((registry.parseCliCommand([], "/p") as { command: string }).command, "home");
 	assert.equal(
 		(registry.parseCliCommand(["send", "--socket", "/x", "--message", "m"], "/p") as { command: string }).command,
@@ -134,9 +140,19 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 		"member-status",
 	);
 	assert.equal((registry.parseCliCommand(["session", "list"], "/p") as { command: string }).command, "session-list");
+	assert.equal(
+		(registry.parseCliCommand(["member", "follow-up", "Kelly", "--message", "x"], "/p") as { command: string })
+			.command,
+		"member-follow-up",
+	);
+	assert.equal(
+		(registry.parseCliCommand(["member", "redirect", "Kelly", "--message", "x"], "/p") as { command: string })
+			.command,
+		"member-redirect",
+	);
 	assert.throws(
 		() => registry.parseCliCommand(["bogus"], "/p"),
-		/valid commands: send, crew init, member status, session list/,
+		/valid commands: send, crew init, member status, session list, member follow-up, member redirect/,
 	);
 
 	// Command-tree metadata derives from the registry: member + session groups exist.
@@ -144,6 +160,8 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	const member = root.commands.find((command) => command.name() === "member");
 	assert.ok(member, "member group derived from registry");
 	assert.ok(member!.commands.some((command) => command.name() === "status"));
+	assert.ok(member!.commands.some((command) => command.name() === "follow-up"));
+	assert.ok(member!.commands.some((command) => command.name() === "redirect"));
 	const session = root.commands.find((command) => command.name() === "session");
 	assert.ok(session, "session group derived from registry");
 	assert.ok(session!.commands.some((command) => command.name() === "list"));
@@ -159,6 +177,8 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 		"crew init",
 		"member status",
 		"session list",
+		"member follow-up",
+		"member redirect",
 	]);
 });
 
