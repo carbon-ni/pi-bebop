@@ -126,7 +126,7 @@ const SEND_SINGLE_VALUE_FLAGS = new Set([
 ]);
 const SEND_BOOLEAN_FLAGS = new Set(["--stdin", "--full"]);
 
-function sendDuration(value: string): number {
+export function parsePositiveDurationMs(value: string): number {
 	const match = /^(\d+)(ms|s|m)$/.exec(value);
 	if (!match || Number(match[1]) < 1)
 		throw new UsageError(`Invalid --timeout '${value}'; use a positive duration such as 500ms, 30s, or 5m`);
@@ -186,7 +186,7 @@ function validateSendSemantics(leaf: SendLeafOptions, seen: Set<string>, cwd: st
 		stdin: leaf.stdin,
 		mode: leaf.mode as "steer" | "follow_up",
 		wait: leaf.wait as "turn_end" | "accepted",
-		timeoutMs: sendDuration(leaf.timeout),
+		timeoutMs: parsePositiveDurationMs(leaf.timeout),
 		format: leaf.format as CliFormat,
 		full: leaf.full,
 	};
@@ -284,7 +284,7 @@ export function parseSendCommand(args: string[], cwd = process.cwd()): SendCliOp
 			stdin: leaf.stdin,
 			mode: leaf.mode as "steer" | "follow_up",
 			wait: leaf.wait as "turn_end" | "accepted",
-			timeoutMs: sendDuration(leaf.timeout),
+			timeoutMs: parsePositiveDurationMs(leaf.timeout),
 			format: leaf.format as CliFormat,
 			full: leaf.full,
 			help: true,
