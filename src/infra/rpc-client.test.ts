@@ -261,8 +261,12 @@ test("rejects promptly when aborted, socket ends, or timeout occurs", async () =
 });
 
 test("dispatch barrier distinguishes pre-dispatch abort from accepted-before-ack loss", async () => {
+	let preDispatchReceipts = 0;
 	await withSocketServer(
-		() => undefined,
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "message.send") preDispatchReceipts += 1;
+			}),
 		async (socketPath) => {
 			const controller = new AbortController();
 			const pending = sendRpcCommand(
@@ -279,6 +283,7 @@ test("dispatch barrier distinguishes pre-dispatch abort from accepted-before-ack
 			});
 		},
 	);
+	assert.equal(preDispatchReceipts, 0, "pre-dispatch abort must not reach the target");
 
 	let targetAccepted = false;
 	await withSocketServer(
@@ -293,7 +298,11 @@ test("dispatch barrier distinguishes pre-dispatch abort from accepted-before-ack
 		async (socketPath) => {
 			await assert.rejects(
 				() =>
-					sendRpcCommand(socketPath, { type: "send", message: "accepted then ack lost" }, { timeout: 1000 }),
+					sendRpcCommand(
+						socketPath,
+						{ type: "send", message: "accepted then ack lost" },
+						{ timeout: 1000, classifyLostAck: true },
+					),
 				(error: unknown) => {
 					assert.equal(targetAccepted, true);
 					assert.equal(error instanceof RpcProtocolError, true);
@@ -318,9 +327,34 @@ test("dispatch barrier distinguishes pre-dispatch abort from accepted-before-ack
 					sendRpcCommand(
 						socketPath,
 						{ type: "send", message: "accepted before caller abort" },
-						{ timeout: 1000, signal: controller.signal },
+						{ timeout: 1000, signal: controller.signal, classifyLostAck: true },
 					),
 				(error: unknown) => {
+					assert.equal(error instanceof RpcProtocolError, true);
+					assert.equal((error as RpcProtocolError).code, "outcome-unknown");
+					return true;
+				},
+			);
+		},
+	);
+
+	let deadlineAccepted = false;
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "message.send") deadlineAccepted = true;
+				// Deliberately withhold the acknowledgement until the deadline.
+			}),
+		async (socketPath) => {
+			await assert.rejects(
+				() =>
+					sendRpcCommand(
+						socketPath,
+						{ type: "send", message: "accepted then deadline" },
+						{ timeout: 20, classifyLostAck: true },
+					),
+				(error: unknown) => {
+					assert.equal(deadlineAccepted, true);
 					assert.equal(error instanceof RpcProtocolError, true);
 					assert.equal((error as RpcProtocolError).code, "outcome-unknown");
 					return true;
