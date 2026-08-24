@@ -11,42 +11,44 @@ tags: [crew, messaging, response, correlation, orchestration, protocol, tdd]
 
 ## Problem
 
-The approved coordination contract needs an end-to-end implementation so a
-lead can delegate concurrently, receive the first relevant crew update, and
-continue its loop without using member idle as a response proxy.
+Implement approved request/update workflow so safe lead coordination follows
+from dedicated tool affordances and defaults rather than long role instructions
+or member idle inference.
 
 ## Context
 
-Implement TASK-0068 as three isolated seams:
+Implement TASK-0068 through isolated seams:
 
-- pure request/update state machine with capacity and terminal-race rules;
-- request-scoped RPC transport that remains open after assignment acceptance;
-- thin tool adapters extending `send_follow_up` and registering
-  `wait_for_crew_update`.
+- pure request/update state machine with deterministic terminal races;
+- persistent request-scoped RPC transport;
+- thin `request_member`, `respond_to_member_request`, and
+  `wait_for_crew_update` tool adapters;
+- composition and concise prompt guidelines in `src/extension.ts`.
 
-Keep composition in `src/extension.ts`; domain owns no Pi/socket/time IO. Reuse
-current exact-name/unique-role resolution and structured Message Payload rules.
+Reuse exact-name/unique-role resolution, structured Message Payload, and normal
+Follow-up enqueue behavior. Domain owns no Pi, socket, timer, or filesystem IO.
 
 ## Acceptance criteria
 
-- [ ] Tests first cover register-before-delivery, immediate response, response-before-idle, idle-without-response, offline, timeout, wait cancellation, late/duplicate reply, and capacity rejection.
-- [ ] `send_follow_up(expect_reply=true)` returns accepted request id immediately while source transport continues receiving one terminal request event in background.
-- [ ] Target request state is registered before `pi.sendMessage`; context visibility arms idle detection, and target settled emits idle only for armed unresolved requests.
-- [ ] `send_follow_up(in_reply_to=...)` resolves requester exclusively from active target-local request state and writes one response event without enqueuing duplicate response into requester's Pi queue.
-- [ ] Source registry buffers each terminal update exactly once until consumed; `wait_for_crew_update` atomically returns oldest accepted update or subscribes for next across all pending requests.
-- [ ] Multiple targets and multiple requests to same target resolve independently and may complete out of assignment order without head-of-line blocking.
-- [ ] Response deterministically wins same-boundary idle; timeout/offline/cancel/reload races release listeners, sockets, timers, and registry slots exactly once.
-- [ ] Wait cancellation preserves pending requests and buffered updates; assignment cancellation after accepted delivery never claims rollback.
-- [ ] Unknown/expired/wrong-target/replayed `in_reply_to` cannot disclose callback route or consume live request; stable recovery guidance uses ordinary `send_follow_up`.
-- [ ] Strict schemas and named UTF-8/capacity bounds apply to request ids, content, instructions, active requests, and buffered updates before mutation/IO where locally decidable.
-- [ ] Tool descriptions and joined context teach `expect_reply`, `in_reply_to`, and `wait_for_crew_update` without adding lead-only permission semantics.
-- [ ] Existing accepted Follow-up/Redirect ordering, durable Inbox/Broadcast, Member Status, Member Idle Wait, direct session messaging, and public CLI behavior remain compatible.
-- [ ] Lifecycle integration test runs two target members: both assignments are accepted before waiting, faster response returns first, slower target later returns independently, and loop reaches explicit no-pending stop without sleeps.
-- [ ] Negative integration proves target idle before request message context does not produce false idle, and correlated response is visible exactly once only through waiting tool result.
-- [ ] Update `docs/CORRELATED-CREW-UPDATE-WORKFLOW.md` from planned to available only after packaged extension test proves complete loop.
-- [ ] Focused coverage includes every state transition/error and fresh final watcher gate passes with unchanged worktree fingerprint.
+- [ ] Tests first cover register-before-delivery, immediate response, response-before-idle, idle-without-response, offline, timeout, wait cancellation, late/duplicate reply, zero/one/multiple responder defaults, and capacity rejection.
+- [ ] `request_member` requires member/message only, defaults empty instructions/300-second timeout, returns accepted request id immediately, and leaves source transport receiving one terminal event in background.
+- [ ] Target registers inbound request before `pi.sendMessage`; context visibility arms idle detection and target settled emits idle only for armed unresolved requests.
+- [ ] `respond_to_member_request` automatically chooses sole active inbound request; multiple require explicit request id; zero/expired provide ordinary Follow-up recovery without route disclosure.
+- [ ] Response resolves requester only from target-local active request and writes once over request channel without enqueuing duplicate into requester Pi queue.
+- [ ] Source buffers each terminal update once until consumed; `wait_for_crew_update` atomically returns oldest update or subscribes for next across all active requests.
+- [ ] Empty `wait_for_crew_update` fails immediately with bounded self-correcting guidance; it never polls or starts an agent-preserving loop by itself.
+- [ ] Multiple targets/requests resolve independently and out of assignment order without head-of-line blocking.
+- [ ] Response wins same-boundary idle; timeout/offline/reload races release listeners, sockets, timers, and slots exactly once.
+- [ ] Wait cancellation preserves active requests and buffered updates; accepted assignment is never claimed retracted.
+- [ ] Strict schemas and named UTF-8/capacity bounds validate request ids, content, instructions, active requests, and buffered updates before mutation/IO where locally decidable.
+- [ ] Tool descriptions and prompt guidelines make correct sequence discoverable without lead role assumptions or detailed workflow prompt.
+- [ ] Existing accepted Follow-up/Redirect ordering, Inbox/Broadcast, Status, Member Idle Wait, direct session messaging, and CLI behavior remain compatible.
+- [ ] Lifecycle integration runs two targets: both requests accepted before waiting, faster terminal update returns first, slower later returns independently, and empty registry yields explicit stop signal without sleeps.
+- [ ] Negative integration proves pre-context target idle cannot resolve request and correlated response is visible exactly once only through wait tool result.
+- [ ] Packaged extension test proves one-sentence lead instruction is sufficient for tool availability/guidance; documentation status changes to available only afterward.
+- [ ] Focused coverage includes every state/error branch and fresh watcher final gate passes with unchanged worktree fingerprint.
 
 ## Out of scope
 
-- CLI commands, durable/offline requests, cross-restart recovery, multiple
-  responses, progress streams, task state, or automatic integration decisions.
+- CLI commands, durable/offline requests, cross-restart recovery, response
+  streams, task state, or automatic integration decisions.
