@@ -1,7 +1,7 @@
 ---
 id: TASK-0062
 title: Deliver follow-up and redirect CLI
-status: todo
+status: doing
 depends_on: [TASK-0061]
 priority: high
 tags: [cli, rpc, messaging, delivery, tdd]
