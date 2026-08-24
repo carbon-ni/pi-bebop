@@ -25,6 +25,17 @@ test("member wait-idle parser accepts default and exact whole-second durations",
 	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--timeout", "11m"]), /whole-second/);
 });
 
+test("member wait-idle parser covers help, duplicate, unknown, and target validation", () => {
+	assert.equal(parseMemberIdleWaitCommand(["--help"]).help, true);
+	assert.throws(() => parseMemberIdleWaitCommand(["--help", "--help"]), /Duplicate flag/);
+	assert.throws(() => parseMemberIdleWaitCommand(["--bogus"]), /unknown option|Unknown flag/i);
+	assert.throws(() => parseMemberIdleWaitCommand([]), /Missing <member>/);
+	assert.throws(() => parseMemberIdleWaitCommand([" Bob"]), /trimmed/);
+	assert.throws(() => parseMemberIdleWaitCommand(["x", "--format", "xml"]), /Invalid --format/);
+	assert.throws(() => parseMemberIdleWaitCommand(["x", "--timeout", "0s"]), /Invalid --timeout/);
+	assert.throws(() => parseMemberIdleWaitCommand(["x", "--timeout", "1s", "--timeout", "2s"]), /Duplicate flag/);
+});
+
 test("member wait-idle delegates source selection and renders terminal result", async () => {
 	let requested: { target: string; timeoutSeconds: number } | undefined;
 	const outcome = await runMemberIdleWaitCommand(
@@ -122,6 +133,22 @@ test("member wait-idle maps rejected transport promises instead of rejecting", a
 	});
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind === "result") assert.equal(outcome.result.error?.code, "offline-session");
+});
+
+test("member wait-idle maps source and malformed outcomes", async () => {
+	const unresolved = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
+		resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }),
+		environmentSession: () => undefined,
+		sendWait: async () => ({ ok: true, result }),
+	});
+	assert.equal(unresolved.kind, "result");
+	const malformed = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
+		resolveSource: () => source,
+		environmentSession: () => undefined,
+		sendWait: async () => ({ ok: true, result: { ...result, outcome: "not-an-outcome" } as never }),
+	});
+	assert.equal(malformed.kind, "result");
+	if (malformed.kind === "result") assert.equal(malformed.result.error?.code, "malformed-response");
 });
 
 test("member wait-idle preserves aborted outcome and does not reinterpret it", async () => {

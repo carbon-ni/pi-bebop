@@ -27,6 +27,15 @@ const include = [
 	"src/cli/commands/direct-send-adapter.ts",
 	"src/cli/commands/crew-init-handler.ts",
 	"src/cli/commands/crew-intake-adapter.ts",
+	"src/cli/commands/member-status.ts",
+	"src/cli/commands/member-message.ts",
+	"src/cli/commands/member-focus.ts",
+	"src/cli/commands/member-idle-wait.ts",
+	"src/cli/commands/member-interrupt.ts",
+	"src/cli/commands/durable-message.ts",
+	"src/cli/commands/session-list.ts",
+	"src/infra/rpc-client.ts",
+	"src/infra/rpc-server.ts",
 ];
 const args = [
 	"--test",
