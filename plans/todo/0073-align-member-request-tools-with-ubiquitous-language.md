@@ -1,7 +1,7 @@
 ---
 id: TASK-0073
 title: Align member request tools with ubiquitous language
-status: done
+status: doing
 depends_on: [TASK-0071]
 priority: high
 tags: [ubiquitous-language, crew, messaging, response, tools, refactor, tdd]
