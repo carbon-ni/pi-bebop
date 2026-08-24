@@ -54,7 +54,7 @@ export function formatMembershipContext(membership: Membership): string {
 		? `Crew contact: ${contact.name} (${contact.role}) — external Intake triage`
 		: "Crew contact: none (Crew Intake disabled)";
 	const coordination =
-		"Coordination: use send_member_request when a response is required; use send_follow_up for information only; use respond_to_member_request for active request context; use wait_for_request_outcome only when no immediate coordination action remains.";
+		"Coordination: use send_member_request to send a Member request (you are the Requester and alone wait for its outcome with wait_for_request_outcome); when you receive a Member request you are the Responder and send one correlated Response with respond_to_member_request; use send_follow_up for information only — no correlated Response is expected.";
 	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}\n${contactLine}\n${coordination}${instructions}`;
 }
 

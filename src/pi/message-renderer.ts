@@ -135,7 +135,7 @@ export const renderSessionMessage: MessageRenderer = (message, { expanded }, the
 	const { text, senderText } = getMessageDisplayModel(message, expanded);
 
 	const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
-	const labelBase = theme.fg("customMessageLabel", `\x1b[1m[${message.customType}]\x1b[22m`);
+	const labelBase = theme.fg("customMessageLabel", `\x1b[1m${sessionMessageLabel(message)}\x1b[22m`);
 	const label = senderText ? `${labelBase} ${theme.fg("dim", senderText)}` : labelBase;
 	box.addChild(new Text(label, 0, 0));
 	box.addChild(new Spacer(1));
@@ -144,8 +144,42 @@ export const renderSessionMessage: MessageRenderer = (message, { expanded }, the
 			color: (value: string) => theme.fg("customMessageText", value),
 		}),
 	);
+	const hint = sessionMessageHint(message);
+	if (hint) {
+		box.addChild(new Spacer(1));
+		box.addChild(new Text(theme.fg("dim", hint), 0, 0));
+	}
 	return box;
 };
+
+export type SessionMessageKind = "member-request" | "follow-up" | "other";
+
+/**
+ * TASK-0076: structural UI distinction between an inbound Member request and
+ * an ordinary Follow-up, derived from message details (never from content
+ * heuristics). Bounded to semantic intent + opaque Request ID; callback
+ * routes stay hidden.
+ */
+export function sessionMessageKind(message: unknown): SessionMessageKind {
+	const details = (message as { details?: unknown }).details;
+	if (typeof details !== "object" || details === null) return "other";
+	if (typeof (details as { crewRequestId?: unknown }).crewRequestId === "string") return "member-request";
+	if ((details as { messagePayload?: unknown }).messagePayload !== undefined) return "follow-up";
+	return "other";
+}
+
+export function sessionMessageLabel(message: unknown): string {
+	const kind = sessionMessageKind(message);
+	if (kind === "member-request") return "[member request]";
+	if (kind === "follow-up") return "[follow-up]";
+	const customType = (message as { customType?: unknown }).customType;
+	return typeof customType === "string" && customType ? `[${customType}]` : "[message]";
+}
+
+export function sessionMessageHint(message: unknown): string | null {
+	if (sessionMessageKind(message) !== "member-request") return null;
+	return "Respond with respond_to_member_request after completing the requested work.";
+}
 
 export const renderCrewInterrupt: MessageRenderer = (message, { expanded }, theme) => {
 	const { text, senderText } = getMessageDisplayModel(message, expanded);

@@ -112,6 +112,21 @@ test("membership context without descriptions stays byte-compatible with prior c
 	assert.doesNotMatch(plain, /\(developer\): |\(reviewer\): /);
 });
 
+test("TASK-0076: coordination rule is one non-contradictory requester->wait / responder->respond rule", () => {
+	const rendered = formatMembershipContext(membership);
+	const coordination = rendered.split("\n").find((line) => line.startsWith("Coordination: ")) ?? "";
+	// Requester sends and alone waits; Responder receives and alone responds.
+	assert.match(coordination, /Requester/i);
+	assert.match(coordination, /wait_for_request_outcome/i);
+	assert.match(coordination, /Responder/i);
+	assert.match(coordination, /respond_to_member_request/i);
+	// Ordinary Follow-up stays information-only with no correlated Response expected.
+	assert.match(coordination, /send_follow_up for information only/i);
+	assert.match(coordination, /no correlated Response is expected/i);
+	// The rule never relies on a Crew role such as lead/QA.
+	assert.doesNotMatch(coordination, /\blead\b|\bqa\b|\bpo\b|\bdev\b/i);
+});
+
 test("joined context includes exactly one trusted Crew contact line when intake.contact is configured", () => {
 	const configured = parseCrewManifest(
 		{

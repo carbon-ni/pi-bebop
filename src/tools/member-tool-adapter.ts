@@ -48,7 +48,7 @@ export function registerMemberIntentTool(
 	const label = intent === "follow_up" ? "Send Follow-up" : "Redirect Member";
 	const description =
 		intent === "follow_up"
-			? "Send a normal follow-up to a joined crew member; use this by default when urgency is not explicit."
+			? "Send an ordinary informational Follow-up to a joined crew member; no correlated Response is expected. Use send_member_request instead when you require exactly one answer, report, verdict, or evidence response."
 			: "Insert a message into a crew member's active work to change what they are doing now; use only when redirecting active work.";
 	pi.registerTool({
 		name,

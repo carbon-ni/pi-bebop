@@ -108,7 +108,9 @@ test("registers only intent-named tools with compact parameters and teaching des
 		assert.equal(Value.Check(tool.parameters, { member: "qa", message: "x", mode: "steer" }), false);
 		assert.equal(Value.Check(tool.parameters, { member: "qa", message: "x", extra: true }), false);
 	}
-	assert.match(tools.get("send_follow_up")!.description, /default/i);
+	assert.match(tools.get("send_follow_up")!.description, /information/i);
+	assert.match(tools.get("send_follow_up")!.description, /no correlated Response/i);
+	assert.doesNotMatch(tools.get("send_follow_up")!.description, /by default|default coordination/i);
 	assert.match(tools.get("redirect_member")!.description, /redirect.*active/i);
 });
 

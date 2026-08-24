@@ -92,6 +92,41 @@ test("role rejection preflight leaves control server untouched for invalid, empt
 	}
 });
 
+test("TASK-0076: packaged tool descriptions present one non-contradictory requester/responder affordance set", () => {
+	const descriptions = new Map<string, string>();
+	const pi = {
+		registerFlag() {},
+		registerMessageRenderer() {},
+		registerEntryRenderer() {},
+		registerTool(tool: { name: string; description?: string }) {
+			descriptions.set(tool.name, tool.description ?? "");
+		},
+		registerCommand() {},
+		getAllTools: () => [],
+		setActiveTools() {},
+		on() {},
+	} as never;
+
+	assert.doesNotThrow(() => extension(pi));
+	const followUp = descriptions.get("send_follow_up") ?? "";
+	const send = descriptions.get("send_member_request") ?? "";
+	const respond = descriptions.get("respond_to_member_request") ?? "";
+	const wait = descriptions.get("wait_for_request_outcome") ?? "";
+	// No contradictory "default" guidance ahead of the request-specific rule.
+	assert.doesNotMatch(followUp, /by default|default coordination/i);
+	assert.match(followUp, /no correlated Response is expected/i);
+	assert.match(followUp, /send_member_request/i);
+	// Requester side: send then wait.
+	assert.match(send, /requester-side/i);
+	assert.match(send, /wait_for_request_outcome/i);
+	assert.match(wait, /requester-side/i);
+	assert.match(wait, /only after you sent a Member request/i);
+	assert.match(wait, /never handles inbound/i);
+	// Responder side: only inbound.
+	assert.match(respond, /responder-side/i);
+	assert.match(respond, /inbound Member request/i);
+});
+
 test("fresh extension load registers membership tools and renderers without calling action methods", () => {
 	const flags: string[] = [];
 	const tools: string[] = [];
