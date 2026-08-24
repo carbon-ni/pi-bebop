@@ -1,7 +1,7 @@
 ---
 id: TASK-0060
 title: Define CLI parity for membership tools
-status: doing
+status: done
 depends_on: [TASK-0056]
 priority: high
 tags: [cli, tools, axi, protocol, product]
