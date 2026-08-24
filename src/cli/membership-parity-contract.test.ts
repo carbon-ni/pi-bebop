@@ -445,6 +445,29 @@ test("frozen enums: formats, exits, membership, and result discriminators", () =
 	assertArrayEqualSets(statusResult.focus, ["reported", "unspecified"], "status focus");
 });
 
+test("per-tool exit shapes are closed: success 0, broadcast partial 1", () => {
+	const exitByTool: Record<string, unknown> = {
+		send_follow_up: 0,
+		redirect_member: 0,
+		send_to_inbox: 0,
+		broadcast_to_crew: { allPersistedOrAlready: 0, partial: 1 },
+		interrupt_member: 0,
+		get_member_status: 0,
+		update_member_focus: 0,
+		wait_for_member_idle: 0,
+	};
+	for (const item of contract.tools) {
+		assert.deepEqual(item.result.exit, exitByTool[item.tool], `${item.tool} result.exit`);
+	}
+});
+
+test("session-list ordering and recovery next-step are explicit", () => {
+	assert.match(contract.sessionList.ordering, /lexical/);
+	assert.match(contract.sessionList.ordering, /session id/);
+	assert.match(String(contract.sessionList.empty.next), /start and join/);
+	assert.equal(contract.sourceSelection.recoveryHint, "pi-bebop session list");
+});
+
 test("limits and defaults match the Message Payload and session-list contracts", () => {
 	assert.deepEqual(contract.sessionList.bounds, {
 		maxFilesystemEntries: 256,
