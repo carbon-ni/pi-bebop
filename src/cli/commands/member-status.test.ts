@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
 	defaultMemberStatusCliDependencies,
+	mapTransportError,
 	parseMemberStatusCommand,
 	runMemberStatusCommand,
 	memberStatusHelp,
@@ -201,6 +202,28 @@ test("member status default transport falls back from stale id to alias", async 
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(dir, { recursive: true, force: true });
 	}
+});
+
+test("status transport mapper covers abort, socket, timeout, and fallback errors", () => {
+	assert.deepEqual(mapTransportError(Object.assign(new Error("abort"), { name: "AbortError" })), {
+		ok: false,
+		code: "aborted",
+	});
+	assert.deepEqual(mapTransportError(Object.assign(new Error("missing"), { code: "ENOENT" })), {
+		ok: false,
+		code: "unknown-session",
+	});
+	assert.deepEqual(mapTransportError(Object.assign(new Error("refused"), { code: "ECONNREFUSED" })), {
+		ok: false,
+		code: "offline-session",
+	});
+	assert.deepEqual(mapTransportError(Object.assign(new Error("not connected"), { code: "ENOTCONN" })), {
+		ok: false,
+		code: "offline-session",
+	});
+	assert.deepEqual(mapTransportError(new Error("RPC timeout")), { ok: false, code: "timeout" });
+	assert.deepEqual(mapTransportError(new Error("other")), { ok: false, code: "transport-error" });
+	assert.deepEqual(mapTransportError("other"), { ok: false, code: "transport-error" });
 });
 
 // --- run: source selection ---

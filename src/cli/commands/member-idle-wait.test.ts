@@ -3,6 +3,8 @@ import * as net from "node:net";
 import test from "node:test";
 import {
 	defaultMemberIdleWaitCliDependencies,
+	mapIdleWaitTransportError,
+	normalizeIdleWaitTransportOutcome,
 	parseMemberIdleWaitCommand,
 	runMemberIdleWaitCommand,
 } from "./member-idle-wait.ts";
@@ -15,6 +17,43 @@ const result = {
 	observedAt: "2026-08-24T12:00:00.000Z",
 };
 const context = { cwd: process.cwd(), input: process.stdin, signal: new AbortController().signal };
+
+test("idle transport mappers cover every stable error and normalized transport code", () => {
+	assert.deepEqual(mapIdleWaitTransportError(Object.assign(new Error("abort"), { name: "AbortError" })), {
+		ok: false,
+		code: "aborted",
+	});
+	assert.deepEqual(mapIdleWaitTransportError(Object.assign(new Error("missing"), { code: "ENOENT" })), {
+		ok: false,
+		code: "unknown-session",
+	});
+	assert.deepEqual(mapIdleWaitTransportError(Object.assign(new Error("refused"), { code: "ECONNREFUSED" })), {
+		ok: false,
+		code: "offline-session",
+	});
+	assert.deepEqual(mapIdleWaitTransportError(Object.assign(new Error("not connected"), { code: "ENOTCONN" })), {
+		ok: false,
+		code: "offline-session",
+	});
+	assert.deepEqual(mapIdleWaitTransportError(new Error("RPC request timeout")), { ok: false, code: "timeout" });
+	assert.deepEqual(mapIdleWaitTransportError(new Error("other")), { ok: false, code: "transport-error" });
+	assert.deepEqual(mapIdleWaitTransportError("other"), { ok: false, code: "transport-error" });
+	assert.deepEqual(normalizeIdleWaitTransportOutcome({ ok: true, result }), { ok: true, result });
+	for (const transportCode of ["ENOENT", "ECONNREFUSED", "ENOTCONN"] as const)
+		assert.deepEqual(normalizeIdleWaitTransportOutcome({ ok: false, code: "transport-error", transportCode }), {
+			ok: false,
+			code: transportCode === "ENOENT" ? "unknown-session" : "offline-session",
+		});
+	assert.deepEqual(normalizeIdleWaitTransportOutcome({ ok: false, code: "timeout" }), { ok: false, code: "timeout" });
+	assert.deepEqual(
+		normalizeIdleWaitTransportOutcome({ ok: false, code: "transport-error", transportCode: "OTHER" } as never),
+		{
+			ok: false,
+			code: "transport-error",
+			transportCode: "OTHER",
+		},
+	);
+});
 
 test("member wait-idle parser accepts default and exact whole-second durations", () => {
 	assert.equal(parseMemberIdleWaitCommand(["Bob"]).timeoutSeconds, 300);

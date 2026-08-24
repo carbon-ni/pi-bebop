@@ -162,7 +162,7 @@ function isStatusFailure(outcome: MemberStatusOutcome): outcome is { ok: false; 
 	return !outcome.ok;
 }
 
-function mapTransportError(error: unknown): { ok: false; code: string } {
+export function mapTransportError(error: unknown): { ok: false; code: string } {
 	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
 	const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
 	if (systemCode === "ENOENT") return { ok: false, code: "unknown-session" };

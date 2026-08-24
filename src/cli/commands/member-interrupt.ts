@@ -90,6 +90,19 @@ export interface MemberInterruptCliDependencies {
 	readonly environmentSession: () => string | undefined;
 }
 
+export function mapInterruptTransportError(error: unknown): { ok: false; code: string } {
+	if (error instanceof RpcProtocolError && error.code === "remote-error")
+		return { ok: false, code: error.message.replace(/^remote-error:\s*/, "") };
+	if (error instanceof RpcProtocolError && error.code === "outcome-unknown")
+		return { ok: false, code: "outcome-unknown" };
+	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+	if (error instanceof Error && /timeout/i.test(error.message)) return { ok: false, code: "timeout" };
+	const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+	if (code === "ENOENT") return { ok: false, code: "unknown-session" };
+	if (code === "ECONNREFUSED" || code === "ENOTCONN") return { ok: false, code: "offline-session" };
+	return { ok: false, code: "transport-error" };
+}
+
 async function deliverThroughSocket(
 	source: SourceResolution & { ok: true },
 	command: InterruptCommand,
@@ -102,16 +115,7 @@ async function deliverThroughSocket(
 		if (!isMemberInterruptResult(response.data)) return { ok: false, code: "invalid-ack" };
 		return { ok: true, result: response.data };
 	} catch (error) {
-		if (error instanceof RpcProtocolError && error.code === "remote-error")
-			return { ok: false, code: error.message.replace(/^remote-error:\s*/, "") };
-		if (error instanceof RpcProtocolError && error.code === "outcome-unknown")
-			return { ok: false, code: "outcome-unknown" };
-		if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
-		if (error instanceof Error && /timeout/i.test(error.message)) return { ok: false, code: "timeout" };
-		const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-		if (code === "ENOENT") return { ok: false, code: "unknown-session" };
-		if (code === "ECONNREFUSED" || code === "ENOTCONN") return { ok: false, code: "offline-session" };
-		return { ok: false, code: "transport-error" };
+		return mapInterruptTransportError(error);
 	}
 }
 

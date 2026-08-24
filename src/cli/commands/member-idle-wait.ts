@@ -141,7 +141,7 @@ export interface MemberIdleWaitCliDependencies {
 	readonly environmentSession: () => string | undefined;
 }
 
-function mapIdleWaitTransportError(error: unknown): MemberIdleWaitCliOutcome {
+export function mapIdleWaitTransportError(error: unknown): MemberIdleWaitCliOutcome {
 	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
 	const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
 	if (code === "ENOENT") return { ok: false, code: "unknown-session" };
@@ -150,7 +150,7 @@ function mapIdleWaitTransportError(error: unknown): MemberIdleWaitCliOutcome {
 	return { ok: false, code: "transport-error" };
 }
 
-function normalizeIdleWaitTransportOutcome(outcome: MemberIdleWaitClientOutcome): MemberIdleWaitCliOutcome {
+export function normalizeIdleWaitTransportOutcome(outcome: MemberIdleWaitClientOutcome): MemberIdleWaitCliOutcome {
 	if (outcome.ok || !("transportCode" in outcome)) return outcome;
 	if (outcome.transportCode === "ENOENT") return { ok: false, code: "unknown-session" };
 	if (outcome.transportCode === "ECONNREFUSED" || outcome.transportCode === "ENOTCONN")
