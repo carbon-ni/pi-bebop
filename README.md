@@ -192,7 +192,8 @@ printf 'line one\nline two\n' | pi-bebop send --socket .pi/crew/sockets/lead.soc
 The standalone CLI uses command-local flags and default TOON output; use
 `--format json` for machine round trips or `--format text` for concise human
 output. Usage errors exit 2, operational failures exit 1, and successful or
-expected outcomes (including offline/timeout observations) exit 0. `--session
+expected outcomes (including offline/timeout observations) exit 0. Root
+`pi-bebop --help` / `pi-bebop -h` renders concise help with exit 0. `--session
 <id|alias>` selects a joined source session for membership leaves; otherwise a
 safe `PI_SESSION_ID` is used.
 
@@ -360,6 +361,36 @@ full inbox is reported as failed for that recipient without corrupting the
 successful recipients. Use it for shared team-wide information, not for work
 that should have a single owner — use `send_follow_up` or `send_to_inbox` for
 a specific member instead.
+
+## Installation
+
+Link the source checkout so the `pi-bebop` bin is on your PATH:
+
+```bash
+npm link
+pi-bebop --help
+```
+
+Or install the packed tarball into a project (`pi-bebop-cli` is the legacy
+package name):
+
+```bash
+npm install ./pi-bebop-0.1.0.tgz
+npx pi-bebop --help
+```
+
+`pi-bebop --help` and `pi-bebop -h` print deterministic root help on stdout
+and exit 0 (no project/session/filesystem IO). Leaf help is
+`pi-bebop <command> --help`; leaf `-h` is intentionally not a short alias —
+it is a structured usage error with exit 2, matching the CLI's
+canonical-long-flags-only contract.
+
+The installed `node_modules/.bin/pi-bebop` entry runs the same packed
+`dist/cli/main.js` the test suite executes directly. The entrypoint guard
+canonicalizes the invoked executable, so local/global bin symlinks (and
+Windows `.cmd` shims, which invoke the real path directly) run the real CLI;
+it never uses a basename-only or equality-only match, so importing the module
+never starts the CLI.
 
 ## Development
 

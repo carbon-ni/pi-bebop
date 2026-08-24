@@ -6,6 +6,9 @@ import {
 	renderCrewInboxEntry,
 	renderCrewRosterEntry,
 	renderCrewStatusEntry,
+	sessionMessageKind,
+	sessionMessageLabel,
+	sessionMessageHint,
 	stripMessageMetadata,
 } from "./message-renderer.ts";
 
@@ -33,6 +36,37 @@ test("renderer preserves ordinary and malformed user-authored reply instruction 
 		"keep <reply_instruction>When responding, do something else</reply_instruction>",
 	);
 	assert.equal(stripMessageMetadata("keep <reply_instruction>unfinished"), "keep <reply_instruction>unfinished");
+});
+
+test("TASK-0076: inbound Member request is visibly distinguished from ordinary Follow-up in the UI", () => {
+	const requestMessage = {
+		customType: "bebop-session-message",
+		content: JSON.stringify({ type: "message-context", content: "Deliver report" }),
+		details: {
+			messagePayload: {
+				content: "Deliver report",
+				origin: { kind: "crew" as const, name: "Tony", role: "lead" },
+			},
+			crewRequestId: "request-abc",
+		},
+	};
+	assert.equal(sessionMessageKind(requestMessage), "member-request");
+	assert.equal(sessionMessageLabel(requestMessage), "[member request]");
+	assert.match(sessionMessageHint(requestMessage) ?? "", /respond_to_member_request/);
+	const followUpMessage = {
+		customType: "bebop-session-message",
+		content: JSON.stringify({ type: "message-context", content: "Heads up" }),
+		details: {
+			messagePayload: { content: "Heads up", origin: { kind: "crew" as const, name: "Tony", role: "lead" } },
+		},
+	};
+	assert.equal(sessionMessageKind(followUpMessage), "follow-up");
+	assert.equal(sessionMessageLabel(followUpMessage), "[follow-up]");
+	assert.equal(sessionMessageHint(followUpMessage), null);
+	const other = { customType: "bebop-session-message", content: "legacy" };
+	assert.equal(sessionMessageKind(other), "other");
+	assert.equal(sessionMessageLabel(other), "[bebop-session-message]");
+	assert.equal(sessionMessageHint(other), null);
 });
 
 test("typed Bob/Kelly details render claimed origin, ordered instructions, and hide replyTo", () => {

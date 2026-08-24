@@ -26,6 +26,8 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Crew contact**         | Explicitly configured member selected by exact name, responsible for triaging Crew Intake messages; product owner is recommended for software crews but never inferred.      | lead by default, first online member                   |
 | **Crew Broadcast**       | Internal durable fan-out initiated by a current joined member; the same message persists to every other configured member and is later handed to each as a normal Follow-up. | intake, shared inbox, redirect-all, team broadcast     |
 | **Member request**        | Non-interrupting Member message that expects exactly one correlated Response before a finite deadline; Accepted never means answered or completed. | task assignment, interrupt, progress stream |
+| **Requester**             | Transient per-request role: the member who sent a Member request and alone waits for its Request outcome with wait_for_request_outcome. Not a Crew role, not authority. | lead by default, owner, asker with polling |
+| **Responder**             | Transient per-request role: the member who received a Member request and sends exactly one correlated Response with respond_to_member_request. Not a Crew role, not a permission. | assignee, worker, implied reporter |
 | **Request outcome**       | Oldest terminal outcome of one outbound Member request: Response, idle without Response, offline, or timeout. It is not progress, task state, or Crew activity. | monitoring, status, completion proof |
 | **Request ID**            | Opaque bounded identifier correlating one Member request with its Response; it is not a Delivery ID, task ID, proof of identity, or authority credential. | authentication, task ID, identity proof |
 
@@ -72,9 +74,9 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | Durable fan-out to every other member            | `broadcast_to_crew` | One non-interrupting message persisted to every other member, later handed off as normal follow-up. |
 | Inspect one member timing and stated work | `get_member_status` | Returns reachability, mechanical Activity, pending signal, and self-reported Focus without reading conversation. |
 | Publish or clear own crew-visible Focus | `update_member_focus` | Explicit opt-in note for coordination; member can update only own Focus. |
-| Send a Member request requiring one Response | `send_member_request` | Accepted non-interrupting delivery with opaque Request ID; never implies answer or completion. |
-| Respond to a Member request | `respond_to_member_request` | Correlates one Response using active request context or opaque Request ID; not ordinary Follow-up. |
-| Wait for the oldest terminal outbound Request outcome | `wait_for_request_outcome` | No arguments, no polling, and no unrelated activity; only Response, idle without Response, offline, or timeout. |
+| Send a Member request requiring one Response | `send_member_request` | Requester-side: accepted non-interrupting delivery with opaque Request ID; the sender alone waits for its outcome. |
+| Respond to a Member request | `respond_to_member_request` | Responder-side: correlates one Response using active request context or opaque Request ID; only for an inbound Member request, never ordinary Follow-up. |
+| Wait for the oldest terminal outbound Request outcome | `wait_for_request_outcome` | Requester-side: call only after you sent a Member request; no arguments, no polling, no inbound handling, no unrelated activity; only Response, idle without Response, offline, or timeout. |
 | Block until another member's Pi is mechanically idle, goes offline, or times out | `wait_for_member_idle` | One-shot bounded wait; never implies reply, task completion, or availability. |
 
 `send_follow_up` is canonical normal delivery. `redirect_member` names the

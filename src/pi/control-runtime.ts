@@ -11,7 +11,8 @@ import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
 import {
 	isMessagePayload,
 	isInterruptResult,
-	renderMessagePayload,
+	renderMemberRequestModelContent,
+	renderFollowUpModelContent,
 	createInterruptRecoveryPayload,
 	resolveInterruptTarget,
 	type MemberInterruptRequest,
@@ -295,7 +296,7 @@ export async function handleCommand(
 			socket.once("error", cleanupInbound);
 			// Registration precedes Pi visibility. Once sendMessage accepts the
 			// request into context, arm idle handling and acknowledge delivery.
-			const message = renderMessagePayload(command.payload);
+			const message = renderMemberRequestModelContent(command.payload, command.requestId);
 			pi.sendMessage(
 				{
 					customType: SESSION_MESSAGE_TYPE,
@@ -852,7 +853,7 @@ export async function handleCommand(
 			return;
 		}
 		if (isInboxHint(payload)) state.onInboxHint?.();
-		const message = renderMessagePayload(payload);
+		const message = renderFollowUpModelContent(payload);
 		const mode = command.delivery ?? "follow_up";
 		const isIdle = ctx.isIdle() && !contextIsCompacting(ctx);
 		const customMessage = {

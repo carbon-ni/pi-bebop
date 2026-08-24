@@ -2,6 +2,7 @@ import { createCliRegistry } from "./registry.ts";
 import { UsageError, type CliFormat } from "./arguments.ts";
 import { requestedFormat, usageResult } from "./errors.ts";
 import { writeOutcome } from "./output.ts";
+import { rootCliHelp } from "./root-help.ts";
 import type { CliContext } from "./context.ts";
 import type { Readable, Writable } from "node:stream";
 
@@ -25,6 +26,12 @@ export async function runCli(
 	output: Writable = process.stdout,
 ): Promise<number> {
 	const registry = createCliRegistry();
+	// TASK-0074: root -h/--help is deterministic concise root help with exit 0
+	// before any parse — zero dependency/project/session/filesystem IO. Leaf
+	// help stays `--help` only (no short aliases at leaf level, by design).
+	if (args.length > 0 && (args[0] === "-h" || args[0] === "--help")) {
+		return writeOutcome(output, { kind: "help", text: rootCliHelp(registry.vocabulary()) });
+	}
 	let options: { command: string } | undefined;
 	try {
 		options = registry.parseCliCommand(args, cwd) as { command: string };

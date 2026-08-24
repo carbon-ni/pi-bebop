@@ -68,6 +68,29 @@ test("enforces outbound/inbound capacities and the UTF-8 request id bound before
 	);
 });
 
+test("TASK-0075: pre-request/pre-context idle never resolves an outbound or inbound request", () => {
+	const registry = new RequestOutcomeRegistry();
+	// Outbound: idle before registration, acceptance, or arming is ignored.
+	assert.deepEqual(registry.resolveIdle("none"), { ok: false, code: "unknown-request" });
+	assert.equal(request(registry, "out-1").ok, true);
+	assert.deepEqual(registry.resolveIdle("out-1"), { ok: false, code: "unknown-request" });
+	assert.equal(registry.acceptOutbound("out-1").ok, true);
+	assert.deepEqual(registry.resolveIdle("out-1"), { ok: false, code: "unknown-request" });
+	assert.equal(registry.armOutboundIdle("out-1").ok, true);
+	assert.equal(registry.resolveIdle("out-1").ok, true);
+	// Inbound: idle before registration, acceptance, or arming is ignored.
+	assert.deepEqual(registry.resolveInboundIdle("in-1"), { ok: false, code: "unknown-request" });
+	assert.equal(
+		registry.registerInbound({ requestId: "in-1", requester: member, message: "m", instructions: [] }).ok,
+		true,
+	);
+	assert.deepEqual(registry.resolveInboundIdle("in-1"), { ok: false, code: "unknown-request" });
+	assert.equal(registry.acceptInbound("in-1").ok, true);
+	assert.deepEqual(registry.resolveInboundIdle("in-1"), { ok: false, code: "unknown-request" });
+	assert.equal(registry.armInboundIdle("in-1").ok, true);
+	assert.equal(registry.resolveInboundIdle("in-1").ok, true);
+});
+
 test("response wins when resolved first, while idle closes and late response expires", () => {
 	const responseFirst = new RequestOutcomeRegistry();
 	request(responseFirst, "response-first");

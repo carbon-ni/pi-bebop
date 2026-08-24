@@ -123,6 +123,12 @@ export class MemberRequestFlow {
 			if (this.completed.delete(requestId)) this.finishRequest(requestId);
 			const accepted = this.registry.acceptOutbound(requestId);
 			if (accepted.ok === false) throw new Error(accepted.code);
+			// TASK-0075: transport.open resolves only after the target's
+			// pi.sendMessage acceptance, so idle handling is armed here — never
+			// before dispatch and never from a pre-context idle. Without this the
+			// target's later `idle-without-response` is dropped and the
+			// wait_for_request_outcome waiter stays blocked until the deadline.
+			this.registry.armOutboundIdle(requestId);
 			return { requestId, member: target };
 		} catch (error) {
 			this.clearTimer(this.timers.get(requestId)!);
@@ -231,6 +237,15 @@ export class MemberRequestFlow {
 	}
 
 	async settleAllInboundIdle(): Promise<void> {
-		for (const requestId of this.registry.inboundRequestIds()) await this.settleInboundIdle(requestId);
+		// TASK-0075: settle requests independently over a snapshot; a broken or
+		// already-closed channel must never leave other settled requests stuck
+		// (the source's offline path covers a dead socket).
+		for (const requestId of [...this.registry.inboundRequestIds()]) {
+			try {
+				await this.settleInboundIdle(requestId);
+			} catch {
+				/* ignore: isolated channel failure */
+			}
+		}
 	}
 }

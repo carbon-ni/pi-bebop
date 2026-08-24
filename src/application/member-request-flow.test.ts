@@ -117,6 +117,99 @@ test("terminal response is buffered exactly once and wait returns it", async () 
 	assert.deepEqual(second, { ok: false, code: "no-pending-requests" });
 });
 
+test("TASK-0075: target idle without Response resolves the wait immediately, never timeout", async () => {
+	const { flow, emit } = setup();
+	await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
+	const pending = waitForOutcome(flow);
+	emit({ kind: "idle-without-response", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
+	const update = await within(
+		2_000,
+		pending,
+		"wait stayed blocked after target idle without Response (outbound idle was never armed)",
+	);
+	assert.deepEqual(update, {
+		kind: "idle-without-response",
+		requestId: "request-1",
+		member: { name: "qa", role: "reviewer" },
+	});
+	// Terminal exactly once: a second wait has nothing pending.
+	assert.deepEqual(
+		flow.waitForRequestOutcome(() => undefined),
+		{ ok: false, code: "no-pending-requests" },
+	);
+});
+
+test("TASK-0075: settle before wait is buffered and returns immediately without another lifecycle event", async () => {
+	const { flow, emit } = setup();
+	await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
+	// The target settles BEFORE the source ever waits.
+	emit({ kind: "idle-without-response", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
+	const waited = flow.waitForRequestOutcome(() => {
+		throw new Error("buffered outcome must not require another lifecycle event");
+	});
+	assert.equal(waited.ok, true);
+	if (waited.ok) {
+		assert.equal(waited.kind, "update");
+		assert.deepEqual(waited.update, {
+			kind: "idle-without-response",
+			requestId: "request-1",
+			member: { name: "qa", role: "reviewer" },
+		});
+	}
+	// Terminal exactly once: nothing is pending afterwards.
+	assert.deepEqual(
+		flow.waitForRequestOutcome(() => undefined),
+		{ ok: false, code: "no-pending-requests" },
+	);
+});
+
+test("TASK-0075: a broken inbound channel never leaves other settled requests stuck", async () => {
+	const { flow } = setup();
+	const sent: unknown[] = [];
+	flow.registerInboundRequest({
+		requestId: "in-broken",
+		requester: { name: "lead", role: "lead" },
+		message: "a",
+		instructions: [],
+		channel: {
+			send: async () => {
+				throw new Error("socket gone");
+			},
+		},
+	});
+	flow.registerInboundRequest({
+		requestId: "in-ok",
+		requester: { name: "lead", role: "lead" },
+		message: "b",
+		instructions: [],
+		channel: { send: async (update) => sent.push(update) },
+	});
+	flow.acceptInboundRequest("in-broken");
+	flow.armInboundRequest("in-broken");
+	flow.acceptInboundRequest("in-ok");
+	flow.armInboundRequest("in-ok");
+	await flow.settleAllInboundIdle();
+	assert.equal(sent.length, 1, "only the healthy channel receives its idle update");
+	assert.equal((sent[0] as { requestId: string }).requestId, "in-ok");
+	assert.equal(flow.registry.inboundCount(), 0, "both inbound requests must settle independently");
+});
+
+function waitForOutcome(flow: MemberRequestFlow): Promise<unknown> {
+	return new Promise((resolve) => {
+		const result = flow.waitForRequestOutcome((update) => resolve(update));
+		assert.equal(result.ok, true);
+		if (result.ok) assert.equal(result.kind, "waiting");
+	});
+}
+
+function within<T>(ms: number, promise: Promise<T>, message: string): Promise<T> {
+	let handle: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		handle = setTimeout(() => reject(new Error(message)), ms);
+	});
+	return Promise.race([promise, deadline]).finally(() => clearTimeout(handle));
+}
+
 test("inbound responder selection is zero/one/multiple and sends only through active channel", async () => {
 	const sent: unknown[] = [];
 	const setupResult = setup({

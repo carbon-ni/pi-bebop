@@ -42,7 +42,7 @@ export function registerSendMemberRequestTool(pi: ExtensionAPI, state: SocketSta
 		name: "send_member_request",
 		label: "Send Member Request",
 		description:
-			"Send a non-interrupting Member request requiring exactly one Response; returns accepted delivery and an opaque Request ID. Accepted never means answered, completed, correct, authenticated, or progress. Use send_follow_up for information that does not require a Response.",
+			"Requester-side: send a non-interrupting Member request requiring exactly one correlated Response; you are the Requester and alone wait for its outcome with wait_for_request_outcome. Recommended for any message whose sender requires one answer, report, verdict, or evidence response. Use send_follow_up for information that does not require a Response. Accepted never means answered, completed, correct, authenticated, or progress.",
 		parameters: requestParameters,
 		async execute(_id, params, signal) {
 			try {
@@ -78,7 +78,7 @@ export function registerRespondToMemberRequestTool(pi: ExtensionAPI, state: Sock
 		name: "respond_to_member_request",
 		label: "Respond to Member Request",
 		description:
-			"Send one Response to an active Member request. With one active request request_id is optional; with multiple, provide the opaque Request ID. This is correlated output, not ordinary send_follow_up.",
+			"Responder-side: send one correlated Response to an inbound Member request you received. Use this only in reply to a Member request you are currently answering, never for ordinary information. With one active request request_id is optional; with multiple, provide the opaque Request ID. This is correlated output, not ordinary send_follow_up.",
 		parameters: responseParameters,
 		async execute(_id, params) {
 			try {
@@ -110,7 +110,7 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 		name: "wait_for_request_outcome",
 		label: "Wait for Request Outcome",
 		description:
-			"Wait with no arguments for the oldest terminal outbound Request outcome: Response, idle without Response, offline, or timeout. It does not poll, monitor, or return unrelated Crew activity, and never proves completion, correctness, progress, or availability.",
+			"Requester-side: wait with no arguments for the oldest terminal outbound Request outcome of a Member request you successfully sent: Response, idle without Response, offline, or timeout. Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. It does not poll, monitor, or return unrelated Crew activity, and never proves completion, correctness, progress, or availability.",
 		parameters: emptyParameters,
 		async execute(_id, _params, signal) {
 			const flow = flowFor(state);
@@ -126,7 +126,7 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 						code,
 						waiting.code === "already-waiting"
 							? "Another Request outcome wait is already active"
-							: "No pending Member requests; continue ready work or stop",
+							: "No pending outbound Member request from you. If you received a Member request, respond with respond_to_member_request; otherwise send a new send_member_request or continue ready work.",
 					);
 				}
 				if (waiting.kind === "update") return success("Request outcome received", waiting.update);

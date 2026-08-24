@@ -7,7 +7,10 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { pathToFileURL } from "node:url";
 import { errorCode, isCliEntrypoint, runCli } from "./main.ts";
+import { rootCliHelp } from "./root-help.ts";
+import { createCliRegistry } from "./registry.ts";
 import { crewInitHelp, MEMBER_FOCUS_ENTRY_TYPE } from "../domain/index.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
@@ -50,11 +53,192 @@ async function withEndpoint(
 	}
 }
 
-test("CLI entrypoint detection only accepts the packaged main module", () => {
-	assert.equal(isCliEntrypoint("/tmp/dist/cli/main.js", "file:///tmp/dist/cli/main.js"), true);
-	assert.equal(isCliEntrypoint(undefined, "file:///tmp/dist/cli/main.js"), false);
-	assert.equal(isCliEntrypoint("/tmp/dist/cli/other.js", "file:///tmp/dist/cli/main.js"), false);
-	assert.equal(isCliEntrypoint("/tmp/dist/cli/main.js", "file:///tmp/dist/cli/other.js"), false);
+test("CLI entrypoint detection canonically matches the invoked executable to the packaged module", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-entrypoint-"));
+	try {
+		const distDir = path.join(dir, "dist", "cli");
+		await mkdir(distDir, { recursive: true });
+		const main = path.join(distDir, "main.js");
+		await writeFile(main, "// fixture\n");
+		const other = path.join(distDir, "other.js");
+		await writeFile(other, "// fixture\n");
+		const mainUrl = pathToFileURL(main).href;
+
+		// Direct packaged invocation: the invoked path is the packaged module.
+		assert.equal(isCliEntrypoint(main, mainUrl), true);
+
+		// npm bin shim: node preserves the invoked symlink path in argv[1], so the
+		// guard must canonicalize it before comparing (TASK-0074 regression).
+		const binDir = path.join(dir, "node_modules", ".bin");
+		await mkdir(binDir, { recursive: true });
+		const bin = path.join(binDir, "pi-bebop");
+		await symlink(main, bin);
+		assert.equal(isCliEntrypoint(bin, mainUrl), true);
+
+		// A symlink resolving to a different module must not pass.
+		const otherBin = path.join(binDir, "other");
+		await symlink(other, otherBin);
+		assert.equal(isCliEntrypoint(otherBin, mainUrl), false);
+
+		// Module mismatch at the packaged path.
+		assert.equal(isCliEntrypoint(other, mainUrl), false);
+		assert.equal(isCliEntrypoint(main, pathToFileURL(other).href), false);
+
+		// Missing/empty/unknown argv1 are safe.
+		assert.equal(isCliEntrypoint(undefined, mainUrl), false);
+		assert.equal(isCliEntrypoint("", mainUrl), false);
+		assert.equal(isCliEntrypoint(path.join(dir, "missing.js"), mainUrl), false);
+
+		// Non-file module URLs are safe.
+		assert.equal(isCliEntrypoint(main, "http://example.invalid/main.js"), false);
+
+		// Importing the source module directly never starts the CLI: canonical
+		// equality alone is not enough — the module must be the packaged main,
+		// so no basename-only or equality-only check can run imported modules.
+		const srcDir = path.join(dir, "src", "cli");
+		await mkdir(srcDir, { recursive: true });
+		const srcMain = path.join(srcDir, "main.ts");
+		await writeFile(srcMain, "// fixture\n");
+		assert.equal(isCliEntrypoint(srcMain, pathToFileURL(srcMain).href), false);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 regression)", async () => {
+	const archiveDir = await mkdtemp(path.join(tmpdir(), "bebop-bin-archive-"));
+	const prefix = await mkdtemp(path.join(tmpdir(), "bebop-bin-prefix-"));
+	try {
+		const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root });
+		const archive = packed.stdout
+			.trim()
+			.split("\n")
+			.find((line) => line.endsWith(".tgz"))!;
+		const packageRoot = path.join(prefix, "node_modules", "pi-bebop");
+		await mkdir(packageRoot, { recursive: true });
+		await execFile("tar", ["-xzf", path.join(archiveDir, archive), "-C", packageRoot, "--strip-components=1"]);
+
+		// Mirror npm's install layout: the .bin entry is a symlink to the packed main.
+		const binDir = path.join(prefix, "node_modules", ".bin");
+		await mkdir(binDir, { recursive: true });
+		const bin = path.join(binDir, "pi-bebop");
+		await symlink(path.join("..", "pi-bebop", "dist", "cli", "main.js"), bin);
+		const environment = { ...process.env, NODE_PATH: "" };
+
+		// No-argument invocation through the real bin path: compact TOON home, exit 0.
+		const child = spawn(process.execPath, [bin], {
+			cwd: prefix,
+			env: environment,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let homeOut = "";
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (chunk) => {
+			homeOut += chunk;
+		});
+		const homeCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
+		assert.equal(homeCode, 0, homeOut);
+		assert.match(homeOut, /status: home/);
+		assert.match(homeOut, /scaffold: missing/);
+
+		// Real commands through the bin symlink match direct artifact semantics exactly.
+		const artifact = path.join(packageRoot, "dist/cli/main.js");
+		for (const args of [["crew", "init", "--help"], ["member", "status", "--help"], ["--help"]]) {
+			const viaBin = await execFile(process.execPath, [bin, ...args], { cwd: prefix, env: environment });
+			const viaArtifact = await execFile(process.execPath, [artifact, ...args], {
+				cwd: prefix,
+				env: environment,
+			});
+			assert.equal(viaBin.status ?? 0, viaArtifact.status ?? 0, args.join(" "));
+			assert.equal(viaBin.stdout, viaArtifact.stdout, args.join(" "));
+			assert.equal(viaBin.stderr, viaArtifact.stderr, args.join(" "));
+		}
+	} finally {
+		await rm(archiveDir, { recursive: true, force: true });
+		await rm(prefix, { recursive: true, force: true });
+	}
+});
+
+test("root --help and -h return deterministic concise help with exit 0 and no IO", async () => {
+	const helpText = rootCliHelp(createCliRegistry().vocabulary());
+	for (const flag of ["--help", "-h"]) {
+		const output = new PassThrough();
+		let text = "";
+		output.setEncoding("utf8");
+		output.on("data", (chunk) => {
+			text += chunk;
+		});
+		const code = await runCli([flag], process.cwd(), process.stdin, output);
+		assert.equal(code, 0, flag);
+		assert.equal(text, helpText, flag);
+	}
+	// Root help performs no filesystem/project/session IO: a deleted cwd is fine.
+	const nowhere = await mkdtemp(path.join(tmpdir(), "bebop-root-help-"));
+	await rm(nowhere, { recursive: true, force: true });
+	const output = new PassThrough();
+	let text = "";
+	output.setEncoding("utf8");
+	output.on("data", (chunk) => {
+		text += chunk;
+	});
+	const code = await runCli(["--help"], nowhere, process.stdin, output);
+	assert.equal(code, 0);
+	assert.equal(text, helpText);
+	// Root help in first position wins deterministically, even with trailing args.
+	const trailing = new PassThrough();
+	let trailingText = "";
+	trailing.setEncoding("utf8");
+	trailing.on("data", (chunk) => {
+		trailingText += chunk;
+	});
+	assert.equal(await runCli(["-h", "anything"], process.cwd(), process.stdin, trailing), 0);
+	assert.equal(trailingText, helpText);
+});
+
+test("unknown root flags still produce structured usage output with exit 2", async () => {
+	for (const args of [["-x"], ["--nope"]]) {
+		const output = new PassThrough();
+		let text = "";
+		output.setEncoding("utf8");
+		output.on("data", (chunk) => {
+			text += chunk;
+		});
+		const code = await runCli(args, process.cwd(), process.stdin, output);
+		assert.equal(code, 2, args.join(" "));
+		assert.match(text, /Invalid command/);
+	}
+});
+
+test("leaf -h is a consistent usage error, never silent help (no short aliases)", async () => {
+	const leaves: string[][] = [
+		["send"],
+		["crew", "init"],
+		["member", "status"],
+		["member", "wait-idle"],
+		["session", "list"],
+		["member", "follow-up"],
+		["member", "redirect"],
+		["member", "interrupt"],
+		["member", "focus", "set"],
+		["member", "focus", "clear"],
+		["member", "inbox", "send"],
+		["crew", "broadcast"],
+	];
+	for (const leaf of leaves) {
+		const output = new PassThrough();
+		let text = "";
+		output.setEncoding("utf8");
+		output.on("data", (chunk) => {
+			text += chunk;
+		});
+		const code = await runCli([...leaf, "-h"], process.cwd(), process.stdin, output);
+		assert.equal(code, 2, leaf.join(" "));
+		assert.match(text, /status: usage|Unknown flag/, leaf.join(" "));
+		assert.ok(
+			!text.includes("Usage:") && !text.includes("Options:") && !text.includes("Commands:"),
+			`${leaf.join(" ")} -h must not render help`,
+		);
+	}
 });
 
 test("runs against a live Unix socket and sends ordered instructions and claimed origin", async () => {

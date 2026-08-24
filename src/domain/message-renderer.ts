@@ -40,3 +40,22 @@ export function renderMessagePayloadForDisplay(payload: MessagePayload): string 
 	sections.push(payload.content);
 	return sections.join("\n\n");
 }
+
+/**
+ * TASK-0076: bounded structural marker prepended to the model-visible content
+ * of an inbound Member request. Carries semantic intent + the opaque Request
+ * ID only — never the requester socket/session/manifest path or any
+ * authentication claim. The canonical payload JSON follows on the next line.
+ */
+export function renderMemberRequestModelContent(payload: MessagePayload, requestId: string): string {
+	return `[member request] ${requestId}: do the requested work, then respond with respond_to_member_request. Never wait with wait_for_request_outcome for this inbound request.\n${renderMessagePayload(payload)}`;
+}
+
+/**
+ * TASK-0076: bounded structural marker for ordinary Follow-up — information
+ * only, no correlated Response expected. Message content is never parsed or
+ * heuristically upgraded into a Member request.
+ */
+export function renderFollowUpModelContent(payload: MessagePayload): string {
+	return `[follow-up] information only; no correlated Response expected.\n${renderMessagePayload(payload)}`;
+}

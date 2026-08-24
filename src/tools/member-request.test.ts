@@ -54,6 +54,36 @@ test("coordination tools are distinct from accepted-only follow-up vocabulary", 
 	);
 });
 
+test("TASK-0076: request tools make Requester/Responder roles structurally explicit", () => {
+	const { tools, state, pi } = setup();
+	registerSendMemberRequestTool(pi, state);
+	registerRespondToMemberRequestTool(pi, state);
+	registerWaitForRequestOutcomeTool(pi, state);
+	const send = tools.get("send_member_request")!.description;
+	const respond = tools.get("respond_to_member_request")!.description;
+	const wait = tools.get("wait_for_request_outcome")!.description;
+	// Requester-side send: recommended for any message whose sender requires one answer/report/verdict/evidence.
+	assert.match(send, /requester-side/i);
+	assert.match(send, /one answer, report, verdict, or evidence response/i);
+	// Responder-side respond: only for an inbound Member request.
+	assert.match(respond, /responder-side/i);
+	assert.match(respond, /inbound Member request/i);
+	assert.doesNotMatch(respond, /requester|wait_for_request_outcome/);
+	// Requester-only wait: call only after the current member sent a Member request; never inbound handling.
+	assert.match(wait, /requester-side/i);
+	assert.match(wait, /only after you sent a Member request/i);
+	assert.match(wait, /never handles inbound/i);
+});
+
+test("TASK-0076: empty wait fails with no-pending-member-requests and self-correcting recovery guidance", async () => {
+	const { tools, state, pi } = setup();
+	registerWaitForRequestOutcomeTool(pi, state);
+	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "no-pending-member-requests");
+	assert.match(String(result.content[0]?.text ?? ""), /respond_to_member_request|send a new|continue/);
+});
+
 test("wait cancellation releases only the waiter and preserves active request state", async () => {
 	const { tools, state, pi } = setup();
 	registerWaitForRequestOutcomeTool(pi, state);
@@ -76,4 +106,22 @@ test("empty wait fails immediately and never starts a polling loop", async () =>
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, true);
 	assert.equal(result.details.error, "no-pending-member-requests");
+});
+
+test("wait_for_request_outcome returns idle-without-response immediately, not timeout", async () => {
+	const { tools, state, pi } = setup();
+	registerWaitForRequestOutcomeTool(pi, state);
+	const registry = state.memberRequestFlow!.registry;
+	registry.registerOutbound({ requestId: "idle-1", member: { name: "qa", role: "reviewer" }, now: 1_000 });
+	registry.acceptOutbound("idle-1");
+	registry.armOutboundIdle("idle-1");
+	const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	registry.resolveIdle("idle-1");
+	const result = await pending;
+	assert.equal(result.isError, undefined);
+	assert.deepEqual(result.details, {
+		kind: "idle-without-response",
+		requestId: "idle-1",
+		member: { name: "qa", role: "reviewer" },
+	});
 });

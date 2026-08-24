@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, cp } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, cp, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,6 +95,38 @@ try {
 		});
 		const unchangedResult = JSON.parse(unchanged.stdout);
 		if (unchangedResult.status !== "unchanged") throw new Error("Installed CLI crew init rerun was not unchanged");
+
+		// TASK-0074: execute the generated bin shim/symlink directly (not only
+		// `node dist/cli/main.js`) so a broken entrypoint guard can never pass
+		// release verification. The .bin entry mirrors npm's install layout.
+		const binDir = path.join(consumerDir, "node_modules", ".bin");
+		await mkdir(binDir, { recursive: true });
+		const bin = path.join(binDir, "pi-bebop");
+		await symlink(path.join("..", "pi-bebop", "dist", "cli", "main.js"), bin);
+
+		const binHome = await execFile(process.execPath, [bin], { cwd: initDir, env: environment });
+		if (!/status: home/.test(binHome.stdout) || !/executable:/.test(binHome.stdout))
+			throw new Error("Installed bin shim no-argument invocation did not render the TOON home");
+
+		const binRootHelp = await execFile(process.execPath, [bin, "--help"], { cwd: initDir, env: environment });
+		const binShortHelp = await execFile(process.execPath, [bin, "-h"], { cwd: initDir, env: environment });
+		if (
+			!/Usage:/.test(binRootHelp.stdout) ||
+			!/--help \| -h/.test(binRootHelp.stdout) ||
+			binShortHelp.stdout !== binRootHelp.stdout
+		)
+			throw new Error("Installed bin shim root -h/--help did not render deterministic root help");
+
+		const binCrewHelp = await execFile(process.execPath, [bin, "crew", "init", "--help"], {
+			cwd: initDir,
+			env: environment,
+		});
+		const artifactCrewHelp = await execFile(process.execPath, [cli, "crew", "init", "--help"], {
+			cwd: initDir,
+			env: environment,
+		});
+		if (binCrewHelp.stdout !== artifactCrewHelp.stdout || binCrewHelp.status !== artifactCrewHelp.status)
+			throw new Error("Installed bin shim command semantics differ from the direct artifact");
 	} finally {
 		await rm(initDir, { recursive: true, force: true });
 	}
