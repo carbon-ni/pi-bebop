@@ -120,7 +120,7 @@ Validation order is fixed: flag, combination, and limit validation completes bef
 
 Limits are the Message Payload contract and are asserted by the schema guard: content at most 1,000,000 UTF-8 bytes, at most 32 instructions, each instruction at most 100,000 bytes and trimmed/NUL-free, aggregate payload at most 1,000,000 bytes. Message text is preserved verbatim (no trim); whitespace-only content counts as empty. Content and every instruction must be NUL-free.
 
-Follow-up and Redirect are accepted-delivery only. There is no CLI `wait_for` flag because Pi cannot prove delivery-level response correlation. Help must say accepted does not mean replied or completed.
+Follow-up and Redirect are accepted-delivery only. There is no CLI `wait_for` flag because Response correlation belongs to the separate Member request workflow (`send_member_request` / `wait_for_request_outcome`). Help must say accepted does not mean replied or completed.
 
 ### Focus input
 
@@ -149,7 +149,7 @@ The source semantic idle timeout wins simultaneous operation/transport expiry. S
 
 ## Result and delivery matrix
 
-The JSON artifact is normative for full fields and error lists. Summary:
+The JSON artifact is normative for full fields and error lists. Startup role selection is a Pi flag (`pi --crew-role <role>`), not a `pi-bebop` leaf; it resolves exact trusted manifest roles and delegates the existing join path. Summary:
 
 - `member follow-up` — success `accepted` with member identity, delivery id, disposition `direct|queued`. Delivery: online normal message; waits behind busy work; accepted never means reply, delivered work, or completion. Cancellation: before dispatch prevents; after acceptance cannot retract; lost ack is outcome-unknown.
 - `member redirect` — success `accepted` with member identity, delivery id, disposition `direct|steered`. Delivery: online direction change before the target's next model step; never aborts. Cancellation: after acceptance cannot retract steering.
