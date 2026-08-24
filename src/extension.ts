@@ -51,7 +51,13 @@ import {
 	membershipStateFromRuntime,
 } from "./pi/membership-context.ts";
 import { releaseMembershipBeforeCleanup, restorePersistedMembership } from "./pi/membership-lifecycle.ts";
-import { maybeHandleStartupRoleJoin, maybeHandleStartupSocketJoin } from "./pi/startup-send.ts";
+import {
+	maybeHandleStartupRoleJoin,
+	maybeHandleStartupSocketJoin,
+	resolveStartupCrewRole,
+	startupRoleSelectionError,
+	type StartupRoleSelection,
+} from "./pi/startup-send.ts";
 import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
@@ -256,6 +262,29 @@ export default function (pi: ExtensionAPI) {
 				: console.error("Choose exactly one of --crew-role or --crew-socket");
 			return;
 		}
+		let startupRoleSelection: StartupRoleSelection | undefined;
+		if (startupRole) {
+			try {
+				startupRoleSelection = await resolveStartupCrewRole(
+					String(rawCrewRole),
+					ctx.cwd,
+					ctx.isProjectTrusted(),
+				);
+			} catch (error) {
+				reconcileMembershipTools(pi, false);
+				const message = error instanceof Error ? error.message : "manifest read failed";
+				ctx.hasUI
+					? ctx.ui.notify(`Crew startup role join failed: ${message}`, "error")
+					: console.error(`Crew startup role join failed: ${message}`);
+				return;
+			}
+			if (startupRoleSelection && "code" in startupRoleSelection) {
+				reconcileMembershipTools(pi, false);
+				const message = `Crew startup role join failed: ${startupRoleSelectionError(startupRoleSelection)}`;
+				ctx.hasUI ? ctx.ui.notify(message, "error") : console.error(message);
+				return;
+			}
+		}
 		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
 		const persisted = getLatestMembershipState(branch);
 		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
@@ -275,6 +304,7 @@ export default function (pi: ExtensionAPI) {
 						{ role: CREW_ROLE_FLAG },
 						state.membershipRuntime,
 						state.socketPath,
+						async () => startupRoleSelection!,
 					)
 				: await maybeHandleStartupSocketJoin(
 						ctx,
