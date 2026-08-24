@@ -187,6 +187,35 @@ pi-bebop send --socket .pi/bebop/sockets/lead.sock \
 printf 'line one\nline two\n' | pi-bebop send --socket .pi/crew/sockets/lead.sock --stdin --wait accepted --format json
 ```
 
+### CLI command surface
+
+The standalone CLI uses command-local flags and default TOON output; use
+`--format json` for machine round trips or `--format text` for concise human
+output. Usage errors exit 2, operational failures exit 1, and successful or
+expected outcomes (including offline/timeout observations) exit 0. `--session
+<id|alias>` selects a joined source session for membership leaves; otherwise a
+safe `PI_SESSION_ID` is used.
+
+```text
+pi-bebop member status <member> [--session <id|alias>] [--format toon|json|text]
+pi-bebop member follow-up <member> --message <text>
+pi-bebop member redirect <member> --message <text>
+pi-bebop member inbox send <member> --message <text>
+pi-bebop member interrupt <member> --message <text>
+pi-bebop member focus set|clear [--session <id|alias>]
+pi-bebop member wait-idle <member> [--timeout <duration>]
+pi-bebop crew broadcast --message <text>
+pi-bebop session list [--format toon|json|text]
+```
+
+Message leaves accept exactly one of `--message` or `--stdin`; repeatable
+`--instruction` preserves ordered guidance where supported. `Ctrl-C` cancels
+stdin, RPC, and one-shot waits with bounded cleanup. Follow-up and Redirect
+report accepted delivery only; Inbox/Broadcast report persistence; Interrupt
+reports best-effort recovery; Member Status and Idle Wait report observations.
+See the [membership parity contract](docs/CLI-MEMBERSHIP-PARITY.md) for closed
+result/error shapes and runnable examples.
+
 ### Role-based messaging
 
 Once joined, use `send_follow_up` by default:
