@@ -1,7 +1,7 @@
 ---
 id: TASK-0072
 title: Refactor member message delivery pipeline
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [refactor, messaging, application, delivery, separation-of-concerns, tdd]
