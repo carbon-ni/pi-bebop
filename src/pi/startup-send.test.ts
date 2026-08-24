@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createMembershipRuntime, type MembershipRuntime } from "../infra/membership-runtime.ts";
 import { parseCrewManifest } from "../domain/index.ts";
-import { maybeHandleStartupSocketJoin, normalizeStartupSocketPath } from "./startup-send.ts";
+import {
+	maybeHandleStartupRoleJoin,
+	maybeHandleStartupSocketJoin,
+	normalizeStartupSocketPath,
+	resolveStartupCrewRole,
+} from "./startup-send.ts";
 
 function context(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
 	return {
@@ -18,6 +23,95 @@ function context(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
 function piWithFlag(value: unknown): ExtensionAPI {
 	return { getFlag: () => value } as unknown as ExtensionAPI;
 }
+
+test("startup role resolver selects configured socket without guessing filenames", async () => {
+	const reads: string[] = [];
+	const result = await resolveStartupCrewRole("developer", "/project", true, {
+		manifestExists: async (manifestPath) => manifestPath.endsWith("/bebop/crew.json"),
+		readManifest: async (manifestPath) => {
+			reads.push(manifestPath);
+			return parseCrewManifest(
+				{ version: 1, members: [{ name: "Bob", role: "developer", socket: "sockets/custom.sock" }] },
+				manifestPath,
+			);
+		},
+	});
+	assert.deepEqual(result, {
+		ok: true,
+		manifestPath: "/project/.pi/bebop/crew.json",
+		socketPath: "/project/.pi/bebop/sockets/custom.sock",
+	});
+	assert.deepEqual(reads, ["/project/.pi/bebop/crew.json"]);
+});
+
+test("startup role resolver checks trust before manifest IO and rejects both layouts", async () => {
+	let io = 0;
+	const dependencies = {
+		manifestExists: async () => {
+			io += 1;
+			return true;
+		},
+		readManifest: async () => {
+			io += 1;
+			throw new Error("must not read");
+		},
+	};
+	assert.equal(
+		(await resolveStartupCrewRole("developer", "/project", false, dependencies)).code,
+		"untrusted-project",
+	);
+	assert.equal(io, 0);
+	assert.equal(
+		(
+			await resolveStartupCrewRole("developer", "/project", true, {
+				...dependencies,
+				manifestExists: async () => false,
+			})
+		).code,
+		"missing-manifest",
+	);
+	assert.equal(
+		(
+			await resolveStartupCrewRole("developer", "/project", true, {
+				...dependencies,
+				manifestExists: async () => true,
+			})
+		).code,
+		"ambiguous-manifest",
+	);
+});
+
+test("startup role join delegates selected manifest socket and does not activate on failure", async () => {
+	const joins: unknown[] = [];
+	const runtime = {
+		join: async (request: unknown) => {
+			joins.push(request);
+			return {
+				ok: true,
+				idempotent: false,
+				membership: { member: { name: "Bob", role: "developer" }, socketPath: "/project/custom.sock" },
+			};
+		},
+		leave: async () => ({ ok: true, left: false }),
+		getMembership: () => null,
+	} as unknown as MembershipRuntime;
+	const joined = await maybeHandleStartupRoleJoin(
+		context(),
+		piWithFlag("developer"),
+		{ role: "crew-role" },
+		runtime,
+		"/tmp/global.sock",
+		async () => ({ ok: true, manifestPath: "/project/.pi/bebop/crew.json", socketPath: "/project/custom.sock" }),
+	);
+	assert.equal(joined, true);
+	assert.deepEqual(joins, [
+		{
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: "/project/custom.sock",
+			globalSocketPath: "/tmp/global.sock",
+		},
+	]);
+});
 
 test("startup socket paths normalize leading @ and startup cwd", () => {
 	assert.equal(

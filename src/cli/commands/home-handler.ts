@@ -45,9 +45,7 @@ export async function runHomeCommand(
 				project: redactHome(env, project),
 				scaffold,
 				commands: [...commands],
-				...(scaffold === "missing"
-					? { next: "pi-bebop crew init" }
-					: { next: 'pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"' }),
+				...(scaffold === "missing" ? { next: "pi-bebop crew init" } : { next: "pi --crew-role lead" }),
 			},
 		},
 		format: "toon",

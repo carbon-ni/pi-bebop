@@ -281,5 +281,5 @@ test("output contract: result carries relative paths and copyable next commands"
 	assert.equal(result.ok, true);
 	if (!result.ok) return;
 	assert.ok(result.createdPaths.every((p) => !p.startsWith("/")));
-	assert.ok(result.nextCommands.every((c) => c.includes(".pi/bebop")));
+	assert.deepEqual(result.nextCommands, ["pi --crew-role lead", "pi --crew-role developer"]);
 });

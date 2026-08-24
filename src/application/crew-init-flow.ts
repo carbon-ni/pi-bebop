@@ -114,10 +114,7 @@ export function createCrewInitFlow(adapter: CrewInitFsAdapter) {
 				manifestPath: CREW_INIT_MANIFEST_REL,
 				createdPaths: [],
 				verifiedPaths: crewInitManagedPaths().filter((p) => !p.endsWith("/")),
-				nextCommands: [
-					`pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"`,
-					`pi --crew-socket "$PWD/.pi/bebop/sockets/developer.sock"`,
-				],
+				nextCommands: [`pi --crew-role lead`, `pi --crew-role developer`],
 			};
 		}
 		if (verdict.kind === "conflict") {
@@ -159,10 +156,7 @@ export function createCrewInitFlow(adapter: CrewInitFsAdapter) {
 							manifestPath: CREW_INIT_MANIFEST_REL,
 							createdPaths: [],
 							verifiedPaths: crewInitManagedPaths().filter((p) => !p.endsWith("/")),
-							nextCommands: [
-								`pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"`,
-								`pi --crew-socket "$PWD/.pi/bebop/sockets/developer.sock"`,
-							],
+							nextCommands: [`pi --crew-role lead`, `pi --crew-role developer`],
 						};
 					}
 					if (after.kind === "conflict") {
@@ -191,10 +185,7 @@ export function createCrewInitFlow(adapter: CrewInitFsAdapter) {
 				manifestPath: CREW_INIT_MANIFEST_REL,
 				createdPaths: crewInitManagedPaths().filter((p) => !p.endsWith("/")),
 				verifiedPaths: [],
-				nextCommands: [
-					`pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"`,
-					`pi --crew-socket "$PWD/.pi/bebop/sockets/developer.sock"`,
-				],
+				nextCommands: [`pi --crew-role lead`, `pi --crew-role developer`],
 			};
 		} catch (error) {
 			const code = errnoCode(error);

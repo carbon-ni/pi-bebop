@@ -32,6 +32,7 @@
 		"src/domain/member-status.ts",
 		"src/domain/member-idle-wait.ts",
 		"src/domain/crew-init.ts",
+		"src/domain/crew-role.ts",
 		"src/domain/member-request.ts",
 		"src/domain/member-inbox.ts",
 		"src/domain/index.ts",

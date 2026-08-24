@@ -58,15 +58,17 @@ A socket under `.pi/bebop/sockets/` selects only `.pi/bebop/crew.json`; a socket
 
 ### Join the crew
 
-Start each member with its crew identity:
+Start each member by its manifest-configured role:
 
 ```bash
-pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"
-pi --crew-socket "$PWD/.pi/bebop/sockets/developer.sock"
+pi --crew-role lead
+pi --crew-role developer
 ```
 
-`--crew-socket` starts Bebop's socket server and selects the member represented
-by that endpoint. Use `pi --crew` to start a server without joining a crew.
+`--crew-role` selects an exact role from the trusted project-local manifest and
+uses its configured socket; it never guesses a filename. Use `--crew-socket`
+for explicit cross-worktree or external-project selection, or `pi --crew` to
+start a server without joining a crew.
 Installing Bebop, or running its server, does not expose crew tools or context to
 the agent: only active joined membership enables those agent-facing surfaces.
 

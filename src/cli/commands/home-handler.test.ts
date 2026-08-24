@@ -35,7 +35,7 @@ test("home reports present scaffold with socket next command", async () => {
 		if (outcome.kind !== "result") return;
 		const data = outcome.result.data as Record<string, unknown>;
 		assert.equal(data.scaffold, "present");
-		assert.equal(data.next, 'pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"');
+		assert.equal(data.next, "pi --crew-role lead");
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

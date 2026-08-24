@@ -51,7 +51,7 @@ import {
 	membershipStateFromRuntime,
 } from "./pi/membership-context.ts";
 import { releaseMembershipBeforeCleanup, restorePersistedMembership } from "./pi/membership-lifecycle.ts";
-import { maybeHandleStartupSocketJoin } from "./pi/startup-send.ts";
+import { maybeHandleStartupRoleJoin, maybeHandleStartupSocketJoin } from "./pi/startup-send.ts";
 import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
@@ -59,6 +59,7 @@ import { MemberRequestFlow } from "./application/member-request-flow.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
+const CREW_ROLE_FLAG = "crew-role";
 
 /** Crew management with its own namespaced socket transport. */
 export default function (pi: ExtensionAPI) {
@@ -68,6 +69,10 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.registerFlag(CREW_SOCKET_FLAG, {
 		description: "Select a crew socket path as the current crew identity",
+		type: "string",
+	});
+	pi.registerFlag(CREW_ROLE_FLAG, {
+		description: "Select a configured crew member by exact role in the current project",
 		type: "string",
 	});
 
@@ -235,10 +240,26 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		const startupSocket =
 			typeof pi.getFlag(CREW_SOCKET_FLAG) === "string" && String(pi.getFlag(CREW_SOCKET_FLAG)).trim().length > 0;
+		const rawCrewRole = pi.getFlag(CREW_ROLE_FLAG);
+		const startupRole = typeof rawCrewRole === "string" && rawCrewRole.trim().length > 0;
+		if (rawCrewRole !== undefined && rawCrewRole !== false && (!startupRole || typeof rawCrewRole !== "string")) {
+			reconcileMembershipTools(pi, false);
+			ctx.hasUI
+				? ctx.ui.notify("Invalid --crew-role: role must be non-empty", "error")
+				: console.error("Invalid --crew-role: role must be non-empty");
+			return;
+		}
+		if (startupSocket && startupRole) {
+			reconcileMembershipTools(pi, false);
+			ctx.hasUI
+				? ctx.ui.notify("Choose exactly one of --crew-role or --crew-socket", "error")
+				: console.error("Choose exactly one of --crew-role or --crew-socket");
+			return;
+		}
 		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
 		const persisted = getLatestMembershipState(branch);
 		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
-		if (crewRequested || startupSocket || persisted?.active === true) {
+		if (crewRequested || startupSocket || startupRole || persisted?.active === true) {
 			await ensureControlServer(pi, state, ctx);
 		} else {
 			state.context = ctx;
@@ -246,14 +267,22 @@ export default function (pi: ExtensionAPI) {
 			// New unjoined session: base server may be off; membership tools stay inactive.
 			reconcileMembershipTools(pi, false);
 		}
-		if (startupSocket) {
-			const joined = await maybeHandleStartupSocketJoin(
-				ctx,
-				pi,
-				{ socket: CREW_SOCKET_FLAG },
-				state.membershipRuntime,
-				state.socketPath,
-			);
+		if (startupRole || startupSocket) {
+			const joined = startupRole
+				? await maybeHandleStartupRoleJoin(
+						ctx,
+						pi,
+						{ role: CREW_ROLE_FLAG },
+						state.membershipRuntime,
+						state.socketPath,
+					)
+				: await maybeHandleStartupSocketJoin(
+						ctx,
+						pi,
+						{ socket: CREW_SOCKET_FLAG },
+						state.membershipRuntime,
+						state.socketPath,
+					);
 			const membership = state.membershipRuntime.getMembership();
 			if (joined && membership) {
 				activateMembershipTool(pi);
