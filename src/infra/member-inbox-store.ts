@@ -48,7 +48,8 @@ export type MemberInboxStoreErrorCode =
 	| "write-failed"
 	| "read-failed"
 	| "quarantine-failed"
-	| "invalid-item-id";
+	| "invalid-item-id"
+	| "idempotency-conflict";
 
 export class MemberInboxStoreError extends Error {
 	readonly code: MemberInboxStoreErrorCode;
@@ -232,7 +233,18 @@ export async function openTrustedMemberInboxStore(options: {
 			await ensureMemberDir(realInboxRoot, memberDir, deps);
 			return await withLock(memberDir, deps, async () => {
 				const items = await readItems(memberDir, realInboxRoot, socketPath, deps);
-				if (items.some((item) => item.id === id)) return { alreadyPersisted: true as const, itemId: id };
+				const existing = items.find((item) => item.id === id);
+				if (existing) {
+					const sameTarget =
+						existing.target.name === target.name && existing.target.socketPath === target.socketPath;
+					const samePayload = JSON.stringify(existing.payload) === JSON.stringify(payload);
+					if (!sameTarget || !samePayload)
+						throw new MemberInboxStoreError(
+							"idempotency-conflict",
+							`item id already exists with a different target or payload: ${id}`,
+						);
+					return { alreadyPersisted: true as const, itemId: id };
+				}
 				if (items.length >= MAX_INBOX_ITEMS)
 					throw new MemberInboxStoreError(
 						"capacity-exceeded",

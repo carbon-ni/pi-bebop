@@ -98,6 +98,7 @@ function mapStoreError(error: unknown, fallback = "storage-failed"): string {
 			return "untrusted-project";
 	}
 	if (STORAGE_UNAVAILABLE.has((error as MemberInboxStoreError).code)) return "storage-unavailable";
+	if ((error as MemberInboxStoreError).code === "idempotency-conflict") return "idempotency-conflict";
 	return fallback;
 }
 
@@ -152,6 +153,19 @@ export async function submitCrewBroadcast(
 			continue;
 		}
 		await persistOne(recipient, dependencies, payload, request, dispositions);
+		if (dispositions.at(-1)?.code === "idempotency-conflict") {
+			for (const remaining of snapshot.recipients.slice(dispositions.length)) {
+				dispositions.push({
+					recipientName: remaining.member.name,
+					recipientRole: remaining.member.role,
+					itemId: remaining.itemId,
+					status: "failed",
+					code: "idempotency-conflict",
+					message: "Broadcast stopped after an idempotency conflict",
+				});
+			}
+			break;
+		}
 	}
 
 	return { ok: true, broadcastId, dispositions, summary: summarizeBroadcastDispositions(dispositions) };

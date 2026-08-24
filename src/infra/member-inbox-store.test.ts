@@ -467,6 +467,19 @@ describe("enqueueWithId (broadcast seam)", () => {
 		assert.equal(await repo.count(), 1, "duplicate id must not add an item");
 	});
 
+	test("rejects an existing id with a different payload without overwriting the original", async (t) => {
+		const local = await makeFixture();
+		t.after(local.cleanup);
+		const repo = await open(local);
+		await repo.enqueueWithId(payload("original"), 600, "broadcast-conflict");
+		await rejectsInboxStore(
+			repo.enqueueWithId(payload("changed"), 601, "broadcast-conflict"),
+			"idempotency-conflict",
+		);
+		assert.equal(await repo.count(), 1);
+		assert.equal((await repo.peekOldest())?.payload.content, "original");
+	});
+
 	test("coexists with sequence-derived enqueue items (distinct id spaces)", async (t) => {
 		const local = await makeFixture();
 		t.after(local.cleanup);

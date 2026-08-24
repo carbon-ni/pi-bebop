@@ -79,7 +79,7 @@ export function durableMessageHelp(intent: DurableMessageIntent): string {
 				: "Success means persisted copies, never delivered, read, or completed; retries reuse deterministic ids.",
 			"There is no wait_for flag: persistence acknowledgement is the only guarantee.",
 			intent === "broadcast"
-				? "An indistinguishable second broadcast is unsupported; change the payload to create a distinct broadcast. idempotency-conflict remains reserved."
+				? "The broadcast id already contains a different payload; change the message or instructions and retry."
 				: "",
 			"",
 			"Options:",
@@ -242,6 +242,7 @@ const REMOTE_DURABLE_CODES = new Set([
 	"storage-failed",
 	"invalid-item-id",
 	"aborted",
+	"idempotency-conflict",
 	"no-recipients",
 ]);
 function transportError(error: unknown): { ok: false; code: string } {
@@ -347,6 +348,9 @@ export async function runDurableMessageCommand(
 	}
 	const result = outcome.result as CrewBroadcastRpcResult;
 	const partial = result.summary.failed > 0;
+	const conflict = result.dispositions.some(
+		(disposition) => disposition.disposition === "failed" && disposition.code === "idempotency-conflict",
+	);
 	return {
 		kind: "result",
 		result: {
@@ -358,8 +362,10 @@ export async function runDurableMessageCommand(
 			...(partial
 				? {
 						error: {
-							code: "partial",
-							message: "Broadcast partially persisted; retry is safe and will not duplicate",
+							code: conflict ? "idempotency-conflict" : "partial",
+							message: conflict
+								? "Broadcast stopped after an idempotency conflict; no later recipients were written"
+								: "Broadcast partially persisted; retry is safe and will not duplicate",
 						},
 					}
 				: {}),
