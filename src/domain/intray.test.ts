@@ -67,6 +67,10 @@ import {
 	MemberInterruptRequestSchema,
 	MemberInterruptCommandSchema,
 	isMemberInterruptResult,
+	MemberFocusRequestSchema,
+	MemberFocusCommandSchema,
+	MemberFocusResultSchema,
+	isMemberFocusResult,
 	MemberInboxSendRequestSchema,
 	CrewBroadcastRequestSchema,
 	MemberInboxSendCommandSchema,
@@ -808,6 +812,37 @@ test("parseSessionControlAction rejects removed direct actions and invalid arity
 	assert.deepEqual(parseSessionControlAction("status now"), {
 		error: "Too many arguments. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
 	});
+});
+
+test("member.focus round-trips with closed self-scoped set/clear results", () => {
+	const request = {
+		jsonrpc: "2.0" as const,
+		id: "focus-1",
+		method: "member.focus" as const,
+		params: { action: "set" as const, focus: "--blocked" },
+	};
+	assert.deepEqual(requestToCommand(request), {
+		type: "member_focus",
+		action: "set",
+		focus: "--blocked",
+		id: "focus-1",
+	});
+	assert.deepEqual(commandToRequest({ type: "member_focus", action: "clear" }, "focus-2"), {
+		jsonrpc: "2.0",
+		id: "focus-2",
+		method: "member.focus",
+		params: { action: "clear" },
+	});
+	assert.deepEqual(methodResultSchema("member.focus"), MemberFocusResultSchema);
+	assert.equal(isMemberFocusResult({ status: "unchanged", focus: { state: "unspecified" } }), true);
+	assert.equal(
+		isMemberFocusResult({
+			status: "updated",
+			focus: { state: "reported", text: "x", updatedAt: "2026-08-24T00:00:00.000Z" },
+		}),
+		true,
+	);
+	assert.equal(isMemberFocusResult({ status: "done", focus: { state: "unspecified" } }), false);
 });
 
 test("member.interrupt round-trips through the delegated source command contract", () => {

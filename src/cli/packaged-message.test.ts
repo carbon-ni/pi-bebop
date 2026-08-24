@@ -7,6 +7,7 @@ import path from "node:path";
 import * as net from "node:net";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
+import { sendRpcCommand } from "../infra/rpc-client.ts";
 
 /**
  * TASK-0062 packaged proof: the built dist CLI delivers a follow-up and a
@@ -24,6 +25,7 @@ interface Sessions {
 	readonly targetServer: net.Server;
 	readonly targetMessages: string[];
 	readonly targetEntries: unknown[];
+	readonly sourceEntries: unknown[];
 	readonly setTargetIdle: (value: boolean) => void;
 	readonly getTargetAbortCount: () => number;
 	close(): Promise<void>;
@@ -37,6 +39,7 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 	const targetSocket = path.join(controlDir, "target.sock");
 	const targetMessages: string[] = [];
 	const targetEntries: unknown[] = [];
+	const sourceEntries: unknown[] = [];
 	let targetIdle = false;
 	let targetAbortCount = 0;
 
@@ -87,13 +90,16 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 	} as never;
 	sourceState.context = {
 		hasUI: false,
-		sessionManager: { getSessionId: () => "source", getSessionName: () => null, getEntries: () => [] },
+		sessionManager: { getSessionId: () => "source", getSessionName: () => null, getEntries: () => sourceEntries },
 		isIdle: () => false,
 		hasPendingMessages: () => false,
 		isProjectTrusted: () => true,
 	} as never;
+	const sourcePi = {
+		appendEntry: (customType: string, data: unknown) => sourceEntries.push({ type: "custom", customType, data }),
+	};
 	const sourceServer = await createRpcServer(sourceSocket, (command, socket) =>
-		handleCommand({} as never, sourceState, command, socket),
+		handleCommand(sourcePi as never, sourceState, command, socket),
 	);
 
 	t.after(async () => {
@@ -109,6 +115,7 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		targetServer,
 		targetMessages,
 		targetEntries,
+		sourceEntries,
 		setTargetIdle: (value) => {
 			targetIdle = value;
 		},
@@ -215,6 +222,65 @@ test("packaged CLI interrupt proves idle direct and busy best-effort recovery di
 	assert.equal(busy.code, 0, busy.stdout);
 	assert.equal(JSON.parse(busy.stdout).data.disposition, "interrupt-requested");
 	assert.equal(sessions.getTargetAbortCount(), 1);
+});
+
+test("packaged CLI focus set/status/clear/status round trips self-scoped durable state", async (t) => {
+	const sessions = await startSessions(t);
+	const set = await packagedMessage(sessions.root, [
+		"member",
+		"focus",
+		"set",
+		"--session",
+		"source-session-1",
+		"--format",
+		"json",
+		"--",
+		"--blocked",
+	]);
+	assert.equal(set.code, 0, set.stdout);
+	assert.equal(JSON.parse(set.stdout).status, "updated");
+	const statusAfterSet = await sendRpcCommand(sessions.sourceSocket, {
+		type: "member_status",
+		member: "Tony",
+		id: "status-focus-1",
+	});
+	assert.equal(statusAfterSet.response.success, true);
+	assert.equal(
+		(statusAfterSet.response.data as { status: { focus: { state: string; text?: string } } }).status.focus.text,
+		"--blocked",
+	);
+
+	const clear = await packagedMessage(sessions.root, [
+		"member",
+		"focus",
+		"clear",
+		"--session",
+		"source-session-1",
+		"--format",
+		"json",
+	]);
+	assert.equal(clear.code, 0, clear.stdout);
+	assert.equal(JSON.parse(clear.stdout).status, "cleared");
+	const statusAfterClear = await sendRpcCommand(sessions.sourceSocket, {
+		type: "member_status",
+		member: "Tony",
+		id: "status-focus-2",
+	});
+	assert.equal(
+		(statusAfterClear.response.data as { status: { focus: { state: string } } }).status.focus.state,
+		"unspecified",
+	);
+	const unchanged = await packagedMessage(sessions.root, [
+		"member",
+		"focus",
+		"clear",
+		"--session",
+		"source-session-1",
+		"--format",
+		"json",
+	]);
+	assert.equal(unchanged.code, 0, unchanged.stdout);
+	assert.equal(JSON.parse(unchanged.stdout).status, "unchanged");
 });
 
 test("packaged CLI rejects a wait flag with accepted-only recovery and no delivery", async (t) => {
