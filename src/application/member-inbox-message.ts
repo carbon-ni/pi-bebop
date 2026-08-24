@@ -25,10 +25,22 @@ type CrewMembership = {
 	manifest: { members: readonly CrewMember[] };
 };
 
-export class MemberInboxMessageError extends Error {
-	readonly code: string;
+export type MemberInboxMessageErrorCode =
+	| "unknown-member"
+	| "ambiguous-role"
+	| "self-send"
+	| "not-joined"
+	| "invalid-payload"
+	| "untrusted-project"
+	| "inbox-full"
+	| "inbox-untrusted-path"
+	| "storage-unavailable"
+	| "storage-failed";
 
-	constructor(code: string, message: string, options?: { cause?: unknown }) {
+export class MemberInboxMessageError extends Error {
+	readonly code: MemberInboxMessageErrorCode;
+
+	constructor(code: MemberInboxMessageErrorCode, message: string, options?: { cause?: unknown }) {
 		super(message, options);
 		this.name = "MemberInboxMessageError";
 		this.code = code;
@@ -82,7 +94,7 @@ function resolveTarget(membership: CrewMembership, memberName: string): CrewMemb
 	return target;
 }
 
-const storeErrorCodeMap: Record<string, string> = {
+const storeErrorCodeMap: Record<string, MemberInboxMessageErrorCode> = {
 	"capacity-exceeded": "inbox-full",
 	"untrusted-path": "inbox-untrusted-path",
 	"untrusted-project": "untrusted-project",

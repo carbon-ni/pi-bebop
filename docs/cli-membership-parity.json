@@ -1,5 +1,5 @@
 {
-	"schemaVersion": 1,
+	"schemaVersion": 2,
 	"scope": {
 		"tools": [
 			"send_follow_up",
@@ -19,9 +19,11 @@
 		"exitCodes": { "successOrExpectedOutcome": 0, "operational": 1, "usage": 2 }
 	},
 	"errorPolicy": {
-		"inherited": "every membership action inherits sourceSelection.errors",
-		"actionSpecific": "each tools[].errors list is additional and preserves the current tool/application stable code",
-		"usage": "locally decidable syntax, flag, combination, empty, and bound errors use code usage and exit 2 before source IO"
+		"inherited": "every membership action inherits sourceSelection.errors as part of its closed vocabulary",
+		"actionSpecific": "each tools[].errors list is additional, disjoint from sourceSelection.errors, and preserves the current tool/application stable code; the closed per-command vocabulary is sourceSelection.errors union tools[].errors",
+		"usage": "locally decidable syntax, flag, combination, empty, and bound errors use code usage and exit 2 before source IO",
+		"cliLayerCodes": ["offline", "outcome-unknown"],
+		"codeDisjointness": "a code appears at most once across sourceSelection.errors and one tools[].errors list"
 	},
 	"sourceSelection": {
 		"flag": "--session <id|alias>",
@@ -80,10 +82,22 @@
 			"probeTimeoutMs": 500
 		},
 		"staleEntryBehavior": "skip invalid or non-live socket entries; retain live session with membership unknown when bounded status query fails",
+		"truncation": {
+			"omittedField": "omitted",
+			"meaning": "count of sessions not returned because maxOutputSessions or maxAliasesPerSession was exceeded, or entries beyond maxFilesystemEntries were not scanned",
+			"omittedZero": "omitted is always present and 0 when nothing is truncated",
+			"topLevelOutput": ["sessions", "total", "omitted"]
+		},
+		"aliasPrivacy": {
+			"included": "safe explicit session-name and branch aliases only",
+			"excluded": "aliases resolving to private/foreign session ids, unsafe slugs, or beyond the per-session cap",
+			"classified": "aliases are reported as safe slugs only, never raw paths or ids"
+		},
 		"empty": {
 			"status": "empty",
 			"sessions": [],
 			"total": 0,
+			"omitted": 0,
 			"next": "start and join a Pi session, then rerun pi-bebop session list"
 		},
 		"successStatus": "listed",
@@ -99,7 +113,15 @@
 		"message": {
 			"sources": ["--message <text>", "--stdin"],
 			"rule": "exactly one",
+			"validationOrder": [
+				"flag, combination, and limit validation complete before any stdin read",
+				"stdin read is bounded (maxUtf8Bytes) and cancellable",
+				"content validation (empty, NUL, UTF-8 bytes, aggregate) applies after read, before session or target IO"
+			],
 			"maxUtf8Bytes": 1000000,
+			"aggregateMaxUtf8Bytes": 1000000,
+			"nul": "content and every instruction must be NUL-free",
+			"trim": "message text is preserved verbatim (no trim); whitespace-only content is empty and a usage error",
 			"empty": "usage error before stdin/session IO"
 		},
 		"instructions": {
@@ -107,10 +129,19 @@
 			"ordered": true,
 			"maximumItems": 32,
 			"maxUtf8BytesEach": 100000,
+			"nul": "each instruction must be NUL-free",
+			"trim": "each instruction is trimmed and non-empty",
 			"optional": true
 		},
 		"format": { "flag": "--format toon|json|text", "default": "toon" }
 	},
+	"pendingDecisions": [
+		{
+			"id": "broadcast-idempotency-conflict",
+			"status": "pending product wording",
+			"scope": "identical-retry id reuse and already-persisted reporting are approved; semantics for idempotency-conflict when a conflicting request claims the same broadcast identity are not yet decided and must not be implemented or asserted"
+		}
+	],
 	"tools": [
 		{
 			"tool": "send_follow_up",
@@ -176,11 +207,11 @@
 				"exit": 0
 			},
 			"errors": [
-        "unknown-member",
-        "ambiguous-role",
-        "self-send",
-        "invalid-payload",
-        "untrusted-project",
+				"unknown-member",
+				"ambiguous-role",
+				"self-send",
+				"invalid-payload",
+				"untrusted-project",
 				"inbox-full",
 				"inbox-untrusted-path",
 				"storage-unavailable",
@@ -216,9 +247,15 @@
 				"inbox-full",
 				"inbox-untrusted-path",
 				"storage-unavailable",
-				"aborted",
+				"storage-failed",
+				"invalid-payload",
+				"invalid-item-id",
 				"outcome-unknown"
 			],
+			"idempotency": {
+				"approved": "identical retry reuses the same broadcast and per-recipient ids; already-persisted recipients report already-persisted without duplication",
+				"conflictCode": "idempotency-conflict is reserved; conflicting-content semantics are pending product wording (see pendingDecisions)"
+			},
 			"delivery": "durably persists one independent non-interrupting Inbox copy for every other member; no endpoint probe, shared ownership, live delivery, reply, or completion",
 			"cancellation": "broadcast id and per-recipient ids are fixed before writes; completed writes remain; remaining recipients report aborted when acknowledgement is available; disconnect may be outcome-unknown; identical retry reuses ids and reports already-persisted without duplication"
 		},
@@ -236,16 +273,17 @@
 				"exit": 0
 			},
 			"errors": [
+				"invalid-request",
 				"unknown-member",
 				"ambiguous-member",
-				"self-send",
+				"self-interrupt",
+				"not-a-member",
 				"invalid-payload",
-				"offline",
 				"already-pending",
 				"abort-failed",
+				"no-context",
 				"handoff-failed",
-				"remote-rejected",
-				"invalid-ack"
+				"offline"
 			],
 			"delivery": "target records pending recovery before best-effort abort and hands guidance ahead of older Follow-ups; direct when idle; never rolls back filesystem, shell, network, or completed effects",
 			"cancellation": "before target evidence prevents request; after evidence cannot delete recovery; disconnect/cancellation can lose acknowledgement but target recovery remains pending/reload-safe and no rollback is claimed"
@@ -274,16 +312,7 @@
 				"offline": { "activity": "unavailable", "hasPendingMessages": "unavailable", "focus": "unavailable" },
 				"exit": 0
 			},
-			"errors": [
-				"unknown-member",
-				"ambiguous-member",
-				"self-query",
-				"malformed-response",
-				"timeout",
-				"aborted",
-				"remote-rejected",
-				"transport-error"
-			],
+			"errors": ["unknown-member", "ambiguous-member", "self-query", "remote-rejected"],
 			"delivery": "read-only one-shot finite status query; configured target endpoint unreachability is successful offline/unavailable result with no stale Focus; never starts, steers, interrupts, or reads conversation",
 			"cancellation": "aborts finite probe/RPC and returns aborted; no target or session state is mutated"
 		},
@@ -333,11 +362,9 @@
 				"self-wait",
 				"not-a-member",
 				"invalid-timeout",
-				"malformed-response",
 				"remote-rejected",
 				"capacity-exceeded",
-				"transport-error",
-				"aborted"
+				"offline"
 			],
 			"delivery": "one-shot event-driven wait; no polling or target message; idle is mechanical and never proves message acknowledgement, reply, task completion, availability, or continued idleness",
 			"cancellation": "SIGINT/client abort closes source/target subscription and listeners exactly once, returns aborted exit 1, and never steers/interrupts target; semantic timeout wins simultaneous operation/transport expiry"
