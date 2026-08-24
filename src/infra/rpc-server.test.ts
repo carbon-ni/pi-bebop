@@ -335,10 +335,10 @@ test("writeResponse maps non-durable failures and member response commands", () 
 		type: "response",
 		command: "member_response",
 		success: true,
-		data: { accepted: true },
+		data: { requestId: "req-1", message: "done" },
 		id: "r-2",
 	});
-	assert.deepEqual(JSON.parse(writes[1]!).result, { accepted: true });
+	assert.equal(JSON.parse(writes[1]!).id, "r-2");
 });
 
 test("writeResponse serializes an interrupt acknowledgement", () => {
@@ -372,7 +372,15 @@ test("writeMemberUpdateEvent and idle events serialize valid notifications", () 
 		member: { name: "Bob", role: "dev" },
 		message: "done",
 	});
-	writeMemberIdleWaitEvent(socket, { subscriptionId: "sub-1", result: { outcome: "idle" } });
+	writeMemberIdleWaitEvent(socket, {
+		subscriptionId: "sub-1",
+		result: {
+			member: { name: "Bob", role: "dev" },
+			outcome: "idle",
+			disposition: "already-idle",
+			observedAt: "2026-08-24T00:00:00.000Z",
+		},
+	});
 	assert.equal(writes.length, 2);
 	assert.equal(JSON.parse(writes[0]!).params.requestId, "req-1");
 	assert.equal(JSON.parse(writes[1]!).params.subscriptionId, "sub-1");
