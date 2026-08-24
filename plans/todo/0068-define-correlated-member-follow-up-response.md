@@ -1,76 +1,100 @@
 ---
 id: TASK-0068
-title: Define correlated member Follow-up response
+title: Define correlated crew-update coordination loop
 status: todo
 depends_on: []
 priority: high
-tags: [crew, messaging, response, correlation, protocol, lifecycle, product]
+tags: [crew, messaging, response, correlation, orchestration, protocol, product]
 ---
 
-# Define correlated member Follow-up response
+# Define correlated crew-update coordination loop
 
 ## Problem
 
-A coordinator sends work with `send_follow_up`, then uses member idle as a proxy
-for completion or response. A response can already be queued for the
-coordinator's next Pi run when idle releases, so the current run continues
-without seeing it. Idle cannot prove a reply, and caller-side queue inspection
-cannot identify which request a message answers.
+A lead keeps coordination moving with “wait for member idle or continue.” Idle
+can release after a member has already queued a reply for the lead's next Pi
+run, so the lead continues without seeing it. Blocking inside the original send
+would avoid that race but would prevent the lead from delegating to and handling
+other members concurrently.
 
 ## Context
 
-Make the existing dormant `send_follow_up(wait_for: "response")` contract real
-through explicit request/reply correlation. One tool call atomically registers a
-bounded pending request before dispatch, sends the normal Follow-up, and blocks
-until the selected member returns one correlated response, the deadline
-expires, or the caller cancels.
+Separate request creation from event consumption:
 
-The recipient sees an opaque `requestId` in structured member-message context.
-To answer, it calls the existing `send_follow_up` back to the requester with an
-explicit optional `in_reply_to: <requestId>`. The responder's active membership
-derives origin and the stored inbound request derives the callback route;
-callers never provide a socket, session id, manifest path, or claimed responder
-identity.
+1. `send_follow_up` optionally registers an expected reply and returns
+   immediately with `requestId` after accepted delivery.
+2. Lead continues assigning and coordinating other work.
+3. `wait_for_crew_update` blocks once for the first terminal update among all
+   active requests.
+4. Lead handles that update and repeats until no delegated or ready work remains.
 
-A valid response is consumed at Bebop's correlation boundary and returned as
-the original waiting tool result. It is not also queued into Pi, so the
-coordinator sees it exactly once. Unrelated Follow-ups retain normal Pi FIFO
-behavior. `wait_for_member_idle`, `get_member_status`, Redirect, durable Inbox,
-and Broadcast remain separate and cannot satisfy a response wait.
+Proposed request syntax:
 
-Origin remains the existing locally trusted, membership-derived crew
-attribution—not cryptographic authentication. Correlation proves that the
-response used the issued capability and expected member route; it does not
-prove task completion or truthfulness.
+```text
+send_follow_up({
+  member: "Bob",
+  message: "Implement TASK-123 and report evidence or blocker.",
+  expect_reply: true,
+  response_timeout_seconds: 300
+})
+```
+
+Proposed loop tool:
+
+```text
+wait_for_crew_update()
+```
+
+Closed update outcomes:
+
+- `response` — correlated response content from expected member;
+- `idle-without-response` — request message ran and target settled without
+  sending correlated response;
+- `offline` — target request channel disconnected before response;
+- `timeout` — request deadline expired;
+- caller cancellation aborts only current wait, not accepted assignments or
+  other pending requests.
+
+Target request transport stays open after accepted delivery and owns lifecycle.
+The target receives an opaque `requestId` in structured context. It answers with
+ordinary `send_follow_up({ member: <requester>, in_reply_to: <requestId>, ... })`.
+`in_reply_to` resolves only through target-local active request state; responder
+cannot supply requester session/socket/manifest paths.
+
+The correlated response travels over request channel and is stored as one
+bounded source-side update. It is returned once by `wait_for_crew_update` and is
+not also placed in Pi follow-up queue. Unrelated messages preserve normal Pi
+FIFO behavior. If response and idle settle in same lifecycle boundary,
+`response` wins deterministically.
 
 ## Acceptance criteria
 
-- [ ] `send_follow_up` keeps default/`accepted` behavior unchanged and supports `wait_for: "response"` as one atomic register-before-dispatch operation.
-- [ ] A response wait has a generated opaque request id, exact expected configured member identity, requester callback route, creation point, and finite deadline; request id is unguessable enough for local capability use and bounded on wire.
-- [ ] The recipient receives only opaque request id plus honest reply instructions in structured context; UI/rendering hides callback session/socket routes.
-- [ ] `send_follow_up` accepts optional `in_reply_to` only when sending to the stored requester for that exact inbound request; normal sends omit it and Redirect never accepts it.
-- [ ] Responder membership derives origin and stored request state derives destination; request parameters cannot claim source identity, callback session/socket, manifest, or project trust.
-- [ ] The requester registers before dispatch so an immediate response cannot be lost; exactly one of response, timeout, cancellation, source/target disconnect, or remote rejection wins.
-- [ ] A matching response from expected member is returned directly in waiting tool details/content and is not also handed to Pi's steering/follow-up queue.
-- [ ] Wrong member, wrong requester target, unknown/expired request id, malformed/oversized payload, duplicate response, and replay are rejected with stable bounded codes and do not consume the live request.
-- [ ] Timeout defaults to 300 seconds with accepted range 1–600 seconds; timeout/cancellation removes request state exactly once but never retracts already accepted work.
-- [ ] A late response receives `response-expired` plus a copyable recovery instruction to resend as an ordinary `send_follow_up` without `in_reply_to`; it is never silently discarded or automatically duplicated.
-- [ ] Result wording distinguishes `accepted` from `responded`; a correlated response proves only receipt of response payload, never task completion, availability, correctness, or future idleness.
-- [ ] Multiple concurrent requests to same member remain distinct by request id and may resolve out of order; unrelated member messages cannot satisfy either wait.
-- [ ] Pending request/inbound reply-route state is transient, request-scoped, capacity-bounded, and cleared on response, timeout, cancellation, disconnect, reload, and shutdown.
-- [ ] No polling, grace sleep, conversation scan, global pending-message inspection, idle inference, or selective mutation of Pi's private queue is introduced.
-- [ ] Tool schema/help explains when to use `wait_for: "accepted"` versus `"response"` and how responder uses `in_reply_to`; default remains normal accepted Follow-up.
-- [ ] Standalone CLI remains accepted-delivery-only in this task; CLI response waiting requires a separate product slice and must not be implied by TASK-0060 documentation.
+- [ ] `send_follow_up` keeps current default accepted-delivery behavior byte/semantically compatible when `expect_reply` is absent/false.
+- [ ] `expect_reply: true` registers target request channel before handing message to Pi, uses finite `response_timeout_seconds` default 300/range 1–600, and returns accepted result plus opaque bounded `requestId` without blocking lead.
+- [ ] `wait_for_crew_update` has no member argument by default and returns first terminal update across all current session requests; `no-pending-requests` fails immediately with instruction to delegate or stop.
+- [ ] Updates are ordered by terminal event acceptance sequence with request id as deterministic tie-breaker; multiple members and multiple requests per member may resolve out of assignment order.
+- [ ] Request becomes eligible for `idle-without-response` only after its message entered target model context; target's pre-delivery idle snapshot cannot satisfy it.
+- [ ] Matching response closes request before target settled handling, so response wins same-boundary response-versus-idle race; exactly one terminal update exists per request.
+- [ ] Response update contains configured member identity, request id, bounded response content and ordered instructions; idle/offline/timeout contain no message content.
+- [ ] `in_reply_to` is accepted only by `send_follow_up` to exact stored requester of one active inbound request; Redirect, Inbox, Broadcast, Interrupt, and arbitrary target never accept it.
+- [ ] Target membership derives responder origin and active request derives return channel; no caller-selected origin, session id, alias, socket, manifest, or trust claim crosses public tool schema.
+- [ ] Wrong member/target, unknown/expired id, malformed payload, replay, and duplicate response return stable errors and cannot consume another request.
+- [ ] Late reply returns `response-expired` plus recovery instruction to resend as ordinary Follow-up without `in_reply_to`; it is never silently lost or automatically duplicated.
+- [ ] Caller cancellation of `wait_for_crew_update` releases only that waiter; pending request events remain consumable until their own deadlines. Session reload/shutdown closes channels and clears bounded transient state.
+- [ ] Capacity limits are named for active inbound requests, active outbound requests, and buffered terminal updates; overflow rejects before delivery rather than dropping an existing request/update.
+- [ ] Result language says response received, never task completed/correct/verified; idle remains mechanical and never substitutes for response.
+- [ ] No polling, sleeps, global Pi pending-message inspection, private queue mutation, conversation scan, or automatic task tracking is introduced.
+- [ ] Standalone CLI parity and durable/offline response waiting remain separate future product slices.
+- [ ] `docs/CORRELATED-CREW-UPDATE-WORKFLOW.md` contains exact lead loop instruction, happy path, idle-without-response recovery, parallel-member example, stop condition, and current availability status.
 
 ## Out of scope
 
-- Task-completion verification, multiple responses/streaming progress, automatic
-  reply selection, Redirect response waiting, durable/offline response waits,
-  cross-restart recovery, or changing Member Idle Wait.
+- Streaming/multiple responses, durable cross-restart requests, external actors,
+  completion verification, automatic reassignment/escalation, or changing
+  `wait_for_member_idle` semantics.
 
 ## Verification
 
-- Review protocol shapes, capability/privacy boundary, error/exit semantics, and
-  lifecycle race table before implementation.
-- Ensure TASK-0071 tests every terminal race with deterministic barriers rather
-  than wall-clock sleeps.
+- Approve protocol/state race table, privacy boundary, capacities, errors, and
+  workflow before TASK-0071 implementation starts.
+- Implementation tests use deterministic event barriers, never wall-clock sleeps.
