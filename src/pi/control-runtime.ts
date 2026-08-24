@@ -107,6 +107,9 @@ export interface SocketState {
 	memberInboxMessageDependencies?: MemberInboxMessageDependencies;
 	/** Injectable durable broadcast action dependencies (TASK-0064). */
 	broadcastStoreDependencies?: BroadcastStoreDependencies;
+	/** Injectable source-to-target interrupt transport for deterministic recovery tests (TASK-0065). */
+	memberInterruptSend?: typeof sendRpcCommand;
+	memberInterruptResolveEndpoint?: typeof resolveMemberEndpoint;
 }
 
 // ============================================================================
@@ -566,13 +569,22 @@ export async function handleCommand(
 		};
 		try {
 			const payload = createInterruptRecoveryPayload(membership.member, request);
-			const endpoint = await resolveMemberEndpoint(resolution.target.socketPath);
+			const endpoint = await (state.memberInterruptResolveEndpoint ?? resolveMemberEndpoint)(
+				resolution.target.socketPath,
+			);
 			const controller = new AbortController();
 			const onDisconnect = () => controller.abort();
 			socket.once("close", onDisconnect);
 			socket.once("error", onDisconnect);
+			const removeDisconnectListeners = () => {
+				const removable = socket as RpcSocket & {
+					removeListener?: (event: "close" | "error", listener: () => void) => void;
+				};
+				removable.removeListener?.("close", onDisconnect);
+				removable.removeListener?.("error", onDisconnect);
+			};
 			try {
-				const { response } = await sendRpcCommand(
+				const { response } = await (state.memberInterruptSend ?? sendRpcCommand)(
 					endpoint,
 					{ type: "interrupt", payload },
 					{ timeout: 5000, signal: controller.signal, classifyLostAck: true },
@@ -592,19 +604,31 @@ export async function handleCommand(
 				});
 			} finally {
 				controller.abort();
+				removeDisconnectListeners();
 			}
 		} catch (error) {
+			const remoteCode = error instanceof Error ? /^remote-error:\s*(\S+)$/.exec(error.message)?.[1] : undefined;
+			const targetCode = new Set([
+				"invalid-payload",
+				"already-pending",
+				"abort-failed",
+				"no-context",
+				"handoff-failed",
+				"aborted",
+			]);
 			const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
 			const code =
 				error instanceof Error && error.name === "AbortError"
 					? "aborted"
-					: error instanceof Error && "code" in error && error.code === "outcome-unknown"
-						? "outcome-unknown"
-						: systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN"
-							? "offline"
-							: error instanceof Error && /timed? ?out|timeout/i.test(error.message)
-								? "timeout"
-								: "transport-error";
+					: remoteCode !== undefined && targetCode.has(remoteCode)
+						? remoteCode
+						: error instanceof Error && "code" in error && error.code === "outcome-unknown"
+							? "outcome-unknown"
+							: systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN"
+								? "offline"
+								: error instanceof Error && /timed? ?out|timeout/i.test(error.message)
+									? "timeout"
+									: "transport-error";
 			respond(false, command.type, undefined, code);
 		}
 		return;
