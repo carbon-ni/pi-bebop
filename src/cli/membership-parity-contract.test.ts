@@ -442,7 +442,7 @@ test("frozen enums: formats, exits, membership, and result discriminators", () =
 		"idle disposition",
 	);
 	const statusResult = entry("get_member_status").result.online as { activity: string[]; focus: string[] };
-	assertArrayEqualSets(statusResult.activity, ["idle", "busy"], "status activity");
+	assertArrayEqualSets(statusResult.activity, ["idle", "busy", "compacting"], "status activity");
 	assertArrayEqualSets(statusResult.focus, ["reported", "unspecified"], "status focus");
 });
 
@@ -490,7 +490,7 @@ test("terminal result.status and ordered result.fields are exact for all eight t
 test("discriminated nested result shapes are exact for all eight tools", () => {
 	const status = entry("get_member_status");
 	assert.deepEqual(status.result.online, {
-		activity: ["idle", "busy"],
+		activity: ["idle", "busy", "compacting"],
 		hasPendingMessages: "boolean",
 		focus: ["reported", "unspecified"],
 	});

@@ -46,7 +46,7 @@ export function memberStatusHelp(): string {
 	return [
 		"pi-bebop member status <member> [--session <id|alias>] [--format toon|json|text]",
 		"",
-		"Show one crew member's mechanical Pi runtime state (online/offline, idle/busy,",
+		"Show one crew member's mechanical Pi runtime state (online/offline, idle/busy/compacting,",
 		"pending-message signal) and their self-reported Focus note. Read-only: never",
 		"starts, steers, or interrupts the target turn. Activity is mechanical and Focus",
 		"is member-reported, never verified task progress.",
