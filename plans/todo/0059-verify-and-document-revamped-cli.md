@@ -1,7 +1,7 @@
 ---
 id: TASK-0059
 title: Verify and document revamped CLI
-status: todo
+status: doing
 depends_on: [TASK-0062, TASK-0064, TASK-0065, TASK-0066, TASK-0067, TASK-0055]
 priority: high
 tags: [cli, docs, package, axi, verification]
