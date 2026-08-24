@@ -102,7 +102,11 @@ export function createMemberStatusFlow(surface: MemberStatusSurface) {
 		const observedAt = surface.now();
 
 		// Probe is the reachability boundary: failure is a compact offline result.
+		// A signal-driven abort is NOT an offline observation: it stops the
+		// probe/RPC early and reports the stable `aborted` code (exit 1), never
+		// a successful offline status.
 		const alive = await surface.probeEndpoint(target.socketPath, surface.signal);
+		if (surface.signal?.aborted) throw new MemberStatusFlowError("aborted", "Member status query aborted");
 		if (!alive) return createOfflineMemberStatus(identityOf(target), observedAt);
 
 		const outcome = await surface.requestStatus(target.socketPath, target.name, surface.signal);
