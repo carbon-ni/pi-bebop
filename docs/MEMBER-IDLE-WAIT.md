@@ -59,9 +59,9 @@ retry, and queued continuation are exhausted (`agent_settled`). `agent_end`
 alone is insufficient while any continuation remains. Idle is:
 
 - NOT message acknowledgement;
-- NOT response correlation (`send_follow_up(wait_for: "response")` remains
-  unsupported until delivery-level response correlation can be proven; idle
-  waiting must not approximate it);
+- NOT a Response expectation; ordinary `send_follow_up` does not await a
+  correlated Response. Use `send_member_request` for Response correlation;
+  Member Idle Wait must never approximate that workflow;
 - NOT task completion, availability, health, productivity, or a promise to
   remain idle.
 

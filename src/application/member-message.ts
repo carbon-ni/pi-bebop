@@ -73,7 +73,7 @@ export type MemberMessageErrorCode =
 	| "ambiguous-member"
 	| "self-send"
 	| "not-joined"
-	| "response-correlation-unsupported"
+	| "response-wait-requires-member-request"
 	| "invalid-payload"
 	| "remote-rejected"
 	| "invalid-ack"
@@ -114,8 +114,8 @@ function prepareMemberDelivery(request: MemberMessageRequest): PreparedMemberDel
 	const intent = request.intent ?? "follow_up";
 	if (request.waitFor === "response")
 		throw new MemberMessageError(
-			"response-correlation-unsupported",
-			"wait_for=response is unavailable: Pi turn events cannot prove delivery-level response correlation",
+			"response-wait-requires-member-request",
+			"wait_for=response is unavailable on ordinary member messages; use send_member_request for a correlated Response",
 		);
 	const target = resolveTarget(request.membership, request.member.trim());
 	const origin = {
