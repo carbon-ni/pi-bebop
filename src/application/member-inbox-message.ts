@@ -142,6 +142,7 @@ export async function enqueueMemberInboxMessage(
 
 	if (!dependencies.isProjectTrusted())
 		throw new MemberInboxMessageError("untrusted-project", "Cannot use inbox storage in an untrusted project");
+	if (request.signal?.aborted) throw Object.assign(new Error("Operation aborted"), { name: "AbortError" });
 
 	let store: MemberInboxStore;
 	try {

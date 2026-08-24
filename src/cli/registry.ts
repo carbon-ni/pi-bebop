@@ -28,6 +28,13 @@ import {
 	buildMemberMessageCommand,
 	type MemberMessageCliOptions,
 } from "./commands/member-message.ts";
+import {
+	parseDurableMessageCommand,
+	runDurableMessageCommand,
+	durableMessageHelp,
+	buildDurableMessageCommand,
+	type DurableMessageCliOptions,
+} from "./commands/durable-message.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./arguments.ts";
 import type { CliContext } from "./context.ts";
 import type { CliOutcome } from "./output.ts";
@@ -241,6 +248,26 @@ const memberRedirectLeaf: CliLeaf = {
 	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
 };
 
+/** TASK-0064: `member inbox send` durable Inbox leaf. */
+const memberInboxSendLeaf: CliLeaf = {
+	id: "member-inbox-send",
+	names: ["member", "inbox", "send"],
+	build: () => buildDurableMessageCommand("inbox"),
+	help: () => durableMessageHelp("inbox"),
+	parse: (tokens, cwd) => parseDurableMessageCommand([...tokens], "inbox", cwd),
+	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
+};
+
+/** TASK-0064: `crew broadcast` durable fan-out leaf. */
+const crewBroadcastLeaf: CliLeaf = {
+	id: "crew-broadcast",
+	names: ["crew", "broadcast"],
+	build: () => buildDurableMessageCommand("broadcast"),
+	help: () => durableMessageHelp("broadcast"),
+	parse: (tokens, cwd) => parseDurableMessageCommand([...tokens], "broadcast", cwd),
+	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
+};
+
 export function createCliRegistry(): CliRegistry {
 	return composeRegistry([
 		homeLeaf,
@@ -250,6 +277,8 @@ export function createCliRegistry(): CliRegistry {
 		sessionListLeaf,
 		memberFollowUpLeaf,
 		memberRedirectLeaf,
+		memberInboxSendLeaf,
+		crewBroadcastLeaf,
 	]);
 }
 
