@@ -1,7 +1,7 @@
 ---
 id: TASK-0067
 title: Deliver member idle-wait CLI
-status: todo
+status: doing
 depends_on: [TASK-0061, TASK-0070]
 priority: high
 tags: [cli, rpc, idle, subscription, timeout, tdd]
