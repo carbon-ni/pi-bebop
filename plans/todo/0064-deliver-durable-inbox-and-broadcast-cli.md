@@ -1,7 +1,7 @@
 ---
 id: TASK-0064
 title: Deliver durable inbox and broadcast CLI
-status: todo
+status: doing
 depends_on: [TASK-0061]
 priority: high
 tags: [cli, rpc, inbox, broadcast, persistence, tdd]
