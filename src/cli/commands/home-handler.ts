@@ -20,6 +20,7 @@ function redactHome(env: { HOME?: string }, value: string): string {
 
 export async function runHomeCommand(
 	cwd: string,
+	commands: readonly string[],
 	env: { HOME?: string } = process.env,
 	argv1: string | undefined = process.argv[1],
 ): Promise<CliOutcome> {
@@ -43,7 +44,7 @@ export async function runHomeCommand(
 				purpose: "Pi Bebop crew coordination CLI",
 				project: redactHome(env, project),
 				scaffold,
-				commands: ["send", "crew init"],
+				commands: [...commands],
 				...(scaffold === "missing"
 					? { next: "pi-bebop crew init" }
 					: { next: 'pi --crew-socket "$PWD/.pi/bebop/sockets/lead.sock"' }),
