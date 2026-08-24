@@ -102,23 +102,36 @@ export interface SocketProbeDependencies {
 	setTimeout?: typeof globalThis.setTimeout;
 	clearTimeout?: typeof globalThis.clearTimeout;
 	timeoutMs?: number;
+	/** Cancel the probe early: aborted probes settle as not-alive and stop further IO. */
+	signal?: AbortSignal;
 }
 
 export function probeMemberEndpoint(socketPath: string, dependencies: SocketProbeDependencies = {}): Promise<boolean> {
 	const createConnection = dependencies.createConnection ?? ((target) => net.createConnection(target));
 	const setTimer = dependencies.setTimeout ?? globalThis.setTimeout;
 	const clearTimer = dependencies.clearTimeout ?? globalThis.clearTimeout;
+	const signal = dependencies.signal;
 	return new Promise((resolve) => {
 		const socket = createConnection(socketPath);
 		let settled = false;
+		let timer: ReturnType<typeof setTimer>;
+		const onAbort = () => finish(false);
 		const finish = (alive: boolean) => {
 			if (settled) return;
 			settled = true;
 			clearTimer(timer);
+			signal?.removeEventListener("abort", onAbort);
 			socket.destroy();
 			resolve(alive);
 		};
-		const timer = setTimer(() => finish(false), dependencies.timeoutMs ?? 300);
+		timer = setTimer(() => finish(false), dependencies.timeoutMs ?? 300);
+		if (signal) {
+			if (signal.aborted) {
+				finish(false);
+				return;
+			}
+			signal.addEventListener("abort", onAbort, { once: true });
+		}
 		socket.once("connect", () => finish(true));
 		socket.once("error", () => finish(false));
 	});

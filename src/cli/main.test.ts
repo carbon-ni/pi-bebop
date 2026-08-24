@@ -259,6 +259,39 @@ test("aborts a held-open stdin read on SIGINT within a bounded deadline", async 
 	}
 });
 
+test("packaged artifact exposes the member status and session list leaves deterministically", async () => {
+	const artifact = path.resolve("dist/cli/main.js");
+
+	// IO-free usage path: unsafe --session value is usage-class, exit 2.
+	const unsafe = spawn(process.execPath, [artifact, "member", "status", "Kelly", "--session", "../x"], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	let unsafeOut = "";
+	unsafe.stdout.setEncoding("utf8");
+	unsafe.stdout.on("data", (chunk) => {
+		unsafeOut += chunk;
+	});
+	const unsafeCode = await new Promise<number>((resolve) => unsafe.once("exit", (value) => resolve(value ?? 1)));
+	assert.equal(unsafeCode, 2);
+	assert.match(unsafeOut, /invalid-session/);
+
+	// Help paths are deterministic and exit 0.
+	for (const args of [
+		["member", "status", "--help"],
+		["session", "list", "--help"],
+	]) {
+		const child = spawn(process.execPath, [artifact, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+		let stdout = "";
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (chunk) => {
+			stdout += chunk;
+		});
+		const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
+		assert.equal(code, 0, args.join(" "));
+		assert.match(stdout, /pi-bebop member status|pi-bebop session list/);
+	}
+});
+
 test("uses injected output for selected-format usage errors", async () => {
 	const output = new PassThrough();
 	let text = "";
@@ -656,7 +689,7 @@ test("unknown command exits 2 with valid alternatives before any IO", async () =
 	});
 	const code = await runCli(["frobnicate"], process.cwd(), process.stdin, output);
 	assert.equal(code, 2);
-	assert.match(text, /valid commands: send, crew init/);
+	assert.match(text, /valid commands: send, crew init, member status, session list/);
 });
 
 test("crew init creates a fresh canonical scaffold in a temp project with created status", async () => {
@@ -777,7 +810,7 @@ test("no arguments shows compact TOON home state with crew init hint when missin
 		assert.equal(decoded.status, "home");
 		assert.equal(decoded.data.scaffold, "missing");
 		assert.equal(decoded.data.next, "pi-bebop crew init");
-		assert.deepEqual(decoded.data.commands, ["send", "crew init"]);
+		assert.deepEqual(decoded.data.commands, ["send", "crew init", "member status", "session list"]);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

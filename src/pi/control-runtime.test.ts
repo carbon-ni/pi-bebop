@@ -575,3 +575,201 @@ test("member_idle_wait never triggers a turn and releases subscriptions on serve
 	await emitIdleSettled(state);
 	assert.equal(writes.length, 1, "released subscriptions must not emit idle events");
 });
+
+// ============================================================================
+// TASK-0061: delegated member status (member_status_target)
+// ============================================================================
+
+function delegationState(manifestMembers: Array<{ name: string; role: string; socket: string }>): {
+	state: ReturnType<typeof createSocketState>;
+	socket: { write: (value: string) => boolean; once: () => never };
+	writes: string[];
+} {
+	const writes: string[] = [];
+	const socket = {
+		write: (value: string) => {
+			writes.push(value);
+			return true;
+		},
+		once: () => socket,
+	} as never;
+	const state = createSocketState();
+	state.server = {} as never;
+	const sockets = manifestMembers.map((member) => ({
+		name: member.name,
+		role: member.role,
+		socket: member.socket,
+		socketPath: member.socket,
+	}));
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: "/project/.pi/bebop/sockets/lead.sock",
+			member: { name: "Tony", role: "lead", socketPath: "/project/.pi/bebop/sockets/lead.sock" },
+			manifest: { members: sockets },
+		}),
+	} as never;
+	state.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "session", getSessionName: () => null, getEntries: () => [] },
+		isIdle: () => false,
+		hasPendingMessages: () => false,
+		isProjectTrusted: () => true,
+	} as never;
+	return { state, socket, writes };
+}
+
+const ONLINE_STATUS = {
+	member: { name: "Mary", role: "po" },
+	presence: "online",
+	activity: "busy",
+	hasPendingMessages: true,
+	focus: { state: "reported", text: "Reviewing", updatedAt: "2026-08-23T12:00:00.000Z" },
+	observedAt: "2026-08-23T12:03:00.000Z",
+};
+
+test("member_status_target delegates to the shared flow: online target status returned untouched", async () => {
+	const { state, socket, writes } = delegationState([
+		{ name: "Mary", role: "po", socket: "/project/.pi/bebop/sockets/po.sock" },
+		{ name: "Bob", role: "dev", socket: "/project/.pi/bebop/sockets/dev.sock" },
+	]);
+	const probed: string[] = [];
+	const requested: Array<{ endpoint: string; label: string }> = [];
+	state.memberStatusTransport = {
+		probeEndpoint: async (socketPath) => {
+			probed.push(socketPath);
+			return true;
+		},
+		requestStatus: async (endpoint, label) => {
+			requested.push({ endpoint, label });
+			return { ok: true, status: ONLINE_STATUS as never };
+		},
+	};
+	await handleCommand({} as never, state, { type: "member_status_target", target: "Mary", id: "dst-1" }, socket);
+	const response = JSON.parse(writes[0]!);
+	assert.equal(response.id, "dst-1");
+	assert.equal(response.result.status.presence, "online");
+	assert.equal(response.result.status.observedAt, "2026-08-23T12:03:00.000Z");
+	assert.deepEqual(probed, ["/project/.pi/bebop/sockets/po.sock"]);
+	assert.deepEqual(requested, [{ endpoint: "/project/.pi/bebop/sockets/po.sock", label: "Mary" }]);
+});
+
+test("member_status_target offline target is a successful presence=offline result", async () => {
+	const { state, socket, writes } = delegationState([
+		{ name: "Mary", role: "po", socket: "/project/.pi/bebop/sockets/po.sock" },
+	]);
+	state.memberStatusTransport = {
+		probeEndpoint: async () => false,
+		requestStatus: async () => {
+			throw new Error("must not be called when probe fails");
+		},
+	};
+	await handleCommand({} as never, state, { type: "member_status_target", target: "Mary", id: "dst-off" }, socket);
+	const response = JSON.parse(writes[0]!);
+	assert.equal(response.result.status.presence, "offline");
+	assert.equal(response.result.status.activity, "unavailable");
+	assert.deepEqual(response.result.status.focus, { state: "unavailable" });
+	assert.ok(response.result.status.observedAt, "offline result records source observation time");
+});
+
+test("member_status_target resolves unique role and rejects unknown/ambiguous/self with stable codes", async () => {
+	const { state, socket, writes } = delegationState([
+		{ name: "Tony", role: "lead", socket: "/project/.pi/bebop/sockets/lead.sock" },
+		{ name: "Mary", role: "po", socket: "/project/.pi/bebop/sockets/po.sock" },
+		{ name: "Kelly", role: "qa", socket: "/project/.pi/bebop/sockets/qa.sock" },
+		{ name: "Dimmy", role: "qa", socket: "/project/.pi/bebop/sockets/qa2.sock" },
+	]);
+	state.memberStatusTransport = {
+		probeEndpoint: async () => true,
+		requestStatus: async () => ({ ok: true, status: ONLINE_STATUS as never }),
+	};
+	const cases: Array<{ target: string; code: string }> = [
+		{ target: "qa", code: "ambiguous-member" },
+		{ target: "nobody", code: "unknown-member" },
+		{ target: "Tony", code: "self-query" },
+	];
+	for (const [index, item] of cases.entries()) {
+		await handleCommand(
+			{} as never,
+			state,
+			{ type: "member_status_target", target: item.target, id: `dst-${index}` },
+			socket,
+		);
+		const response = JSON.parse(writes[index]!);
+		assert.equal(response.error?.message, item.code, item.target);
+	}
+	// Unique role resolves to the sole member with that role.
+	await handleCommand({} as never, state, { type: "member_status_target", target: "po", id: "dst-role" }, socket);
+	const response = JSON.parse(writes[cases.length]!);
+	assert.equal(response.error, undefined);
+	assert.equal(response.result.status.member.name, "Mary");
+});
+
+test("member_status_target rejects unjoined source and untrusted source before target IO", async () => {
+	const { state, socket, writes } = delegationState([{ name: "Mary", role: "po", socket: "/x" }]);
+	state.membershipRuntime = { getMembership: () => null } as never;
+	await handleCommand({} as never, state, { type: "member_status_target", target: "Mary", id: "dst-nj" }, socket);
+	assert.equal(JSON.parse(writes[0]!).error?.message, "not-joined");
+
+	const untrusted = delegationState([{ name: "Mary", role: "po", socket: "/x" }]);
+	untrusted.state.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "session", getSessionName: () => null, getEntries: () => [] },
+		isIdle: () => false,
+		hasPendingMessages: () => false,
+		isProjectTrusted: () => false,
+	} as never;
+	untrusted.state.memberStatusTransport = {
+		probeEndpoint: async () => {
+			throw new Error("must not probe when untrusted");
+		},
+		requestStatus: async () => {
+			throw new Error("must not query when untrusted");
+		},
+	};
+	await handleCommand(
+		{} as never,
+		untrusted.state,
+		{ type: "member_status_target", target: "Mary", id: "dst-ut" },
+		untrusted.socket,
+	);
+	assert.equal(JSON.parse(untrusted.writes[0]!).error?.message, "untrusted");
+});
+
+test("member_status_target aborts in-flight target IO when the CLI disconnects", async () => {
+	const { state } = delegationState([
+		{ name: "Tony", role: "lead", socket: "/project/.pi/bebop/sockets/lead.sock" },
+		{ name: "Mary", role: "po", socket: "/project/.pi/bebop/sockets/po.sock" },
+	]);
+	const writes: string[] = [];
+	let closeHandler: (() => void) | undefined;
+	const socket = {
+		write: (value: string) => {
+			writes.push(value);
+			return true;
+		},
+		once: (event: string, handler: () => void) => {
+			if (event === "close") closeHandler = handler;
+			return socket;
+		},
+	} as never;
+	let requestStatusCalls = 0;
+	state.memberStatusTransport = {
+		probeEndpoint: async (_socketPath, signal) => {
+			await new Promise<void>((resolve) => signal!.addEventListener("abort", () => resolve(), { once: true }));
+			return false;
+		},
+		requestStatus: async () => {
+			requestStatusCalls += 1;
+			return { ok: true, status: ONLINE_STATUS as never };
+		},
+	};
+	const pending = handleCommand({} as never, state, { type: "member_status_target", target: "po", id: "c1" }, socket);
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	closeHandler?.();
+	await pending;
+	// The aborted probe stops before any target RPC; the response is a compact offline result.
+	assert.equal(requestStatusCalls, 0);
+	const response = JSON.parse(writes[0]!);
+	assert.equal(response.result.status.presence, "offline");
+});

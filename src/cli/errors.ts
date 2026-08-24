@@ -48,12 +48,12 @@ export function requestedFormat(args: string[]): CliFormat {
 }
 
 /** Exit-2 usage result shape (status: usage drives the exit code). */
-export function usageResult(message: string): CliResult {
+export function usageResult(message: string, code = "usage"): CliResult {
 	return {
 		ok: false,
 		target: "",
 		status: "usage",
-		error: { code: "usage", message },
+		error: { code, message },
 	};
 }
 
