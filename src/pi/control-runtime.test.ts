@@ -961,4 +961,13 @@ test("member message delivery maps offline, timeout, abort, and invalid ack dist
 		invalidAck.socket,
 	);
 	assert.equal(JSON.parse(invalidAck.writes[0]!).error?.message, "transport-error");
+
+	const unknownOutcome = messageState(Object.assign(new Error("ack lost"), { code: "outcome-unknown" }));
+	await handleCommand(
+		{} as never,
+		unknownOutcome.state,
+		{ type: "member_follow_up", target: "Mary", message: "x", id: "fu-u" },
+		unknownOutcome.socket,
+	);
+	assert.equal(JSON.parse(unknownOutcome.writes[0]!).error?.message, "outcome-unknown");
 });

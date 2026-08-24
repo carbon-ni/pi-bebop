@@ -238,6 +238,7 @@ test("member message run: operational failures exit 1 with stable codes", async 
 		"invalid-payload",
 		"remote-rejected",
 		"invalid-ack",
+		"outcome-unknown",
 	]) {
 		const dependencies = deps({ deliverMessage: async () => ({ ok: false, code }) });
 		const outcome = await runMemberMessageCommand(

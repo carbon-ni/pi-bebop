@@ -339,6 +339,8 @@ export async function handleCommand(
 			if (error instanceof MemberMessageError) respond(false, command.type, undefined, error.code);
 			else if (error instanceof Error && error.name === "AbortError")
 				respond(false, command.type, undefined, "aborted");
+			else if (error instanceof Error && "code" in error && error.code === "outcome-unknown")
+				respond(false, command.type, undefined, "outcome-unknown");
 			else {
 				const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
 				if (systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN")

@@ -88,6 +88,7 @@ export async function sendRpcCommand(
 		let primaryResponse: RpcCommandResponse | null = null;
 		let subscriptionAcknowledged = false;
 		let settled = false;
+		let dispatched = false;
 		let timeoutHandle: NodeJS.Timeout;
 		const seenIds = new Set<RpcId>();
 		const cleanup = () => {
@@ -105,12 +106,18 @@ export async function sendRpcCommand(
 			socket.destroy();
 			error ? reject(error) : resolve(result!);
 		};
-		const onAbort = () => settle(getAbortError(signal!));
+		const outcomeUnknown = () =>
+			new RpcProtocolError(
+				"outcome-unknown",
+				"Delivery outcome unknown: the request was dispatched but its acknowledgement was lost",
+			);
+		const onAbort = () => settle(dispatched ? outcomeUnknown() : getAbortError(signal!));
 		signal?.addEventListener("abort", onAbort, { once: true });
 		timeoutHandle = setTimeout(() => settle(new Error("RPC request timeout")), timeout);
 		socket.on("connect", () => {
 			try {
 				socket.write(serializeRequest(request));
+				dispatched = true;
 				if (subscribeRequest) socket.write(serializeRequest(subscribeRequest));
 			} catch (error) {
 				settle(error instanceof Error ? error : new Error("Failed to write RPC request"));
@@ -210,9 +217,11 @@ export async function sendRpcCommand(
 				}
 			}
 		});
-		socket.on("error", (error) => settle(error));
-		socket.on("end", () => settle(new Error("Socket ended before RPC completed")));
-		socket.on("close", () => settle(new Error("Socket closed before RPC completed")));
+		socket.on("error", (error) => settle(dispatched ? outcomeUnknown() : error));
+		socket.on("end", () => settle(dispatched ? outcomeUnknown() : new Error("Socket ended before RPC completed")));
+		socket.on("close", () =>
+			settle(dispatched ? outcomeUnknown() : new Error("Socket closed before RPC completed")),
+		);
 	});
 }
 

@@ -284,6 +284,7 @@ const MEMBER_MESSAGE_CODES: readonly MemberMessageErrorCode[] = [
 	"invalid-payload",
 	"remote-rejected",
 	"invalid-ack",
+	"outcome-unknown",
 ];
 const INBOX_MESSAGE_CODES: readonly MemberInboxMessageErrorCode[] = [
 	"unknown-member",

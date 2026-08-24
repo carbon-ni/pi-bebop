@@ -76,7 +76,8 @@ export type MemberMessageErrorCode =
 	| "response-correlation-unsupported"
 	| "invalid-payload"
 	| "remote-rejected"
-	| "invalid-ack";
+	| "invalid-ack"
+	| "outcome-unknown";
 
 export class MemberMessageError extends Error {
 	readonly code: MemberMessageErrorCode;
@@ -132,7 +133,19 @@ export async function sendMemberMessage(
 		delivery: intent,
 	};
 	const deliver = async (): Promise<MemberMessageOutcome> => {
-		const result = await dependencies.transport.send(endpoint, command, { signal: request.signal });
+		let result: { response: RpcCommandResponse };
+		try {
+			result = await dependencies.transport.send(endpoint, command, { signal: request.signal });
+		} catch (error) {
+			const code =
+				error instanceof Error && "code" in error ? (error as Error & { code?: unknown }).code : undefined;
+			if (code === "outcome-unknown")
+				throw new MemberMessageError(
+					"outcome-unknown",
+					"Delivery outcome unknown: the target may have accepted the message but the acknowledgement was lost",
+				);
+			throw error;
+		}
 		if (!result.response.success)
 			throw new MemberMessageError("remote-rejected", result.response.error ?? "Member rejected message");
 		if (!isSendResult(result.response.data))
