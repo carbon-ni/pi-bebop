@@ -174,6 +174,25 @@ export function normalizeStartupSocketPath(rawPath: string, cwd: string): string
 	return path.resolve(cwd, withoutPrefix);
 }
 
+export function startupRoleSelectionError(selection: Extract<StartupRoleSelection, { ok: false }>): string {
+	let detail = `role '${selection.role}'`;
+	if (selection.code === "unknown-role") {
+		const roles = selection.availableRoles ?? [];
+		detail += ` is unknown; available roles: [${roles.join(", ")}] (omittedRoleCount=${selection.omittedRoleCount ?? 0})`;
+	} else if (selection.code === "ambiguous-role") {
+		detail += " is ambiguous; use --crew-socket to select an explicit endpoint";
+	} else if (selection.code === "missing-manifest") {
+		detail = "no supported crew manifest found beneath the project";
+	} else if (selection.code === "ambiguous-manifest") {
+		detail = "both supported crew manifests exist; remove one or use --crew-socket";
+	} else if (selection.code === "empty-role") {
+		detail = "role must be non-empty";
+	} else if (selection.code === "untrusted-project") {
+		detail = "project is not trusted";
+	}
+	return detail;
+}
+
 function reportStartupControlSend(
 	ctx: ExtensionContext,
 	message: string,
@@ -264,20 +283,11 @@ export async function maybeHandleStartupRoleJoin(
 		return false;
 	}
 	if ("code" in selection) {
-		let detail = `role '${selection.role}'`;
-		if (selection.code === "unknown-role") {
-			const roles = selection.availableRoles ?? [];
-			detail += ` is unknown; available roles: [${roles.join(", ")}] (omittedRoleCount=${selection.omittedRoleCount ?? 0})`;
-		} else if (selection.code === "ambiguous-role") {
-			detail += " is ambiguous; use --crew-socket to select an explicit endpoint";
-		} else if (selection.code === "missing-manifest") {
-			detail = "no supported crew manifest found beneath the project";
-		} else if (selection.code === "ambiguous-manifest") {
-			detail = "both supported crew manifests exist; remove one or use --crew-socket";
-		} else if (selection.code === "empty-role") {
-			detail = "role must be non-empty";
-		}
-		reportStartupControlSend(ctx, `Crew startup role join failed: ${detail}`, "error");
+		reportStartupControlSend(
+			ctx,
+			`Crew startup role join failed: ${startupRoleSelectionError(selection)}`,
+			"error",
+		);
 		return false;
 	}
 	const result = await membershipRuntime.join({
