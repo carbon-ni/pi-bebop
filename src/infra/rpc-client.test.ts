@@ -45,6 +45,35 @@ function lines(socket: net.Socket, handler: (value: Record<string, unknown>) => 
 	});
 }
 
+test("sendRpcCommand covers explicit ids and abort reason normalization", async () => {
+	for (const reason of [new Error("reason"), "string reason", undefined]) {
+		const controller = new AbortController();
+		controller.abort(reason);
+		await assert.rejects(
+			() =>
+				sendRpcCommand(
+					"/tmp/not-used.sock",
+					{ type: "send", id: "explicit", message: "x" },
+					{ signal: controller.signal },
+				),
+			(error: unknown) => {
+				assert.match(String(error), /reason|aborted/i);
+				return true;
+			},
+		);
+	}
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) =>
+				send(socket, { jsonrpc: "2.0", id: request.id, result: { deliveryId: "d-1", disposition: "direct" } }),
+			),
+		async (socketPath) => {
+			const result = await sendRpcCommand(socketPath, { type: "send", id: "explicit", message: "x" });
+			assert.equal(result.response.id, "explicit");
+		},
+	);
+});
+
 test("keeps an accepted member request socket open for exactly one correlated update", async () => {
 	await withSocketServer(
 		(socket) =>
@@ -834,6 +863,45 @@ test("sendMemberIdleWait maps remote rejection and malformed terminal results", 
 				{ timeoutSeconds: 10 },
 			);
 			assert.deepEqual(outcome, { ok: false, code: "malformed-response" });
+		},
+	);
+});
+
+test("sendMemberIdleWait rejects wrong acknowledgement ids and out-of-order notifications", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) =>
+				send(socket, {
+					jsonrpc: "2.0",
+					id: "wrong",
+					result: { subscriptionId: "wrong", event: "member_idle" },
+				}),
+			),
+		async (socketPath) => {
+			const result = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Bob" },
+				{ timeoutSeconds: 1 },
+			);
+			assert.deepEqual(result, { ok: false, code: "malformed-response" });
+		},
+	);
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) =>
+				send(socket, {
+					jsonrpc: "2.0",
+					method: "member.idle_wait",
+					params: { subscriptionId: String(request.id), result: {} },
+				}),
+			),
+		async (socketPath) => {
+			const result = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Bob" },
+				{ timeoutSeconds: 1 },
+			);
+			assert.deepEqual(result, { ok: false, code: "malformed-response" });
 		},
 	);
 });

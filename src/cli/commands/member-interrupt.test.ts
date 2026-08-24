@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import net from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
 	buildMemberInterruptCommand,
 	defaultMemberInterruptCliDependencies,
@@ -46,6 +50,68 @@ test("interrupt parser enforces message source, preserves instructions, and supp
 		format: "toon",
 	});
 	assert.throws(() => parseMemberInterruptCommand(["Kelly", "--message", "x", "--stdin"], "/project"), /exactly one/);
+});
+
+test("interrupt default transport maps accepted, rejected, and malformed acknowledgements", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-interrupt-cli-"));
+	const socketPath = path.join(dir, "member.sock");
+	const server = net.createServer((socket) => {
+		socket.setEncoding("utf8");
+		socket.on("data", (chunk) => {
+			const request = JSON.parse(String(chunk)) as { id: string | number };
+			socket.write(
+				JSON.stringify({
+					jsonrpc: "2.0",
+					id: request.id,
+					result: { member: { name: "Kelly", role: "qa" }, interruptId: "i-1", disposition: "direct" },
+				}) + "\n",
+			);
+		});
+	});
+	await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+	try {
+		const success = await defaultMemberInterruptCliDependencies.deliverInterrupt(
+			{ ok: true, kind: "id", idSocketPath: socketPath, aliasSocketPath: socketPath },
+			{ type: "member_interrupt", target: "Kelly", message: "stop" },
+			new AbortController().signal,
+		);
+		assert.equal(success.ok, true);
+	} finally {
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("interrupt default transport maps rejected and malformed acknowledgements", async () => {
+	for (const malformed of [false, true]) {
+		const dir = await mkdtemp(path.join(tmpdir(), "bebop-interrupt-error-"));
+		const socketPath = path.join(dir, "member.sock");
+		const server = net.createServer((socket) => {
+			socket.setEncoding("utf8");
+			socket.on("data", (chunk) => {
+				const request = JSON.parse(String(chunk)) as { id: string | number };
+				socket.write(
+					JSON.stringify(
+						malformed
+							? { jsonrpc: "2.0", id: request.id, result: {} }
+							: { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "remote-rejected" } },
+					) + "\n",
+				);
+			});
+		});
+		await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+		try {
+			const outcome = await defaultMemberInterruptCliDependencies.deliverInterrupt(
+				{ ok: true, kind: "id", idSocketPath: socketPath, aliasSocketPath: socketPath },
+				{ type: "member_interrupt", target: "Kelly", message: "stop" },
+				new AbortController().signal,
+			);
+			assert.equal(outcome.ok, false);
+		} finally {
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+			await rm(dir, { recursive: true, force: true });
+		}
+	}
 });
 
 test("interrupt default transport maps an unavailable endpoint", async () => {
