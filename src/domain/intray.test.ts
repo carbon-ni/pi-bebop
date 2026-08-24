@@ -1031,4 +1031,22 @@ test("member.inbox_send and crew.broadcast are closed persistence commands", () 
 		}),
 		true,
 	);
+	assert.equal(
+		isCrewBroadcastResult({
+			broadcastId: "broadcast-1",
+			dispositions: [{ member: "Mary", role: "po", itemId: "item-1", disposition: "failed" }],
+			summary: { persisted: 0, alreadyPersisted: 0, failed: 1, total: 1 },
+		}),
+		false,
+	);
+	assert.equal(
+		isCrewBroadcastResult({
+			broadcastId: "broadcast-1",
+			dispositions: [
+				{ member: "Mary", role: "po", itemId: "item-1", disposition: "persisted", code: "unexpected" },
+			],
+			summary: { persisted: 1, alreadyPersisted: 0, failed: 0, total: 1 },
+		}),
+		false,
+	);
 });
