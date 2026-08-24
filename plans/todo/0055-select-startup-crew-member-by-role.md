@@ -1,7 +1,7 @@
 ---
 id: TASK-0055
 title: Select startup crew member by role
-status: done
+status: doing
 depends_on: []
 priority: normal
 tags: [crew, cli, startup, tdd]
