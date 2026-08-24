@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import extension from "../extension.ts";
 
 const MEMBERSHIP_TOOLS = [
+	"request_member",
+	"respond_to_member_request",
+	"wait_for_crew_update",
 	"send_follow_up",
 	"redirect_member",
 	"send_to_inbox",

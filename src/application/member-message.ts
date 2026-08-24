@@ -1,7 +1,7 @@
 import { isMessagePayload, isSendResult, type RpcCommand, type RpcCommandResponse } from "../domain/index.ts";
 
-type CrewMember = { name: string; role: string; socketPath: string };
-type CrewMembership = { member: CrewMember; socketPath: string; manifest: { members: readonly CrewMember[] } };
+export type CrewMember = { name: string; role: string; socketPath: string };
+export type CrewMembership = { member: CrewMember; socketPath: string; manifest: { members: readonly CrewMember[] } };
 export type MemberDeliveryIntent = "follow_up" | "immediate";
 export type MemberWaitFor = "accepted" | "response";
 
@@ -88,7 +88,8 @@ export class MemberMessageError extends Error {
 	}
 }
 
-function resolveTarget(membership: CrewMembership, memberName: string): CrewMember {
+/** Shared exact-name/unique-role resolver used by accepted delivery and requests. */
+export function resolveTarget(membership: CrewMembership, memberName: string): CrewMember {
 	const byName = membership.manifest.members.find((member) => member.name === memberName);
 	const byRole = membership.manifest.members.filter((member) => member.role === memberName);
 	const target = byName ?? (byRole.length === 1 ? byRole[0] : undefined);

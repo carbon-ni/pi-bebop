@@ -7,7 +7,8 @@ import path from "node:path";
 import * as net from "node:net";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
-import { sendRpcCommand } from "../infra/rpc-client.ts";
+import { sendRpcCommand, sendMemberRequest } from "../infra/rpc-client.ts";
+import { CrewUpdateFlow } from "../application/crew-update-flow.ts";
 
 /**
  * TASK-0062 packaged proof: the built dist CLI delivers a follow-up and a
@@ -28,6 +29,8 @@ interface Sessions {
 	readonly sourceEntries: unknown[];
 	readonly setTargetIdle: (value: boolean) => void;
 	readonly getTargetAbortCount: () => number;
+	readonly sourceFlow: CrewUpdateFlow;
+	readonly targetFlow: CrewUpdateFlow;
 	close(): Promise<void>;
 }
 
@@ -50,7 +53,12 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 			manifestPath: "/project/.pi/bebop/crew.json",
 			socketPath: targetSocket,
 			member: { name: "Kelly", role: "qa", socketPath: targetSocket },
-			manifest: { members: [{ name: "Kelly", role: "qa", socketPath: targetSocket }] },
+			manifest: {
+				members: [
+					{ name: "Tony", role: "lead", socketPath: sourceSocket },
+					{ name: "Kelly", role: "qa", socketPath: targetSocket },
+				],
+			},
 		}),
 	} as never;
 	targetState.context = {
@@ -63,6 +71,11 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		hasPendingMessages: () => false,
 		isProjectTrusted: () => true,
 	} as never;
+	const targetFlow = new CrewUpdateFlow({
+		resolveEndpoint: async (endpoint) => endpoint,
+		transport: { open: async () => ({ close: () => undefined }), respond: async () => undefined },
+	});
+	targetState.crewUpdateFlow = targetFlow;
 	const targetPi = {
 		sendMessage: (customMessage: { content: string }, _options: unknown) => {
 			targetMessages.push(customMessage.content);
@@ -95,6 +108,19 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		hasPendingMessages: () => false,
 		isProjectTrusted: () => true,
 	} as never;
+	const sourceFlow = new CrewUpdateFlow({
+		resolveEndpoint: async (endpoint) => endpoint,
+		transport: {
+			open: (endpoint, command, options) =>
+				sendMemberRequest(endpoint, command, {
+					timeout: options.timeoutMs,
+					signal: options.signal,
+					onUpdate: options.onUpdate,
+				}),
+			respond: async () => undefined,
+		},
+	});
+	sourceState.crewUpdateFlow = sourceFlow;
 	const sourcePi = {
 		appendEntry: (customType: string, data: unknown) => sourceEntries.push({ type: "custom", customType, data }),
 	};
@@ -120,6 +146,8 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 			targetIdle = value;
 		},
 		getTargetAbortCount: () => targetAbortCount,
+		sourceFlow,
+		targetFlow,
 		close: async () => {
 			await closeRpcServer(sourceServer);
 			await closeRpcServer(targetServer);
@@ -141,6 +169,82 @@ async function packagedMessage(envHome: string, args: string[]): Promise<{ code:
 	const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
 	return { code, stdout };
 }
+
+test("request transport rejects forged origin before inbound state or Pi visibility", async (t) => {
+	const sessions = await startSessions(t);
+	await assert.rejects(
+		() =>
+			sendRpcCommand(sessions.targetSocket, {
+				type: "member_request",
+				requestId: "forged-1",
+				payload: { content: "forged", origin: { kind: "crew", name: "Mallory", role: "lead" } },
+				timeoutSeconds: 300,
+			}),
+		(error: unknown) => error instanceof Error && /invalid-origin/.test(error.message),
+	);
+	assert.deepEqual(sessions.targetMessages, []);
+	assert.equal(sessions.targetFlow.registry.inboundCount(), 0);
+});
+
+test("request flow uses persistent Unix channel and returns one correlated response", async (t) => {
+	const sessions = await startSessions(t);
+	const accepted = await sessions.sourceFlow.requestMember({
+		membership: {
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: sessions.sourceSocket,
+			member: { name: "Tony", role: "lead", socketPath: sessions.sourceSocket },
+			manifest: {
+				members: [
+					{ name: "Tony", role: "lead", socketPath: sessions.sourceSocket },
+					{ name: "Kelly", role: "qa", socketPath: sessions.targetSocket },
+				],
+			},
+		} as never,
+		member: "Kelly",
+		message: "Please review",
+	});
+	assert.match(accepted.requestId, /^request_/);
+	await sessions.targetFlow.respondToMemberRequest({
+		message: "Response received",
+		member: { name: "Kelly", role: "qa" },
+	});
+	const updates: unknown[] = [];
+	let resolveUpdate!: () => void;
+	const updateArrived = new Promise<void>((resolve) => {
+		resolveUpdate = resolve;
+	});
+	const waited = sessions.sourceFlow.waitForCrewUpdate((update) => {
+		updates.push(update);
+		resolveUpdate();
+	});
+	assert.equal(waited.ok, true);
+	if (waited.ok && waited.kind === "waiting") await updateArrived;
+	assert.equal(updates.length, 1);
+	assert.equal((updates[0] as { kind: string }).kind, "response");
+});
+
+test("accepted request disconnect removes target inbound channel state", async (t) => {
+	const sessions = await startSessions(t);
+	const accepted = await sessions.sourceFlow.requestMember({
+		membership: {
+			manifestPath: "/project/.pi/bebop/crew.json",
+			socketPath: sessions.sourceSocket,
+			member: { name: "Tony", role: "lead", socketPath: sessions.sourceSocket },
+			manifest: {
+				members: [
+					{ name: "Tony", role: "lead", socketPath: sessions.sourceSocket },
+					{ name: "Kelly", role: "qa", socketPath: sessions.targetSocket },
+				],
+			},
+		} as never,
+		member: "Kelly",
+		message: "disconnect me",
+	});
+	assert.equal(sessions.targetFlow.registry.inboundCount(), 1);
+	sessions.sourceFlow.cancelRequest(accepted.requestId);
+	await new Promise<void>((resolve) => setTimeout(resolve, 25));
+	assert.equal(sessions.targetFlow.registry.inboundCount(), 0);
+});
 
 test("packaged CLI delivers follow-up and redirect end to end with accepted dispositions", async (t) => {
 	const sessions = await startSessions(t);

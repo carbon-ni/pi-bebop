@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { sendRpcCommand, sendMemberIdleWait, RpcProtocolError } from "./rpc-client.ts";
+import { sendRpcCommand, sendMemberIdleWait, sendMemberRequest, RpcProtocolError } from "./rpc-client.ts";
 
 async function withSocketServer(
 	handle: (socket: net.Socket) => void,
@@ -44,6 +44,105 @@ function lines(socket: net.Socket, handler: (value: Record<string, unknown>) => 
 		}
 	});
 }
+
+test("keeps an accepted member request socket open for exactly one correlated update", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "member.request") return;
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					result: {
+						accepted: true,
+						requestId: request.params.requestId,
+						member: { name: "qa", role: "reviewer" },
+					},
+				});
+				setTimeout(
+					() =>
+						send(socket, {
+							jsonrpc: "2.0",
+							method: "member.update",
+							params: {
+								kind: "response",
+								requestId: request.params.requestId,
+								member: { name: "qa", role: "reviewer" },
+								message: "reviewed",
+							},
+						}),
+					1,
+				);
+			}),
+		async (socketPath) => {
+			const updates: unknown[] = [];
+			const result = await sendMemberRequest(
+				socketPath,
+				{
+					type: "member_request",
+					requestId: "request-1",
+					payload: { content: "review", origin: { kind: "crew", name: "dev", role: "developer" } },
+					timeoutSeconds: 300,
+				},
+				{ timeout: 1000, onUpdate: (update) => updates.push(update) },
+			);
+			assert.equal(result.response.success, true);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			assert.equal(updates.length, 1);
+			result.close();
+		},
+	);
+});
+
+test("classifies malformed and cancelled member request transport before acceptance", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "member.request") socket.write("not-json\n");
+			}),
+		async (socketPath) => {
+			await assert.rejects(
+				() =>
+					sendMemberRequest(
+						socketPath,
+						{ type: "member_request", requestId: "bad-1", payload: { content: "x" }, timeoutSeconds: 1 },
+						{ timeout: 1000, onUpdate: () => undefined },
+					),
+				/malformed/i,
+			);
+		},
+	);
+	const controller = new AbortController();
+	await withSocketServer(
+		() => undefined,
+		async (socketPath) => {
+			const pending = sendMemberRequest(
+				socketPath,
+				{ type: "member_request", requestId: "cancel-1", payload: { content: "x" }, timeoutSeconds: 1 },
+				{ timeout: 1000, signal: controller.signal, onUpdate: () => undefined },
+			);
+			controller.abort();
+			await assert.rejects(() => pending, /aborted/i);
+		},
+	);
+});
+
+test("classifies a dispatched member request with a lost acceptance as outcome-unknown", async () => {
+	await withSocketServer(
+		(socket) => lines(socket, () => socket.destroy()),
+		async (socketPath) => {
+			await assert.rejects(
+				() =>
+					sendMemberRequest(
+						socketPath,
+						{ type: "member_request", requestId: "lost-1", payload: { content: "x" }, timeoutSeconds: 1 },
+						{ timeout: 1000, onUpdate: () => undefined },
+					),
+				(error: unknown) => error instanceof RpcProtocolError && error.code === "outcome-unknown",
+			);
+		},
+	);
+});
 
 test("correlates send and subscription responses then accepts the matching turn notification", async () => {
 	await withSocketServer(

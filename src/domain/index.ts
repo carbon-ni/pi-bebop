@@ -20,3 +20,4 @@ export * from "./member-idle-wait.ts";
 export * from "./crew-init.ts";
 export * from "./member-inbox.ts";
 export * from "./inbox-hint.ts";
+export * from "./crew-update.ts";

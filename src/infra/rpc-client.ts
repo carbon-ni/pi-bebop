@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import {
 	commandToRequest,
 	isMemberIdleWaitNotification,
+	isMemberUpdateNotification,
+	isMemberRequestResult,
 	isMemberIdleWaitSubscribeResult,
 	isMethodResult,
 	isRpcResponse,
@@ -12,6 +14,7 @@ import {
 	type ExtractedMessage,
 	type MemberIdleWaitCommand,
 	type MemberIdleWaitResult,
+	type MemberRequestCommand,
 	type RpcCommand,
 	type RpcCommandResponse,
 	type RpcId,
@@ -337,5 +340,154 @@ export async function sendMemberIdleWait(
 		socket.on("close", () => {
 			if (!settled && !terminalReceived) finish({ ok: false, code: "offline" });
 		});
+	});
+}
+
+export interface MemberRequestClientOptions {
+	timeout?: number;
+	signal?: AbortSignal;
+	onUpdate: (update: import("../domain/index.ts").MemberUpdateResult) => void;
+}
+
+/** Opens the request-scoped channel: the promise resolves at accepted delivery,
+ * while the socket remains open for exactly one terminal member.update event. */
+export async function sendMemberRequest(
+	socketPath: string,
+	command: MemberRequestCommand,
+	options: MemberRequestClientOptions,
+): Promise<{ response: RpcCommandResponse; close: () => void }> {
+	const requestId = command.id ?? nextId();
+	const request = commandToRequest(command, requestId);
+	return new Promise((resolve, reject) => {
+		if (options.signal?.aborted) {
+			reject(getAbortError(options.signal));
+			return;
+		}
+		const socket = net.createConnection(socketPath);
+		socket.setEncoding("utf8");
+		let buffer = "";
+		let settled = false;
+		let accepted = false;
+		let dispatched = false;
+		let closed = false;
+		let timeoutHandle: NodeJS.Timeout;
+		const cleanup = () => {
+			clearTimeout(timeoutHandle);
+			options.signal?.removeEventListener("abort", onAbort);
+			socket.removeAllListeners();
+		};
+		const close = () => {
+			if (closed) return;
+			closed = true;
+			cleanup();
+			socket.destroy();
+		};
+		const finishBeforeAccept = (error: Error) => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			socket.destroy();
+			reject(error);
+		};
+		const onAbort = () => {
+			if (accepted) {
+				onTerminalClose();
+				return;
+			}
+			finishBeforeAccept(getAbortError(options.signal!));
+		};
+		options.signal?.addEventListener("abort", onAbort, { once: true });
+		timeoutHandle = setTimeout(() => finishBeforeAccept(new Error("RPC request timeout")), options.timeout ?? 5000);
+		socket.on("connect", () => {
+			try {
+				socket.write(serializeRequest(request));
+				dispatched = true;
+			} catch (error) {
+				finishBeforeAccept(error instanceof Error ? error : new Error("Failed to write RPC request"));
+			}
+		});
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			let newlineIndex = buffer.indexOf("\n");
+			while (newlineIndex !== -1) {
+				const line = buffer.slice(0, newlineIndex).trim();
+				buffer = buffer.slice(newlineIndex + 1);
+				newlineIndex = buffer.indexOf("\n");
+				if (!line) continue;
+				let value: unknown;
+				try {
+					value = JSON.parse(line);
+				} catch {
+					finishBeforeAccept(new RpcProtocolError("malformed-response", "Malformed JSON-RPC response"));
+					return;
+				}
+				if (isMemberUpdateNotification(value)) {
+					if (!accepted) {
+						finishBeforeAccept(
+							new RpcProtocolError("out-of-order-update", "Update arrived before acceptance"),
+						);
+						return;
+					}
+					options.onUpdate(value.params);
+					continue;
+				}
+				if (!isRpcResponse(value) || value.id !== requestId) {
+					finishBeforeAccept(
+						new RpcProtocolError("mismatched-id", "JSON-RPC response id did not match request"),
+					);
+					return;
+				}
+				if ("error" in value) {
+					finishBeforeAccept(
+						new RpcProtocolError(value.error.data?.code ?? "remote-error", value.error.message),
+					);
+					return;
+				}
+				if (!isMethodResult(request.method, value.result) || !isMemberRequestResult(value.result)) {
+					finishBeforeAccept(new RpcProtocolError("invalid-result", "Invalid member.request result"));
+					return;
+				}
+				if (settled) {
+					finishBeforeAccept(new RpcProtocolError("duplicate-id", "Duplicate JSON-RPC response id"));
+					return;
+				}
+				settled = true;
+				accepted = true;
+				clearTimeout(timeoutHandle);
+				resolve({ response: commandResponse(command.type, value), close });
+			}
+		});
+		const onTerminalClose = () => {
+			if (!accepted || closed) return;
+			closed = true;
+			cleanup();
+			socket.destroy();
+			options.onUpdate({
+				kind: "offline",
+				requestId: command.requestId,
+				member: {
+					name: command.payload.origin?.kind === "crew" ? command.payload.origin.name : "member",
+					role: command.payload.origin?.kind === "crew" ? command.payload.origin.role : "member",
+				},
+			});
+		};
+		const lostAcknowledgement = () =>
+			new RpcProtocolError(
+				"outcome-unknown",
+				"Delivery outcome unknown: request dispatch acknowledgement was lost",
+			);
+		socket.on("error", (error) =>
+			accepted ? onTerminalClose() : finishBeforeAccept(dispatched ? lostAcknowledgement() : error),
+		);
+		socket.on("end", () =>
+			accepted
+				? onTerminalClose()
+				: finishBeforeAccept(dispatched ? lostAcknowledgement() : new Error("Socket ended before acceptance")),
+		);
+		socket.on("close", () =>
+			accepted
+				? onTerminalClose()
+				: finishBeforeAccept(dispatched ? lostAcknowledgement() : new Error("Socket closed before acceptance")),
+		);
 	});
 }

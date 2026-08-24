@@ -18,12 +18,15 @@ import {
 	registerGetMemberStatusTool,
 	registerUpdateMemberFocusTool,
 	registerWaitForMemberIdleTool,
+	registerRequestMemberTool,
+	registerRespondToMemberRequestTool,
+	registerWaitForCrewUpdateTool,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
 import { createMemberStatusTransport } from "./infra/member-status-transport.ts";
-import { sendMemberIdleWait, sendRpcCommand } from "./infra/rpc-client.ts";
+import { sendMemberIdleWait, sendRpcCommand, sendMemberRequest } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
 import { type MemberIdleWaitCommand } from "./domain/index.ts";
@@ -52,6 +55,7 @@ import { maybeHandleStartupSocketJoin } from "./pi/startup-send.ts";
 import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
+import { CrewUpdateFlow } from "./application/crew-update-flow.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
@@ -102,6 +106,21 @@ export default function (pi: ExtensionAPI) {
 		await interruptFlow.recoverPending();
 	};
 
+	state.crewUpdateFlow = new CrewUpdateFlow({
+		transport: {
+			open: (endpoint, command, options) =>
+				sendMemberRequest(endpoint, command, {
+					timeout: options.timeoutMs,
+					signal: options.signal,
+					onUpdate: options.onUpdate,
+				}),
+			respond: async (channel, update) => channel.send(update),
+		},
+		resolveEndpoint: resolveMemberEndpoint,
+	});
+	registerRequestMemberTool(pi, state);
+	registerRespondToMemberRequestTool(pi, state);
+	registerWaitForCrewUpdateTool(pi, state);
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,
