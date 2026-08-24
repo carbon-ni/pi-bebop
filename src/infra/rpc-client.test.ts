@@ -45,6 +45,41 @@ function lines(socket: net.Socket, handler: (value: Record<string, unknown>) => 
 	});
 }
 
+test("sendRpcCommand rejects a terminal notification after subscribe ack but before primary response", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method === "event.subscribe") {
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { subscriptionId: String(request.id), event: "turn_end" },
+					});
+					setTimeout(
+						() =>
+							send(socket, {
+								jsonrpc: "2.0",
+								method: "session.turn_end",
+								params: { subscriptionId: String(request.id) },
+							}),
+						1,
+					);
+				}
+			}),
+		async (socketPath) => {
+			await assert.rejects(
+				() =>
+					sendRpcCommand(
+						socketPath,
+						{ type: "send", message: "x" },
+						{ waitForEvent: "turn_end", timeout: 1_000 },
+					),
+				/out-of-order-response/,
+			);
+		},
+	);
+});
+
 test("sendRpcCommand completes a turn subscription without optional event fields", async () => {
 	await withSocketServer(
 		(socket) =>
