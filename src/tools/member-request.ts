@@ -181,6 +181,9 @@ export function registerWaitForRequestOutcomeTool(
 							target: update.requestId,
 							outcome: outcomeMarker(update),
 							observedAt: Date.now(),
+							...(update.kind === "response"
+								? { response: { message: update.message, instructions: update.instructions } }
+								: {}),
 						});
 						queueMicrotask(pump);
 					});
@@ -191,6 +194,14 @@ export function registerWaitForRequestOutcomeTool(
 							target: waiting.update.requestId,
 							outcome: outcomeMarker(waiting.update),
 							observedAt: Date.now(),
+							...(waiting.update.kind === "response"
+								? {
+										response: {
+											message: waiting.update.message,
+											instructions: waiting.update.instructions,
+										},
+									}
+								: {}),
 						});
 						queueMicrotask(pump);
 					}

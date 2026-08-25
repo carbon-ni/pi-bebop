@@ -50,6 +50,7 @@ test("TASK-0080 D2: resolve queues the resume (wait-resume-queued + details.wait
 		target: "request-1",
 		outcome: "response",
 		observedAt: 2_000,
+		response: { message: "Kelly approved", instructions: ["attach report"] },
 	});
 	assert.equal(resolved, true);
 	assert.equal(events[events.length - 1]!.type, WAIT_RESUME_QUEUED);
@@ -113,7 +114,13 @@ test("TASK-0080 D5: multi-resume-one-turn emits started and settled once per wai
 	assert.equal(runtime.park({ kind: "request-outcome", target: "request-1", sessionId: "s1" }).ok, true);
 	assert.equal(runtime.park({ kind: "request-outcome", target: "request-2", sessionId: "s1" }).ok, true);
 	assert.equal(
-		runtime.resolve({ kind: "request-outcome", target: "request-1", outcome: "response", observedAt: 2_000 }),
+		runtime.resolve({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "response",
+			observedAt: 2_000,
+			response: { message: "Kelly approved", instructions: ["attach report"] },
+		}),
 		true,
 	);
 	assert.equal(
@@ -142,7 +149,13 @@ test("TASK-0080 D6: zero listeners is a no-op - the runtime works identically wi
 	const parked = runtime.park({ kind: "request-outcome", target: "request-1", sessionId: "s1" });
 	assert.equal(parked.ok, true);
 	assert.equal(
-		runtime.resolve({ kind: "request-outcome", target: "request-1", outcome: "response", observedAt: 2_000 }),
+		runtime.resolve({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "response",
+			observedAt: 2_000,
+			response: { message: "Kelly approved", instructions: ["attach report"] },
+		}),
 		true,
 	);
 	assert.equal(delivered.length, 1);
@@ -187,6 +200,7 @@ test("TASK-0080 G7: auto-style handshake pauses through queued and unrelated tur
 		target: "request-1",
 		outcome: "response",
 		observedAt: 2_000,
+		response: { message: "Kelly approved", instructions: ["attach report"] },
 	});
 	// An unrelated settle while the resume is only queued publishes nothing.
 	runtime.markSettled();
@@ -214,7 +228,13 @@ test("TASK-0080 G8: multiple wait ids stay paused until all matching settled/can
 	assert.equal(runtime.park({ kind: "request-outcome", target: "request-1", sessionId: "s1" }).ok, true);
 	assert.equal(runtime.park({ kind: "request-outcome", target: "request-2", sessionId: "s1" }).ok, true);
 	assert.equal(
-		runtime.resolve({ kind: "request-outcome", target: "request-1", outcome: "response", observedAt: 2_000 }),
+		runtime.resolve({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "response",
+			observedAt: 2_000,
+			response: { message: "Kelly approved", instructions: ["attach report"] },
+		}),
 		true,
 	);
 	assert.equal(
@@ -231,7 +251,13 @@ test("TASK-0080 G8: multiple wait ids stay paused until all matching settled/can
 	const a = r2.park({ kind: "request-outcome", target: "request-1", sessionId: "s1" });
 	const b = r2.park({ kind: "request-outcome", target: "request-2", sessionId: "s1" });
 	if (!a.ok || !b.ok) return;
-	r2.resolve({ kind: "request-outcome", target: "request-1", outcome: "response", observedAt: 2_000 });
+	r2.resolve({
+		kind: "request-outcome",
+		target: "request-1",
+		outcome: "response",
+		observedAt: 2_000,
+		response: { message: "Kelly approved", instructions: ["attach report"] },
+	});
 	r2.resolve({ kind: "request-outcome", target: "request-2", outcome: "offline", observedAt: 2_100 });
 	assert.equal(r2.cancel(b.id), true, "cancel valid from resume-queued");
 	r2.markStarted(); // only request-1's resume enters the outcome turn
@@ -246,7 +272,13 @@ test("TASK-0080 G8: multiple wait ids stay paused until all matching settled/can
 	const { runtime: r3 } = setup();
 	const c = r3.park({ kind: "request-outcome", target: "request-3", sessionId: "s1" });
 	if (!c.ok) return;
-	r3.resolve({ kind: "request-outcome", target: "request-3", outcome: "response", observedAt: 2_000 });
+	r3.resolve({
+		kind: "request-outcome",
+		target: "request-3",
+		outcome: "response",
+		observedAt: 2_000,
+		response: { message: "Kelly approved", instructions: ["attach report"] },
+	});
 	r3.markStarted();
 	assert.equal(r3.cancel(c.id), false, "cancel from resume-started is impossible");
 });
@@ -260,6 +292,7 @@ test("TASK-0080 G9: cancel from resume-queued needs no outcome turn - auto conti
 		target: "request-1",
 		outcome: "response",
 		observedAt: 2_000,
+		response: { message: "Kelly approved", instructions: ["attach report"] },
 	});
 	assert.equal(runtime.queuedCount(), 1);
 	assert.equal(runtime.cancel(parked.id), true, "cancel valid from resume-queued");

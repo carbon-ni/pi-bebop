@@ -108,16 +108,26 @@ export class YieldingWaitRuntime {
 		if (resolved.ok === false) return false;
 		const waitId = resolved.value.id;
 		const kind = resolved.value.kind;
+		const response = validated.value.response;
+		// TASK-0080-fix: a correlated Response carries its FULL payload into the
+		// resume content (message + ordered instructions) so the requester resumes
+		// with the responder's actual answer, never a bare outcome marker.
+		const responseSuffix = response
+			? `\nResponse: ${response.message}\nInstructions:\n${response.instructions
+					.map((item, index) => `${index + 1}. ${item}`)
+					.join("\n")}`
+			: "";
 		this.queued.set(waitId, kind);
 		this.publish({ type: WAIT_RESUME_QUEUED, waitId, kind });
 		this.deliver({
 			customType: WAIT_RESUME_MESSAGE_TYPE,
-			content: `[wait resume] ${validated.value.kind} ${validated.value.target}: ${validated.value.outcome}`,
+			content: `[wait resume] ${validated.value.kind} ${validated.value.target}: ${validated.value.outcome}${responseSuffix}`,
 			details: {
 				waitId,
 				kind: validated.value.kind,
 				target: validated.value.target,
 				outcome: validated.value.outcome,
+				...(response === undefined ? {} : { response }),
 				observedAt: validated.value.observedAt,
 			},
 			deliverAs: this.isRunIdle() ? "steer" : "followUp",

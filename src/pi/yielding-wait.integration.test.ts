@@ -419,8 +419,8 @@ test("TASK-0081: request-outcome wait resumes with the FULL Response (message + 
 		message: "Report evidence",
 		timeoutSeconds: 60,
 	});
-	assert.equal(accepted.ok, true);
-	if (!accepted.ok) return;
+	assert.equal(accepted.requestId, "request-real-2");
+	assert.equal(typeof accepted.member?.name, "string");
 	const yieldResult = await wait.execute("id", {} as never);
 	assert.equal((yieldResult as { details: { yielded: boolean } }).details.yielded, true);
 

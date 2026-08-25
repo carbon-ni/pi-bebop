@@ -120,6 +120,30 @@ test("empty wait fails immediately and never starts a polling loop", async () =>
 	assert.equal(result.details.error, "no-pending-member-requests");
 });
 
+test("TASK-0080-fix: the wait tool forwards the FULL Response (message + ordered instructions) to the resume", async () => {
+	const { tools, state, pi, yieldRuntime, delivered } = setup();
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
+	const registry = state.memberRequestFlow!.registry;
+	registry.registerOutbound({ requestId: "active", member: { name: "qa", role: "reviewer" }, now: 1_000 });
+	registry.acceptOutbound("active");
+	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(result.details.yielded, true, "tool yields immediately");
+	assert.equal(delivered.length, 0);
+	// The responder's correlated Response arrives on the request channel.
+	registry.resolveResponse({
+		requestId: "active",
+		member: { name: "qa", role: "reviewer" },
+		message: "Evidence attached: 3 findings",
+		instructions: ["review finding 1", "confirm gate"],
+	});
+	assert.equal(delivered.length, 1, "Response resumes the parked wait exactly once");
+	assert.match(delivered[0]!.content, /request-outcome active: response/);
+	assert.match(delivered[0]!.content, /Evidence attached: 3 findings/);
+	assert.match(delivered[0]!.content, /1\. review finding 1/);
+	assert.match(delivered[0]!.content, /2\. confirm gate/);
+	assert.equal(registry.outboundCount(), 0);
+});
+
 test("TASK-0080: buffered post-idle grace timeout resumes once via the runtime, never twice", async () => {
 	const { tools, state, pi, yieldRuntime, delivered } = setup();
 	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
