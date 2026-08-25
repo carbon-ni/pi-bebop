@@ -1,7 +1,7 @@
 ---
 id: TASK-0081
 title: Block Member Idle Wait until idle or inbound message
-status: doing
+status: done
 depends_on: [TASK-0079]
 priority: high
 tags: [member-idle, auto, messaging, lifecycle]
