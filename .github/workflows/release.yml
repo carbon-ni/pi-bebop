@@ -22,7 +22,19 @@ jobs:
             - run: npm ci
             - run: npm install --global npm@11.5.1
             - run: make all
-            - run: npm run verify:package
+            - name: Build and verify the canonical artifact
+              run: |
+                  mkdir -p .release
+                  npm pack --pack-destination .release
+                  tarball="$(find .release -name '*.tgz' -print -quit)"
+                  test -n "$tarball"
+                  sha256sum "$tarball" > .release/SHA256SUMS
+                  PACKAGE_TARBALL="$tarball" npm run verify:package
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: release-artifact
+                  path: .release/
+                  if-no-files-found: error
 
     publish:
         needs: quality-gate
@@ -41,19 +53,20 @@ jobs:
                   cache: npm
             - run: npm ci
             - run: npm install --global npm@11.5.1
+            - uses: actions/download-artifact@v4
+              with:
+                  name: release-artifact
+                  path: .release
             - name: Verify release identity
               env:
                   RELEASE_TAG: ${{ github.event.release.tag_name }}
               run: |
                   test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
                   test "${{ github.event.release.name }}" != ""
-            - name: Build the canonical artifact once
+            - name: Select the verified artifact
               run: |
-                  mkdir -p .release
-                  npm pack --pack-destination .release
                   tarball="$(find .release -name '*.tgz' -print -quit)"
                   test -n "$tarball"
-                  sha256sum "$tarball" > .release/SHA256SUMS
                   echo "TARBALL=$tarball" >> "$GITHUB_ENV"
             - name: Publish or resume the exact artifact
               env:

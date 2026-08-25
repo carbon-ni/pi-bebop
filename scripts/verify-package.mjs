@@ -45,7 +45,11 @@ try {
 	if (dryFiles.some((file) => /(^|\/)(plans|\.pi|\.tmp|node_modules|package-fixtures|.*\.(log|db))($|\/)/.test(file)))
 		throw new Error("Repository-local files leaked into package");
 
-	const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root, env: environment });
+	const packed = process.env.PACKAGE_TARBALL
+		? { stdout: path.basename(process.env.PACKAGE_TARBALL) }
+		: await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root, env: environment });
+	if (process.env.PACKAGE_TARBALL)
+		await cp(process.env.PACKAGE_TARBALL, path.join(archiveDir, path.basename(process.env.PACKAGE_TARBALL)));
 	const archiveName = packed.stdout
 		.trim()
 		.split("\n")

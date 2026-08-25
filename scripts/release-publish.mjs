@@ -20,9 +20,9 @@ async function sha256(file) {
 		.digest("hex");
 }
 
-async function npmArtifact(packageName, version, directory) {
+async function npmArtifact(packageName, version, directory, run) {
 	try {
-		const result = await execFile("npm", [
+		const result = await run("npm", [
 			"pack",
 			`${packageName}@${version}`,
 			"--ignore-scripts",
@@ -38,34 +38,34 @@ async function npmArtifact(packageName, version, directory) {
 	}
 }
 
-async function existingReleaseAsset(tag, filename, directory) {
-	const view = await execFile("gh", ["release", "view", tag, "--json", "assets"]);
+async function existingReleaseAsset(tag, filename, directory, run) {
+	const view = await run("gh", ["release", "view", tag, "--json", "assets"]);
 	const assets = JSON.parse(view.stdout).assets ?? [];
 	if (!assets.some((asset) => asset.name === filename)) return null;
-	await execFile("gh", ["release", "download", tag, "--pattern", filename, "--dir", directory]);
+	await run("gh", ["release", "download", tag, "--pattern", filename, "--dir", directory]);
 	return path.join(directory, filename);
 }
 
-export async function publishRelease({ tarball, packageName, version, releaseTag, npmTag }) {
+export async function publishRelease({ tarball, packageName, version, releaseTag, npmTag, run = execFile }) {
 	const localSha256 = await sha256(tarball);
 	const work = await mkdtemp(path.join(tmpdir(), "pi-bebop-release-"));
+	const npmWork = await mkdtemp(path.join(work, "npm-"));
+	const githubWork = await mkdtemp(path.join(work, "github-"));
 	try {
-		const npmExisting = await npmArtifact(packageName, version, work);
+		const npmExisting = await npmArtifact(packageName, version, npmWork, run);
 		const npmDecision = publicationDecision(localSha256, npmExisting && (await sha256(npmExisting)));
 		if (npmDecision === "mismatch")
 			throw new Error(`npm ${packageName}@${version} exists with different artifact bytes`);
-		if (npmDecision === "publish") {
-			await execFile("npm", ["publish", tarball, "--access", "public", "--tag", npmTag]);
-		}
+		if (npmDecision === "publish") await run("npm", ["publish", tarball, "--access", "public", "--tag", npmTag]);
 
 		const asset = path.basename(tarball);
-		const releaseExisting = await existingReleaseAsset(releaseTag, asset, work);
+		const releaseExisting = await existingReleaseAsset(releaseTag, asset, githubWork, run);
 		const releaseDecision = publicationDecision(localSha256, releaseExisting && (await sha256(releaseExisting)));
 		if (releaseDecision === "mismatch") throw new Error(`GitHub Release ${releaseTag} has a different ${asset}`);
-		if (releaseDecision === "publish") await execFile("gh", ["release", "upload", releaseTag, tarball]);
+		if (releaseDecision === "publish") await run("gh", ["release", "upload", releaseTag, tarball]);
 
 		const checksum = path.join(path.dirname(tarball), "SHA256SUMS");
-		const checksumExisting = await existingReleaseAsset(releaseTag, "SHA256SUMS", work);
+		const checksumExisting = await existingReleaseAsset(releaseTag, "SHA256SUMS", githubWork, run);
 		if (checksumExisting) {
 			const [expected, actual] = await Promise.all([
 				readFile(checksum, "utf8"),
@@ -73,7 +73,7 @@ export async function publishRelease({ tarball, packageName, version, releaseTag
 			]);
 			if (expected !== actual) throw new Error(`GitHub Release ${releaseTag} has a different SHA256SUMS`);
 		} else {
-			await execFile("gh", ["release", "upload", releaseTag, checksum]);
+			await run("gh", ["release", "upload", releaseTag, checksum]);
 		}
 		return { npm: npmDecision, github: releaseDecision, sha256: localSha256 };
 	} finally {
