@@ -68,7 +68,7 @@ test("synthetic nested/top-level leaves work through real parse/help/root/dispat
 	// Unknown commands list the full ordered vocabulary including the new leaves.
 	assert.throws(
 		() => registry.parseCliCommand(["nope"], "/p"),
-		/valid commands: send, crew init, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast, ping, crew audit/,
+		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast, ping, crew audit/,
 	);
 
 	// Command-tree metadata derives from the registry: top-level leaf + nested leaf under the crew group.
@@ -80,6 +80,7 @@ test("synthetic nested/top-level leaves work through real parse/help/root/dispat
 	const crew = root.commands.find((command) => command.name() === "crew");
 	assert.ok(crew, "crew group derived from registry");
 	assert.ok(crew!.commands.some((command) => command.name() === "init"));
+	assert.ok(crew!.commands.some((command) => command.name() === "roles"));
 	assert.ok(crew!.commands.some((command) => command.name() === "audit"));
 
 	// Help derives from the leaf modules through the registry.
@@ -110,7 +111,7 @@ test("composeRegistry yields deterministic ordered parse/help/dispatch without s
 	);
 	assert.equal(
 		first.vocabulary().join(", "),
-		"send, crew init, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast, ping, crew audit",
+		"send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast, ping, crew audit",
 	);
 	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), second.parseCliCommand(["ping", "a"], "/p"));
 	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), first.parseCliCommand(["ping", "a"], "/p"));
@@ -127,6 +128,7 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 			"home",
 			"send",
 			"crew-init",
+			"crew-roles",
 			"member-status",
 			"member-idle-wait",
 			"session-list",
@@ -141,7 +143,7 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	);
 	assert.equal(
 		registry.vocabulary().join(", "),
-		"send, crew init, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast",
+		"send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast",
 	);
 	assert.equal((registry.parseCliCommand([], "/p") as { command: string }).command, "home");
 	assert.equal(
@@ -149,6 +151,7 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 		"send",
 	);
 	assert.equal((registry.parseCliCommand(["crew", "init"], "/p") as { command: string }).command, "crew-init");
+	assert.equal((registry.parseCliCommand(["crew", "roles"], "/p") as { command: string }).command, "crew-roles");
 	assert.equal(
 		(registry.parseCliCommand(["member", "status", "Kelly"], "/p") as { command: string }).command,
 		"member-status",
@@ -180,7 +183,7 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	);
 	assert.throws(
 		() => registry.parseCliCommand(["bogus"], "/p"),
-		/valid commands: send, crew init, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
+		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
 	);
 
 	// Command-tree metadata derives from the registry: member + session groups exist.
@@ -195,6 +198,8 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	assert.ok(inbox!.commands.some((command) => command.name() === "send"));
 	const crew = root.commands.find((command) => command.name() === "crew");
 	assert.ok(crew, "crew group derived from registry");
+	assert.ok(crew!.commands.some((command) => command.name() === "init"));
+	assert.ok(crew!.commands.some((command) => command.name() === "roles"));
 	assert.ok(crew!.commands.some((command) => command.name() === "broadcast"));
 	const session = root.commands.find((command) => command.name() === "session");
 	assert.ok(session, "session group derived from registry");
@@ -209,6 +214,7 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	assert.deepEqual((first.result.data as { commands: string[] }).commands, [
 		"send",
 		"crew init",
+		"crew roles",
 		"member status",
 		"member wait-idle",
 		"session list",
