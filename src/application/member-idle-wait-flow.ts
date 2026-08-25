@@ -35,6 +35,7 @@ export type MemberIdleWaitFlowErrorCode =
 	| "malformed-response"
 	| "remote-rejected"
 	| "capacity-exceeded"
+	| "wait-in-progress"
 	| "transport-error";
 
 export class MemberIdleWaitFlowError extends Error {
@@ -58,6 +59,7 @@ export type MemberIdleWaitTransportResult =
 				| "malformed-response"
 				| "remote-rejected"
 				| "capacity-exceeded"
+				| "wait-in-progress"
 				| "transport-error";
 	  };
 
@@ -89,17 +91,21 @@ export type PreparedMemberIdleWait =
 	| { readonly kind: "ready"; readonly target: CrewMember; readonly timeoutSeconds: number }
 	| { readonly kind: "offline"; readonly target: CrewMember };
 
+export type ResolvedMemberIdleWait = {
+	readonly kind: "ready";
+	readonly target: CrewMember;
+	readonly timeoutSeconds: number;
+};
+
 export function createMemberIdleWaitFlow(surface: MemberIdleWaitSurface) {
 	/**
-	 * TASK-0077: validate and probe without ever blocking on the subscription.
-	 * Reachability failure is a compact offline outcome; success arms the
-	 * yielding wait (the tool opens the one-shot subscription fire-and-forget
-	 * and returns immediately).
+	 * TASK-0081: pure, synchronous target/timeout resolution with NO IO. The
+	 * tool acquires the single local blocking-idle-wait slot AFTER this step and
+	 * BEFORE the reachability probe, so a concurrent second wait fails with
+	 * `wait-in-progress` before any IO (never shares, replaces, or opens a
+	 * subscription). Throws the same deterministic flow errors as prepare.
 	 */
-	const prepareMemberIdleWait = async (input: {
-		member: string;
-		timeoutSeconds?: number;
-	}): Promise<PreparedMemberIdleWait> => {
+	const resolveMemberIdleWait = (input: { member: string; timeoutSeconds?: number }): ResolvedMemberIdleWait => {
 		const membership = requireJoined(surface);
 		let timeoutSeconds: number;
 		try {
@@ -107,19 +113,33 @@ export function createMemberIdleWaitFlow(surface: MemberIdleWaitSurface) {
 		} catch {
 			throw new MemberIdleWaitFlowError(
 				"invalid-timeout",
-				"Idle wait timeout must be an integer between 1 and 600",
+				"Idle wait timeout must be an integer between 60 and 7200",
 			);
 		}
 		const memberLabel = input.member.trim();
 		const resolution = resolveMemberIdleWaitTarget(membership.manifest, membership.member.name, memberLabel);
 		if (resolution.ok === false)
 			throw new MemberIdleWaitFlowError(resolution.code, `Idle wait target rejected: ${resolution.code}`);
-		const target = resolution.target;
+		return { kind: "ready", target: resolution.target, timeoutSeconds };
+	};
+
+	/**
+	 * TASK-0077/0081: validate and probe without ever blocking on the
+	 * subscription. Reachability failure is a compact offline outcome; success
+	 * arms the blocking wait (the tool opens the one-shot subscription and
+	 * stays pending until a terminal outcome or accepted message).
+	 */
+	const prepareMemberIdleWait = async (input: {
+		member: string;
+		timeoutSeconds?: number;
+	}): Promise<PreparedMemberIdleWait> => {
+		const resolved = resolveMemberIdleWait(input);
+		const target = resolved.target;
 
 		// Reachability is the offline boundary: failure is a compact offline result.
 		const alive = await surface.probeEndpoint(target.socketPath);
 		if (!alive) return { kind: "offline", target };
-		return { kind: "ready", target, timeoutSeconds };
+		return { kind: "ready", target, timeoutSeconds: resolved.timeoutSeconds };
 	};
 
 	const waitForMemberIdle = async (input: {
@@ -168,5 +188,5 @@ export function createMemberIdleWaitFlow(surface: MemberIdleWaitSurface) {
 		return result;
 	};
 
-	return { waitForMemberIdle, prepareMemberIdleWait };
+	return { waitForMemberIdle, prepareMemberIdleWait, resolveMemberIdleWait };
 }

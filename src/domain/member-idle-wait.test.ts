@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Value } from "@sinclair/typebox/value";
 import {
-	MEMBER_IDLE_WAIT_TIMEOUT_DEFAULT,
-	MEMBER_IDLE_WAIT_TIMEOUT_MAX,
-	MEMBER_IDLE_WAIT_TIMEOUT_MIN,
+	MEMBER_IDLE_WAIT_TIMEOUT_SECONDS,
+	MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS,
+	MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS,
 	MAX_MEMBER_IDLE_WAIT_SUBSCRIPTIONS,
 	MemberIdleWaitResultSchema,
 	applyIdleWaitSignal,
@@ -35,18 +35,18 @@ const manifest = {
 const waiting: MemberIdleWaitState = { phase: "waiting", target: bob };
 
 describe("member idle wait timeout validation", () => {
-	test("defaults to 300 seconds when omitted", () => {
-		assert.equal(resolveIdleWaitTimeoutSeconds(undefined), MEMBER_IDLE_WAIT_TIMEOUT_DEFAULT);
+	test("defaults to 1,800 seconds when omitted", () => {
+		assert.equal(resolveIdleWaitTimeoutSeconds(undefined), MEMBER_IDLE_WAIT_TIMEOUT_SECONDS);
 	});
 
-	test("accepts the full 1-600 second range", () => {
-		assert.equal(resolveIdleWaitTimeoutSeconds(1), 1);
-		assert.equal(resolveIdleWaitTimeoutSeconds(600), 600);
-		assert.equal(resolveIdleWaitTimeoutSeconds(300), 300);
+	test("accepts the full 60-7200 second range", () => {
+		assert.equal(resolveIdleWaitTimeoutSeconds(60), 60);
+		assert.equal(resolveIdleWaitTimeoutSeconds(7200), 7200);
+		assert.equal(resolveIdleWaitTimeoutSeconds(1800), 1800);
 	});
 
 	test("rejects out-of-range, non-finite, and fractional timeouts deterministically", () => {
-		for (const value of [0, -1, 601, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+		for (const value of [0, -1, 59, 7201, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
 			assert.throws(() => resolveIdleWaitTimeoutSeconds(value), TypeError);
 		}
 	});
@@ -154,6 +154,18 @@ describe("one-shot idle wait state race", () => {
 		assert.equal(state.phase, "terminal");
 		assert.equal(result?.outcome, "timeout");
 		assert.equal(result?.observedAt, observedAt);
+	});
+
+	test("TASK-0081: inbound Bebop message releases a busy wait with the message-received outcome", () => {
+		const { state, result } = applyIdleWaitSignal(waiting, { type: "message" }, observedAt);
+		assert.equal(state.phase, "terminal");
+		assert.equal(result?.outcome, "message-received");
+		assert.equal(result?.observedAt, observedAt);
+		assert.match(formatMemberIdleWaitResult(result!), /message-received/);
+		// A later settled signal on the released state is a no-op: first terminal wins.
+		const settled = applyIdleWaitSignal(state, { type: "settled" }, observedAt);
+		assert.equal(settled.state.phase, "terminal");
+		assert.equal(settled.result?.outcome, "message-received");
 	});
 
 	test("exactly one terminal outcome wins: first terminal signal wins and later signals are no-ops", () => {

@@ -78,9 +78,12 @@ each member by its manifest role; `/crew members` shows exactly `current`,
 | `interrupt_member`    | work is stuck, harmful, or based on invalid assumptions | best-effort abort plus recovery guidance; never rolls back side effects                                                 |
 | `broadcast_to_crew`   | a shared team-wide constraint                           | durable per-recipient copy for every other member; idempotent retry                                                     |
 
-Waiting yields the run: `wait_for_member_idle` and `wait_for_request_outcome`
-return a deterministic `yielded` result immediately and resume in a later turn,
-so two members waiting on each other never deadlock.
+`wait_for_member_idle` blocks the current run until the target settles to
+mechanical idle, goes offline, the bounded timeout expires, or an accepted
+Bebop message releases the wait under its original delivery mode (message-
+received never implies idle or completion; the bounded timeout is always the
+fallback). `wait_for_request_outcome` yields the run and resumes in a later
+turn, so correlated Request outcome waits never deadlock.
 
 ## Boundaries
 

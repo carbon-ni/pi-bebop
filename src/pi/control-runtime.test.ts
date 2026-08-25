@@ -124,6 +124,88 @@ test("RPC status reports online and joined without legacy fields", async () => {
 	assert.deepEqual(JSON.parse(writes[1]!), { jsonrpc: "2.0", id: "status-2", result: { status: "joined" } });
 });
 
+test("TASK-0081: inbound Bebop deliveries (send/member_request) notify the accepted-message wake gate before pi.sendMessage", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const sent: Array<{ options: unknown }> = [];
+	const state = createSocketState();
+	state.server = {} as never;
+	state.context = {
+		sessionManager: { getSessionId: () => "session" },
+		isIdle: () => false,
+		isProjectTrusted: () => true,
+		abort: () => undefined,
+	} as never;
+	const pi = { sendMessage: (message: unknown, options: unknown) => sent.push({ options }) } as never;
+
+	// A blocked idle wait arms its wake listener.
+	const claimed: string[] = [];
+	assert.deepEqual(
+		state.wakeGate.arm((deliveryId) => claimed.push(deliveryId)),
+		{ ok: true },
+	);
+	// Crew follow-up delivery (send command) claims the wake BEFORE pi.sendMessage.
+	await handleCommand(
+		pi,
+		state,
+		{ type: "send", payload: { content: "hi" }, delivery: "follow_up", id: "f1" },
+		socket,
+	);
+	assert.deepEqual(claimed, ["delivery-f1"], "send delivery wakes the armed listener");
+	assert.equal(sent.length, 1, "unchanged message still submitted once");
+
+	// A Member request inbound also claims the wake.
+	claimed.length = 0;
+	assert.deepEqual(
+		state.wakeGate.arm((deliveryId) => claimed.push(deliveryId)),
+		{ ok: true },
+	);
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: "/p/crew.json",
+			socketPath: "/p/Tony.sock",
+			member: { name: "Tony", role: "lead", socketPath: "/p/Tony.sock" },
+			manifest: {
+				members: [
+					{ name: "Tony", role: "lead", socketPath: "/p/Tony.sock" },
+					{ name: "Bob", role: "dev", socketPath: "/p/Bob.sock" },
+				],
+			},
+		}),
+	} as never;
+	state.memberRequestFlow = {
+		registry: {
+			selectInbound: () => ({ ok: false, code: "unknown-request" }),
+		},
+		registerInboundRequest: () => undefined,
+		acceptInboundRequest: () => undefined,
+		removeInboundRequest: () => undefined,
+		failBeforeAcceptance: () => undefined,
+	} as never;
+	await handleCommand(
+		pi,
+		state,
+		{
+			type: "member_request",
+			requestId: "r1",
+			payload: {
+				content: "review",
+				origin: { kind: "crew", name: "Bob", role: "dev" },
+				instructions: [],
+			},
+			timeoutSeconds: 300,
+			id: "m1",
+		},
+		socket,
+	);
+	assert.deepEqual(claimed, ["r1"], "member_request delivery wakes the armed listener");
+	// A channel-only Response on the request RPC never notifies the gate.
+	const after = state.wakeGate.arm((deliveryId) => claimed.push(deliveryId));
+	assert.deepEqual(after, { ok: true });
+	const response = JSON.parse(writes[writes.length - 1]!);
+	assert.equal(response.result?.accepted, true);
+});
+
 test("characterizes idle direct and busy follow-up or immediate delivery dispositions", async () => {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;

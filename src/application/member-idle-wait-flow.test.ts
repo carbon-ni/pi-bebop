@@ -55,9 +55,9 @@ function surface(overrides: Partial<MemberIdleWaitSurface> = {}): MemberIdleWait
 test("TASK-0077: prepareMemberIdleWait validates and probes without ever blocking", async () => {
 	const ready = await createMemberIdleWaitFlow(surface()).prepareMemberIdleWait({
 		member: "Kelly",
-		timeoutSeconds: 42,
+		timeoutSeconds: 61,
 	});
-	assert.deepEqual(ready, { kind: "ready", target: members[1], timeoutSeconds: 42 });
+	assert.deepEqual(ready, { kind: "ready", target: members[1], timeoutSeconds: 61 });
 
 	const offlineSurface = surface({ probeEndpoint: async () => false });
 	const offline = await createMemberIdleWaitFlow(offlineSurface).prepareMemberIdleWait({ member: "Kelly" });
@@ -203,13 +203,13 @@ test("invalid timeout is rejected before any IO", async () => {
 	const deps = surface();
 	const flow = createMemberIdleWaitFlow(deps);
 	await assert.rejects(
-		() => flow.waitForMemberIdle({ member: "Kelly", timeoutSeconds: 601 }),
+		() => flow.waitForMemberIdle({ member: "Kelly", timeoutSeconds: 7201 }),
 		(error: unknown) => error instanceof MemberIdleWaitFlowError && error.code === "invalid-timeout",
 	);
 	assert.equal(deps.probes.length, 0);
 });
 
-test("default timeout of 300 seconds applies when omitted", async () => {
+test("default timeout of 1,800 seconds applies when omitted", async () => {
 	const deps = surface();
 	let receivedTimeout = 0;
 	const flow = createMemberIdleWaitFlow({
@@ -220,5 +220,5 @@ test("default timeout of 300 seconds applies when omitted", async () => {
 		},
 	} as never);
 	await flow.waitForMemberIdle({ member: "Kelly" });
-	assert.equal(receivedTimeout, 300);
+	assert.equal(receivedTimeout, 1800);
 });

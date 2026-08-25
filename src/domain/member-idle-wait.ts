@@ -32,9 +32,9 @@ import type { CrewManifest, CrewMember } from "./crew-manifest.ts";
  * capacity gate.
  */
 
-export const MEMBER_IDLE_WAIT_TIMEOUT_DEFAULT = 300;
-export const MEMBER_IDLE_WAIT_TIMEOUT_MIN = 1;
-export const MEMBER_IDLE_WAIT_TIMEOUT_MAX = 600;
+export const MEMBER_IDLE_WAIT_TIMEOUT_SECONDS = 1800;
+export const MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS = 60;
+export const MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS = 7200;
 /** Finite per-target subscription capacity; overflow is rejected explicitly. */
 export const MAX_MEMBER_IDLE_WAIT_SUBSCRIPTIONS = 8;
 
@@ -62,10 +62,15 @@ const TimeoutMemberIdleWaitOutcomeSchema = Type.Object(
 	{ outcome: Type.Literal("timeout"), observedAt: IsoTimestampSchema },
 	{ additionalProperties: false },
 );
+const MessageReceivedMemberIdleWaitOutcomeSchema = Type.Object(
+	{ outcome: Type.Literal("message-received"), observedAt: IsoTimestampSchema },
+	{ additionalProperties: false },
+);
 const MemberIdleWaitOutcomeSchema = Type.Union([
 	IdleMemberIdleWaitOutcomeSchema,
 	OfflineMemberIdleWaitOutcomeSchema,
 	TimeoutMemberIdleWaitOutcomeSchema,
+	MessageReceivedMemberIdleWaitOutcomeSchema,
 ]);
 
 /**
@@ -99,6 +104,14 @@ export const MemberIdleWaitResultSchema = Type.Union([
 		},
 		{ additionalProperties: false },
 	),
+	Type.Object(
+		{
+			member: MemberIdleWaitIdentitySchema,
+			outcome: Type.Literal("message-received"),
+			observedAt: IsoTimestampSchema,
+		},
+		{ additionalProperties: false },
+	),
 ]);
 
 export type MemberIdleWaitIdentity = Static<typeof MemberIdleWaitIdentitySchema>;
@@ -109,7 +122,8 @@ export type MemberIdleWaitResult = Static<typeof MemberIdleWaitResultSchema>;
 export type MemberIdleWaitOutcomeInput =
 	| { readonly outcome: "idle"; readonly disposition: "already-idle" | "became-idle" }
 	| { readonly outcome: "offline" }
-	| { readonly outcome: "timeout" };
+	| { readonly outcome: "timeout" }
+	| { readonly outcome: "message-received" };
 
 const UTF8_ENCODER = new TextEncoder();
 const utf8Bytes = (value: string): number => UTF8_ENCODER.encode(value).byteLength;
@@ -141,6 +155,8 @@ export function formatMemberIdleWaitResult(result: MemberIdleWaitResult): string
 	if (!isMemberIdleWaitResult(result)) throw new TypeError("invalid member idle wait result");
 	const member = `${result.member.name} (${result.member.role})`;
 	if (result.outcome === "idle") return `[${member}] idle — ${result.disposition} at ${result.observedAt}`;
+	if (result.outcome === "message-received")
+		return `[${member}] message-received at ${result.observedAt} — released because a Bebop message is ready; process it under its delivery mode. No idle or completion claim was made.`;
 	return `[${member}] ${result.outcome} at ${result.observedAt}`;
 }
 
@@ -155,14 +171,19 @@ export function createMemberIdleWaitResult(
 }
 
 /**
- * Bounded timeout resolution: default 300s, accepted range 1-600s. Timeout is
+ * Bounded timeout resolution: default 1,800 seconds (30 minutes), accepted
+ * range 60-7,200 seconds (TASK-0081 authoritative plan). Timeout is
  * an expected coordination outcome, never task failure.
  */
 export function resolveIdleWaitTimeoutSeconds(value: number | undefined): number {
-	if (value === undefined) return MEMBER_IDLE_WAIT_TIMEOUT_DEFAULT;
-	if (!Number.isInteger(value) || value < MEMBER_IDLE_WAIT_TIMEOUT_MIN || value > MEMBER_IDLE_WAIT_TIMEOUT_MAX)
+	if (value === undefined) return MEMBER_IDLE_WAIT_TIMEOUT_SECONDS;
+	if (
+		!Number.isInteger(value) ||
+		value < MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS ||
+		value > MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS
+	)
 		throw new TypeError(
-			`idle wait timeout must be an integer between ${MEMBER_IDLE_WAIT_TIMEOUT_MIN} and ${MEMBER_IDLE_WAIT_TIMEOUT_MAX}`,
+			`idle wait timeout must be an integer between ${MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS} and ${MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS}`,
 		);
 	return value;
 }
@@ -203,6 +224,7 @@ export type MemberIdleWaitSignal =
 	| { readonly type: "agent_end" } // agent_end alone: insufficient while continuation remains
 	| { readonly type: "disconnect" } // endpoint went offline/restarted during wait
 	| { readonly type: "timeout" } // bounded deadline expired while target remains busy
+	| { readonly type: "message" } // accepted Bebop message released the blocked wait (TASK-0081)
 	| { readonly type: "cancel" }; // caller cancelled; releases the subscription
 
 export type MemberIdleWaitPhase = "waiting" | "terminal" | "released";
@@ -277,6 +299,10 @@ export function applyIdleWaitSignal(
 		}
 		case "timeout": {
 			const result = createMemberIdleWaitResult(target, { outcome: "timeout" }, observedAt);
+			return { state: { phase: "terminal", target, result }, result };
+		}
+		case "message": {
+			const result = createMemberIdleWaitResult(target, { outcome: "message-received" }, observedAt);
 			return { state: { phase: "terminal", target, result }, result };
 		}
 		case "cancel":
