@@ -3,7 +3,13 @@ import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { publishRelease, publicationDecision } from "./release-publish.mjs";
+import {
+	publishRelease,
+	publicationDecision,
+	qualityGateAllowsPublish,
+	releaseNpmTag,
+	releaseTagMatchesVersion,
+} from "./release-publish.mjs";
 
 const fixture = async (bytes = "release-bytes") => {
 	const root = await mkdtemp(path.join(tmpdir(), "release-publish-test-"));
@@ -138,6 +144,38 @@ test("npm-first partial publication skips npm and uploads missing GitHub destina
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
+});
+
+test("stable and prerelease channels are deterministic", () => {
+	assert.equal(releaseNpmTag(false), "latest");
+	assert.equal(releaseNpmTag(true), "next");
+});
+
+test("release tag must identify the package version", async () => {
+	assert.equal(releaseTagMatchesVersion("v0.1.0", "0.1.0"), true);
+	assert.equal(releaseTagMatchesVersion("v0.1.1", "0.1.0"), false);
+	const { root, tarball } = await fixture();
+	try {
+		await assert.rejects(
+			publishRelease({
+				tarball,
+				packageName: "@carbon-ni/pi-bebop",
+				version: "0.1.0",
+				releaseTag: "v0.1.1",
+				npmTag: "latest",
+				run: async () => ({ stdout: "" }),
+			}),
+			/does not match package version/,
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("failed quality gate cannot authorize publication", () => {
+	assert.equal(qualityGateAllowsPublish("success"), true);
+	assert.equal(qualityGateAllowsPublish("failure"), false);
+	assert.equal(qualityGateAllowsPublish("cancelled"), false);
 });
 
 test("publication decision remains fail-closed", () => {
