@@ -102,7 +102,8 @@
 		"verify:cli": "npm run test:coverage:cli && npm run verify:cli-complexity && npm run verify:package",
 		"format:check": "prettier --check \"src/**/*.ts\" index.ts \"scripts/**/*.mjs\" package.json .watch.yaml .prettierrc.json tsconfig.json",
 		"format:write": "prettier --write \"src/**/*.ts\" index.ts \"scripts/**/*.mjs\" package.json .watch.yaml .prettierrc.json tsconfig.json",
-		"check:package-json": "node scripts/check-package-json.mjs"
+		"check:package-json": "node scripts/check-package-json.mjs",
+		"verify:readme": "node scripts/verify-readme.mjs"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": ">=0.84.2 <0.85.0",
