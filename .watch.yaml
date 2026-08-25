@@ -70,5 +70,4 @@ jobs:
           - Makefile
           - .watch.yaml
           - README.md
-          - docs/**
       run_on_init: true
