@@ -256,7 +256,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 			const validMemberNames = members.map((member) => member.name);
 			throw new CrewManifestError(
 				"invalid-intake-contact",
-				`Crew configuration invalid: manifest path ${manifestPath}; intake.contact rejected value '${contact}'; valid exact member names in manifest order: [${validMemberNames.join(", ")}]. Fixes: set intake.contact to one of those exact names, or remove intake to disable external intake.`,
+				`Crew configuration invalid: manifest path ${manifestPath}; intake.contact rejected value '${contact}'; valid exact member names in manifest order: [${validMemberNames.join(", ")}]. Fixes: change intake.contact to one of those exact names, or add a member named '${contact}'; remove intake to disable external intake.`,
 				{ manifestPath, validMemberNames },
 			);
 		}

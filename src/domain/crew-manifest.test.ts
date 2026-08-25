@@ -311,20 +311,23 @@ describe("crew intake manifest config", () => {
 	});
 
 	test("unknown or renamed contact is rejected at the manifest boundary", () => {
-		assert.throws(
-			() => parseCrewManifest({ version: 1, members, intake: { contact: "Ghost" } }, "/project/.pi/bebop/crew.json"),
-			(error: unknown) => {
-				assert.ok(error instanceof CrewManifestError);
-				assert.equal(error.code, "invalid-intake-contact");
-				assert.equal(error.manifestPath, "/project/.pi/bebop/crew.json");
-				assert.deepEqual(error.validMemberNames, ["Mary", "Tony"]);
-				assert.match(error.message, /Crew configuration/);
-				assert.match(error.message, /intake\.contact rejected value 'Ghost'/);
-				assert.match(error.message, /valid exact member names in manifest order: \[Mary, Tony\]/);
-				assert.match(error.message, /Fixes:/);
-				return true;
-			},
-		);
+		for (const manifestPath of ["/project/.pi/bebop/crew.json", "/project/.pi/crew/crew.json"]) {
+			assert.throws(
+				() => parseCrewManifest({ version: 1, members, intake: { contact: "Ghost" } }, manifestPath),
+				(error: unknown) => {
+					assert.ok(error instanceof CrewManifestError);
+					assert.equal(error.code, "invalid-intake-contact");
+					assert.equal(error.manifestPath, manifestPath);
+					assert.deepEqual(error.validMemberNames, ["Mary", "Tony"]);
+					assert.match(error.message, /Crew configuration/);
+					assert.match(error.message, /intake\.contact rejected value 'Ghost'/);
+					assert.match(error.message, /valid exact member names in manifest order: \[Mary, Tony\]/);
+					assert.match(error.message, /change intake\.contact to one of those exact names/);
+					assert.match(error.message, /add a member named 'Ghost'/);
+					return true;
+				},
+			);
+		}
 		assert.throws(
 			() => parseCrewManifest({ version: 1, members: [members[0]!], intake: { contact: "Tony" } }),
 			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-intake-contact",
