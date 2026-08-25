@@ -357,7 +357,7 @@ export async function sendMemberIdleWait(
 export interface MemberRequestClientOptions {
 	timeout?: number;
 	signal?: AbortSignal;
-	onUpdate: (update: import("../domain/index.ts").MemberUpdateResult) => void;
+	onUpdate: (update: import("../domain/index.ts").MemberChannelUpdate) => void;
 }
 
 /** Opens the request-scoped channel: the promise resolves at accepted delivery,

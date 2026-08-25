@@ -21,8 +21,13 @@ import { createSocketState, emitIdleSettled, handleCommand } from "./control-run
  * Target runtime: the real `createRpcServer` + real `handleCommand`
  * member_request path with a Pi stub whose `sendMessage` accepts the request
  * into model context; the target then reaches the real `agent_settled` path
- * (`emitIdleSettled`) without ever sending a Response. The source wait must
- * resolve immediately to `idle-without-response`.
+ * (`emitIdleSettled`) without ever sending a Response.
+ *
+ * TASK-0080: idle is NONTERMINAL. The target's first post-context settle sends
+ * the internal `member.request.idle` notification over the real channel, which
+ * arms the source's post-idle grace. The source wait must stay parked through
+ * the idle and resolve to `timeout(response-after-idle)` only when that grace
+ * expires with no Response.
  */
 
 function joinedMembership(
@@ -53,7 +58,7 @@ function within<T>(ms: number, promise: Promise<T>, message: string): Promise<T>
 	return Promise.race([promise, deadline]).finally(() => clearTimeout(handle));
 }
 
-test("source wait resolves immediately to idle-without-response after real target agent_settled", async (t) => {
+test("source wait stays parked through real target agent_settled and resolves at post-idle grace expiry", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-request-outcome-"));
 	const targetPath = path.join(root, "target.sock");
 	const sourcePath = path.join(root, "source.sock");
@@ -113,11 +118,11 @@ test("source wait resolves immediately to idle-without-response after real targe
 		resolveEndpoint: resolveMemberEndpoint,
 		now: () => 1_000,
 		createRequestId: () => "request-real-1",
-		setTimeout: (callback) => {
+		setTimeout: (callback, delayMs) => {
 			const handle = setTimeout(() => {
 				firedDeadlines.push("fired");
 				callback();
-			}, 30_000);
+			}, delayMs);
 			return handle;
 		},
 		clearTimeout: (handle) => clearTimeout(handle),
@@ -127,26 +132,44 @@ test("source wait resolves immediately to idle-without-response after real targe
 		membership: sourceMembership,
 		member: "Kelly",
 		message: "Deliver X",
+		timeoutSeconds: 1,
 	});
 	assert.equal(accepted.requestId, "request-real-1");
 	assert.equal(server.acceptedIntoContext.length, 1, "target must accept the request into model context");
 
 	const pending = waitForOutcome(flow);
-	// Target reaches the real agent_settled path without any Response.
+	// Target reaches the real agent_settled path without any Response: the
+	// internal member.request.idle notification arms the source grace.
 	emitIdleSettled(server.targetState, { isIdle: () => true } as never);
 
-	const update = await within(
+	// Idle is NONTERMINAL: wait until the source grace is armed (slot alive),
+	// then the real grace deadline resolves the wait.
+	await within(
 		2_000,
+		(async () => {
+			for (;;) {
+				if (flow.registry.getOutbound("request-real-1")?.idleArmed) return;
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		})(),
+		"idle never armed the source grace",
+	);
+	assert.equal(flow.registry.outboundCount(), 1, "idle must be nonterminal: slot preserved");
+	assert.equal(server.acceptedIntoContext.length, 1);
+
+	const update = await within(
+		5_000,
 		pending,
-		"source wait stayed blocked after target agent_settled without Response (outbound idle never armed)",
+		"source wait stayed blocked after post-idle grace expiry without Response",
 	);
 	assert.deepEqual(update, {
-		kind: "idle-without-response",
+		kind: "timeout",
 		requestId: "request-real-1",
 		member: { name: "Kelly", role: "qa" },
+		reason: "response-after-idle",
 	});
-	// Immediate idle, not deadline: the pre-dispatch timer was cleared, never fired.
-	assert.deepEqual(firedDeadlines, []);
+	// The terminal came from the post-idle grace (fired), not from acceptance.
+	assert.deepEqual(firedDeadlines, ["fired"]);
 	assert.equal(flow.registry.outboundCount(), 0);
 	// Terminal exactly once: a second wait has nothing pending.
 	assert.deepEqual(

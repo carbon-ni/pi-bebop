@@ -3,6 +3,7 @@ import test from "node:test";
 import {
 	RequestOutcomeRegistry,
 	DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
+	DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
 	MAX_MEMBER_REQUEST_BUFFERED,
 	MAX_MEMBER_REQUEST_INBOUND,
 	MAX_MEMBER_REQUEST_OUTBOUND,
@@ -18,11 +19,11 @@ function arm(registry: RequestOutcomeRegistry, requestId: string): void {
 	assert.equal(registry.armOutboundIdle(requestId).ok, true);
 }
 
-test("registers before acceptance, starts the default deadline immediately, and cleans pre-accept failures", () => {
+test("registers before acceptance, starts the hard deadline immediately, and cleans pre-accept failures", () => {
 	const registry = new RequestOutcomeRegistry();
 	const result = request(registry, "request-1");
 	assert.equal(result.ok, true);
-	if (result.ok) assert.equal(result.value.deadlineAt, 1_000 + DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS * 1_000);
+	if (result.ok) assert.equal(result.value.deadlineAt, 1_000 + DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS * 1_000);
 	assert.equal(registry.failBeforeAcceptance("request-1").ok, true);
 	assert.equal(request(registry, "request-1").ok, true);
 	assert.equal(registry.outboundCount(), 1);
@@ -38,6 +39,23 @@ test("registers before acceptance, starts the default deadline immediately, and 
 			{
 				ok: false,
 				code: "invalid-timeout",
+			},
+		);
+		assert.equal(invalid.outboundCount(), 0);
+	}
+	for (const maxWaitSeconds of [59, 7201, 120, 1.5, Number.NaN]) {
+		const invalid = new RequestOutcomeRegistry();
+		assert.deepEqual(
+			invalid.registerOutbound({
+				requestId: `bad-max-${String(maxWaitSeconds)}`,
+				member,
+				now: 1_000,
+				timeoutSeconds: 120,
+				maxWaitSeconds,
+			}),
+			{
+				ok: false,
+				code: "invalid-max-wait",
 			},
 		);
 		assert.equal(invalid.outboundCount(), 0);
@@ -68,30 +86,30 @@ test("enforces outbound/inbound capacities and the UTF-8 request id bound before
 	);
 });
 
-test("TASK-0075: pre-request/pre-context idle never resolves an outbound or inbound request", () => {
+test("TASK-0080: pre-request/pre-context idle never resolves an outbound or inbound request; idle is nonterminal", () => {
 	const registry = new RequestOutcomeRegistry();
-	// Outbound: idle before registration, acceptance, or arming is ignored.
-	assert.deepEqual(registry.resolveIdle("none"), { ok: false, code: "unknown-request" });
+	// Outbound: idle arming before registration, acceptance is ignored.
+	assert.deepEqual(registry.armOutboundIdle("none", 1_000), { ok: false, code: "unknown-request" });
 	assert.equal(request(registry, "out-1").ok, true);
-	assert.deepEqual(registry.resolveIdle("out-1"), { ok: false, code: "unknown-request" });
+	assert.deepEqual(registry.armOutboundIdle("out-1", 1_000), { ok: false, code: "unknown-request" });
 	assert.equal(registry.acceptOutbound("out-1").ok, true);
-	assert.deepEqual(registry.resolveIdle("out-1"), { ok: false, code: "unknown-request" });
-	assert.equal(registry.armOutboundIdle("out-1").ok, true);
-	assert.equal(registry.resolveIdle("out-1").ok, true);
-	// Inbound: idle before registration, acceptance, or arming is ignored.
-	assert.deepEqual(registry.resolveInboundIdle("in-1"), { ok: false, code: "unknown-request" });
+	assert.equal(registry.armOutboundIdle("out-1", 1_000).ok, true);
+	// Idle preserves the slot: the request stays pending (nonterminal).
+	assert.equal(registry.outboundCount(), 1);
+	// Inbound: idle arming before registration or acceptance is ignored; after
+	// acceptance it preserves the inbound slot.
+	assert.deepEqual(registry.armInboundIdleNow("in-1", 1_000), { ok: false, code: "unknown-request" });
 	assert.equal(
 		registry.registerInbound({ requestId: "in-1", requester: member, message: "m", instructions: [] }).ok,
 		true,
 	);
-	assert.deepEqual(registry.resolveInboundIdle("in-1"), { ok: false, code: "unknown-request" });
+	assert.deepEqual(registry.armInboundIdleNow("in-1", 1_000), { ok: false, code: "unknown-request" });
 	assert.equal(registry.acceptInbound("in-1").ok, true);
-	assert.deepEqual(registry.resolveInboundIdle("in-1"), { ok: false, code: "unknown-request" });
-	assert.equal(registry.armInboundIdle("in-1").ok, true);
-	assert.equal(registry.resolveInboundIdle("in-1").ok, true);
+	assert.equal(registry.armInboundIdleNow("in-1", 1_000).ok, true);
+	assert.equal(registry.inboundCount(), 1);
 });
 
-test("response wins when resolved first, while idle closes and late response expires", () => {
+test("response wins when resolved first; idle is nonterminal so a response after idle still works", () => {
 	const responseFirst = new RequestOutcomeRegistry();
 	request(responseFirst, "response-first");
 	arm(responseFirst, "response-first");
@@ -99,22 +117,38 @@ test("response wins when resolved first, while idle closes and late response exp
 		responseFirst.resolveResponse({ requestId: "response-first", member, message: "done", instructions: [] }).ok,
 		true,
 	);
-	assert.deepEqual(responseFirst.resolveIdle("response-first"), { ok: false, code: "already-terminal" });
+	assert.deepEqual(responseFirst.resolveOffline("response-first"), { ok: false, code: "already-terminal" });
+	assert.deepEqual(responseFirst.resolveTimeout("response-first", "max-wait"), {
+		ok: false,
+		code: "already-terminal",
+	});
 	const idleFirst = new RequestOutcomeRegistry();
 	request(idleFirst, "idle-first");
 	arm(idleFirst, "idle-first");
-	assert.equal(idleFirst.resolveIdle("idle-first").ok, true);
-	assert.deepEqual(
-		idleFirst.resolveResponse({ requestId: "idle-first", member, message: "late", instructions: [] }),
-		{ ok: false, code: "response-expired" },
+	// Idle is NONTERMINAL: the response during the post-idle grace wins.
+	assert.equal(
+		idleFirst.resolveResponse({ requestId: "idle-first", member, message: "late", instructions: [] }).ok,
+		true,
 	);
 	assert.deepEqual(
 		idleFirst.resolveResponse({ requestId: "idle-first", member, message: "replay", instructions: [] }),
 		{
 			ok: false,
-			code: "response-expired",
+			code: "already-terminal",
 		},
 	);
+});
+
+test("hasPendingOutcome covers pending outbound and buffered terminal updates", () => {
+	const registry = new RequestOutcomeRegistry();
+	assert.equal(registry.hasPendingOutcome(), false, "empty registry has nothing pending");
+	request(registry, "pending-1");
+	assert.equal(registry.hasPendingOutcome(), true, "pending outbound request counts");
+	assert.equal(registry.resolveTimeout("pending-1", "max-wait").ok, true);
+	assert.equal(registry.hasPendingOutcome(), true, "terminal update buffered until consumed");
+	const update = registry.waitForUpdate(() => undefined);
+	assert.equal(update.ok, true);
+	assert.equal(registry.hasPendingOutcome(), false, "buffered update consumed");
 });
 
 test("wait has one waiter, cancellation preserves state, and terminal updates are consumed once", () => {
@@ -138,7 +172,7 @@ test("wait has one waiter, cancellation preserves state, and terminal updates ar
 	assert.deepEqual(updates, ["terminal-2"]);
 });
 
-test("inbound response selection defaults only for one request", () => {
+test("inbound response selection defaults only for one request; idle preserves the pending selection", () => {
 	const registry = new RequestOutcomeRegistry();
 	assert.deepEqual(registry.selectInbound(), { ok: false, code: "no-pending-request" });
 	registry.registerInbound({ requestId: "one", requester: member, message: "m", instructions: [] });
@@ -148,22 +182,22 @@ test("inbound response selection defaults only for one request", () => {
 	assert.equal(registry.resolveInboundResponse("one").ok, true);
 	assert.equal(registry.resolveInboundResponse("two").ok, true);
 	assert.deepEqual(registry.resolveInboundResponse("two"), { ok: false, code: "already-terminal" });
+	// TASK-0080: inbound idle is NONTERMINAL - the request stays selectable and
+	// a Response remains possible after the idle notification.
 	registry.registerInbound({ requestId: "idle", requester: member, message: "m", instructions: [] });
 	registry.acceptInbound("idle");
-	registry.armInboundIdle("idle");
-	assert.equal(registry.resolveInboundIdle("idle").ok, true);
-	assert.deepEqual(registry.selectInbound("idle"), { ok: false, code: "response-expired" });
-	assert.deepEqual(registry.resolveInboundResponse("idle"), { ok: false, code: "response-expired" });
+	assert.equal(registry.armInboundIdleNow("idle", 1_000).ok, true);
+	assert.equal(registry.selectInbound("idle")?.ok, true);
+	assert.equal(registry.resolveInboundResponse("idle").ok, true);
 });
 
-test("tombstones are bounded while the newest idle late-response recovery remains available", () => {
+test("tombstones are bounded while the newest terminal late-response recovery remains available", () => {
 	const registry = new RequestOutcomeRegistry();
 	for (let index = 0; index < MAX_REQUEST_OUTCOME_TOMBSTONES + 1; index += 1) {
 		const id = `tombstone-${index}`;
 		assert.equal(request(registry, id).ok, true);
-		assert.deepEqual(registry.resolveIdle(id), { ok: false, code: "unknown-request" });
 		arm(registry, id);
-		assert.equal(registry.resolveIdle(id).ok, true);
+		assert.equal(registry.resolveTimeout(id, "response-after-idle").ok, true);
 		assert.equal(registry.waitForUpdate(() => undefined).ok, true);
 	}
 	assert.deepEqual(
@@ -182,7 +216,7 @@ test("tombstones are bounded while the newest idle late-response recovery remain
 		}),
 		{
 			ok: false,
-			code: "response-expired",
+			code: "already-terminal",
 		},
 	);
 });

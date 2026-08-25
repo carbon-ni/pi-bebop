@@ -22,3 +22,4 @@ export * from "./crew-role.ts";
 export * from "./member-inbox.ts";
 export * from "./inbox-hint.ts";
 export * from "./member-request.ts";
+export * from "./yielding-wait.ts";

@@ -61,6 +61,9 @@ import {
 import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
+import { YieldingWaitRegistry } from "./domain/index.ts";
+import { WAIT_RESUME_MESSAGE_TYPE } from "./pi/wait-resume.ts";
+import { YieldingWaitRuntime } from "./pi/wait-resume.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
 
 const CREW_FLAG = "crew";
@@ -83,6 +86,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
+	pi.registerMessageRenderer(WAIT_RESUME_MESSAGE_TYPE, renderSessionMessage);
 	pi.registerMessageRenderer("crew-presence", renderCrewPresence);
 	pi.registerMessageRenderer("crew-interrupt", renderCrewInterrupt);
 	pi.registerEntryRenderer("crew-roster", renderCrewRosterEntry);
@@ -128,10 +132,49 @@ export default function (pi: ExtensionAPI) {
 			respond: async (channel, update) => channel.send(update),
 		},
 		resolveEndpoint: resolveMemberEndpoint,
+		// TASK-0080: at the target's first post-context idle, queue exactly one
+		// best-effort reminder (structured inbound guidance with the original
+		// requestId, followUp + triggerTurn, no callback route). A terminal
+		// claimed before delivery makes the reminder inert: respond_to_member_request
+		// rejects for the now-terminal request, so the reminder can never resolve
+		// or alter the Request outcome.
+		onFirstIdleReminder: (requestId, requester) => {
+			pi.sendMessage(
+				{
+					customType: "bebop-session-message",
+					content: `The Member request ${requestId} from ${requester.name} (${requester.role}) is awaiting your Response. If you have the answer, reply now with respond_to_member_request; the requester waits only a short bounded grace before the request expires.`,
+					details: { crewRequestId: requestId, requestId },
+					display: true,
+				},
+				{ triggerTurn: true, deliverAs: "followUp" },
+			);
+		},
+	});
+	// TASK-0077: one shared pending-wait registry + resume delivery for the
+	// yielding coordination waits. The registry survives the run; a terminal
+	// lifecycle delivery resolves the oldest matching parked wait exactly once
+	// and emits one crew-wait-resume message that wakes the agent later.
+	const yieldRuntime = new YieldingWaitRuntime({
+		registry: new YieldingWaitRegistry(),
+		deliver: (message) => {
+			const isIdle = state.context?.isIdle?.() === true;
+			const customMessage = {
+				customType: WAIT_RESUME_MESSAGE_TYPE,
+				content: message.content,
+				details: { wait: message.details },
+				display: true,
+			};
+			if (isIdle) pi.sendMessage(customMessage, { triggerTurn: true });
+			else pi.sendMessage(customMessage, { triggerTurn: true, deliverAs: message.deliverAs });
+		},
+		isRunIdle: () => state.context?.isIdle?.() === true,
+		// TASK-0080: shared events are fire-and-forget session entries with the
+		// exact { waitId, kind } payload; zero listeners is a no-op.
+		publish: (event) => pi.appendEntry(event.type, { waitId: event.waitId, kind: event.kind }),
 	});
 	registerSendMemberRequestTool(pi, state);
 	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForRequestOutcomeTool(pi, state);
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,
@@ -144,19 +187,24 @@ export default function (pi: ExtensionAPI) {
 	registerInterruptMemberTool(pi, state);
 	registerGetMemberStatusTool(pi, state, createMemberStatusTransport());
 	registerUpdateMemberFocusTool(pi, state);
-	registerWaitForMemberIdleTool(pi, state, {
-		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
-		requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
-			try {
-				const resolved = await resolveMemberEndpoint(endpoint);
-				const command: MemberIdleWaitCommand = { type: "member_idle_wait", member: memberLabel };
-				return await sendMemberIdleWait(resolved, command, { timeoutSeconds, signal });
-			} catch (error) {
-				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
-				return { ok: false, code: "transport-error" };
-			}
+	registerWaitForMemberIdleTool(
+		pi,
+		state,
+		{
+			probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
+			requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
+				try {
+					const resolved = await resolveMemberEndpoint(endpoint);
+					const command: MemberIdleWaitCommand = { type: "member_idle_wait", member: memberLabel };
+					return await sendMemberIdleWait(resolved, command, { timeoutSeconds, signal });
+				} catch (error) {
+					if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+					return { ok: false, code: "transport-error" };
+				}
+			},
 		},
-	});
+		yieldRuntime,
+	);
 	// Membership tools stay registered (getAllTools) and are deactivated at
 	// session_start before the first agent request: Pi's extension runtime does
 	// NOT allow action methods (getActiveTools/setActiveTools) during extension
@@ -366,6 +414,10 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		inboxBridge.invalidate();
 		const context = state.context;
+		// TASK-0080: shutdown cancels every parked wait (wait-cancelled per id,
+		// no resumes queued) so no stale wait survives the session; auto clears
+		// its suspension via the cancelled events and no work is resumed.
+		yieldRuntime.cancelAll();
 		await releaseMembershipBeforeCleanup({
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
 			leave: async () => state.membershipRuntime!.leave(),
@@ -396,6 +448,15 @@ export default function (pi: ExtensionAPI) {
 	// and queued continuation work must be exhausted before `became-idle`.
 	pi.on("agent_settled", (_event, ctx) => {
 		emitIdleSettled(state, ctx);
+		// TASK-0080: the outcome turn of any started resume settled -> emit
+		// wait-resume-settled once per waitId; unrelated settles publish nothing.
+		yieldRuntime.markSettled();
+	});
+
+	// TASK-0080: a run started while resumes were queued -> those resumes
+	// entered model context (the OUTCOME TURN); emit wait-resume-started per id.
+	pi.on("agent_start", () => {
+		yieldRuntime.markStarted();
 	});
 
 	// Manual/branch compaction can settle while the agent run flag is already

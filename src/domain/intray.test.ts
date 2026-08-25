@@ -848,9 +848,18 @@ test("member.request/respond round-trip strict coordination contracts", () => {
 		Value.Check(MemberUpdateNotificationSchema, {
 			jsonrpc: "2.0",
 			method: "member.update",
-			params: { kind: "idle-without-response", requestId: "req-1", member: { name: "qa", role: "reviewer" } },
+			params: { kind: "idle", requestId: "req-1", member: { name: "qa", role: "reviewer" } },
 		}),
 		true,
+	);
+	// TASK-0080: idle-without-response is removed from the wire union.
+	assert.equal(
+		Value.Check(MemberUpdateNotificationSchema, {
+			jsonrpc: "2.0",
+			method: "member.update",
+			params: { kind: "idle-without-response", requestId: "req-1", member: { name: "qa", role: "reviewer" } },
+		}),
+		false,
 	);
 });
 

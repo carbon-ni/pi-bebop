@@ -3,6 +3,8 @@ import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createSocketState } from "../pi/control-runtime.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
+import { YieldingWaitRegistry } from "../domain/index.ts";
+import { YieldingWaitRuntime } from "../pi/wait-resume.ts";
 import {
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
@@ -26,14 +28,22 @@ function setup() {
 			respond: async () => undefined,
 		},
 	});
-	return { tools, state, pi };
+	const delivered: Array<{ content: string; deliverAs: string }> = [];
+	const yieldRuntime = new YieldingWaitRuntime({
+		registry: new YieldingWaitRegistry(),
+		deliver: (message) => delivered.push({ content: message.content, deliverAs: message.deliverAs }),
+		isRunIdle: () => true,
+		now: () => 1_000,
+		createId: () => `wait-${delivered.length + 1}`,
+	});
+	return { tools, state, pi, yieldRuntime, delivered };
 }
 
 test("coordination tools are distinct from accepted-only follow-up vocabulary", () => {
-	const { tools, state, pi } = setup();
+	const { tools, state, pi, yieldRuntime } = setup();
 	registerSendMemberRequestTool(pi, state);
 	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForRequestOutcomeTool(pi, state);
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	assert.deepEqual(
 		[...tools.keys()],
 		["send_member_request", "respond_to_member_request", "wait_for_request_outcome"],
@@ -55,10 +65,10 @@ test("coordination tools are distinct from accepted-only follow-up vocabulary", 
 });
 
 test("TASK-0076: request tools make Requester/Responder roles structurally explicit", () => {
-	const { tools, state, pi } = setup();
+	const { tools, state, pi, yieldRuntime } = setup();
 	registerSendMemberRequestTool(pi, state);
 	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForRequestOutcomeTool(pi, state);
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const send = tools.get("send_member_request")!.description;
 	const respond = tools.get("respond_to_member_request")!.description;
 	const wait = tools.get("wait_for_request_outcome")!.description;
@@ -76,17 +86,17 @@ test("TASK-0076: request tools make Requester/Responder roles structurally expli
 });
 
 test("TASK-0076: empty wait fails with no-pending-member-requests and self-correcting recovery guidance", async () => {
-	const { tools, state, pi } = setup();
-	registerWaitForRequestOutcomeTool(pi, state);
+	const { tools, state, pi, yieldRuntime } = setup();
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, true);
 	assert.equal(result.details.error, "no-pending-member-requests");
 	assert.match(String(result.content[0]?.text ?? ""), /respond_to_member_request|send a new|continue/);
 });
 
-test("wait cancellation releases only the waiter and preserves active request state", async () => {
-	const { tools, state, pi } = setup();
-	registerWaitForRequestOutcomeTool(pi, state);
+test("TASK-0077: abort cancels the parked wait and never resumes; request state survives", async () => {
+	const { tools, state, pi, yieldRuntime, delivered } = setup();
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	state.memberRequestFlow!.registry.registerOutbound({
 		requestId: "active",
 		member: { name: "qa", role: "reviewer" },
@@ -96,32 +106,33 @@ test("wait cancellation releases only the waiter and preserves active request st
 	const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, controller.signal);
 	controller.abort();
 	const result = await pending;
-	assert.equal(result.details.error, "aborted");
-	assert.equal(state.memberRequestFlow!.registry.outboundCount(), 1);
+	assert.equal(result.isError, undefined, "yielded result, not an abort error");
+	assert.equal(result.details.yielded, true);
+	assert.equal(state.memberRequestFlow!.registry.outboundCount(), 1, "request state preserved");
+	assert.equal(delivered.length, 0, "aborted wait must never resume");
 });
 
 test("empty wait fails immediately and never starts a polling loop", async () => {
-	const { tools, state, pi } = setup();
-	registerWaitForRequestOutcomeTool(pi, state);
+	const { tools, state, pi, yieldRuntime } = setup();
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, true);
 	assert.equal(result.details.error, "no-pending-member-requests");
 });
 
-test("wait_for_request_outcome returns idle-without-response immediately, not timeout", async () => {
-	const { tools, state, pi } = setup();
-	registerWaitForRequestOutcomeTool(pi, state);
+test("TASK-0080: buffered post-idle grace timeout resumes once via the runtime, never twice", async () => {
+	const { tools, state, pi, yieldRuntime, delivered } = setup();
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const registry = state.memberRequestFlow!.registry;
 	registry.registerOutbound({ requestId: "idle-1", member: { name: "qa", role: "reviewer" }, now: 1_000 });
 	registry.acceptOutbound("idle-1");
 	registry.armOutboundIdle("idle-1");
-	const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	registry.resolveIdle("idle-1");
-	const result = await pending;
+	registry.resolveTimeout("idle-1", "response-after-idle"); // buffered before the wait parks
+	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, undefined);
-	assert.deepEqual(result.details, {
-		kind: "idle-without-response",
-		requestId: "idle-1",
-		member: { name: "qa", role: "reviewer" },
-	});
+	assert.equal(result.details.yielded, true, "tool yields immediately");
+	assert.equal(delivered.length, 1, "buffered outcome resumes exactly once");
+	assert.match(delivered[0]!.content, /timeout:response-after-idle/);
+	assert.equal(delivered[0]!.deliverAs, "steer");
+	assert.equal(registry.outboundCount(), 0);
 });

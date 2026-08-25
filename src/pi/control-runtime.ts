@@ -307,7 +307,6 @@ export async function handleCommand(
 				{ triggerTurn: true },
 			);
 			flow.acceptInboundRequest(command.requestId);
-			flow.armInboundRequest(command.requestId);
 			respond(true, command.type, {
 				accepted: true,
 				requestId: command.requestId,

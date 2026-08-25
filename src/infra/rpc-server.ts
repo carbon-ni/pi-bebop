@@ -120,7 +120,7 @@ export function writeEvent(socket: RpcSocket, event: RpcTurnEndNotification): vo
 }
 export function writeMemberUpdateEvent(
 	socket: RpcSocket,
-	update: import("../domain/index.ts").MemberUpdateResult,
+	update: import("../domain/index.ts").MemberChannelUpdate,
 ): void {
 	try {
 		write(socket, buildMemberUpdateNotification(update));
