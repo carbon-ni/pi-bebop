@@ -47,11 +47,19 @@ export type CrewManifestErrorCode =
 
 export class CrewManifestError extends Error {
 	readonly code: CrewManifestErrorCode;
+	readonly manifestPath?: string;
+	readonly validMemberNames?: readonly string[];
 
-	constructor(code: CrewManifestErrorCode, message: string) {
+	constructor(
+		code: CrewManifestErrorCode,
+		message: string,
+		details: { manifestPath?: string; validMemberNames?: readonly string[] } = {},
+	) {
 		super(message);
 		this.name = "CrewManifestError";
 		this.code = code;
+		this.manifestPath = details.manifestPath;
+		this.validMemberNames = details.validMemberNames;
 	}
 }
 
@@ -244,11 +252,14 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 			contact.includes("\0")
 		)
 			invalid("intake.contact must be a non-empty trimmed member name", "invalid-intake-config");
-		if (!names.has(contact))
+		if (!names.has(contact)) {
+			const validMemberNames = members.map((member) => member.name);
 			throw new CrewManifestError(
 				"invalid-intake-contact",
-				`intake contact is not a configured member: ${contact}`,
+				`Crew configuration invalid: manifest path ${manifestPath}; intake.contact rejected value '${contact}'; valid exact member names in manifest order: [${validMemberNames.join(", ")}]. Fixes: set intake.contact to one of those exact names, or remove intake to disable external intake.`,
+				{ manifestPath, validMemberNames },
 			);
+		}
 		intake = { contact };
 	}
 
