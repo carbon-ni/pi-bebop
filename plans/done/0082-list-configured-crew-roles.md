@@ -1,7 +1,7 @@
 ---
 id: TASK-0082
 title: List configured crew roles
-status: todo
+status: done
 depends_on: []
 priority: normal
 tags: [crew, cli, roles, discovery, tdd]
