@@ -27,12 +27,13 @@
     {
       "name": "Kelly",
       "role": "qa",
-      "description": "You look for flaws in the product and implementation",
+      "description": "You look for flaws in the product and implementation, you use ast_* tools",
       "socket": "sockets/qa.sock"
     },
     {
       "name": "Dimmy",
       "role": "qa1",
+      "description": "You look for flaws in the product and implementation, you use ast_* tools",
       "socket": "sockets/qa1.sock"
     }
   ]
