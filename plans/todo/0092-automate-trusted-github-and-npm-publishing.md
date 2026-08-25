@@ -20,7 +20,7 @@ An explicitly authorized release produces and verifies one tarball, publishes th
 - [ ] It requires the repository quality gate and rejects any mismatch among Git tag, GitHub Release, and `package.json` version before publication.
 - [ ] It builds once, runs package and clean-consumer verification, then publishes the same tarball to npm and attaches it to the GitHub Release with SHA-256 checksum and release notes.
 - [ ] npm publication uses trusted publishing/OIDC and public package access. Workflow permissions are minimal and no long-lived npm token is stored or consumed.
-- [ ] Automation and release output state honestly that npm provenance is unavailable while the source repository is private; absence of provenance does not silently fail publication.
+- [ ] Automation neither requests nor claims npm provenance while the source repository is private. The private-repository limitation belongs in the release contract/runbook, not routine workflow output.
 - [ ] Stable releases publish under `latest`; prereleases publish under the contract's non-`latest` distribution tag.
 - [ ] A concurrency guard prevents overlapping publication for the same release.
 - [ ] Reruns detect already-published versions and assets. They either prove the existing artifact is identical or stop with an actionable mismatch; they never overwrite or silently rebuild release bytes.
