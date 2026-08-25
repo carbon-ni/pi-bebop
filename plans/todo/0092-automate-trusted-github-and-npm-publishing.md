@@ -16,7 +16,7 @@ Releases currently require manual artifact and registry operations, making prove
 An explicitly authorized release produces and verifies one tarball, publishes those exact bytes to GitHub and npm, and leaves auditable evidence without exposing a durable registry credential.
 
 ## Acceptance criteria
-- [ ] Release automation starts only from the trigger and approval defined by TASK-0090; pull requests and ordinary branch pushes cannot publish.
+- [ ] Release automation starts only from GitHub's `release.published` event; draft releases, tags alone, pull requests, ordinary branch pushes, and manual workflow dispatch cannot publish.
 - [ ] It requires the repository quality gate and rejects any mismatch among Git tag, GitHub Release, and `package.json` version before publication.
 - [ ] It builds once, runs package and clean-consumer verification, then publishes the same tarball to npm and attaches it to the GitHub Release with SHA-256 checksum and release notes.
 - [ ] npm publication uses trusted publishing/OIDC and public package access. Workflow permissions are minimal and no long-lived npm token is stored or consumed.
@@ -28,5 +28,5 @@ An explicitly authorized release produces and verifies one tarball, publishes th
 - [ ] Workflow and supporting-script tests cover stable, prerelease, version mismatch, duplicate-identical, duplicate-mismatch, failed gate, and partial-publication paths without contacting GitHub or npm.
 
 ## Constraints
-Remote trusted-publisher configuration is an authorized operator step and must be documented rather than guessed by automation. Environment approval is used only when supported by the current GitHub plan; no workflow may claim unavailable private-repository protection.
+Remote trusted-publisher configuration is an authorized operator step and must be documented rather than guessed by automation. Publishing the GitHub Release is the sole approval boundary; do not add an environment approval gate. No workflow may claim unavailable private-repository protection.
 
