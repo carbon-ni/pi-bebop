@@ -15,8 +15,13 @@ The repository has CI and package verification, but it has no explicit release a
 ## Desired outcome
 Maintainers have one reviewable release contract that defines when a release starts, which bytes are published, how versions and channels map, what proves success, and how partial failure is handled.
 
+## Confirmed decisions
+- The npm `@carbon-ni` organization exists and Cristian has publishing rights.
+- The first public package version is `0.1.0`.
+- Publishing a GitHub Release is the sole publication trigger; creating a tag or draft release does not publish.
+
 ## Acceptance criteria
-- [ ] Define the sole release trigger and authority, including required approval and the relationship between Git tag, GitHub Release, and `package.json` version.
+- [ ] Define the sole release trigger as GitHub's `release.published` event and require the release tag, GitHub Release, and `package.json` version to identify the same version.
 - [ ] Define the canonical artifact as one verified `npm pack` tarball published unchanged to GitHub Releases and npm, accompanied by its SHA-256 checksum and release notes.
 - [ ] Define stable and prerelease behavior: stable versions use npm `latest`; prereleases use a non-`latest` distribution tag such as `next`.
 - [ ] Define the required pre-publication gates: existing CI, package verification, clean consumer installation, CLI smoke test, and extension-host loading.
@@ -32,6 +37,6 @@ Maintainers have one reviewable release contract that defines when a release sta
 
 ## Constraints
 - The source repository remains private for now. Release documentation must not claim npm provenance, public-source attestations, or branch/tag protection unavailable under the current GitHub plan.
-- Use GitHub environment approval when the repository plan supports it; otherwise explicit GitHub Release publication is the release authorization boundary.
+- The GitHub Release publication action is the release authorization boundary; do not add a second manual approval gate.
 - No tag, GitHub Release, npm package, trusted-publisher setting, or other remote release state may be created or changed without explicit authorization.
 

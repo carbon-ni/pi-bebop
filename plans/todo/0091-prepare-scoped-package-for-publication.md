@@ -16,7 +16,7 @@ The package is currently named `pi-bebop` and documentation correctly says it is
 The repository can deterministically produce a minimal, public scoped package that is safe to hand to release automation.
 
 ## Acceptance criteria
-- [ ] Package identity is `@carbon-ni/pi-bebop`, configured for public publication, and all intentional package-name references and lockfile metadata agree.
+- [ ] Package identity is `@carbon-ni/pi-bebop` at the confirmed initial public version `0.1.0`, configured for public publication, and all intentional package-name references and lockfile metadata agree.
 - [ ] The installed `pi-bebop` executable name and Pi extension entrypoint remain unchanged.
 - [ ] Package verification fails on an unexpected package name, version, file, missing runtime file, or non-executable installed CLI.
 - [ ] `npm pack --dry-run` and the packed tarball contain only the intentional runtime, type, license, and documentation allowlist; repository-local plans, `.pi`, `.tmp`, logs, databases, tests, and fixtures are absent.
