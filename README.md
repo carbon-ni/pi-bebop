@@ -95,16 +95,6 @@ turn, so correlated Request outcome waits never deadlock.
 - Bebop is transport, not workflow: it never claims exactly-once execution and
   never picks workers or classifies content.
 
-## Documentation
-
-- [docs/CREW-INIT.md](docs/CREW-INIT.md) — scaffold, manifest layout, roster.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — trust, layouts, delivery, Inbox, Intake, Broadcast.
-- [docs/CLI-MEMBERSHIP-PARITY.md](docs/CLI-MEMBERSHIP-PARITY.md) — full CLI surface, errors, exit codes.
-- [docs/MEMBER-STATUS.md](docs/MEMBER-STATUS.md) — status, focus, privacy.
-- [docs/MEMBER-IDLE-WAIT.md](docs/MEMBER-IDLE-WAIT.md) — idle wait semantics.
-- [docs/MEMBER-REQUEST-WORKFLOW.md](docs/MEMBER-REQUEST-WORKFLOW.md) — request/response flow.
-- [docs/SOFTWARE-CREW-WORKFLOW.md](docs/SOFTWARE-CREW-WORKFLOW.md) — optional lead/product/dev/QA convention.
-
 ## Development
 
 ```bash
