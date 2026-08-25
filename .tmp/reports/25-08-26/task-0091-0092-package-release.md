@@ -7,4 +7,4 @@ Implemented scoped package preparation and release automation.
 - Updated README install guidance while honestly retaining unpublished status.
 - Added `.github/workflows/release.yml`: only `release.published`, tag/version gate, quality gate, OIDC permissions, one artifact/checksum, npm public publish without provenance claims, and GitHub release attachment.
 
-Verification: `npm run format:check`, `npm run verify:package`, `npm run check:package-json`, `npm run build`, and `npm run verify:readme` passed. External watcher was green before final edits (`gen=107`, `make all`).
+Verification: `npm run format:check`, `npm run verify:package`, `npm run check:package-json`, `npm run build`, and `npm run verify:readme` passed. External watcher remains green (`gen=107`, `make all`). Follow-up fix commit `6713838` removes all provenance wording from the workflow while retaining OIDC and omitting `--provenance`.
