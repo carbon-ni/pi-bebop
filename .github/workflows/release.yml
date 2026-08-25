@@ -4,7 +4,6 @@ on:
     release:
         types: [published]
 
-# One release may publish only one canonical artifact at a time.
 concurrency:
     group: release-${{ github.event.release.tag_name }}
     cancel-in-progress: false
@@ -18,10 +17,12 @@ jobs:
                   ref: ${{ github.event.release.tag_name }}
             - uses: actions/setup-node@v4
               with:
-                  node-version: 22
+                  node-version: 22.14.0
                   cache: npm
             - run: npm ci
+            - run: npm install --global npm@11.5.1
             - run: make all
+            - run: npm run verify:package
 
     publish:
         needs: quality-gate
@@ -35,10 +36,11 @@ jobs:
                   ref: ${{ github.event.release.tag_name }}
             - uses: actions/setup-node@v4
               with:
-                  node-version: 22
+                  node-version: 22.14.0
                   registry-url: https://registry.npmjs.org
                   cache: npm
             - run: npm ci
+            - run: npm install --global npm@11.5.1
             - name: Verify release identity
               env:
                   RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -53,20 +55,11 @@ jobs:
                   test -n "$tarball"
                   sha256sum "$tarball" > .release/SHA256SUMS
                   echo "TARBALL=$tarball" >> "$GITHUB_ENV"
-            - name: Publish exact artifact to npm with trusted publishing
-              env:
-                  PACKAGE: "@carbon-ni/pi-bebop"
-              run: |
-                  version="$(node -p "require('./package.json').version")"
-                  if npm view "$PACKAGE@$version" version --json >/dev/null 2>&1; then
-                    echo "npm $PACKAGE@$version already exists; refusing to overwrite or rebuild it."
-                    exit 1
-                  fi
-                  npm publish "$TARBALL" --access public --tag "${{ github.event.release.prerelease && 'next' || 'latest' }}"
-            - name: Attach artifact and checksum to the GitHub Release
+            - name: Publish or resume the exact artifact
               env:
                   GH_TOKEN: ${{ github.token }}
                   RELEASE_TAG: ${{ github.event.release.tag_name }}
+                  NPM_TAG: ${{ github.event.release.prerelease && 'next' || 'latest' }}
               run: |
-                  gh release upload "$RELEASE_TAG" "$TARBALL" .release/SHA256SUMS
-                  echo "Published $TARBALL ($(cut -d' ' -f1 .release/SHA256SUMS))." >> "$GITHUB_STEP_SUMMARY"
+                  node scripts/release-publish.mjs "$TARBALL"
+                  echo "Published or resumed $TARBALL ($(cut -d' ' -f1 .release/SHA256SUMS))." >> "$GITHUB_STEP_SUMMARY"
