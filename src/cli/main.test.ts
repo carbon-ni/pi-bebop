@@ -452,7 +452,7 @@ test("aborts a held-open stdin read on SIGINT within a bounded deadline", async 
 	}
 });
 
-test("packaged artifact exposes the member status and session list leaves deterministically", async () => {
+test("packaged artifact exposes the member status, session list, and crew roles leaves deterministically", async () => {
 	const artifact = path.resolve("dist/cli/main.js");
 
 	// IO-free usage path: unsafe --session value is usage-class, exit 2.
@@ -472,6 +472,7 @@ test("packaged artifact exposes the member status and session list leaves determ
 	for (const args of [
 		["member", "status", "--help"],
 		["session", "list", "--help"],
+		["crew", "roles", "--help"],
 	]) {
 		const child = spawn(process.execPath, [artifact, ...args], { stdio: ["ignore", "pipe", "pipe"] });
 		let stdout = "";
@@ -481,7 +482,108 @@ test("packaged artifact exposes the member status and session list leaves determ
 		});
 		const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
 		assert.equal(code, 0, args.join(" "));
-		assert.match(stdout, /pi-bebop member status|pi-bebop session list/);
+		assert.match(stdout, /pi-bebop member status|pi-bebop session list|pi-bebop crew roles/);
+	}
+});
+
+test("packaged crew roles reads a real scaffolded manifest and exits 0 without mutation", async () => {
+	const artifact = path.resolve("dist/cli/main.js");
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-roles-"));
+	try {
+		// Scaffold a canonical manifest, then discover roles through the packaged CLI.
+		const scaffold = await new Promise<{ code: number; stdout: string }>((resolve) => {
+			const child = spawn(process.execPath, [artifact, "crew", "init", "--project", dir, "--format", "json"], {
+				cwd: dir,
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+			let stdout = "";
+			child.stdout.setEncoding("utf8");
+			child.stdout.on("data", (chunk) => {
+				stdout += chunk;
+			});
+			child.once("exit", (code) => resolve({ code: code ?? 1, stdout }));
+		});
+		assert.equal(scaffold.code, 0, scaffold.stdout);
+
+		const run = (args: string[]): Promise<{ code: number; stdout: string }> =>
+			new Promise((resolve) => {
+				const child = spawn(process.execPath, [artifact, ...args], {
+					cwd: dir,
+					stdio: ["ignore", "pipe", "pipe"],
+				});
+				let stdout = "";
+				child.stdout.setEncoding("utf8");
+				child.stdout.on("data", (chunk) => {
+					stdout += chunk;
+				});
+				child.once("exit", (code) => resolve({ code: code ?? 1, stdout }));
+			});
+
+		const listed = await run(["crew", "roles", "--format", "json"]);
+		assert.equal(listed.code, 0, listed.stdout);
+		const parsed = JSON.parse(listed.stdout) as {
+			ok: boolean;
+			status: string;
+			data: { roles: string[]; roleCount: number; memberCount: number };
+		};
+		assert.equal(parsed.ok, true);
+		assert.equal(parsed.status, "listed");
+		assert.deepEqual(parsed.data.roles, ["lead", "product", "developer", "quality"]);
+		assert.equal(parsed.data.roleCount, 4);
+		assert.equal(parsed.data.memberCount, 4);
+
+		// Text format is a short human line.
+		const text = await run(["crew", "roles", "--format", "text"]);
+		assert.equal(text.code, 0, text.stdout);
+		assert.match(text.stdout, /4 configured roles: lead, product, developer, quality/);
+
+		// Manifest is byte-identical after discovery (no mutation).
+		const manifestPath = path.join(dir, ".pi/bebop/crew.json");
+		assert.equal(JSON.parse(await readFile(manifestPath, "utf8")).version, 1);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("packaged crew roles fails explicitly on missing and ambiguous manifests", async () => {
+	const artifact = path.resolve("dist/cli/main.js");
+	const emptyDir = await mkdtemp(path.join(tmpdir(), "bebop-cli-roles-empty-"));
+	const ambiguousDir = await mkdtemp(path.join(tmpdir(), "bebop-cli-roles-both-"));
+	try {
+		const run = (cwd: string, args: string[]): Promise<{ code: number; stdout: string }> =>
+			new Promise((resolve) => {
+				const child = spawn(process.execPath, [artifact, ...args], {
+					cwd,
+					stdio: ["ignore", "pipe", "pipe"],
+				});
+				let stdout = "";
+				child.stdout.setEncoding("utf8");
+				child.stdout.on("data", (chunk) => {
+					stdout += chunk;
+				});
+				child.once("exit", (code) => resolve({ code: code ?? 1, stdout }));
+			});
+
+		const missing = await run(emptyDir, ["crew", "roles", "--format", "json"]);
+		assert.equal(missing.code, 1);
+		assert.equal(JSON.parse(missing.stdout).error.code, "missing-manifest");
+
+		// Both supported layouts present -> ambiguous dual-layout failure.
+		const scaffold = {
+			version: 1,
+			members: [{ name: "Tony", role: "lead", socket: "sockets/lead.sock" }],
+			presence: { notifications: true },
+		};
+		await mkdir(path.join(ambiguousDir, ".pi/bebop/sockets"), { recursive: true });
+		await mkdir(path.join(ambiguousDir, ".pi/crew/sockets"), { recursive: true });
+		await writeFile(path.join(ambiguousDir, ".pi/bebop/crew.json"), JSON.stringify(scaffold));
+		await writeFile(path.join(ambiguousDir, ".pi/crew/crew.json"), JSON.stringify(scaffold));
+		const both = await run(ambiguousDir, ["crew", "roles", "--format", "json"]);
+		assert.equal(both.code, 1);
+		assert.equal(JSON.parse(both.stdout).error.code, "ambiguous-manifest");
+	} finally {
+		await rm(emptyDir, { recursive: true, force: true });
+		await rm(ambiguousDir, { recursive: true, force: true });
 	}
 });
 
@@ -1150,7 +1252,7 @@ test("unknown command exits 2 with valid alternatives before any IO", async () =
 	assert.equal(code, 2);
 	assert.match(
 		text,
-		/valid commands: send, crew init, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
+		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
 	);
 });
 
@@ -1275,6 +1377,7 @@ test("no arguments shows compact TOON home state with crew init hint when missin
 		assert.deepEqual(decoded.data.commands, [
 			"send",
 			"crew init",
+			"crew roles",
 			"member status",
 			"member wait-idle",
 			"session list",

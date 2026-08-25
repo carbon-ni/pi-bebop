@@ -34,8 +34,16 @@ export type CrewInitCliOptions = {
 	readonly help?: boolean;
 };
 
+export type CrewRolesCliOptions = {
+	readonly command: "crew-roles";
+	readonly format: CliFormat;
+	/** Common boolean flag; accepted for parity, no command-specific formatting. */
+	readonly full: boolean;
+	readonly help?: boolean;
+};
+
 export type HomeCliOptions = {
 	readonly command: "home";
 };
 
-export type CliCommand = SendCliOptions | CrewInitCliOptions | HomeCliOptions;
+export type CliCommand = SendCliOptions | CrewInitCliOptions | CrewRolesCliOptions | HomeCliOptions;

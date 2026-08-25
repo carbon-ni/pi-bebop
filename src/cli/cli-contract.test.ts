@@ -29,6 +29,7 @@ test("command tree: home, send, crew init, member status, session list, member f
 	assert.deepEqual(parseCliCommand([], cwd), { command: "home" });
 	assert.equal(parseCliCommand(["send", "--socket", "/x", "--message", "m"], cwd).command, "send");
 	assert.equal(parseCliCommand(["crew", "init"], cwd).command, "crew-init");
+	assert.equal(parseCliCommand(["crew", "roles"], cwd).command, "crew-roles");
 	for (const args of [["bogus"], ["crew"], ["crew", "join"], ["sendx"], ["", ""]]) {
 		assert.throws(() => parseCliCommand(args, cwd), UsageError, args.join(" "));
 	}
@@ -37,7 +38,7 @@ test("command tree: home, send, crew init, member status, session list, member f
 test("usage errors name valid alternatives", () => {
 	assert.throws(
 		() => parseCliCommand(["frobnicate"], cwd),
-		/valid commands: send, crew init, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
+		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
 	);
 	// send with no target still reports the target requirement (not a framework help dump)
 	assert.throws(() => parseCliCommand(["send"], cwd), /Choose exactly one target/);
@@ -191,6 +192,48 @@ test("crew init: local --help accepted, defaults to cwd and toon", () => {
 });
 
 // ---------------------------------------------------------------------------
+// crew roles
+// ---------------------------------------------------------------------------
+
+test("crew roles: local --help accepted, defaults to toon and full=false", () => {
+	const withHelp = parseCliCommand(["crew", "roles", "--help"], cwd);
+	assert.equal(withHelp.help, true);
+	const defaults = parseCliCommand(["crew", "roles"], cwd);
+	assert.deepEqual(
+		{ command: defaults.command, format: defaults.format, full: (defaults as { full?: boolean }).full },
+		{ command: "crew-roles", format: "toon", full: false },
+	);
+	assert.equal(parseCliCommand(["crew", "roles", "--format", "json"], cwd).format, "json");
+	assert.equal((parseCliCommand(["crew", "roles", "--full"], cwd) as { full: boolean }).full, true);
+});
+
+test("crew roles: unknown flags and duplicates are usage errors naming the leaf flags", () => {
+	assert.throws(() => parseCliCommand(["crew", "roles", "--full", "--full"], cwd), /Duplicate flag: --full/);
+	assert.throws(
+		() => parseCliCommand(["crew", "roles", "--format", "yaml"], cwd),
+		/Invalid --format 'yaml'; valid alternatives: toon, json, text/,
+	);
+	assert.throws(() => parseCliCommand(["crew", "roles", "--timeout", "30s"], cwd), /unknown option '--timeout'/);
+});
+
+test("crew roles result renders the same TOON/JSON schema with role values and counts only", () => {
+	const result: CliResult = {
+		ok: true,
+		target: "/project/.pi/bebop/crew.json",
+		status: "listed",
+		response: "4 configured roles: lead, developer, po, qa",
+		data: { roles: ["lead", "developer", "po", "qa"], roleCount: 4, memberCount: 5 },
+	};
+	const toon = renderCliResult(result, "toon", false);
+	const json = JSON.parse(renderCliResult(result, "json", false)) as { data: { roles: string[] } };
+	assert.deepEqual(json.data.roles, ["lead", "developer", "po", "qa"]);
+	assert.match(toon, /roles\[4\]: lead,developer,po,qa/);
+	assert.match(toon, /roleCount: 4/);
+	// Text format is a single short human line, never structured scaffolding.
+	assert.equal(renderCliResult(result, "text", false), "4 configured roles: lead, developer, po, qa");
+});
+
+// ---------------------------------------------------------------------------
 // output formats round-trip and exit codes
 // ---------------------------------------------------------------------------
 
@@ -272,7 +315,7 @@ test("gap: text format is concise plain text, never TOON/JSON keys", async () =>
 	const textUsage = await usageOutput(["bogus", "--format", "text"]);
 	assert.equal(
 		textUsage.trim(),
-		"Invalid command 'bogus'; valid commands: send, crew init, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast",
+		"Invalid command 'bogus'; valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast",
 	);
 	assert.ok(!textUsage.includes("ok:") && !textUsage.includes('{"'), "text usage has no structured scaffolding");
 	// success text is a short human line
@@ -358,7 +401,7 @@ test("PO: --session is not a global/root flag today; it must be added as an expl
 	// root-global without a tested contract change.
 	assert.throws(
 		() => parseCliCommand(["--session", "abc", "send", "--socket", "/x", "--message", "m"], cwd),
-		/Invalid command '--session'; valid commands: send, crew init, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
+		/Invalid command '--session'; valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
 	);
 });
 

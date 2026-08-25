@@ -16,6 +16,30 @@ export type CrewRoleSelection =
 	  }
 	| { readonly kind: "ambiguous-role"; readonly role: string };
 
+/**
+ * Read-only role discovery projection (TASK-0082). Distinct exact,
+ * case-sensitive role values in first-manifest-appearance order plus
+ * manifest-level counts. Deliberately exposes no member names, instructions,
+ * socket paths, or session destinations; deterministic and independent of
+ * filesystem, Pi runtime, and CLI rendering.
+ */
+export interface CrewRolesProjection {
+	readonly roles: readonly string[];
+	readonly roleCount: number;
+	readonly memberCount: number;
+}
+
+export function projectCrewRoles(manifest: CrewManifest): CrewRolesProjection {
+	const seen = new Set<string>();
+	const roles: string[] = [];
+	for (const member of manifest.members) {
+		if (seen.has(member.role)) continue;
+		seen.add(member.role);
+		roles.push(member.role);
+	}
+	return { roles, roleCount: roles.length, memberCount: manifest.members.length };
+}
+
 /** Pure, exact role selection. Socket paths always come from the manifest member. */
 export function selectCrewMemberByRole(manifest: CrewManifest, role: string): CrewRoleSelection {
 	const normalized = role.trim();

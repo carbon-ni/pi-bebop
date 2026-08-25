@@ -65,6 +65,8 @@ locally only.
 
 ```bash
 pi-bebop crew init
+# discover the configured roles before choosing identity (read-only):
+pi-bebop crew roles
 pi --crew-role lead
 pi --crew-role developer
 # in each member session, inspect the authoritative roster:
@@ -73,9 +75,13 @@ pi --crew-role developer
 
 `crew init` creates `.pi/bebop/crew.json`, role instruction templates, and a
 `sockets/` directory — deterministic, non-interactive, and a safe no-op on
-rerun. Review names, Intake contact, and instructions before joining. Start
-each member by its manifest role; `/crew members` shows exactly `current`,
-`online`, or `offline` with configured project socket paths.
+rerun. Review names, Intake contact, and instructions before joining.
+`pi-bebop crew roles` prints the exact configured role values (TOON by default,
+`--format json|text`) rooted at the current working directory, so startup role
+selection never depends on opening `crew.json` manually; it never starts a
+server, joins, or mutates files. Start each member by its manifest role;
+`/crew members` shows exactly `current`, `online`, or `offline` with configured
+project socket paths.
 
 ## Choose communication
 

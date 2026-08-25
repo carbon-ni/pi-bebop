@@ -56,6 +56,13 @@ import {
 	buildMemberFocusCommand,
 	type MemberFocusCliOptions,
 } from "./commands/member-focus.ts";
+import {
+	parseCrewRolesCommand,
+	runCrewRolesCommand,
+	crewRolesHelp,
+	buildCrewRolesCommand,
+	type CrewRolesCliOptions,
+} from "./commands/crew-roles.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./arguments.ts";
 import type { CliContext } from "./context.ts";
 import type { CliOutcome } from "./output.ts";
@@ -229,6 +236,16 @@ const crewInitLeaf: CliLeaf = {
 	run: (options, context) => runCrewInitCommand(options as CrewInitCliOptions, context.cwd),
 };
 
+/** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
+const crewRolesLeaf: CliLeaf = {
+	id: "crew-roles",
+	names: ["crew", "roles"],
+	build: () => buildCrewRolesCommand(),
+	help: () => crewRolesHelp(),
+	parse: (tokens, cwd) => parseCrewRolesCommand([...tokens], cwd),
+	run: (options, context) => runCrewRolesCommand(options as CrewRolesCliOptions, context),
+};
+
 /** TASK-0061: `member status <member>` leaf — one registry contribution. */
 const memberStatusLeaf: CliLeaf = {
 	id: "member-status",
@@ -333,6 +350,7 @@ export function createCliRegistry(): CliRegistry {
 		homeLeaf,
 		sendLeaf,
 		crewInitLeaf,
+		crewRolesLeaf,
 		memberStatusLeaf,
 		memberIdleWaitLeaf,
 		sessionListLeaf,
