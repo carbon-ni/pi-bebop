@@ -1,7 +1,7 @@
 ---
 id: TASK-0092
 title: Automate trusted GitHub and npm publishing
-status: doing
+status: done
 depends_on: [TASK-0091]
 priority: high
 tags: [release, github-actions, npm, oidc, security]
