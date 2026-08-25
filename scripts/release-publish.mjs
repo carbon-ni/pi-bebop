@@ -14,6 +14,18 @@ export function publicationDecision(localSha256, existingSha256) {
 	return "mismatch";
 }
 
+export function releaseNpmTag(prerelease) {
+	return prerelease ? "next" : "latest";
+}
+
+export function releaseTagMatchesVersion(tag, version) {
+	return tag === `v${version}`;
+}
+
+export function qualityGateAllowsPublish(result) {
+	return result === "success";
+}
+
 async function sha256(file) {
 	return createHash("sha256")
 		.update(await readFile(file))
@@ -47,6 +59,8 @@ async function existingReleaseAsset(tag, filename, directory, run) {
 }
 
 export async function publishRelease({ tarball, packageName, version, releaseTag, npmTag, run = execFile }) {
+	if (!releaseTagMatchesVersion(releaseTag, version))
+		throw new Error(`Release tag ${releaseTag} does not match package version ${version}`);
 	const localSha256 = await sha256(tarball);
 	const work = await mkdtemp(path.join(tmpdir(), "pi-bebop-release-"));
 	const npmWork = await mkdtemp(path.join(work, "npm-"));

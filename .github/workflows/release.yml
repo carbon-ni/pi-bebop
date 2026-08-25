@@ -37,6 +37,7 @@ jobs:
                   if-no-files-found: error
 
     publish:
+        if: needs.quality-gate.result == 'success'
         needs: quality-gate
         runs-on: ubuntu-latest
         permissions:
