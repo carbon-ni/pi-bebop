@@ -1,7 +1,7 @@
 ---
 id: TASK-0091
 title: Prepare scoped package for publication
-status: todo
+status: done
 depends_on: [TASK-0090]
 priority: high
 tags: [release, npm, package, cli, extension, tdd]
