@@ -16,6 +16,7 @@ type RegisteredTool = {
 		content: Array<{ type: "text"; text: string }>;
 		isError?: boolean;
 		details: unknown;
+		terminate?: boolean;
 	}>;
 };
 
@@ -122,6 +123,7 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		});
 		const result = await tool.execute("id", { member: "Bob" });
 		assert.equal(result.isError, undefined);
+		assert.equal(result.terminate, false);
 		assert.match(result.content[0]!.text, /offline/);
 		assert.equal(requests, 0);
 	});
@@ -131,6 +133,7 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		const result = await tool.execute("id", { member: "Bob" });
 		assert.equal(result.isError, undefined);
 		assert.equal(result.details.yielded, undefined, "blocking tool must not yield");
+		assert.equal(result.terminate, false);
 		const terminal = result.details.result as { outcome: string };
 		assert.equal(terminal.outcome, "idle");
 		assert.match(result.content[0]!.text, /became-idle/);
@@ -196,6 +199,7 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		const result = await pending;
 		await flush();
 		assert.equal(result.isError, undefined);
+		assert.equal(result.terminate, true, "message wake must terminate the content-free continuation");
 		assert.equal((result.details.result as { outcome: string }).outcome, "message-received");
 		assert.match(result.content[0]!.text, /message-received/);
 		assert.equal(aborted, true, "remote idle subscription cancelled on message wake");

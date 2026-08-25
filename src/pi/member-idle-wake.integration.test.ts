@@ -187,6 +187,7 @@ test("TASK-0081: busy target -> accepted Follow-up wakes the blocked wait; uncha
 	} as never);
 
 	const result = await within(2_000, pending, "blocked wait never released by accepted Follow-up");
+	assert.equal((result as { terminate?: boolean }).terminate, true);
 	assert.equal(result.details.result.outcome, "message-received");
 	assert.equal(sentA.length, 1, "unchanged message submitted exactly once");
 	assert.equal(sentA[0]!.options.deliverAs, "followUp", "Follow-up keeps FIFO mode");
@@ -237,6 +238,7 @@ test("TASK-0081: busy target -> accepted Redirect wakes the blocked wait; unchan
 	} as never);
 
 	const result = await within(2_000, pending, "blocked wait never released by accepted Redirect");
+	assert.equal((result as { terminate?: boolean }).terminate, true);
 	assert.equal(result.details.result.outcome, "message-received");
 	assert.equal(sentA.length, 1, "unchanged message submitted exactly once");
 	assert.equal(sentA[0]!.options.deliverAs, "steer", "Redirect keeps non-FIFO steering");
@@ -281,6 +283,7 @@ test("TASK-0081: busy target -> agent_settled releases the blocked wait with bec
 	emitIdleSettled(stateB, { isIdle: () => true } as never);
 
 	const result = await within(2_000, pending, "blocked wait never released by target settle");
+	assert.equal((result as { terminate?: boolean }).terminate, false);
 	assert.equal(result.details.result.outcome, "idle");
 	assert.equal(result.details.result.disposition, "became-idle");
 	assert.equal(sentA.length, 0, "no message involved");
