@@ -3,7 +3,9 @@
 Member Idle Wait is a one-shot coordination primitive for a coordinating crew
 member: block, bounded and event-driven, until another configured member's Pi
 becomes mechanically idle, goes offline, or the bounded deadline expires, then
-resume and decide what to do when no reply arrived.
+resume and decide what to do when no reply arrived. When an accepted message
+wins, the next model continuation consumes that message immediately; receipt
+is not completion or response correlation.
 
 It answers one honest question: **has the target Pi settled to a mechanically
 idle state?**
@@ -34,9 +36,13 @@ is exhausted. Disconnect or restart during the wait completes as `offline`;
 the bounded deadline completes as `timeout`. An accepted Bebop message
 (Follow-up, Redirect, Member request, Response resume, Inbox, Broadcast,
 reminder) releases the wait with `message-received` before the unchanged
-message is submitted under its original delivery mode; the message is
-processed after the tool returns, never dropped or reordered (Redirect keeps
-non-FIFO steering). Caller cancellation (AbortSignal) closes the socket and
+message is submitted under its original delivery mode. That terminal tool
+result is terminating: Pi skips the content-free tool-result continuation and
+consumes the queued message in the immediate next model continuation, exactly
+once, never dropped or reordered (Redirect keeps non-FIFO steering). Invoke
+this coordination wait alone/sequentially, not in a parallel tool batch;
+termination is guaranteed only when every result in the batch terminates.
+Caller cancellation (AbortSignal) closes the socket and
 removes the remote subscription promptly. Exactly one terminal outcome wins;
 later events are ignored. Only one blocking Member Idle Wait may be active
 locally; a second call fails `wait-in-progress` before any IO.

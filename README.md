@@ -96,10 +96,13 @@ project socket paths.
 
 `wait_for_member_idle` blocks the current run until the target settles to
 mechanical idle, goes offline, the bounded timeout expires, or an accepted
-Bebop message releases the wait under its original delivery mode (message-
-received never implies idle or completion; the bounded timeout is always the
-fallback). `wait_for_request_outcome` yields the run and resumes in a later
-turn, so correlated Request outcome waits never deadlock.
+Bebop message releases the wait under its original delivery mode. A waking
+message is consumed immediately in the next model continuation; message-
+received never implies idle or completion. Call this coordination wait alone,
+not in a parallel tool batch, because its terminating result must be the only
+result in the batch. The bounded timeout is always the fallback.
+`wait_for_request_outcome` yields the run and resumes in a later turn, so
+correlated Request outcome waits never deadlock.
 
 ## Boundaries
 
