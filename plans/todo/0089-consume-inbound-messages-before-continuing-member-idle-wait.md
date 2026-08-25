@@ -1,7 +1,7 @@
 ---
 id: TASK-0089
 title: Consume inbound messages before continuing Member Idle Wait
-status: done
+status: doing
 depends_on: []
 priority: high
 tags: [member-idle, messaging, lifecycle, pi-api, regression, tdd]
