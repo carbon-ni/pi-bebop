@@ -28,7 +28,6 @@ No membership behavior is implemented by TASK-0060.
 | `broadcast_to_crew`    | `crew broadcast`                          |
 | `interrupt_member`     | `member interrupt <member>`               |
 | `get_member_status`    | `member status <member>`                  |
-| `update_member_focus`  | `member focus set` / `member focus clear` |
 | `wait_for_member_idle` | `member wait-idle <member>`               |
 
 `member inbox send` names the mutation and reserves `member inbox status|pause|resume|cancel` for possible future local Inbox management. Existing `send` and `crew init` remain separate public commands.
@@ -97,7 +96,7 @@ Bounds:
 - use a 500 ms per-session probe deadline;
 - report the `omitted` count (0 when nothing is truncated) whenever the session cap, alias cap, or scan cap cuts results short.
 
-Forbidden output: socket/manifest paths, messages, prompts, model/provider, instructions, tool history, Focus, or session content. Empty state exits 0, returns `omitted: 0`, and explains how to start/join Pi. Control-directory failure exits 1 as `control-store-unavailable`.
+Forbidden output: socket/manifest paths, messages, prompts, model/provider, instructions, tool history, or session content. Empty state exits 0, returns `omitted: 0`, and explains how to start/join Pi. Control-directory failure exits 1 as `control-store-unavailable`.
 
 ## Shared inputs
 
@@ -121,15 +120,6 @@ Validation order is fixed: flag, combination, and limit validation completes bef
 Limits are the Message Payload contract and are asserted by the schema guard: content at most 1,000,000 UTF-8 bytes, at most 32 instructions, each instruction at most 100,000 bytes and trimmed/NUL-free, aggregate payload at most 1,000,000 bytes. Message text is preserved verbatim (no trim); whitespace-only content counts as empty. Content and every instruction must be NUL-free.
 
 Follow-up and Redirect are accepted-delivery only. There is no CLI `wait_for` flag because Response correlation belongs to the separate Member request workflow (`send_member_request` / `wait_for_request_outcome`). Help must say accepted does not mean replied or completed.
-
-### Focus input
-
-```text
-member focus set [--session <id|alias>] [--format toon|json|text] [--] <text>
-member focus clear [--session <id|alias>] [--format toon|json|text]
-```
-
-Flags precede `--`. Text after it is preserved verbatim, including leading dash. Set requires trimmed single-line NUL-free Focus at most 256 UTF-8 bytes. Clear accepts no text. Clear while already unspecified is an explicit unchanged success.
 
 ### Idle timeout
 
@@ -156,8 +146,7 @@ The JSON artifact is normative for full fields and error lists. Startup role sel
 - `member inbox send` — success `persisted` with member identity, `itemId`, `persisted: true`, hint `sent|skipped`. Delivery: one durable Inbox item whether online or offline; persisted only. Cancellation: no rollback after write; lost ack is `outcome-unknown`, never a safe blind retry.
 - `crew broadcast` — success `persisted|partial` with `broadcastId`, summary counts, and per-recipient dispositions; per-recipient failure codes are the store-mapped set (`inbox-full`, `inbox-untrusted-path`, `untrusted-project`, `storage-unavailable`, `storage-failed`, `invalid-payload`, `invalid-item-id`, `aborted`). Delivery: deterministic durable copy for every other member; identical retry reuses ids and reports `already-persisted`. Cancellation: completed writes remain; remaining recipients report `aborted`.
 - `member interrupt` — success `accepted` with interrupt id, disposition `direct|interrupt-requested`. Delivery: pending recovery evidence, best-effort abort, priority handoff; no rollback. Cancellation: after evidence cannot remove recovery; ack may be unknown.
-- `member status` — success `observed` with the closed online/offline Member Status shape (see discriminated shapes). Delivery: read-only; target offline is a successful unavailable snapshot, never stale Focus. Cancellation: aborts the finite probe/RPC; no state mutation.
-- `member focus set|clear` — success `updated|cleared|unchanged` with `focus.state/text/updatedAt`; clear while unspecified is unchanged. Delivery: self-only context-free session entry. Cancellation: after append cannot roll back; status is authoritative after a lost ack.
+- `member status` — success `observed` with the closed online/offline Member Status shape (see discriminated shapes). Delivery: read-only; target offline is a successful unavailable snapshot. Cancellation: aborts the finite probe/RPC; no state mutation.
 - `member wait-idle` — success `observed` with discriminated outcome `idle` (disposition `already-idle|became-idle`), `offline`, or `timeout`. Delivery: one-shot event wait, no polling/message; no acknowledgement/completion inference. Cancellation: cleans the subscription once; expected timeout/offline still exit 0.
 
 ## Error and exit policy
@@ -182,8 +171,7 @@ Closed result shapes, identical in TOON and JSON:
 - Follow-up/Redirect/Interrupt: `status: accepted` plus member identity, delivery/interrupt id, and a closed `disposition` (`direct|queued`, `direct|steered`, `direct|interrupt-requested`).
 - Inbox send: `status: persisted` plus member identity, `itemId`, `persisted: true`, and a best-effort `hint` (`sent|skipped`).
 - Broadcast: `status: persisted|partial` plus `broadcastId`, `persisted`, `alreadyPersisted`, `failed`, `total`, and per-recipient `{member, role, itemId, disposition: persisted|already-persisted|failed, code}`; per-recipient failure codes come from the store mapping: `inbox-full`, `inbox-untrusted-path`, `untrusted-project`, `storage-unavailable`, `storage-failed`, `invalid-payload`, `invalid-item-id`, `aborted`. Pairing is strict: each failed recipient pairs `disposition: failed` with a stable code; persisted and already-persisted recipients carry no code.
-- Status: `status: observed` and a discriminated member object — online: `{presence, activity: idle|busy|compacting, hasPendingMessages, focus: reported|unspecified}`; offline: `{activity: unavailable, hasPendingMessages: unavailable, focus: unavailable}` — plus `observedAt`.
-- Focus: `status: updated|cleared|unchanged` plus `focus.state`, `focus.text`, `focus.updatedAt`; clear while unspecified is unchanged.
+- Status: `status: observed` and a discriminated member object — online: `{presence, activity: idle|busy|compacting, hasPendingMessages}`; offline: `{activity: unavailable, hasPendingMessages: unavailable}` — plus `observedAt`.
 - Wait-idle: `status: observed` and a discriminated outcome — `idle` (with `disposition: already-idle|became-idle`), `offline`, or `timeout` — plus member identity and `observedAt`; idle-wait offline and timeout still exit 0.
 
 ## Cancellation principles
@@ -193,8 +181,7 @@ Cancellation is request-scoped and best-effort. It never implies rollback:
 - transient read/wait/list operations clean listeners/sockets and mutate nothing;
 - live delivery may already have been accepted when acknowledgement is lost;
 - durable Inbox/Broadcast writes already completed remain;
-- Interrupt recovery evidence already persisted remains reload-safe;
-- Focus entry already appended remains authoritative.
+- Interrupt recovery evidence already persisted remains reload-safe.
 
 When acknowledgement is impossible after a mutation, return bounded `outcome-unknown` where the action cannot be reconstructed safely. Broadcast is the exception: deterministic broadcast and item ids make identical retry safe and report `already-persisted`.
 
@@ -206,4 +193,4 @@ When acknowledgement is impossible after a mutation, return bounded `outcome-unk
 
 Root home remains compact and adds grouped command hints only. Group invocation without a leaf produces local bounded help. Each leaf help includes its source rule, defaults, delivery guarantee, cancellation caveat, exit codes, and 2–3 runnable examples. It never dumps all eight tool descriptions.
 
-`session list` is the recovery hint for source errors. Message help differentiates Follow-up, Redirect, durable Inbox, Broadcast, and Interrupt. Status/Focus/Idle help repeats privacy and no-inference boundaries.
+`session list` is the recovery hint for source errors. Message help differentiates Follow-up, Redirect, durable Inbox, Broadcast, and Interrupt. Status/Idle help repeats privacy and no-inference boundaries.

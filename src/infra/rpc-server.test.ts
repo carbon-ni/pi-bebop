@@ -332,7 +332,6 @@ test("writeResponse maps every command method and non-durable failures", () => {
 		"member_request",
 		"member_response",
 		"member_interrupt",
-		"member_focus",
 		"member_follow_up",
 		"member_redirect",
 		"member_inbox_send",
@@ -351,7 +350,7 @@ test("writeResponse maps every command method and non-durable failures", () => {
 			error: "remote-rejected",
 			id: `r-${index}`,
 		} as never);
-	assert.equal(writes.length, 19);
+	assert.equal(writes.length, 18);
 });
 
 test("writeResponse maps non-durable failures and member response commands", () => {
@@ -433,7 +432,6 @@ test("writeResponse serializes a member.status result under the member.status me
 		presence: "online",
 		activity: "idle",
 		hasPendingMessages: false,
-		focus: { state: "unspecified" },
 		observedAt: "2026-08-23T12:03:00.000Z",
 	};
 	writeResponse(socket as never, {

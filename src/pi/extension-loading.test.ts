@@ -16,7 +16,6 @@ const MEMBERSHIP_TOOLS = [
 	"broadcast_to_crew",
 	"interrupt_member",
 	"get_member_status",
-	"update_member_focus",
 	"wait_for_member_idle",
 ];
 

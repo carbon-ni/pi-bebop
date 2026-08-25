@@ -34,7 +34,7 @@ export function isCliFormat(value: string): value is CliFormat {
 
 export function buildMemberStatusCommand(): Command {
 	return new Command("status")
-		.description("Show one crew member's mechanical Pi runtime state and Focus (read-only)")
+		.description("Show one crew member's mechanical Pi runtime state (read-only)")
 		.option("--session <id|alias>", "Source joined Pi session id or alias (default: PI_SESSION_ID)")
 		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
 		.argument("[<member>]", "Crew member name or unique role")
@@ -47,9 +47,10 @@ export function memberStatusHelp(): string {
 		"pi-bebop member status <member> [--session <id|alias>] [--format toon|json|text]",
 		"",
 		"Show one crew member's mechanical Pi runtime state (online/offline, idle/busy/compacting,",
-		"pending-message signal) and their self-reported Focus note. Read-only: never",
-		"starts, steers, or interrupts the target turn. Activity is mechanical and Focus",
-		"is member-reported, never verified task progress.",
+		"pending-message signal) and the observation time. Read-only: never",
+		"starts, steers, or interrupts the target turn. Activity is mechanical and",
+		"never verified task progress. For intent, progress, a report, or a verdict,",
+		"ask the member explicitly with send_member_request instead of relying on status.",
 		"",
 		"Options:",
 		"  --session <id|alias>   Source joined Pi session id or alias (default: PI_SESSION_ID)",

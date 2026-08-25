@@ -39,7 +39,6 @@ function setup(membership: unknown | (() => unknown), transport: Partial<MemberS
 				presence: "online",
 				activity: "idle",
 				hasPendingMessages: false,
-				focus: { state: "unspecified" },
 				observedAt: "2026-08-23T12:03:00.000Z",
 			},
 		}),
@@ -85,13 +84,12 @@ const membership = {
 };
 
 describe("get_member_status tool", () => {
-	test("registers with only the member param and an honest mechanical/self-reported description", () => {
+	test("registers with only the member param and an honest mechanical description", () => {
 		const tool = setup(membership);
 		assert.equal(tool.name, "get_member_status");
 		const properties = Object.keys((tool.parameters as { properties: Record<string, unknown> }).properties);
 		assert.deepEqual(properties, ["member"]);
 		assert.match(tool.description, /mechanical/);
-		assert.match(tool.description, /self-reported|member-reported/);
 		assert.match(tool.description, /never starts|does not start|no turn|without triggering/);
 	});
 
@@ -114,16 +112,14 @@ describe("get_member_status tool", () => {
 			},
 		});
 		const result = await tool.execute("id", { member: "Bob" });
-		console.error("DBG offline result", JSON.stringify(result));
 		assert.equal(result.isError, undefined);
 		const text = result.content[0]!.text;
 		assert.match(text, /offline/);
 		assert.match(text, /activity unavailable/);
-		assert.match(text, /Focus: unavailable/);
 		assert.equal(requests, 0);
 	});
 
-	test("online target returns formatted status with member-reported focus label", async () => {
+	test("online target returns formatted status with mechanical labels", async () => {
 		const tool = setup(membership, {
 			requestStatus: async () => ({
 				ok: true,
@@ -132,11 +128,6 @@ describe("get_member_status tool", () => {
 					presence: "online",
 					activity: "busy",
 					hasPendingMessages: true,
-					focus: {
-						state: "reported",
-						text: "Implementing Inbox enqueue",
-						updatedAt: "2026-08-23T11:00:00.000Z",
-					},
 					observedAt: "2026-08-23T12:03:00.000Z",
 				},
 			}),
@@ -148,7 +139,6 @@ describe("get_member_status tool", () => {
 		assert.match(text, /online/);
 		assert.match(text, /busy/);
 		assert.match(text, /pending messages/);
-		assert.match(text, /Focus \(member-reported\): Implementing Inbox enqueue/);
 	});
 
 	test("unknown, ambiguous, and self targets are deterministic errors", async () => {

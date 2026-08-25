@@ -50,13 +50,6 @@ import {
 	type MemberInterruptCliOptions,
 } from "./commands/member-interrupt.ts";
 import {
-	parseMemberFocusCommand,
-	runMemberFocusCommand,
-	memberFocusHelp,
-	buildMemberFocusCommand,
-	type MemberFocusCliOptions,
-} from "./commands/member-focus.ts";
-import {
 	parseCrewRolesCommand,
 	runCrewRolesCommand,
 	crewRolesHelp,
@@ -306,25 +299,6 @@ const memberInboxSendLeaf: CliLeaf = {
 	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
 };
 
-/** TASK-0066: self-scoped Focus set leaf. */
-const memberFocusSetLeaf: CliLeaf = {
-	id: "member-focus-set",
-	names: ["member", "focus", "set"],
-	build: () => buildMemberFocusCommand("set"),
-	help: () => memberFocusHelp("set"),
-	parse: (tokens, cwd) => parseMemberFocusCommand([...tokens], "set", cwd),
-	run: (options, context) => runMemberFocusCommand(options as MemberFocusCliOptions, context),
-};
-/** TASK-0066: self-scoped Focus clear leaf. */
-const memberFocusClearLeaf: CliLeaf = {
-	id: "member-focus-clear",
-	names: ["member", "focus", "clear"],
-	build: () => buildMemberFocusCommand("clear"),
-	help: () => memberFocusHelp("clear"),
-	parse: (tokens, cwd) => parseMemberFocusCommand([...tokens], "clear", cwd),
-	run: (options, context) => runMemberFocusCommand(options as MemberFocusCliOptions, context),
-};
-
 /** TASK-0065: hard recovery interrupt leaf. */
 const memberInterruptLeaf: CliLeaf = {
 	id: "member-interrupt",
@@ -357,8 +331,6 @@ export function createCliRegistry(): CliRegistry {
 		memberFollowUpLeaf,
 		memberRedirectLeaf,
 		memberInterruptLeaf,
-		memberFocusSetLeaf,
-		memberFocusClearLeaf,
 		memberInboxSendLeaf,
 		crewBroadcastLeaf,
 	]);

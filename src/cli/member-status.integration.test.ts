@@ -43,7 +43,6 @@ function respondOnline(socket: net.Socket, id: string | undefined, member: { nam
 		member,
 		isIdle: false,
 		hasPendingMessages: true,
-		focus: { state: "reported", text: "Implementing CLI", updatedAt: "2026-08-23T12:00:00.000Z" },
 		observedAt: "2026-08-23T12:03:00.000Z",
 	});
 	writeResponse(socket, { type: "response", command: "member_status_target", success: true, data: { status }, id });

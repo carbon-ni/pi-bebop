@@ -16,7 +16,6 @@ Bebop transports the handoff but does not own approval, test state, CI, or revie
 
 - Re-read acceptance and inspect current worktree independently; do not accept developer test descriptions as proof.
 - Verify happy and unhappy paths, privacy/security boundaries, lifecycle races, and nearby regressions proportionate to risk.
-- Publish concise non-sensitive Focus with `update_member_focus`; interpret Activity only as mechanical idle/busy.
 - Send normal findings with `send_follow_up` to exact developer name and verdict/evidence to lead.
 - Use `redirect_member` only when active direction should change after current tool calls.
 - Use `interrupt_member` only when continuing work is actively harmful or based on invalid assumptions; it cannot roll back side effects.
@@ -41,4 +40,3 @@ Bebop transports the handoff but does not own approval, test state, CI, or revie
 - Findings and verdict are evidence-backed and sent to lead/developer.
 - No mocked seam was described as proof of a real integration it did not execute.
 - Quality did not encode approval or CI state into Bebop.
-- Quality Focus is updated or cleared.

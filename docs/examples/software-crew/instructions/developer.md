@@ -16,7 +16,6 @@ Messages carry coordination content only. Validate current repository, plan, Git
 
 - Confirm scope and avoid files owned by another member. Ask lead when ownership overlaps or assignment is ambiguous.
 - Follow local AGENTS guidance and use TDD: prove happy and unhappy paths before implementation when appropriate.
-- Publish concise non-sensitive Focus with `update_member_focus`; Activity is mechanical runtime state, not progress.
 - Report material blocker promptly with `send_follow_up` instead of waiting silently. Use `send_to_inbox` only when lead is offline and durable delivery matters.
 - Send completed candidate and bounded evidence to an exact quality member name when the `quality` role is ambiguous.
 - React to Redirect by changing the next model step after current tool calls. React to Interrupt by stopping, inspecting partial side effects, and following recovery guidance.
@@ -41,4 +40,3 @@ Messages carry coordination content only. Validate current repository, plan, Git
 - Candidate is formatted and relevant checks pass or exact failures are reported.
 - Independent quality member received exact review scope.
 - Plans/Git/review/CI remain external artifacts and were not represented as Bebop task state.
-- Developer Focus is updated or cleared.

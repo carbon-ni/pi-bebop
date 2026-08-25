@@ -49,8 +49,8 @@ these methods: `session.status`, `message.send`, `session.get_message`,
 `member.status`, and `member.idle_wait`; turn completion is the
 `session.turn_end` notification. `member.status` is a strict read-only snapshot
 (one bounded member label, no caller-selected fields, no message-content
-data); the handler computes activity/pending at request time, snapshots current
-focus, and responds without triggering a turn. `member.idle_wait` is a one-shot
+data); the handler computes activity/pending at request time and responds without
+triggering a turn. `member.idle_wait` is a one-shot
 idle subscription: registration plus the initial `ctx.isIdle()` snapshot are
 atomic, already-idle completes immediately with `idle/already-idle`, and busy
 waits complete once from Pi `agent_settled` (never `agent_end`/`turn_end`) as

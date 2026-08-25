@@ -139,7 +139,7 @@ export function crewInitInstructions(role: "lead" | "product" | "developer" | "q
 				"## Definition of done",
 				"- One exact implementation owner and one independent verifier were identified.",
 				"- Acceptance and failure-path evidence were reported through normal crew messages.",
-				"- Integration decision and remaining risk are explicit; Focus is updated or cleared.",
+				"- Integration decision and remaining risk are explicit.",
 				"",
 			].join(NEWLINE);
 		case "product":
@@ -161,7 +161,6 @@ export function crewInitInstructions(role: "lead" | "product" | "developer" | "q
 				"",
 				"## Escalation",
 				"- Send shaped work with send_follow_up; use send_to_inbox when durable delivery matters.",
-				"- Publish concise non-sensitive Focus with update_member_focus; Focus is self-reported, never verified progress.",
 				"",
 				"## Definition of done",
 				"- Problem, outcome, acceptance criteria, and constraints are explicit.",
@@ -194,7 +193,7 @@ export function crewInitInstructions(role: "lead" | "product" | "developer" | "q
 				"## Definition of done",
 				"- Acceptance and unhappy paths have evidence; an independent member verified the change.",
 				"- Candidate is formatted and relevant checks pass or exact failures are reported.",
-				"- Independent quality member received exact review scope; Focus is updated or cleared.",
+				"- Independent quality member received exact review scope.",
 				"",
 			].join(NEWLINE);
 		case "quality":
@@ -216,12 +215,11 @@ export function crewInitInstructions(role: "lead" | "product" | "developer" | "q
 				"",
 				"## Escalation",
 				"- Send normal findings with send_follow_up to an exact developer name and verdict to lead.",
-				"- Publish concise non-sensitive Focus with update_member_focus; Activity is mechanical, never progress.",
 				"- Use redirect_member only when active direction should change; use interrupt_member only when continuing is actively harmful.",
 				"",
 				"## Definition of done",
 				"- Happy and unhappy paths, privacy/security boundaries, and nearby regressions were verified proportionate to risk.",
-				"- Verdict and evidence were reported; Focus is updated or cleared.",
+				"- Verdict and evidence were reported.",
 				"",
 			].join(NEWLINE);
 	}

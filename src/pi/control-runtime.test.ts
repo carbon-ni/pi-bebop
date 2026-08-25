@@ -16,7 +16,6 @@ import {
 	reconcileMembershipTools,
 	refreshIntrayStatus,
 } from "./control-runtime.ts";
-import { MEMBER_FOCUS_ENTRY_TYPE } from "../domain/index.ts";
 
 function createThrowingContext(message: string): unknown {
 	return {
@@ -253,22 +252,9 @@ test("characterizes idle direct and busy follow-up or immediate delivery disposi
 	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true, deliverAs: "steer" });
 });
 
-test("member.status target handler reports mechanical idle/busy, pending, and focus without a turn", async () => {
+test("member.status target handler reports mechanical idle/busy and pending without a turn", async () => {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
-	const entries: unknown[] = [
-		{
-			type: "custom",
-			customType: MEMBER_FOCUS_ENTRY_TYPE,
-			data: {
-				version: 1,
-				memberIdentity: "/project/.pi/bebop/sockets/Tony.sock",
-				action: "set",
-				focus: "Implementing status schema",
-				updatedAt: "2026-08-23T12:00:00.000Z",
-			},
-		},
-	];
 	const state = createSocketState();
 	state.server = {} as never;
 	state.membershipRuntime = {
@@ -282,7 +268,7 @@ test("member.status target handler reports mechanical idle/busy, pending, and fo
 	let sent = 0;
 	const context = {
 		hasUI: false,
-		sessionManager: { getSessionId: () => "session", getEntries: () => entries },
+		sessionManager: { getSessionId: () => "session", getEntries: () => [] },
 		isIdle: () => false,
 		isCompacting: () => false,
 		hasPendingMessages: () => true,
@@ -300,11 +286,6 @@ test("member.status target handler reports mechanical idle/busy, pending, and fo
 	assert.equal(response.result.status.activity, "busy");
 	assert.equal(response.result.status.hasPendingMessages, true);
 	assert.equal(response.result.status.member.name, "Tony");
-	assert.deepEqual(response.result.status.focus, {
-		state: "reported",
-		text: "Implementing status schema",
-		updatedAt: "2026-08-23T12:00:00.000Z",
-	});
 	assert.equal(sent, 0, "member.status must never trigger a turn");
 	assert.ok(response.result.status.observedAt, "observedAt must be present");
 	context.isIdle = () => true;
@@ -339,7 +320,6 @@ test("member.status target handler reports idle/unspecified and rejects unjoined
 	const response = JSON.parse(writes[1]!);
 	assert.equal(response.result.status.activity, "idle");
 	assert.equal(response.result.status.hasPendingMessages, false);
-	assert.deepEqual(response.result.status.focus, { state: "unspecified" });
 });
 
 test("presence handler returns accepted true and false without exposing observer state", async () => {
@@ -826,7 +806,6 @@ const ONLINE_STATUS = {
 	presence: "online",
 	activity: "busy",
 	hasPendingMessages: true,
-	focus: { state: "reported", text: "Reviewing", updatedAt: "2026-08-23T12:00:00.000Z" },
 	observedAt: "2026-08-23T12:03:00.000Z",
 };
 
@@ -870,7 +849,6 @@ test("member_status_target offline target is a successful presence=offline resul
 	const response = JSON.parse(writes[0]!);
 	assert.equal(response.result.status.presence, "offline");
 	assert.equal(response.result.status.activity, "unavailable");
-	assert.deepEqual(response.result.status.focus, { state: "unavailable" });
 	assert.ok(response.result.status.observedAt, "offline result records source observation time");
 });
 

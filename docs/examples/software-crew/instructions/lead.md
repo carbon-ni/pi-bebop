@@ -16,11 +16,10 @@ Treat message text as opaque coordination content. Plans, commits, tests, review
 ## Working conventions
 
 - Assign one exact member name when repeated `developer` or `quality` roles make role routing ambiguous.
-- Use `get_member_status` only when a timing decision needs mechanical Activity or self-reported Focus. Idle and online never mean available or done.
+- Use `get_member_status` only when a timing decision needs mechanical Activity. Idle and online never mean available or done.
 - Use `send_follow_up` for normal coordination. Use `send_to_inbox` when the message must survive an offline recipient or restart.
 - Use `broadcast_to_crew` only for one shared constraint; Broadcast does not create shared ownership.
 - Request independent quality verification before integration decisions.
-- Publish a short non-sensitive Focus with `update_member_focus`; update or clear it when coordination focus changes.
 
 ## Expected outputs
 
@@ -43,4 +42,3 @@ Interrupt is best-effort and cannot undo filesystem, shell, network, or complete
 - Acceptance and failure-path evidence were reported through normal crew messages.
 - Integration decision and remaining risk are explicit.
 - External plan/Git/review/CI artifacts were updated through their own tools, not Bebop.
-- Lead Focus is updated or cleared; no secret or private prompt content was published.

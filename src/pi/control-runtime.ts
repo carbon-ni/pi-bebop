@@ -22,7 +22,6 @@ import {
 	createMemberIdleWaitResult,
 	createOnlineMemberStatus,
 	MAX_MEMBER_IDLE_WAIT_SUBSCRIPTIONS,
-	restoreMemberFocus,
 	tryAcquireIdleWaitSubscription,
 	type MemberStatus,
 } from "../domain/index.ts";
@@ -165,7 +164,6 @@ export const MEMBERSHIP_TOOLS = [
 	"broadcast_to_crew",
 	"interrupt_member",
 	"get_member_status",
-	"update_member_focus",
 	"wait_for_member_idle",
 	"send_member_request",
 	"respond_to_member_request",
@@ -356,7 +354,7 @@ export async function handleCommand(
 		return;
 	}
 
-	// Member status (read-only snapshot, TASK-0047). Computes activity/pending/focus
+	// Member status (read-only snapshot, TASK-0047). Computes activity/pending
 	// at request time and responds without triggering any turn.
 	if (command.type === "member_status") {
 		const membership = state.membershipRuntime?.getMembership();
@@ -364,7 +362,6 @@ export async function handleCommand(
 			respond(false, "member_status", undefined, "not-joined");
 			return;
 		}
-		const focus = restoreMemberFocus(ctx.sessionManager.getEntries(), membership.member.socketPath);
 		const observedAt = new Date().toISOString();
 		let status: MemberStatus;
 		try {
@@ -373,7 +370,6 @@ export async function handleCommand(
 				isIdle: ctx.isIdle(),
 				isCompacting: contextIsCompacting(ctx),
 				hasPendingMessages: ctx.hasPendingMessages(),
-				focus,
 				observedAt,
 			});
 		} catch {
@@ -381,36 +377,6 @@ export async function handleCommand(
 			return;
 		}
 		respond(true, "member_status", { status });
-		return;
-	}
-
-	// Self-scoped Focus mutation (TASK-0066): the active runtime supplies the
-	// canonical member identity and the existing status/focus flow owns validation
-	// plus durable session-entry persistence. The request carries no identity.
-	if (command.type === "member_focus") {
-		const surface: MemberStatusSurface = {
-			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
-			isTrusted: () => state.context?.isProjectTrusted?.() === true,
-			isIdle: () => ctx.isIdle(),
-			isCompacting: () => contextIsCompacting(ctx),
-			hasPendingMessages: () => ctx.hasPendingMessages(),
-			getEntries: () => ctx.sessionManager.getEntries(),
-			appendEntry: (customType, data) => pi.appendEntry(customType, data),
-			probeEndpoint: async () => true,
-			requestStatus: async () => ({ ok: false, code: "transport-error" }),
-			now: () => new Date().toISOString(),
-		};
-		try {
-			const result = await createMemberStatusFlow(surface).updateFocusResult(command.action, command.focus);
-			respond(true, command.type, result);
-		} catch (error) {
-			respond(
-				false,
-				command.type,
-				undefined,
-				error instanceof MemberStatusFlowError ? error.code : "invalid-focus",
-			);
-		}
 		return;
 	}
 
@@ -433,8 +399,6 @@ export async function handleCommand(
 			isIdle: () => ctx.isIdle(),
 			isCompacting: () => contextIsCompacting(ctx),
 			hasPendingMessages: () => ctx.hasPendingMessages(),
-			getEntries: () => ctx.sessionManager.getEntries(),
-			appendEntry: () => undefined,
 			probeEndpoint: transport.probeEndpoint,
 			requestStatus: transport.requestStatus,
 			signal: controller.signal,

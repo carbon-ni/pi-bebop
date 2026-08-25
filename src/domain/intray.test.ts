@@ -67,13 +67,9 @@ import {
 	MemberInterruptRequestSchema,
 	MemberInterruptCommandSchema,
 	isMemberInterruptResult,
-	MemberFocusRequestSchema,
-	MemberFocusCommandSchema,
 	MemberRequestRequestSchema,
 	MemberResponseRequestSchema,
 	MemberUpdateNotificationSchema,
-	MemberFocusResultSchema,
-	isMemberFocusResult,
 	MemberInboxSendRequestSchema,
 	CrewBroadcastRequestSchema,
 	MemberInboxSendCommandSchema,
@@ -94,6 +90,7 @@ import {
 	isMemberIdleWaitResult,
 	isMemberIdleWaitNotification,
 	MAX_MEMBER_IDLE_WAIT_TIMEOUT,
+	RPC_ERROR,
 } from "./index.ts";
 
 test("member.idle_wait params are strict: one bounded member label plus optional bounded timeout", () => {
@@ -257,7 +254,7 @@ test("member.status command schema accepts only the strict shape", () => {
 	assert.equal(Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "", id: "q1" }), false);
 	assert.equal(Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "Bob", extra: true }), false);
 	assert.equal(
-		Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "Bob", fields: ["focus"] }),
+		Value.Check(MemberStatusCommandSchema, { type: "member_status", member: "Bob", fields: ["unsupported"] }),
 		false,
 	);
 });
@@ -343,7 +340,6 @@ test("member.status result schema and guard accept closed online/offline statuse
 		presence: "online",
 		activity: "busy",
 		hasPendingMessages: true,
-		focus: { state: "reported", text: "Implementing", updatedAt: "2026-08-23T12:00:00.000Z" },
 		observedAt: "2026-08-23T12:03:00.000Z",
 	};
 	assert.equal(Value.Check(MemberStatusResultSchema, { status: online }), true);
@@ -864,7 +860,7 @@ test("member.request/respond round-trip strict coordination contracts", () => {
 	);
 });
 
-test("member.focus round-trips with closed self-scoped set/clear results", () => {
+test("removed member.focus method follows the standard unknown-method response", () => {
 	const request = {
 		jsonrpc: "2.0" as const,
 		id: "focus-1",
@@ -872,27 +868,19 @@ test("member.focus round-trips with closed self-scoped set/clear results", () =>
 		params: { action: "set" as const, focus: "--blocked" },
 	};
 	assert.deepEqual(requestToCommand(request), {
-		type: "member_focus",
-		action: "set",
-		focus: "--blocked",
-		id: "focus-1",
+		code: RPC_ERROR.methodNotFound,
+		message: "Method not found: member.focus",
+		data: { code: "method-not-found" },
 	});
-	assert.deepEqual(commandToRequest({ type: "member_focus", action: "clear" }, "focus-2"), {
-		jsonrpc: "2.0",
-		id: "focus-2",
-		method: "member.focus",
-		params: { action: "clear" },
-	});
-	assert.deepEqual(methodResultSchema("member.focus"), MemberFocusResultSchema);
-	assert.equal(isMemberFocusResult({ status: "unchanged", focus: { state: "unspecified" } }), true);
-	assert.equal(
-		isMemberFocusResult({
-			status: "updated",
-			focus: { state: "reported", text: "x", updatedAt: "2026-08-24T00:00:00.000Z" },
-		}),
-		true,
+	assert.deepEqual(
+		requestToCommand({ ...request, method: "member.focus" as const, params: { action: "clear" as const } }),
+		{
+			code: RPC_ERROR.methodNotFound,
+			message: "Method not found: member.focus",
+			data: { code: "method-not-found" },
+		},
 	);
-	assert.equal(isMemberFocusResult({ status: "done", focus: { state: "unspecified" } }), false);
+	assert.equal(methodResultSchema("member.focus"), undefined);
 });
 
 test("member.interrupt round-trips through the delegated source command contract", () => {

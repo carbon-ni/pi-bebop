@@ -1,422 +1,536 @@
 {
-	"schemaVersion": 2,
-	"scope": {
-		"tools": [
-			"send_follow_up",
-			"redirect_member",
-			"send_to_inbox",
-			"broadcast_to_crew",
-			"interrupt_member",
-			"get_member_status",
-			"update_member_focus",
-			"wait_for_member_idle"
-		],
-		"excluded": ["read", "bash", "edit", "write", "external-crew-intake"]
-	},
-	"formats": {
-		"default": "toon",
-		"alternatives": ["json", "text"],
-		"exitCodes": {
-			"successOrExpectedOutcome": 0,
-			"operational": 1,
-			"usage": 2
-		}
-	},
-	"errorPolicy": {
-		"inherited": "every membership action inherits sourceSelection.errors as part of its closed vocabulary",
-		"actionSpecific": "each tools[].errors list is additional, disjoint from sourceSelection.errors, and preserves the current tool/application stable code; the closed per-command vocabulary is sourceSelection.errors union tools[].errors",
-		"usage": "locally decidable syntax, flag, combination, empty, and bound errors use code usage and exit 2 before source IO",
-		"cliLayerCodes": ["offline", "outcome-unknown"],
-		"codeDisjointness": "a code appears at most once across sourceSelection.errors and one tools[].errors list"
-	},
-	"sourceSelection": {
-		"flag": "--session <id|alias>",
-		"placement": "leaf-command-local; after the selected leaf command and before any -- terminator",
-		"environmentFallback": "PI_SESSION_ID",
-		"precedence": "nonblank explicit flag wins; invalid explicit value never falls back",
-		"environmentRule": "fallback accepts a safe exact session id only, never an alias",
-		"maxUtf8Bytes": 256,
-		"resolution": [
-			"safe exact session id to control socket",
-			"safe explicit alias to alias symlink to exact session id"
-		],
-		"authority": "local control-socket filesystem access authorizes acting through that session; receiving session derives membership and trust and ignores claimed caller identity or manifest",
-		"privacy": [
-			"no source session id in action result",
-			"no socket path",
-			"no manifest path",
-			"no messages or prompts"
-		],
-		"errors": [
-			"session-required",
-			"invalid-session",
-			"unknown-session",
-			"offline-session",
-			"not-joined",
-			"untrusted",
-			"malformed-response",
-			"timeout",
-			"aborted",
-			"transport-error"
-		],
-		"recoveryHint": "pi-bebop session list"
-	},
-	"sessionList": {
-		"command": "pi-bebop session list [--format toon|json|text]",
-		"requiresSourceSession": false,
-		"mutates": false,
-		"defaultFormat": "toon",
-		"fields": ["sessionId", "aliases", "membership"],
-		"membershipValues": ["joined", "unjoined", "unknown"],
-		"forbiddenFields": [
-			"socketPath",
-			"manifestPath",
-			"messages",
-			"prompts",
-			"model",
-			"instructions",
-			"tools",
-			"focus"
-		],
-		"ordering": "safe primary alias then session id, locale-independent lexical order",
-		"bounds": {
-			"maxFilesystemEntries": 256,
-			"maxOutputSessions": 100,
-			"maxAliasesPerSession": 8,
-			"probeTimeoutMs": 500
-		},
-		"staleEntryBehavior": "skip invalid or non-live socket entries; retain live session with membership unknown when bounded status query fails",
-		"truncation": {
-			"omittedField": "omitted",
-			"meaning": "count of sessions not returned because maxOutputSessions or maxAliasesPerSession was exceeded, or entries beyond maxFilesystemEntries were not scanned",
-			"omittedZero": "omitted is always present and 0 when nothing is truncated",
-			"topLevelOutput": ["sessions", "total", "omitted"]
-		},
-		"aliasPrivacy": {
-			"included": "safe explicit session-name and branch aliases only",
-			"excluded": "aliases resolving to private/foreign session ids, unsafe slugs, or beyond the per-session cap",
-			"classified": "aliases are reported as safe slugs only, never raw paths or ids"
-		},
-		"empty": {
-			"status": "empty",
-			"sessions": [],
-			"total": 0,
-			"omitted": 0,
-			"next": "start and join a Pi session, then rerun pi-bebop session list"
-		},
-		"successStatus": "listed",
-		"operationalErrors": ["control-store-unavailable"],
-		"exit": {
-			"listedOrEmpty": 0,
-			"operational": 1,
-			"usage": 2
-		}
-	},
-	"sharedInputs": {
-		"memberTarget": {
-			"type": "trimmed UTF-8 string",
-			"maxUtf8Bytes": 256,
-			"resolution": "exact name first, otherwise unique role"
-		},
-		"message": {
-			"sources": ["--message <text>", "--stdin"],
-			"rule": "exactly one",
-			"validationOrder": [
-				"flag, combination, and limit validation complete before any stdin read",
-				"stdin read is bounded (maxUtf8Bytes) and cancellable",
-				"content validation (empty, NUL, UTF-8 bytes, aggregate) applies after read, before session or target IO"
-			],
-			"maxUtf8Bytes": 1000000,
-			"aggregateMaxUtf8Bytes": 1000000,
-			"nul": "content and every instruction must be NUL-free",
-			"trim": "message text is preserved verbatim (no trim); whitespace-only content is empty and a usage error",
-			"empty": "usage error before stdin/session IO"
-		},
-		"instructions": {
-			"flag": "--instruction <text>",
-			"ordered": true,
-			"maximumItems": 32,
-			"maxUtf8BytesEach": 100000,
-			"nul": "each instruction must be NUL-free",
-			"trim": "each instruction is trimmed and non-empty",
-			"optional": true
-		},
-		"format": {
-			"flag": "--format toon|json|text",
-			"default": "toon"
-		}
-	},
-	"pendingDecisions": [
-		{
-			"id": "broadcast-idempotency-conflict",
-			"status": "pending product wording",
-			"scope": "identical-retry id reuse and already-persisted reporting are approved; semantics for idempotency-conflict when a conflicting request claims the same broadcast identity are not yet decided and must not be implemented or asserted"
-		}
-	],
-	"tools": [
-		{
-			"tool": "send_follow_up",
-			"commands": [
-				"pi-bebop member follow-up <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
-			],
-			"inputs": ["memberTarget", "message", "instructions", "sourceSelection", "format"],
-			"defaults": {
-				"instructions": [],
-				"format": "toon",
-				"waitFor": "accepted-only; no CLI flag"
-			},
-			"result": {
-				"status": "accepted",
-				"fields": ["member.name", "member.role", "deliveryId", "disposition"],
-				"disposition": ["direct", "queued"],
-				"exit": 0
-			},
-			"errors": [
-				"unknown-member",
-				"ambiguous-member",
-				"self-send",
-				"invalid-payload",
-				"offline",
-				"remote-rejected",
-				"invalid-ack",
-				"outcome-unknown"
-			],
-			"delivery": "online normal Follow-up; direct when target idle, queued behind active work when busy; accepted never means reply, delivered work, or completion",
-			"cancellation": "before dispatch prevents delivery; while queued/transporting returns aborted and releases local wait; no acknowledgement means delivery outcome may be unknown and cancellation never rolls back a target that already accepted"
-		},
-		{
-			"tool": "redirect_member",
-			"commands": [
-				"pi-bebop member redirect <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
-			],
-			"inputs": ["memberTarget", "message", "instructions", "sourceSelection", "format"],
-			"defaults": {
-				"instructions": [],
-				"format": "toon",
-				"waitFor": "accepted-only; no CLI flag"
-			},
-			"result": {
-				"status": "accepted",
-				"fields": ["member.name", "member.role", "deliveryId", "disposition"],
-				"disposition": ["direct", "steered"],
-				"exit": 0
-			},
-			"errors": [
-				"unknown-member",
-				"ambiguous-member",
-				"self-send",
-				"invalid-payload",
-				"offline",
-				"remote-rejected",
-				"invalid-ack",
-				"outcome-unknown"
-			],
-			"delivery": "online Redirect; direct when target idle, otherwise enters before target next model step after current assistant tool calls; never aborts and accepted never means reply or completion",
-			"cancellation": "before dispatch prevents redirect; after target acceptance cannot retract steering; missing acknowledgement is outcome-unknown and never a rollback claim"
-		},
-		{
-			"tool": "send_to_inbox",
-			"commands": [
-				"pi-bebop member inbox send <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
-			],
-			"inputs": ["memberTarget", "message", "instructions", "sourceSelection", "format"],
-			"defaults": {
-				"instructions": [],
-				"format": "toon"
-			},
-			"result": {
-				"status": "persisted",
-				"fields": ["member.name", "member.role", "itemId", "persisted", "hint"],
-				"hint": ["sent", "skipped"],
-				"exit": 0
-			},
-			"errors": [
-				"unknown-member",
-				"ambiguous-role",
-				"self-send",
-				"invalid-payload",
-				"untrusted-project",
-				"inbox-full",
-				"inbox-untrusted-path",
-				"storage-unavailable",
-				"storage-failed",
-				"outcome-unknown"
-			],
-			"delivery": "durably persists exactly one target Inbox item whether target is online or offline; hint is best-effort; persisted never means read, delivered, started, answered, or completed",
-			"cancellation": "before persistence prevents write; persistence is never rolled back; cancellation/disconnect after write but before acknowledgement is outcome-unknown and caller must inspect/reconcile rather than blindly duplicate"
-		},
-		{
-			"tool": "broadcast_to_crew",
-			"commands": [
-				"pi-bebop crew broadcast [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
-			],
-			"inputs": ["message", "instructions", "sourceSelection", "format"],
-			"defaults": {
-				"instructions": [],
-				"format": "toon",
-				"recipients": "every other configured member in manifest order"
-			},
-			"result": {
-				"status": ["persisted", "partial"],
-				"fields": ["broadcastId", "persisted", "alreadyPersisted", "failed", "total", "recipients"],
-				"recipientFields": ["member", "role", "itemId", "disposition", "code"],
-				"recipientDisposition": ["persisted", "already-persisted", "failed"],
-				"exit": {
-					"allPersistedOrAlready": 0,
-					"partial": 1
-				},
-				"recipientPairing": {
-					"failed": "requires-stable-code",
-					"persisted": "no-code",
-					"already-persisted": "no-code"
-				}
-			},
-			"errors": [
-				"unknown-sender",
-				"no-recipients",
-				"invalid-request",
-				"untrusted-project",
-				"inbox-full",
-				"inbox-untrusted-path",
-				"storage-unavailable",
-				"storage-failed",
-				"invalid-payload",
-				"invalid-item-id",
-				"outcome-unknown"
-			],
-			"idempotency": {
-				"approved": "identical retry reuses the same broadcast and per-recipient ids; already-persisted recipients report already-persisted without duplication",
-				"conflictCode": "idempotency-conflict is reserved; conflicting-content semantics are pending product wording (see pendingDecisions)"
-			},
-			"delivery": "durably persists one independent non-interrupting Inbox copy for every other member; no endpoint probe, shared ownership, live delivery, reply, or completion",
-			"cancellation": "broadcast id and per-recipient ids are fixed before writes; completed writes remain; remaining recipients report aborted when acknowledgement is available; disconnect may be outcome-unknown; identical retry reuses ids and reports already-persisted without duplication"
-		},
-		{
-			"tool": "interrupt_member",
-			"commands": [
-				"pi-bebop member interrupt <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
-			],
-			"inputs": ["memberTarget", "message", "instructions", "sourceSelection", "format"],
-			"defaults": {
-				"instructions": [],
-				"format": "toon",
-				"target": "must be online"
-			},
-			"result": {
-				"status": "accepted",
-				"fields": ["member.name", "member.role", "interruptId", "disposition"],
-				"disposition": ["direct", "interrupt-requested"],
-				"exit": 0
-			},
-			"errors": [
-				"invalid-request",
-				"unknown-member",
-				"ambiguous-member",
-				"self-interrupt",
-				"not-a-member",
-				"invalid-payload",
-				"already-pending",
-				"abort-failed",
-				"no-context",
-				"handoff-failed",
-				"offline"
-			],
-			"delivery": "target records pending recovery before best-effort abort and hands guidance ahead of older Follow-ups; direct when idle; never rolls back filesystem, shell, network, or completed effects",
-			"cancellation": "before target evidence prevents request; after evidence cannot delete recovery; disconnect/cancellation can lose acknowledgement but target recovery remains pending/reload-safe and no rollback is claimed"
-		},
-		{
-			"tool": "get_member_status",
-			"commands": ["pi-bebop member status <member> [--session <id|alias>] [--format toon|json|text]"],
-			"inputs": ["memberTarget", "sourceSelection", "format"],
-			"defaults": {
-				"format": "toon"
-			},
-			"result": {
-				"status": "observed",
-				"fields": [
-					"member.name",
-					"member.role",
-					"presence",
-					"activity",
-					"hasPendingMessages",
-					"focus",
-					"observedAt"
-				],
-				"online": {
-					"activity": ["idle", "busy", "compacting"],
-					"hasPendingMessages": "boolean",
-					"focus": ["reported", "unspecified"]
-				},
-				"offline": {
-					"activity": "unavailable",
-					"hasPendingMessages": "unavailable",
-					"focus": "unavailable"
-				},
-				"exit": 0
-			},
-			"errors": ["unknown-member", "ambiguous-member", "self-query", "remote-rejected"],
-			"delivery": "read-only one-shot finite status query; configured target endpoint unreachability is successful offline/unavailable result with no stale Focus; never starts, steers, interrupts, or reads conversation",
-			"cancellation": "aborts finite probe/RPC and returns aborted; no target or session state is mutated"
-		},
-		{
-			"tool": "update_member_focus",
-			"commands": [
-				"pi-bebop member focus set [--session <id|alias>] [--format toon|json|text] [--] <text>",
-				"pi-bebop member focus clear [--session <id|alias>] [--format toon|json|text]"
-			],
-			"inputs": ["sourceSelection", "format", "focusAction", "focusText"],
-			"inputContract": {
-				"focusAction": ["set", "clear"],
-				"focusText": "required only for set; trimmed, single-line, NUL-free, maximum 256 UTF-8 bytes",
-				"dashLeading": "all flags precede --; text after -- is preserved verbatim"
-			},
-			"defaults": {
-				"format": "toon"
-			},
-			"result": {
-				"status": ["updated", "cleared", "unchanged"],
-				"fields": ["focus.state", "focus.text", "focus.updatedAt"],
-				"rules": "set appends reported Focus; clear appends clear when reported; clear while unspecified is unchanged",
-				"exit": 0
-			},
-			"errors": ["invalid-action", "invalid-focus", "outcome-unknown"],
-			"delivery": "self-scoped context-free session entry only; no target, network action, task/progress verification, or conversation inference",
-			"cancellation": "before append prevents mutation; after append cannot roll back; disconnect before acknowledgement may be outcome-unknown but subsequent status is authoritative"
-		},
-		{
-			"tool": "wait_for_member_idle",
-			"commands": [
-				"pi-bebop member wait-idle <member> [--session <id|alias>] [--timeout <duration>] [--format toon|json|text]"
-			],
-			"inputs": ["memberTarget", "sourceSelection", "format", "timeout"],
-			"inputContract": {
-				"timeout": "shared duration grammar; exact whole 1\u2013600 seconds only; reject sub/non-whole seconds without rounding"
-			},
-			"defaults": {
-				"format": "toon",
-				"timeout": "5m",
-				"setupDeadline": "5s",
-				"responseGrace": "5s"
-			},
-			"result": {
-				"status": "observed",
-				"fields": ["member.name", "member.role", "outcome", "disposition", "observedAt"],
-				"outcome": ["idle", "offline", "timeout"],
-				"idleDisposition": ["already-idle", "became-idle"],
-				"exit": 0
-			},
-			"errors": [
-				"unknown-member",
-				"ambiguous-member",
-				"self-wait",
-				"not-a-member",
-				"invalid-timeout",
-				"remote-rejected",
-				"capacity-exceeded",
-				"offline"
-			],
-			"delivery": "one-shot event-driven wait; no polling or target message; idle is mechanical and never proves message acknowledgement, reply, task completion, availability, or continued idleness",
-			"cancellation": "SIGINT/client abort closes source/target subscription and listeners exactly once, returns aborted exit 1, and never steers/interrupts target; semantic timeout wins simultaneous operation/transport expiry"
-		}
-	]
+  "schemaVersion": 2,
+  "scope": {
+    "tools": [
+      "send_follow_up",
+      "redirect_member",
+      "send_to_inbox",
+      "broadcast_to_crew",
+      "interrupt_member",
+      "get_member_status",
+      "wait_for_member_idle"
+    ],
+    "excluded": [
+      "read",
+      "bash",
+      "edit",
+      "write",
+      "external-crew-intake"
+    ]
+  },
+  "formats": {
+    "default": "toon",
+    "alternatives": [
+      "json",
+      "text"
+    ],
+    "exitCodes": {
+      "successOrExpectedOutcome": 0,
+      "operational": 1,
+      "usage": 2
+    }
+  },
+  "errorPolicy": {
+    "inherited": "every membership action inherits sourceSelection.errors as part of its closed vocabulary",
+    "actionSpecific": "each tools[].errors list is additional, disjoint from sourceSelection.errors, and preserves the current tool/application stable code; the closed per-command vocabulary is sourceSelection.errors union tools[].errors",
+    "usage": "locally decidable syntax, flag, combination, empty, and bound errors use code usage and exit 2 before source IO",
+    "cliLayerCodes": [
+      "offline",
+      "outcome-unknown"
+    ],
+    "codeDisjointness": "a code appears at most once across sourceSelection.errors and one tools[].errors list"
+  },
+  "sourceSelection": {
+    "flag": "--session <id|alias>",
+    "placement": "leaf-command-local; after the selected leaf command and before any -- terminator",
+    "environmentFallback": "PI_SESSION_ID",
+    "precedence": "nonblank explicit flag wins; invalid explicit value never falls back",
+    "environmentRule": "fallback accepts a safe exact session id only, never an alias",
+    "maxUtf8Bytes": 256,
+    "resolution": [
+      "safe exact session id to control socket",
+      "safe explicit alias to alias symlink to exact session id"
+    ],
+    "authority": "local control-socket filesystem access authorizes acting through that session; receiving session derives membership and trust and ignores claimed caller identity or manifest",
+    "privacy": [
+      "no source session id in action result",
+      "no socket path",
+      "no manifest path",
+      "no messages or prompts"
+    ],
+    "errors": [
+      "session-required",
+      "invalid-session",
+      "unknown-session",
+      "offline-session",
+      "not-joined",
+      "untrusted",
+      "malformed-response",
+      "timeout",
+      "aborted",
+      "transport-error"
+    ],
+    "recoveryHint": "pi-bebop session list"
+  },
+  "sessionList": {
+    "command": "pi-bebop session list [--format toon|json|text]",
+    "requiresSourceSession": false,
+    "mutates": false,
+    "defaultFormat": "toon",
+    "fields": [
+      "sessionId",
+      "aliases",
+      "membership"
+    ],
+    "membershipValues": [
+      "joined",
+      "unjoined",
+      "unknown"
+    ],
+    "forbiddenFields": [
+      "socketPath",
+      "manifestPath",
+      "messages",
+      "prompts",
+      "model",
+      "instructions",
+      "tools"
+    ],
+    "ordering": "safe primary alias then session id, locale-independent lexical order",
+    "bounds": {
+      "maxFilesystemEntries": 256,
+      "maxOutputSessions": 100,
+      "maxAliasesPerSession": 8,
+      "probeTimeoutMs": 500
+    },
+    "staleEntryBehavior": "skip invalid or non-live socket entries; retain live session with membership unknown when bounded status query fails",
+    "truncation": {
+      "omittedField": "omitted",
+      "meaning": "count of sessions not returned because maxOutputSessions or maxAliasesPerSession was exceeded, or entries beyond maxFilesystemEntries were not scanned",
+      "omittedZero": "omitted is always present and 0 when nothing is truncated",
+      "topLevelOutput": [
+        "sessions",
+        "total",
+        "omitted"
+      ]
+    },
+    "aliasPrivacy": {
+      "included": "safe explicit session-name and branch aliases only",
+      "excluded": "aliases resolving to private/foreign session ids, unsafe slugs, or beyond the per-session cap",
+      "classified": "aliases are reported as safe slugs only, never raw paths or ids"
+    },
+    "empty": {
+      "status": "empty",
+      "sessions": [],
+      "total": 0,
+      "omitted": 0,
+      "next": "start and join a Pi session, then rerun pi-bebop session list"
+    },
+    "successStatus": "listed",
+    "operationalErrors": [
+      "control-store-unavailable"
+    ],
+    "exit": {
+      "listedOrEmpty": 0,
+      "operational": 1,
+      "usage": 2
+    }
+  },
+  "sharedInputs": {
+    "memberTarget": {
+      "type": "trimmed UTF-8 string",
+      "maxUtf8Bytes": 256,
+      "resolution": "exact name first, otherwise unique role"
+    },
+    "message": {
+      "sources": [
+        "--message <text>",
+        "--stdin"
+      ],
+      "rule": "exactly one",
+      "validationOrder": [
+        "flag, combination, and limit validation complete before any stdin read",
+        "stdin read is bounded (maxUtf8Bytes) and cancellable",
+        "content validation (empty, NUL, UTF-8 bytes, aggregate) applies after read, before session or target IO"
+      ],
+      "maxUtf8Bytes": 1000000,
+      "aggregateMaxUtf8Bytes": 1000000,
+      "nul": "content and every instruction must be NUL-free",
+      "trim": "message text is preserved verbatim (no trim); whitespace-only content is empty and a usage error",
+      "empty": "usage error before stdin/session IO"
+    },
+    "instructions": {
+      "flag": "--instruction <text>",
+      "ordered": true,
+      "maximumItems": 32,
+      "maxUtf8BytesEach": 100000,
+      "nul": "each instruction must be NUL-free",
+      "trim": "each instruction is trimmed and non-empty",
+      "optional": true
+    },
+    "format": {
+      "flag": "--format toon|json|text",
+      "default": "toon"
+    }
+  },
+  "pendingDecisions": [
+    {
+      "id": "broadcast-idempotency-conflict",
+      "status": "pending product wording",
+      "scope": "identical-retry id reuse and already-persisted reporting are approved; semantics for idempotency-conflict when a conflicting request claims the same broadcast identity are not yet decided and must not be implemented or asserted"
+    }
+  ],
+  "tools": [
+    {
+      "tool": "send_follow_up",
+      "commands": [
+        "pi-bebop member follow-up <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+      ],
+      "inputs": [
+        "memberTarget",
+        "message",
+        "instructions",
+        "sourceSelection",
+        "format"
+      ],
+      "defaults": {
+        "instructions": [],
+        "format": "toon",
+        "waitFor": "accepted-only; no CLI flag"
+      },
+      "result": {
+        "status": "accepted",
+        "fields": [
+          "member.name",
+          "member.role",
+          "deliveryId",
+          "disposition"
+        ],
+        "disposition": [
+          "direct",
+          "queued"
+        ],
+        "exit": 0
+      },
+      "errors": [
+        "unknown-member",
+        "ambiguous-member",
+        "self-send",
+        "invalid-payload",
+        "offline",
+        "remote-rejected",
+        "invalid-ack",
+        "outcome-unknown"
+      ],
+      "delivery": "online normal Follow-up; direct when target idle, queued behind active work when busy; accepted never means reply, delivered work, or completion",
+      "cancellation": "before dispatch prevents delivery; while queued/transporting returns aborted and releases local wait; no acknowledgement means delivery outcome may be unknown and cancellation never rolls back a target that already accepted"
+    },
+    {
+      "tool": "redirect_member",
+      "commands": [
+        "pi-bebop member redirect <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+      ],
+      "inputs": [
+        "memberTarget",
+        "message",
+        "instructions",
+        "sourceSelection",
+        "format"
+      ],
+      "defaults": {
+        "instructions": [],
+        "format": "toon",
+        "waitFor": "accepted-only; no CLI flag"
+      },
+      "result": {
+        "status": "accepted",
+        "fields": [
+          "member.name",
+          "member.role",
+          "deliveryId",
+          "disposition"
+        ],
+        "disposition": [
+          "direct",
+          "steered"
+        ],
+        "exit": 0
+      },
+      "errors": [
+        "unknown-member",
+        "ambiguous-member",
+        "self-send",
+        "invalid-payload",
+        "offline",
+        "remote-rejected",
+        "invalid-ack",
+        "outcome-unknown"
+      ],
+      "delivery": "online Redirect; direct when target idle, otherwise enters before target next model step after current assistant tool calls; never aborts and accepted never means reply or completion",
+      "cancellation": "before dispatch prevents redirect; after target acceptance cannot retract steering; missing acknowledgement is outcome-unknown and never a rollback claim"
+    },
+    {
+      "tool": "send_to_inbox",
+      "commands": [
+        "pi-bebop member inbox send <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+      ],
+      "inputs": [
+        "memberTarget",
+        "message",
+        "instructions",
+        "sourceSelection",
+        "format"
+      ],
+      "defaults": {
+        "instructions": [],
+        "format": "toon"
+      },
+      "result": {
+        "status": "persisted",
+        "fields": [
+          "member.name",
+          "member.role",
+          "itemId",
+          "persisted",
+          "hint"
+        ],
+        "hint": [
+          "sent",
+          "skipped"
+        ],
+        "exit": 0
+      },
+      "errors": [
+        "unknown-member",
+        "ambiguous-role",
+        "self-send",
+        "invalid-payload",
+        "untrusted-project",
+        "inbox-full",
+        "inbox-untrusted-path",
+        "storage-unavailable",
+        "storage-failed",
+        "outcome-unknown"
+      ],
+      "delivery": "durably persists exactly one target Inbox item whether target is online or offline; hint is best-effort; persisted never means read, delivered, started, answered, or completed",
+      "cancellation": "before persistence prevents write; persistence is never rolled back; cancellation/disconnect after write but before acknowledgement is outcome-unknown and caller must inspect/reconcile rather than blindly duplicate"
+    },
+    {
+      "tool": "broadcast_to_crew",
+      "commands": [
+        "pi-bebop crew broadcast [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+      ],
+      "inputs": [
+        "message",
+        "instructions",
+        "sourceSelection",
+        "format"
+      ],
+      "defaults": {
+        "instructions": [],
+        "format": "toon",
+        "recipients": "every other configured member in manifest order"
+      },
+      "result": {
+        "status": [
+          "persisted",
+          "partial"
+        ],
+        "fields": [
+          "broadcastId",
+          "persisted",
+          "alreadyPersisted",
+          "failed",
+          "total",
+          "recipients"
+        ],
+        "recipientFields": [
+          "member",
+          "role",
+          "itemId",
+          "disposition",
+          "code"
+        ],
+        "recipientDisposition": [
+          "persisted",
+          "already-persisted",
+          "failed"
+        ],
+        "exit": {
+          "allPersistedOrAlready": 0,
+          "partial": 1
+        },
+        "recipientPairing": {
+          "failed": "requires-stable-code",
+          "persisted": "no-code",
+          "already-persisted": "no-code"
+        }
+      },
+      "errors": [
+        "unknown-sender",
+        "no-recipients",
+        "invalid-request",
+        "untrusted-project",
+        "inbox-full",
+        "inbox-untrusted-path",
+        "storage-unavailable",
+        "storage-failed",
+        "invalid-payload",
+        "invalid-item-id",
+        "outcome-unknown"
+      ],
+      "idempotency": {
+        "approved": "identical retry reuses the same broadcast and per-recipient ids; already-persisted recipients report already-persisted without duplication",
+        "conflictCode": "idempotency-conflict is reserved; conflicting-content semantics are pending product wording (see pendingDecisions)"
+      },
+      "delivery": "durably persists one independent non-interrupting Inbox copy for every other member; no endpoint probe, shared ownership, live delivery, reply, or completion",
+      "cancellation": "broadcast id and per-recipient ids are fixed before writes; completed writes remain; remaining recipients report aborted when acknowledgement is available; disconnect may be outcome-unknown; identical retry reuses ids and reports already-persisted without duplication"
+    },
+    {
+      "tool": "interrupt_member",
+      "commands": [
+        "pi-bebop member interrupt <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+      ],
+      "inputs": [
+        "memberTarget",
+        "message",
+        "instructions",
+        "sourceSelection",
+        "format"
+      ],
+      "defaults": {
+        "instructions": [],
+        "format": "toon",
+        "target": "must be online"
+      },
+      "result": {
+        "status": "accepted",
+        "fields": [
+          "member.name",
+          "member.role",
+          "interruptId",
+          "disposition"
+        ],
+        "disposition": [
+          "direct",
+          "interrupt-requested"
+        ],
+        "exit": 0
+      },
+      "errors": [
+        "invalid-request",
+        "unknown-member",
+        "ambiguous-member",
+        "self-interrupt",
+        "not-a-member",
+        "invalid-payload",
+        "already-pending",
+        "abort-failed",
+        "no-context",
+        "handoff-failed",
+        "offline"
+      ],
+      "delivery": "target records pending recovery before best-effort abort and hands guidance ahead of older Follow-ups; direct when idle; never rolls back filesystem, shell, network, or completed effects",
+      "cancellation": "before target evidence prevents request; after evidence cannot delete recovery; disconnect/cancellation can lose acknowledgement but target recovery remains pending/reload-safe and no rollback is claimed"
+    },
+    {
+      "tool": "get_member_status",
+      "commands": [
+        "pi-bebop member status <member> [--session <id|alias>] [--format toon|json|text]"
+      ],
+      "inputs": [
+        "memberTarget",
+        "sourceSelection",
+        "format"
+      ],
+      "defaults": {
+        "format": "toon"
+      },
+      "result": {
+        "status": "observed",
+        "fields": [
+          "member.name",
+          "member.role",
+          "presence",
+          "activity",
+          "hasPendingMessages",
+          "observedAt"
+        ],
+        "online": {
+          "activity": [
+            "idle",
+            "busy",
+            "compacting"
+          ],
+          "hasPendingMessages": "boolean"
+        },
+        "offline": {
+          "activity": "unavailable",
+          "hasPendingMessages": "unavailable"
+        },
+        "exit": 0
+      },
+      "errors": [
+        "unknown-member",
+        "ambiguous-member",
+        "self-query",
+        "remote-rejected"
+      ],
+      "delivery": "read-only one-shot finite status query; configured target endpoint unreachability is successful offline/unavailable result; never starts, steers, interrupts, or reads conversation",
+      "cancellation": "aborts finite probe/RPC and returns aborted; no target or session state is mutated"
+    },
+    {
+      "tool": "wait_for_member_idle",
+      "commands": [
+        "pi-bebop member wait-idle <member> [--session <id|alias>] [--timeout <duration>] [--format toon|json|text]"
+      ],
+      "inputs": [
+        "memberTarget",
+        "sourceSelection",
+        "format",
+        "timeout"
+      ],
+      "inputContract": {
+        "timeout": "shared duration grammar; exact whole 1\u2013600 seconds only; reject sub/non-whole seconds without rounding"
+      },
+      "defaults": {
+        "format": "toon",
+        "timeout": "5m",
+        "setupDeadline": "5s",
+        "responseGrace": "5s"
+      },
+      "result": {
+        "status": "observed",
+        "fields": [
+          "member.name",
+          "member.role",
+          "outcome",
+          "disposition",
+          "observedAt"
+        ],
+        "outcome": [
+          "idle",
+          "offline",
+          "timeout"
+        ],
+        "idleDisposition": [
+          "already-idle",
+          "became-idle"
+        ],
+        "exit": 0
+      },
+      "errors": [
+        "unknown-member",
+        "ambiguous-member",
+        "self-wait",
+        "not-a-member",
+        "invalid-timeout",
+        "remote-rejected",
+        "capacity-exceeded",
+        "offline"
+      ],
+      "delivery": "one-shot event-driven wait; no polling or target message; idle is mechanical and never proves message acknowledgement, reply, task completion, availability, or continued idleness",
+      "cancellation": "SIGINT/client abort closes source/target subscription and listeners exactly once, returns aborted exit 1, and never steers/interrupts target; semantic timeout wins simultaneous operation/transport expiry"
+    }
+  ]
 }

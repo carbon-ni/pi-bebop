@@ -55,7 +55,7 @@ A wait terminates exactly once with one of:
 | `timeout` | Bounded deadline expired while the target remained busy. Expected coordination outcome, not task failure.             |
 
 Result contains only configured name/role, the terminal outcome/disposition,
-and the observation timestamp. No messages, Focus, prompts, tools, session
+and the observation timestamp. No messages, prompts, tools, session
 ids, aliases, paths, model data, or instructions.
 
 ## Idle is mechanical and momentary
@@ -93,7 +93,7 @@ promptly.
 
 ## Capacity and privacy
 
-- Wait is transient and non-durable: no chat activity, Focus, history,
+- Wait is transient and non-durable: no chat activity, history,
   dashboard, background polling, or automatic follow-up.
 - Target enforces finite one-shot subscription capacity (8 per target) and
   rejects overflow explicitly; at most one active wait per target.

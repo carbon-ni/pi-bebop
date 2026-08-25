@@ -13,7 +13,7 @@ import type { CliOutcome } from "../output.ts";
 /**
  * TASK-0061: `session list` discovery surface. Bounded, deterministic, and
  * privacy-safe: reports reachable session id, safe aliases, and joined state
- * only. Never messages, prompts, model details, paths, instructions, Focus,
+ * only. Never messages, prompts, model details, paths, instructions,
  * or tool history. Empty state is explicit with a copyable next step.
  */
 
@@ -51,7 +51,7 @@ export function sessionListHelp(): string {
 		"List reachable Pi sessions: session id, safe aliases, and joined state",
 		"(joined, unjoined, or unknown). Bounded discovery for shell callers;",
 		"never exposes socket paths, messages, prompts, model details, instructions,",
-		"Focus, or tool history.",
+		"or tool history.",
 		"",
 		"Options:",
 		"  --format <format>   toon (default), json, or text",

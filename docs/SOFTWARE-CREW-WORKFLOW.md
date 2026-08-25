@@ -48,8 +48,8 @@ Files:
 To use it, copy `crew.json` and `instructions/` into a trusted project's
 `.pi/bebop/`, then create/start the configured member endpoints. Role
 instructions are read as a snapshot during join/restore/rejoin; they are not hot
-reloaded. Descriptions are crew-visible profile text, Focus is dynamic
-member-authored activity, and Role instructions are behavioral guidance.
+reloaded. Descriptions are crew-visible profile text, and Role
+instructions are behavioral guidance.
 
 ## Communication ladder
 
@@ -58,8 +58,7 @@ Choose least disruptive operation that solves coordination need.
 | Need                                    | Capability                   | Typical user                                | Behavior                                                                                                                                   |
 | --------------------------------------- | ---------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------ |
 | Inspect reachability                    | `/crew members`              | Any joined member                           | Shows current/online/offline only; online does not mean available.                                                                         |
-| Inspect timing and stated work          | `get_member_status`          | Usually lead, but any joined member         | Returns live `idle                                                                                                                         | busy | compacting`, pending-message signal, and optional self-reported Focus. Never reads conversation. |
-| Publish stated work                     | `update_member_focus`        | Every member for themselves                 | Sets or clears bounded crew-visible Focus note. It is not verified progress.                                                               |
+| Inspect timing                          | `get_member_status`          | Usually lead, but any joined member         | Returns live `idle                                                                                                                         | busy | compacting` and pending-message signal. Never reads conversation.                                                                         |
 | Normal targeted coordination            | `send_follow_up`             | Any joined member                           | Safe default. Waits behind target active work.                                                                                             |
 | Durable targeted message                | `send_to_inbox`              | Any joined member                           | Persists for online/offline recipient and survives restart. Success means persisted, not completed.                                        |
 | Change next model step                  | Redirect (`redirect_member`) | Any joined member, commonly lead or quality | Pi steer enters after current assistant turn/tool calls and before next model step. It does not abort current operation.                   |
@@ -96,9 +95,9 @@ Product sends shaped outcome to lead with `send_follow_up` when lead online, or
 ### 3. Coordination
 
 Lead chooses exact owner. If timing matters, lead checks Member Status. Activity
-is mechanical Pi state; Focus is member-reported and may be absent or outdated.
-Lead does not infer availability, competence, acknowledgement, or task progress
-from either.
+is mechanical Pi state and never implies progress. Lead does not infer
+availability, competence, acknowledgement, or task progress from it; ask the
+member explicitly for intent or progress.
 
 Lead sends targeted assignment through Inbox when it must be durable. Shared
 constraint goes through Broadcast, but ownership remains targeted to one member.
@@ -110,7 +109,6 @@ correlation.
 
 ### 4. Implementation
 
-Developer publishes concise Focus, for example `Implementing Inbox enqueue`.
 Developer works with project plan, Git, tests, and watcher independently from
 Bebop. If blocked, developer sends focused follow-up to lead rather than waiting
 silently.
@@ -129,8 +127,7 @@ side effects already completed.
 ### 6. Verification
 
 Developer sends evidence to quality: owned change, relevant artifact/commit,
-tests, known risks, and acceptance reference. Quality publishes Focus and
-verifies independently.
+tests, known risks, and acceptance reference. Quality verifies independently.
 
 Quality sends findings to developer through Follow-up. Redirect is appropriate
 when current direction must change; Interrupt is reserved for actively harmful
@@ -147,8 +144,8 @@ Broadcast communicates information; it does not create shared task ownership.
 
 ### 8. Close-out
 
-Each member updates or clears Focus. Product/lead update documentation and role
-instructions where product language or workflow changed.
+Product/lead update documentation and role instructions where product language
+or workflow changed.
 
 ## Example: external request to verified change
 
@@ -196,15 +193,6 @@ send_to_inbox({
 
 ### Developer execution
 
-Bob publishes Focus:
-
-```text
-update_member_focus({
-  action: "set",
-  focus: "Implementing durable Inbox enqueue"
-})
-```
-
 Bob implements with project tools, then requests independent verification:
 
 ```text
@@ -216,7 +204,7 @@ send_follow_up({
 
 ### Quality feedback
 
-Kelly publishes Focus and verifies. Normal finding:
+Kelly verifies. Normal finding:
 
 ```text
 send_follow_up({
@@ -254,8 +242,6 @@ broadcast_to_crew({
 })
 ```
 
-Bob and Kelly clear Focus after close-out.
-
 ## Using the templates
 
 Each template defines mission, expected inputs, expected outputs, escalation,
@@ -272,7 +258,6 @@ explicit user/lead responsibilities.
 - Roles describe responsibility and routing hints; they never grant permissions.
 - Presence is reachability, not availability.
 - Activity is Pi runtime state, not productivity.
-- Focus is self-reported and crew-visible; never publish secrets.
 - Follow-up is default.
 - Inbox is durable delivery, not task tracker.
 - Redirect changes next model step but does not abort current tool calls.
