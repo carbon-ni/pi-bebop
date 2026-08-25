@@ -1,7 +1,7 @@
 ---
 id: TASK-0083
 title: Enable optional values for Pi extension flags
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [pi-api, extensions, cli, flags, upstream, tdd]
