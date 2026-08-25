@@ -1,7 +1,7 @@
 ---
 id: TASK-0085
 title: Remove self-reported member Focus
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [crew, status, focus, removal, determinism, tdd]
