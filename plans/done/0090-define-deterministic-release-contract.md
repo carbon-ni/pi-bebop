@@ -1,7 +1,7 @@
 ---
 id: TASK-0090
 title: Define deterministic release contract
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [release, product, npm, github, security, determinism]
