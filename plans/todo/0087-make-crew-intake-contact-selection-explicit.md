@@ -10,7 +10,7 @@ tags: [crew, intake, manifest, ux, tdd]
 # Make Crew Intake contact selection explicit
 
 ## Problem
-The manifest accepts intake.contact as a string but resolves it only as an exact member name. Because startup also selects members by role, a value such as po looks valid and produces a misleading role-join failure even when po is a configured role.
+The manifest accepts intake.contact as a string but resolves it only as an exact member name. Because startup also selects members by role, a value such as po looks valid and produces a misleading role-join failure even when po is a configured role. The failure does not identify Crew configuration, its manifest path or field, so users cannot tell where or how to fix it.
 
 ## Context
 
@@ -33,14 +33,16 @@ An exact identity remains available as `{ "name": "Mary" }`. Role selection is v
 3. Resolve the selector during manifest validation to one canonical member so downstream Intake, membership context, CLI acknowledgement, and inbox routing do not repeat selection logic.
 4. Return deterministic ambiguity errors listing matching member names in manifest order.
 5. Update Crew Init, project manifest, examples, architecture/workflow docs, and startup diagnostics to use and explain explicit selectors.
-6. Verify parser, startup-role happy/unhappy paths, generated manifest, membership context, and CLI Intake integration.
+6. Make startup validation failures identify Crew configuration, actual manifest path, selector field and rejected value, then offer deterministic valid choices and corrective action.
+7. Verify parser, startup-role happy/unhappy paths, generated manifest, membership context, and CLI Intake integration.
 
 ## Acceptance criteria
 
 - [ ] `{ "role": "po" }` resolves Mary when Mary is the only member with role `po`.
 - [ ] `{ "name": "Mary" }` resolves Mary by unique member name regardless of her role.
 - [ ] A repeated role fails validation and lists matching member names deterministically; it never picks by order or presence.
-- [ ] Unknown names and roles report which selector failed.
+- [ ] Unknown names and roles report which selector failed, rejected value, and available exact member names in manifest order.
+- [ ] Startup identifies the actual invalid manifest path and configuration field, and tells user to select an existing member or add a matching member.
 - [ ] String contact, empty selector, unknown fields, and selectors containing both `name` and `role` fail strict validation.
 - [ ] Downstream Intake behavior consumes one canonical resolved contact without fallback selection.
 - [ ] Generated and repository manifests use explicit selectors; documentation distinguishes unique names from repeatable roles.
