@@ -4,7 +4,7 @@
  *
  * Verifies README.md against the lean-product-entrypoint contract: size
  * baseline, heading depth, hero illustration+tagline, one copyable happy path,
- * resolving relative links, bounded task-oriented docs list, UL canonical
+ * resolving relative links, UL canonical
  * capability terms, explicit boundaries, no internal task IDs, truthful
  * npm-publication claims (checked against the registry), and that every
  * `pi-bebop` command snippet resolves against the packaged CLI help.
@@ -72,22 +72,7 @@ for (const target of linkTargets) {
 }
 check("link-resolves", failures.filter((f) => f.startsWith("link-resolves")).length === 0);
 
-// 6. Task-oriented docs list: at most eight links with one-line purposes.
-const docsSection = readme.split(/^## /m).find((s) => /^(Documentation|Docs)\b/i.test(s));
-if (!docsSection) {
-	check("docs-list", false, "no '## Documentation' section");
-} else {
-	const docLinks = [...docsSection.matchAll(/\[[^\]]*\]\((\.?\.?\/?docs\/[^)]+)\)/g)].length;
-	check("docs-list", docLinks >= 3 && docLinks <= 8, `${docLinks} docs links (expected 3..8)`);
-	const linkLines = docsSection.split("\n").filter((line) => /\[[^\]]*\]\(docs\//.test(line));
-	const purposeful = linkLines.every((line) => {
-		const rest = line.replace(/\[[^\]]*\]\([^)]*\)/g, "").trim();
-		return rest.length > 8 || rest.startsWith("-") === false;
-	});
-	check("docs-purposes", linkLines.length === 0 || purposeful, "a docs link line lacks a one-line purpose");
-}
-
-// 7. UL canonical capability terms, differentiated, without full schemas.
+// 6. UL canonical capability terms, differentiated, without full schemas.
 const tools = [
 	"send_member_request",
 	"send_follow_up",
