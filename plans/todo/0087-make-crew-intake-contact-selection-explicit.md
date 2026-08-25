@@ -18,26 +18,34 @@ Crew member names are unique: `parseCrewManifest` rejects `duplicate-member-name
 Roles are intentionally not unique because several members may share one responsibility.
 Crew Intake therefore needs an exact member name, while `--crew-role` may select a unique role.
 
-Keep this deterministic identity rule. Fix the affordance and diagnostics rather than silently changing Intake to role routing.
+Use an explicit selector instead of overloading one string:
+
+```json
+"intake": { "contact": { "role": "po" } }
+```
+
+An exact identity remains available as `{ "name": "Mary" }`. Role selection is valid only when exactly one configured member has that role.
 
 ## Plan
 
-1. Add manifest parser tests first for a contact value that matches a unique role, an ambiguous role, and no configured identity.
-2. When a value matches a role, return an actionable error saying `intake.contact` expects an exact member name. For a unique role, suggest its member name; for an ambiguous role, list the matching names in manifest order.
-3. Distinguish invalid-manifest startup failures from unknown `--crew-role` failures so role join does not imply the requested startup role is invalid.
-4. Update Crew Init and workflow documentation to show `intake.contact` beside the selected member name and state that roles may repeat.
-5. Verify parser, startup-role happy/unhappy paths, generated manifest, and CLI Intake integration.
+1. Add failing manifest and Intake tests for `{ "name": "Mary" }`, unique `{ "role": "po" }`, ambiguous roles, unknown names/roles, both selector fields, and empty selectors.
+2. Replace string `intake.contact` with a strict selector containing exactly one of `name` or `role`; do not keep implicit string fallback.
+3. Resolve the selector during manifest validation to one canonical member so downstream Intake, membership context, CLI acknowledgement, and inbox routing do not repeat selection logic.
+4. Return deterministic ambiguity errors listing matching member names in manifest order.
+5. Update Crew Init, project manifest, examples, architecture/workflow docs, and startup diagnostics to use and explain explicit selectors.
+6. Verify parser, startup-role happy/unhappy paths, generated manifest, membership context, and CLI Intake integration.
 
 ## Acceptance criteria
 
-- [ ] `intake.contact: "po"` with member `Mary` in role `po` reports that contact expects member name and suggests `Mary`.
-- [ ] A repeated role never selects an Intake contact implicitly and reports all matching member names deterministically.
-- [ ] An unknown contact reports that no configured member has that exact name.
-- [ ] Startup labels malformed manifest errors separately from unknown or ambiguous startup role selection.
-- [ ] Exact-name contact and unique startup-role selection continue to resolve the same member.
-- [ ] Documentation explicitly distinguishes unique member names from repeatable roles.
+- [ ] `{ "role": "po" }` resolves Mary when Mary is the only member with role `po`.
+- [ ] `{ "name": "Mary" }` resolves Mary by unique member name regardless of her role.
+- [ ] A repeated role fails validation and lists matching member names deterministically; it never picks by order or presence.
+- [ ] Unknown names and roles report which selector failed.
+- [ ] String contact, empty selector, unknown fields, and selectors containing both `name` and `role` fail strict validation.
+- [ ] Downstream Intake behavior consumes one canonical resolved contact without fallback selection.
+- [ ] Generated and repository manifests use explicit selectors; documentation distinguishes unique names from repeatable roles.
 
 ## Notes
 
-A future schema could support explicit selectors such as `{ "name": "Mary" }` and `{ "role": "po" }`, but that is a product/schema change. Do not overload the current string implicitly as both.
+This intentionally changes the manifest contract. If manifest version represents schema compatibility, increment it and migrate all owned examples atomically rather than preserving the deprecated string path.
 
