@@ -62,8 +62,6 @@ jobs:
                     echo "npm $PACKAGE@$version already exists; refusing to overwrite or rebuild it."
                     exit 1
                   fi
-                  # No token and no --provenance: npm trusted publishing uses this job's OIDC identity,
-                  # while provenance is unavailable for this private source repository.
                   npm publish "$TARBALL" --access public --tag "${{ github.event.release.prerelease && 'next' || 'latest' }}"
             - name: Attach artifact and checksum to the GitHub Release
               env:
@@ -71,4 +69,4 @@ jobs:
                   RELEASE_TAG: ${{ github.event.release.tag_name }}
               run: |
                   gh release upload "$RELEASE_TAG" "$TARBALL" .release/SHA256SUMS
-                  echo "Published $TARBALL ($(cut -d' ' -f1 .release/SHA256SUMS)); npm provenance unavailable for private source repository." >> "$GITHUB_STEP_SUMMARY"
+                  echo "Published $TARBALL ($(cut -d' ' -f1 .release/SHA256SUMS))." >> "$GITHUB_STEP_SUMMARY"
