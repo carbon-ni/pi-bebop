@@ -48,7 +48,7 @@ export function registerGetMemberStatusTool(
 		name: "get_member_status",
 		label: "Get Member Status",
 		description:
-			"Read-only snapshot of one crew member's mechanical Pi runtime state (online/offline reachability, idle/busy activity, pending-message signal) and their self-reported Focus note. Activity is mechanical and Focus is member-reported, never verified task progress. The query never starts, steers, or interrupts the target turn. Use send_follow_up when timing does not matter; status is for coordination decisions, not monitoring.",
+			"Read-only snapshot of one crew member's mechanical Pi runtime state (online/offline reachability, idle/busy/compacting activity, pending-message signal) and the observation time. Activity is mechanical, never verified task progress. The query never starts, steers, or interrupts the target turn. Use send_follow_up when timing does not matter; status is for coordination decisions, not monitoring. When you need intent, progress, a report, or a verdict, ask the member explicitly with send_member_request.",
 		parameters,
 		async execute(_toolCallId, params) {
 			const membership = state.membershipRuntime?.getMembership() ?? null;
@@ -59,8 +59,6 @@ export function registerGetMemberStatusTool(
 				isTrusted: () => state.context?.isProjectTrusted?.() === true,
 				isIdle: () => false,
 				hasPendingMessages: () => false,
-				getEntries: () => [],
-				appendEntry: () => undefined,
 				probeEndpoint: (socketPath) => transport.probeEndpoint(socketPath),
 				requestStatus: (socketPath, label) => transport.requestStatus(socketPath, label),
 				now: () => new Date().toISOString(),

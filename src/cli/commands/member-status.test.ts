@@ -27,7 +27,6 @@ const ONLINE_STATUS = {
 	presence: "online",
 	activity: "busy",
 	hasPendingMessages: true,
-	focus: { state: "reported", text: "Reviewing", updatedAt: "2026-08-23T12:00:00.000Z" },
 	observedAt: "2026-08-23T12:03:00.000Z",
 };
 
@@ -36,7 +35,6 @@ const OFFLINE_STATUS = {
 	presence: "offline",
 	activity: "unavailable",
 	hasPendingMessages: "unavailable",
-	focus: { state: "unavailable" },
 	observedAt: "2026-08-23T12:03:00.000Z",
 };
 
@@ -331,7 +329,7 @@ test("member status run: toon and text formats render observed state", async () 
 		deps(),
 	);
 	assert.match(render(textOutcome).text, /Kelly/);
-	assert.match(render(textOutcome).text, /Reviewing/);
+	assert.match(render(textOutcome).text, /pending messages/);
 });
 
 test("member status run: operational failures exit 1 with stable codes", async () => {

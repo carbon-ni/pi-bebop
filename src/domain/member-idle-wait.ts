@@ -22,7 +22,7 @@ import type { CrewManifest, CrewMember } from "./crew-manifest.ts";
  * continuation remains — only the `settled` signal (Pi `agent_settled`)
  * completes a busy wait with `idle/became-idle`.
  *
- * The wait is transient and non-durable: it creates no chat activity, Focus,
+ * The wait is transient and non-durable: it creates no chat activity,
  * history, dashboard, background polling, or automatic follow-up, and it never
  * starts, steers, interrupts, aborts, or sends guidance to the target turn.
  *
@@ -75,7 +75,7 @@ const MemberIdleWaitOutcomeSchema = Type.Union([
 
 /**
  * Terminal result contract. Contains only configured name/role, the terminal
- * outcome/disposition, and the observation timestamp. No messages, Focus,
+ * outcome/disposition, and the observation timestamp. No messages,
  * prompts, tools, session ids, aliases, paths, model data, or instructions.
  */
 export const MemberIdleWaitResultSchema = Type.Union([
@@ -148,7 +148,7 @@ export function isMemberIdleWaitResult(value: unknown): value is MemberIdleWaitR
 
 /**
  * Compact privacy-safe rendering: identity, terminal outcome/disposition, and
- * observation timestamp only. Never exposes messages, Focus, session data, or
+ * observation timestamp only. Never exposes messages, session data, or
  * paths (TASK-0050 privacy contract).
  */
 export function formatMemberIdleWaitResult(result: MemberIdleWaitResult): string {

@@ -62,8 +62,6 @@ function methodForCommand(command: string): string | undefined {
 			return "member.respond";
 		case "member_interrupt":
 			return "member.interrupt";
-		case "member_focus":
-			return "member.focus";
 		case "member_follow_up":
 			return "member.follow_up";
 		case "member_redirect":

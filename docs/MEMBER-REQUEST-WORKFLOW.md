@@ -106,7 +106,7 @@ wait_for_request_outcome()
 ```
 
 No arguments. It returns the oldest terminal outbound Request outcome. It does
-not poll and does not return Presence, Member Status, Focus, Broadcast, Inbox,
+not poll and does not return Presence, Member Status, Broadcast, Inbox,
 or unrelated Crew activity. It is requester-side only: call it after you sent
 `send_member_request`, never to handle an inbound Member request or an ordinary
 message. When no pending outbound Member request exists, it fails immediately
@@ -181,5 +181,4 @@ same instant — never to a Response/idle boundary.
 - Unrelated Follow-ups preserve Pi FIFO behavior.
 - Member Idle Wait remains a mechanical timing primitive and never proves a
   Response, completion, progress, correctness, or availability.
-- Focus remains self-reported and unverified.
 - Bebop never infers completion, quality, ownership, or integration.

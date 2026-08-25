@@ -111,21 +111,13 @@ test("all four instruction templates exist and define mission, inputs, outputs, 
 });
 
 test("instruction templates stay aligned with the maintained software crew workflow", () => {
-	const workflow = [
-		"Focus",
-		"send_follow_up",
-		"redirect_member",
-		"interrupt_member",
-		"update_member_focus",
-		"never",
-		"verify",
-	];
+	const workflow = ["send_follow_up", "redirect_member", "interrupt_member", "never", "verify"];
 	const developer = crewInitInstructions("developer");
 	const quality = crewInitInstructions("quality");
 	const product = crewInitInstructions("product");
 	const lead = crewInitInstructions("lead");
 	assert.ok(
-		workflow.every((phrase) => developer.includes(phrase) || quality.includes(phrase)),
+		workflow.every((phrase) => developer.toLowerCase().includes(phrase) || quality.toLowerCase().includes(phrase)),
 		"dev+qa cover workflow",
 	);
 	assert.ok(product.includes("Intake") || product.includes("intake"), "product template names Crew Intake");

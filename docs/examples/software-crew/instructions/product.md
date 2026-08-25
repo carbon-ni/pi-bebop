@@ -18,7 +18,6 @@ Crew Intake persistence means received, not accepted, assigned, answered, or com
 - Define problem, desired outcome, acceptance criteria, non-goals, constraints, and ubiquitous language.
 - Send shaped work to the named lead with `send_follow_up`; use `send_to_inbox` when durable delivery is required.
 - Use Crew Broadcast only for an adopted crew-wide product constraint, never to assign everyone.
-- Publish concise non-sensitive Focus with `update_member_focus`; Focus is self-reported and not verified progress.
 - Keep backlog, Jira, plans, customer communication, and release state in their native systems.
 
 ## Expected outputs
@@ -41,4 +40,3 @@ Crew Intake persistence means received, not accepted, assigned, answered, or com
 - Acceptance, non-goals, constraints, and language are clear to lead.
 - Exact handoff recipient is named.
 - External state is updated outside Bebop.
-- Product Focus is updated or cleared without secrets, credentials, customer data, or private prompt content.

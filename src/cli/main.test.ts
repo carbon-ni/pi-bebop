@@ -11,7 +11,7 @@ import { pathToFileURL } from "node:url";
 import { errorCode, isCliEntrypoint, runCli } from "./main.ts";
 import { rootCliHelp } from "./root-help.ts";
 import { createCliRegistry } from "./registry.ts";
-import { crewInitHelp, MEMBER_FOCUS_ENTRY_TYPE } from "../domain/index.ts";
+import { crewInitHelp } from "../domain/index.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
 import { decode } from "@toon-format/toon";
@@ -219,8 +219,6 @@ test("leaf -h is a consistent usage error, never silent help (no short aliases)"
 		["member", "follow-up"],
 		["member", "redirect"],
 		["member", "interrupt"],
-		["member", "focus", "set"],
-		["member", "focus", "clear"],
 		["member", "inbox", "send"],
 		["crew", "broadcast"],
 	];
@@ -657,19 +655,8 @@ test("packaged CLI proves a real end-to-end status query with online then offlin
 	const sourceSocket = path.join(controlDir, "source-session-1.sock");
 	const targetSocket = path.join(controlDir, "target.sock");
 
-	// Target session: real dispatcher, joined runtime, reported Focus entry.
+	// Target session: real dispatcher, joined runtime.
 	const target = joinedRuntimeState(targetSocket, [{ name: "Kelly", role: "qa", socketPath: targetSocket }]);
-	target.entries.push({
-		type: "custom",
-		customType: MEMBER_FOCUS_ENTRY_TYPE,
-		data: {
-			version: 1,
-			memberIdentity: targetSocket,
-			action: "set",
-			focus: "Packaged proof",
-			updatedAt: "2026-08-23T12:00:00.000Z",
-		},
-	});
 	const targetServer = await createRpcServer(targetSocket, (command, socket) =>
 		handleCommand({} as never, target.state, command, socket),
 	);
@@ -701,7 +688,6 @@ test("packaged CLI proves a real end-to-end status query with online then offlin
 	assert.equal(onlineDecoded.status, "observed");
 	assert.equal(onlineDecoded.data.status.presence, "online");
 	assert.equal(onlineDecoded.data.status.member.name, "Kelly");
-	assert.equal(onlineDecoded.data.status.focus.text, "Packaged proof");
 	assert.match(onlineDecoded.data.status.observedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 
 	// Offline: the target stops; the source's probe terminates and records its
@@ -937,8 +923,6 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 			["member", "redirect"],
 			["member", "inbox", "send"],
 			["member", "interrupt"],
-			["member", "focus", "set"],
-			["member", "focus", "clear"],
 			["member", "wait-idle"],
 			["crew", "broadcast"],
 			["session", "list"],
@@ -1252,7 +1236,7 @@ test("unknown command exits 2 with valid alternatives before any IO", async () =
 	assert.equal(code, 2);
 	assert.match(
 		text,
-		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member focus set, member focus clear, member inbox send, crew broadcast/,
+		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast/,
 	);
 });
 
@@ -1384,8 +1368,6 @@ test("no arguments shows compact TOON home state with crew init hint when missin
 			"member follow-up",
 			"member redirect",
 			"member interrupt",
-			"member focus set",
-			"member focus clear",
 			"member inbox send",
 			"crew broadcast",
 		]);

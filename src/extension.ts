@@ -16,7 +16,6 @@ import {
 	registerBroadcastToCrewTool,
 	registerInterruptMemberTool,
 	registerGetMemberStatusTool,
-	registerUpdateMemberFocusTool,
 	registerWaitForMemberIdleTool,
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
@@ -194,7 +193,6 @@ export default function (pi: ExtensionAPI) {
 	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
 	registerInterruptMemberTool(pi, state);
 	registerGetMemberStatusTool(pi, state, createMemberStatusTransport());
-	registerUpdateMemberFocusTool(pi, state);
 	registerWaitForMemberIdleTool(pi, state, {
 		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
 		requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {

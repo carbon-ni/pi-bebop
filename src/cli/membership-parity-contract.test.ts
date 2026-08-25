@@ -6,7 +6,6 @@ import { registerGetMemberStatusTool } from "../tools/get-member-status.ts";
 import { registerInterruptMemberTool } from "../tools/interrupt-member.ts";
 import { registerMemberIntentTool } from "../tools/member-tool-adapter.ts";
 import { registerSendToInboxTool } from "../tools/send-to-inbox.ts";
-import { registerUpdateMemberFocusTool } from "../tools/update-member-focus.ts";
 import { registerWaitForMemberIdleTool } from "../tools/wait-for-member-idle.ts";
 import type { MemberMessageErrorCode } from "../application/member-message.ts";
 import type { MemberInboxMessageErrorCode } from "../application/member-inbox-message.ts";
@@ -116,7 +115,6 @@ const expectedTools = [
 	"broadcast_to_crew",
 	"interrupt_member",
 	"get_member_status",
-	"update_member_focus",
 	"wait_for_member_idle",
 ];
 
@@ -249,7 +247,7 @@ test("contract artifact schema is closed to approved keys", () => {
 			"delivery",
 			"cancellation",
 		];
-		if (item.tool === "update_member_focus" || item.tool === "wait_for_member_idle") allowed.push("inputContract");
+		if (item.tool === "wait_for_member_idle") allowed.push("inputContract");
 		if (item.tool === "broadcast_to_crew") allowed.push("idempotency");
 		assertExactKeys(item, allowed, `tools[${item.tool}]`);
 	}
@@ -263,7 +261,6 @@ test("per-tool result shapes are closed (no unapproved fields)", () => {
 		broadcast_to_crew: ["status", "fields", "recipientFields", "recipientDisposition", "recipientPairing", "exit"],
 		interrupt_member: ["status", "fields", "disposition", "exit"],
 		get_member_status: ["status", "fields", "online", "offline", "exit"],
-		update_member_focus: ["status", "fields", "rules", "exit"],
 		wait_for_member_idle: ["status", "fields", "outcome", "idleDisposition", "exit"],
 	};
 	for (const item of contract.tools) {
@@ -338,8 +335,6 @@ const STATUS_FLOW_CODES: readonly MemberStatusFlowErrorCode[] = [
 	"unknown-member",
 	"ambiguous-member",
 	"self-query",
-	"invalid-action",
-	"invalid-focus",
 	"remote-rejected",
 	"malformed-response",
 	"timeout",
@@ -371,7 +366,6 @@ const allowedByTool: Record<string, readonly string[]> = {
 	broadcast_to_crew: [...BROADCAST_FLOW_CODES, ...BROADCAST_RECIPIENT_CODES, ...CLI_LAYER_CODES],
 	interrupt_member: [...INTERRUPT_RESOLUTION_CODES, ...INTERRUPT_FLOW_CODES, ...CLI_LAYER_CODES],
 	get_member_status: [...STATUS_FLOW_CODES, ...CLI_LAYER_CODES],
-	update_member_focus: [...STATUS_FLOW_CODES, ...CLI_LAYER_CODES],
 	wait_for_member_idle: [...IDLE_FLOW_CODES],
 };
 
@@ -427,11 +421,6 @@ test("frozen enums: formats, exits, membership, and result discriminators", () =
 		"broadcast recipient dispositions",
 	);
 	assertArrayEqualSets(
-		entry("update_member_focus").result.status as string[],
-		["updated", "cleared", "unchanged"],
-		"focus status",
-	);
-	assertArrayEqualSets(
 		entry("wait_for_member_idle").result.outcome as string[],
 		["idle", "offline", "timeout"],
 		"idle outcome",
@@ -441,12 +430,11 @@ test("frozen enums: formats, exits, membership, and result discriminators", () =
 		["already-idle", "became-idle"],
 		"idle disposition",
 	);
-	const statusResult = entry("get_member_status").result.online as { activity: string[]; focus: string[] };
+	const statusResult = entry("get_member_status").result.online as { activity: string[] };
 	assertArrayEqualSets(statusResult.activity, ["idle", "busy", "compacting"], "status activity");
-	assertArrayEqualSets(statusResult.focus, ["reported", "unspecified"], "status focus");
 });
 
-test("terminal result.status and ordered result.fields are exact for all eight tools", () => {
+test("terminal result.status and ordered result.fields are exact for all seven tools", () => {
 	const expected: Record<string, { status: unknown; fields: string[] }> = {
 		send_follow_up: {
 			status: "accepted",
@@ -470,11 +458,7 @@ test("terminal result.status and ordered result.fields are exact for all eight t
 		},
 		get_member_status: {
 			status: "observed",
-			fields: ["member.name", "member.role", "presence", "activity", "hasPendingMessages", "focus", "observedAt"],
-		},
-		update_member_focus: {
-			status: ["updated", "cleared", "unchanged"],
-			fields: ["focus.state", "focus.text", "focus.updatedAt"],
+			fields: ["member.name", "member.role", "presence", "activity", "hasPendingMessages", "observedAt"],
 		},
 		wait_for_member_idle: {
 			status: "observed",
@@ -487,23 +471,16 @@ test("terminal result.status and ordered result.fields are exact for all eight t
 	}
 });
 
-test("discriminated nested result shapes are exact for all eight tools", () => {
+test("discriminated nested result shapes are exact for all seven tools", () => {
 	const status = entry("get_member_status");
 	assert.deepEqual(status.result.online, {
 		activity: ["idle", "busy", "compacting"],
 		hasPendingMessages: "boolean",
-		focus: ["reported", "unspecified"],
 	});
 	assert.deepEqual(status.result.offline, {
 		activity: "unavailable",
 		hasPendingMessages: "unavailable",
-		focus: "unavailable",
 	});
-
-	const focus = entry("update_member_focus");
-	assert.deepEqual(focus.result.status, ["updated", "cleared", "unchanged"]);
-	assert.deepEqual(focus.result.fields, ["focus.state", "focus.text", "focus.updatedAt"]);
-	assert.match(String(focus.result.rules), /clear while unspecified is unchanged/i);
 
 	const idle = entry("wait_for_member_idle");
 	assert.deepEqual(idle.result.outcome, ["idle", "offline", "timeout"]);
@@ -535,7 +512,6 @@ test("per-tool exit shapes are closed: success 0, broadcast partial 1", () => {
 		broadcast_to_crew: { allPersistedOrAlready: 0, partial: 1 },
 		interrupt_member: 0,
 		get_member_status: 0,
-		update_member_focus: 0,
 		wait_for_member_idle: 0,
 	};
 	for (const item of contract.tools) {
@@ -562,7 +538,6 @@ test("limits and defaults match the Message Payload and session-list contracts",
 	assert.equal(contract.sharedInputs.message.aggregateMaxUtf8Bytes, 1_000_000);
 	assert.equal(contract.sharedInputs.instructions.maximumItems, 32);
 	assert.equal(contract.sharedInputs.instructions.maxUtf8BytesEach, 100_000);
-	assert.equal(entry("update_member_focus").inputContract?.focusText ? 256 : 0, 256);
 
 	const idle = entry("wait_for_member_idle");
 	assert.equal(idle.defaults.timeout, "5m");
@@ -576,7 +551,6 @@ test("limits and defaults match the Message Payload and session-list contracts",
 	}
 	assert.equal(entry("send_follow_up").defaults.format, "toon");
 	assert.equal(entry("get_member_status").defaults.format, "toon");
-	assert.equal(entry("update_member_focus").defaults.format, "toon");
 	assert.equal(entry("wait_for_member_idle").defaults.format, "toon");
 });
 
@@ -650,7 +624,7 @@ test("Markdown agrees with the JSON on the reconciled terminal shapes", () => {
 // Original TASK-0060 decision-matrix completeness (unchanged)
 // ============================================================================
 
-test("membership CLI decision covers exactly eight registered tools with complete matrix dimensions", () => {
+test("membership CLI decision covers exactly seven registered tools with complete matrix dimensions", () => {
 	assert.deepEqual(contract.scope.tools, expectedTools);
 	assert.deepEqual(
 		contract.tools.map((item) => item.tool),
@@ -670,7 +644,7 @@ test("membership CLI decision covers exactly eight registered tools with complet
 	}
 });
 
-test("matrix input decisions stay aligned with the eight current tool schemas", () => {
+test("matrix input decisions stay aligned with the seven current tool schemas", () => {
 	const registered: Array<{ name: string; parameters: { properties?: Record<string, unknown> } }> = [];
 	const pi = {
 		registerTool: (tool: { name: string; parameters: { properties?: Record<string, unknown> } }) =>
@@ -683,7 +657,6 @@ test("matrix input decisions stay aligned with the eight current tool schemas", 
 	registerBroadcastToCrewTool(pi as never, state as never, { isProjectTrusted: () => true });
 	registerInterruptMemberTool(pi as never, state as never);
 	registerGetMemberStatusTool(pi as never, state as never, {} as never);
-	registerUpdateMemberFocusTool(pi as never, state as never);
 	registerWaitForMemberIdleTool(pi as never, state as never, {} as never, {} as never);
 
 	assert.deepEqual(
@@ -700,7 +673,6 @@ test("matrix input decisions stay aligned with the eight current tool schemas", 
 		broadcast_to_crew: ["instructions", "message"],
 		interrupt_member: ["instructions", "member", "message"],
 		get_member_status: ["member"],
-		update_member_focus: ["action", "focus"],
 		wait_for_member_idle: ["member", "timeout_seconds"],
 	});
 	assert.deepEqual(Object.fromEntries(contract.tools.map((item) => [item.tool, item.inputs])), {
@@ -710,7 +682,6 @@ test("matrix input decisions stay aligned with the eight current tool schemas", 
 		broadcast_to_crew: ["message", "instructions", "sourceSelection", "format"],
 		interrupt_member: ["memberTarget", "message", "instructions", "sourceSelection", "format"],
 		get_member_status: ["memberTarget", "sourceSelection", "format"],
-		update_member_focus: ["sourceSelection", "format", "focusAction", "focusText"],
 		wait_for_member_idle: ["memberTarget", "sourceSelection", "format", "timeout"],
 	});
 	assert.match(String(entry("send_follow_up").defaults.waitFor), /accepted-only/);
@@ -752,7 +723,6 @@ test("source selection is leaf-local, explicit-first, bounded, discoverable, and
 		"model",
 		"instructions",
 		"tools",
-		"focus",
 	]) {
 		assert.ok(contract.sessionList.forbiddenFields.includes(privateField), privateField);
 	}
@@ -773,7 +743,6 @@ test("command names preserve product delivery distinctions and future Inbox name
 	assert.match(entry("broadcast_to_crew").commands[0]!, /crew broadcast/);
 	assert.match(entry("interrupt_member").commands[0]!, /member interrupt/);
 	assert.match(entry("get_member_status").commands[0]!, /member status/);
-	assert.match(entry("update_member_focus").commands[0]!, /member focus set/);
 	assert.match(entry("wait_for_member_idle").commands[0]!, /member wait-idle/);
 
 	for (const tool of ["send_follow_up", "redirect_member"]) {
@@ -783,20 +752,14 @@ test("command names preserve product delivery distinctions and future Inbox name
 	}
 });
 
-test("reviewed status, broadcast, Focus, and idle edge contracts remain explicit", () => {
+test("reviewed status, broadcast, and idle edge contracts remain explicit", () => {
 	const status = entry("get_member_status");
 	assert.match(status.delivery, /successful offline\/unavailable/i);
-	assert.deepEqual((status.result.offline as Record<string, unknown>).focus, "unavailable");
 
 	const broadcast = entry("broadcast_to_crew");
 	assert.match(broadcast.cancellation, /completed writes remain/i);
 	assert.match(broadcast.cancellation, /identical retry reuses ids/i);
 	assert.ok(broadcast.errors.includes("outcome-unknown"));
-
-	const focus = entry("update_member_focus");
-	assert.match(focus.commands[0]!, /\[--\] <text>/);
-	assert.match(String(focus.inputContract?.dashLeading), /preserved verbatim/);
-	assert.match(String(focus.result.rules), /clear while unspecified is unchanged/i);
 
 	const idle = entry("wait_for_member_idle");
 	assert.match(String(idle.inputContract?.timeout), /exact whole 1–600 seconds/);
