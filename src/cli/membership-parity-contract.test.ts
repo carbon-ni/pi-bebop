@@ -684,7 +684,7 @@ test("matrix input decisions stay aligned with the eight current tool schemas", 
 	registerInterruptMemberTool(pi as never, state as never);
 	registerGetMemberStatusTool(pi as never, state as never, {} as never);
 	registerUpdateMemberFocusTool(pi as never, state as never);
-	registerWaitForMemberIdleTool(pi as never, state as never, {} as never);
+	registerWaitForMemberIdleTool(pi as never, state as never, {} as never, {} as never);
 
 	assert.deepEqual(
 		registered.map((tool) => tool.name),

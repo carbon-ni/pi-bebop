@@ -4,6 +4,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
+
+function within<T>(ms: number, promise: Promise<T>): Promise<T> {
+	let handle: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		handle = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+	});
+	return Promise.race([promise, deadline]).finally(() => clearTimeout(handle));
+}
 import {
 	mapIdleRemoteError,
 	mapIdleSocketError,
@@ -225,7 +233,16 @@ test("keeps an accepted member request socket open for exactly one correlated up
 				{ timeout: 1000, onUpdate: (update) => updates.push(update) },
 			);
 			assert.equal(result.response.success, true);
-			await new Promise((resolve) => setTimeout(resolve, 10));
+			// Deterministic: bounded poll instead of a fixed wall-clock window.
+			await within(
+				2_000,
+				(async () => {
+					for (;;) {
+						if (updates.length >= 1) return;
+						await new Promise((resolve) => setTimeout(resolve, 5));
+					}
+				})(),
+			);
 			assert.equal(updates.length, 1);
 			result.close();
 		},

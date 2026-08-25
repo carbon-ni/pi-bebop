@@ -85,12 +85,21 @@ function requireJoined(surface: MemberIdleWaitSurface): CrewMembership {
 	return membership;
 }
 
+export type PreparedMemberIdleWait =
+	| { readonly kind: "ready"; readonly target: CrewMember; readonly timeoutSeconds: number }
+	| { readonly kind: "offline"; readonly target: CrewMember };
+
 export function createMemberIdleWaitFlow(surface: MemberIdleWaitSurface) {
-	const waitForMemberIdle = async (input: {
+	/**
+	 * TASK-0077: validate and probe without ever blocking on the subscription.
+	 * Reachability failure is a compact offline outcome; success arms the
+	 * yielding wait (the tool opens the one-shot subscription fire-and-forget
+	 * and returns immediately).
+	 */
+	const prepareMemberIdleWait = async (input: {
 		member: string;
 		timeoutSeconds?: number;
-		signal?: AbortSignal;
-	}): Promise<MemberIdleWaitResult> => {
+	}): Promise<PreparedMemberIdleWait> => {
 		const membership = requireJoined(surface);
 		let timeoutSeconds: number;
 		try {
@@ -106,18 +115,29 @@ export function createMemberIdleWaitFlow(surface: MemberIdleWaitSurface) {
 		if (resolution.ok === false)
 			throw new MemberIdleWaitFlowError(resolution.code, `Idle wait target rejected: ${resolution.code}`);
 		const target = resolution.target;
-		const observedAt = surface.now();
 
 		// Reachability is the offline boundary: failure is a compact offline result.
 		const alive = await surface.probeEndpoint(target.socketPath);
-		if (!alive)
-			return createMemberIdleWaitResult(
-				{ name: target.name, role: target.role },
-				{ outcome: "offline" },
-				observedAt,
-			);
+		if (!alive) return { kind: "offline", target };
+		return { kind: "ready", target, timeoutSeconds };
+	};
 
-		const outcome = await surface.requestIdleWait(target.socketPath, memberLabel, {
+	const waitForMemberIdle = async (input: {
+		member: string;
+		timeoutSeconds?: number;
+		signal?: AbortSignal;
+	}): Promise<MemberIdleWaitResult> => {
+		const prepared = await prepareMemberIdleWait(input);
+		if (prepared.kind === "offline")
+			return createMemberIdleWaitResult(
+				{ name: prepared.target.name, role: prepared.target.role },
+				{ outcome: "offline" },
+				surface.now(),
+			);
+		const { target, timeoutSeconds } = prepared;
+		const observedAt = surface.now();
+
+		const outcome = await surface.requestIdleWait(target.socketPath, input.member.trim(), {
 			timeoutSeconds,
 			signal: input.signal,
 		});
@@ -148,5 +168,5 @@ export function createMemberIdleWaitFlow(surface: MemberIdleWaitSurface) {
 		return result;
 	};
 
-	return { waitForMemberIdle };
+	return { waitForMemberIdle, prepareMemberIdleWait };
 }

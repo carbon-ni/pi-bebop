@@ -307,7 +307,21 @@ const MemberUpdateResponseSchema = Type.Object(
 );
 const MemberUpdateMechanicalSchema = Type.Object(
 	{
-		kind: Type.Union([Type.Literal("idle-without-response"), Type.Literal("offline"), Type.Literal("timeout")]),
+		kind: Type.Union([Type.Literal("offline"), Type.Literal("timeout")]),
+		requestId: RequestOutcomeRequestIdSchema,
+		member: Type.Object(
+			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+// TASK-0080: internal, NONTERMINAL first-idle notification (request-scoped).
+// It is not a Request outcome; the source uses it only to arm the grace window
+// once. Payload carries the original requestId + member (idle attribution).
+const MemberUpdateIdleSchema = Type.Object(
+	{
+		kind: Type.Literal("idle"),
 		requestId: RequestOutcomeRequestIdSchema,
 		member: Type.Object(
 			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
@@ -320,11 +334,12 @@ export const MemberUpdateNotificationSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSON_RPC_VERSION),
 		method: Type.Literal("member.update"),
-		params: Type.Union([MemberUpdateResponseSchema, MemberUpdateMechanicalSchema]),
+		params: Type.Union([MemberUpdateResponseSchema, MemberUpdateMechanicalSchema, MemberUpdateIdleSchema]),
 	},
 	{ additionalProperties: false },
 );
 export const MemberUpdateResultSchema = Type.Union([MemberUpdateResponseSchema, MemberUpdateMechanicalSchema]);
+export const MemberUpdateIdleSchemaExport = MemberUpdateIdleSchema;
 
 export const MemberInterruptParamsSchema = Type.Object(
 	{
@@ -718,8 +733,11 @@ export type MemberRequestParams = Static<typeof MemberRequestParamsSchema>;
 export type MemberRequestCommand = Static<typeof MemberRequestCommandSchema>;
 export type MemberRequestResult = Static<typeof MemberRequestResultSchema>;
 export type MemberResponseParams = Static<typeof MemberResponseParamsSchema>;
-export type MemberResponseCommand = Static<typeof MemberResponseCommandSchema>;
 export type MemberUpdateResult = Static<typeof MemberUpdateResultSchema>;
+export type MemberUpdateIdle = Static<typeof MemberUpdateIdleSchema>;
+/** TASK-0080: everything a request channel may deliver: terminals + the internal nonterminal idle. */
+export type MemberChannelUpdate = MemberUpdateResult | MemberUpdateIdle;
+export type MemberResponseCommand = Static<typeof MemberResponseCommandSchema>;
 export type MemberFocusParams = Static<typeof MemberFocusParamsSchema>;
 export type MemberFocusCommand = Static<typeof MemberFocusCommandSchema>;
 export type MemberFocusResult = Static<typeof MemberFocusResultSchema>;
@@ -1056,7 +1074,7 @@ export function buildTurnEndNotification(
 	if (!isTurnEndNotification(value)) throw new Error("Invalid turn-end notification");
 	return value;
 }
-export function buildMemberUpdateNotification(update: MemberUpdateResult): RpcNotification {
+export function buildMemberUpdateNotification(update: MemberChannelUpdate): RpcNotification {
 	const value: RpcNotification = { jsonrpc: JSON_RPC_VERSION, method: "member.update", params: update };
 	if (!isMemberUpdateNotification(value)) throw new Error("Invalid member update notification");
 	return value;

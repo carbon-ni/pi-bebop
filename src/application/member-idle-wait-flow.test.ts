@@ -52,6 +52,38 @@ function surface(overrides: Partial<MemberIdleWaitSurface> = {}): MemberIdleWait
 	} as never;
 }
 
+test("TASK-0077: prepareMemberIdleWait validates and probes without ever blocking", async () => {
+	const ready = await createMemberIdleWaitFlow(surface()).prepareMemberIdleWait({
+		member: "Kelly",
+		timeoutSeconds: 42,
+	});
+	assert.deepEqual(ready, { kind: "ready", target: members[1], timeoutSeconds: 42 });
+
+	const offlineSurface = surface({ probeEndpoint: async () => false });
+	const offline = await createMemberIdleWaitFlow(offlineSurface).prepareMemberIdleWait({ member: "Kelly" });
+	assert.deepEqual(offline, { kind: "offline", target: members[1] });
+	assert.equal(offlineSurface.requests.length, 0, "offline probe must never open a subscription");
+
+	// Validation still rejects before any IO.
+	await assert.rejects(
+		() =>
+			createMemberIdleWaitFlow(surface({ getMembership: () => null })).prepareMemberIdleWait({ member: "Kelly" }),
+		(error: unknown) => error instanceof MemberIdleWaitFlowError && error.code === "not-joined",
+	);
+	await assert.rejects(
+		() => createMemberIdleWaitFlow(surface({ isTrusted: () => false })).prepareMemberIdleWait({ member: "Kelly" }),
+		(error: unknown) => error instanceof MemberIdleWaitFlowError && error.code === "untrusted",
+	);
+	await assert.rejects(
+		() => createMemberIdleWaitFlow(surface()).prepareMemberIdleWait({ member: "Kelly", timeoutSeconds: 0 }),
+		(error: unknown) => error instanceof MemberIdleWaitFlowError && error.code === "invalid-timeout",
+	);
+	await assert.rejects(
+		() => createMemberIdleWaitFlow(surface()).prepareMemberIdleWait({ member: "Missing" }),
+		(error: unknown) => error instanceof MemberIdleWaitFlowError && error.code === "unknown-member",
+	);
+});
+
 test("waitForMemberIdle requires joined and trusted membership before any IO", async () => {
 	const notJoined = createMemberIdleWaitFlow(surface({ getMembership: () => null }));
 	await assert.rejects(

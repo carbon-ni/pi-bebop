@@ -117,33 +117,40 @@ test("terminal response is buffered exactly once and wait returns it", async () 
 	assert.deepEqual(second, { ok: false, code: "no-pending-requests" });
 });
 
-test("TASK-0075: target idle without Response resolves the wait immediately, never timeout", async () => {
-	const { flow, emit } = setup();
-	await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
-	const pending = waitForOutcome(flow);
-	emit({ kind: "idle-without-response", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
-	const update = await within(
-		2_000,
-		pending,
-		"wait stayed blocked after target idle without Response (outbound idle was never armed)",
-	);
-	assert.deepEqual(update, {
-		kind: "idle-without-response",
+test("TASK-0077: hasPendingRequestOutcome covers pending outbound and buffered terminal updates", async () => {
+	const setupResult = setup();
+	assert.equal(setupResult.flow.hasPendingRequestOutcome(), false);
+	await setupResult.flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
+	assert.equal(setupResult.flow.hasPendingRequestOutcome(), true, "pending outbound request");
+	setupResult.emit({
+		kind: "response",
 		requestId: "request-1",
 		member: { name: "qa", role: "reviewer" },
+		message: "Done",
+		instructions: [],
 	});
-	// Terminal exactly once: a second wait has nothing pending.
-	assert.deepEqual(
-		flow.waitForRequestOutcome(() => undefined),
-		{ ok: false, code: "no-pending-requests" },
-	);
+	assert.equal(setupResult.flow.hasPendingRequestOutcome(), true, "terminal update buffered until consumed");
+	setupResult.flow.waitForRequestOutcome(() => undefined);
+	assert.equal(setupResult.flow.hasPendingRequestOutcome(), false);
 });
 
-test("TASK-0075: settle before wait is buffered and returns immediately without another lifecycle event", async () => {
-	const { flow, emit } = setup();
+test("TASK-0080: idle before the wait is nonterminal; post-idle grace expiry is buffered and returned immediately", async () => {
+	const captured: Array<() => void> = [];
+	const { flow, emit } = setup({
+		setTimeout: (callback) => {
+			captured.push(callback);
+			return captured.length;
+		},
+		clearTimeout: () => undefined,
+	});
 	await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
-	// The target settles BEFORE the source ever waits.
-	emit({ kind: "idle-without-response", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
+	// The target's internal idle notification arrives BEFORE the source waits.
+	// It is NONTERMINAL: it only arms the post-idle grace.
+	emit({ kind: "idle", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
+	assert.equal(flow.registry.outboundCount(), 1, "idle must be nonterminal");
+	// Post-idle grace expires without a Response -> terminal, buffered.
+	const graceTimer = captured[captured.length - 1];
+	graceTimer();
 	const waited = flow.waitForRequestOutcome(() => {
 		throw new Error("buffered outcome must not require another lifecycle event");
 	});
@@ -151,9 +158,10 @@ test("TASK-0075: settle before wait is buffered and returns immediately without 
 	if (waited.ok) {
 		assert.equal(waited.kind, "update");
 		assert.deepEqual(waited.update, {
-			kind: "idle-without-response",
+			kind: "timeout",
 			requestId: "request-1",
 			member: { name: "qa", role: "reviewer" },
+			reason: "response-after-idle",
 		});
 	}
 	// Terminal exactly once: nothing is pending afterwards.
@@ -189,9 +197,11 @@ test("TASK-0075: a broken inbound channel never leaves other settled requests st
 	flow.acceptInboundRequest("in-ok");
 	flow.armInboundRequest("in-ok");
 	await flow.settleAllInboundIdle();
-	assert.equal(sent.length, 1, "only the healthy channel receives its idle update");
+	assert.equal(sent.length, 1, "only the healthy channel receives its idle notification");
 	assert.equal((sent[0] as { requestId: string }).requestId, "in-ok");
-	assert.equal(flow.registry.inboundCount(), 0, "both inbound requests must settle independently");
+	// TASK-0080: idle is NONTERMINAL - both inbound requests keep their slots
+	// until a real terminal (response/offline/grace/hard) closes them.
+	assert.equal(flow.registry.inboundCount(), 2, "idle must preserve inbound slots");
 });
 
 function waitForOutcome(flow: MemberRequestFlow): Promise<unknown> {

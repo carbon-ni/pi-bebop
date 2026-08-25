@@ -72,16 +72,16 @@ Online with member-reported Focus:
 
 ```json
 {
-  "member": { "name": "Bob", "role": "developer" },
-  "presence": "online",
-  "activity": "busy",
-  "hasPendingMessages": true,
-  "focus": {
-    "state": "reported",
-    "text": "Implementing Inbox enqueue",
-    "updatedAt": "2026-08-23T12:00:00.000Z"
-  },
-  "observedAt": "2026-08-23T12:03:00.000Z"
+	"member": { "name": "Bob", "role": "developer" },
+	"presence": "online",
+	"activity": "busy",
+	"hasPendingMessages": true,
+	"focus": {
+		"state": "reported",
+		"text": "Implementing Inbox enqueue",
+		"updatedAt": "2026-08-23T12:00:00.000Z"
+	},
+	"observedAt": "2026-08-23T12:03:00.000Z"
 }
 ```
 
@@ -89,12 +89,12 @@ Online without Focus:
 
 ```json
 {
-  "member": { "name": "Bob", "role": "developer" },
-  "presence": "online",
-  "activity": "idle",
-  "hasPendingMessages": false,
-  "focus": { "state": "unspecified" },
-  "observedAt": "2026-08-23T12:03:00.000Z"
+	"member": { "name": "Bob", "role": "developer" },
+	"presence": "online",
+	"activity": "idle",
+	"hasPendingMessages": false,
+	"focus": { "state": "unspecified" },
+	"observedAt": "2026-08-23T12:03:00.000Z"
 }
 ```
 
@@ -102,12 +102,12 @@ Offline:
 
 ```json
 {
-  "member": { "name": "Bob", "role": "developer" },
-  "presence": "offline",
-  "activity": "unavailable",
-  "hasPendingMessages": "unavailable",
-  "focus": { "state": "unavailable" },
-  "observedAt": "2026-08-23T12:03:00.000Z"
+	"member": { "name": "Bob", "role": "developer" },
+	"presence": "offline",
+	"activity": "unavailable",
+	"hasPendingMessages": "unavailable",
+	"focus": { "state": "unavailable" },
+	"observedAt": "2026-08-23T12:03:00.000Z"
 }
 ```
 
@@ -126,11 +126,11 @@ Pi `appendEntry`; TASK-0046 only defines and validates the data contract:
 
 ```json
 {
-  "version": 1,
-  "memberIdentity": "/canonical/configured/member.sock",
-  "action": "set",
-  "focus": "Implementing status schema",
-  "updatedAt": "2026-08-23T12:00:00.000Z"
+	"version": 1,
+	"memberIdentity": "/canonical/configured/member.sock",
+	"action": "set",
+	"focus": "Implementing status schema",
+	"updatedAt": "2026-08-23T12:00:00.000Z"
 }
 ```
 
@@ -138,10 +138,10 @@ Clear event omits `focus`:
 
 ```json
 {
-  "version": 1,
-  "memberIdentity": "/canonical/configured/member.sock",
-  "action": "clear",
-  "updatedAt": "2026-08-23T12:05:00.000Z"
+	"version": 1,
+	"memberIdentity": "/canonical/configured/member.sock",
+	"action": "clear",
+	"updatedAt": "2026-08-23T12:05:00.000Z"
 }
 ```
 

@@ -29,23 +29,23 @@ with catchable errors and app-owned exit assignment:
 
 ## Evidence (spike, 2026-08-26, `.tmp/cli-spike/`)
 
-| Criterion | citty 0.2.2 | Commander 15.0.0 | Cleye 2.6.0 |
-| --- | --- | --- | --- |
-| License | MIT | MIT | MIT |
-| ESM | yes | yes | yes |
-| Engines | none declared | node >=22.12.0 | none declared |
-| Runtime deps | 0 | 0 | 2 (type-flag, terminal-columns) |
-| Tarball size | 10,298 B | 52,736 B | 24,621 B |
-| Minified bundle delta (parse spike) | +3,982 B | +39,177 B | +41,901 B |
-| Unknown flag | **silently accepted** | CommanderError (catchable) | **silently accepted** |
-| Duplicate flag | last wins silently | last wins silently | last wins silently |
-| Unknown command | runMain exits(1), error on stderr | CommanderError excessArguments (catchable) | n/a (not spiked) |
-| Missing value | swallowed | CommanderError optionMissingArgument | n/a |
-| `--flag=value` | works | works | works |
-| `--` sentinel escape | not supported | not supported (different semantics) | n/a |
-| No implicit process exit | ✗ runMain exits | ✓ exitOverride throws | n/a |
-| Help ANSI when piped | **yes** (env-dependent) | **no (plain)** | **yes** |
-| Parent run after subcommand | **yes (bug)** | no | n/a |
+| Criterion                           | citty 0.2.2                       | Commander 15.0.0                           | Cleye 2.6.0                     |
+| ----------------------------------- | --------------------------------- | ------------------------------------------ | ------------------------------- |
+| License                             | MIT                               | MIT                                        | MIT                             |
+| ESM                                 | yes                               | yes                                        | yes                             |
+| Engines                             | none declared                     | node >=22.12.0                             | none declared                   |
+| Runtime deps                        | 0                                 | 0                                          | 2 (type-flag, terminal-columns) |
+| Tarball size                        | 10,298 B                          | 52,736 B                                   | 24,621 B                        |
+| Minified bundle delta (parse spike) | +3,982 B                          | +39,177 B                                  | +41,901 B                       |
+| Unknown flag                        | **silently accepted**             | CommanderError (catchable)                 | **silently accepted**           |
+| Duplicate flag                      | last wins silently                | last wins silently                         | last wins silently              |
+| Unknown command                     | runMain exits(1), error on stderr | CommanderError excessArguments (catchable) | n/a (not spiked)                |
+| Missing value                       | swallowed                         | CommanderError optionMissingArgument       | n/a                             |
+| `--flag=value`                      | works                             | works                                      | works                           |
+| `--` sentinel escape                | not supported                     | not supported (different semantics)        | n/a                             |
+| No implicit process exit            | ✗ runMain exits                   | ✓ exitOverride throws                      | n/a                             |
+| Help ANSI when piped                | **yes** (env-dependent)           | **no (plain)**                             | **yes**                         |
+| Parent run after subcommand         | **yes (bug)**                     | no                                         | n/a                             |
 
 Current baseline bundle: 356,717 B (`dist/cli/main.js`); packed tarball
 210,672 B. Commander adds ~39 KB (~11%) to the bundled CLI.

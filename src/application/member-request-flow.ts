@@ -1,8 +1,15 @@
-import { isMessagePayload, type MemberRequestCommand, type MemberUpdateResult } from "../domain/index.ts";
+import {
+	isMessagePayload,
+	type MemberRequestCommand,
+	type MemberUpdateResult,
+	type MemberChannelUpdate,
+} from "../domain/index.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
 import {
 	RequestOutcomeRegistry,
 	DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
+	DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
+	MEMBER_REQUEST_ACCEPT_DEADLINE_MS,
 	type RequestOutcome,
 	type MemberRequestInbound,
 	type MemberRequestMember,
@@ -13,12 +20,12 @@ export interface MemberRequestTransport {
 	open(
 		endpoint: string,
 		command: MemberRequestCommand,
-		options: { signal?: AbortSignal; timeoutMs: number; onUpdate: (update: MemberUpdateResult) => void },
+		options: { signal?: AbortSignal; timeoutMs: number; onUpdate: (update: MemberChannelUpdate) => void },
 	): Promise<{ close: () => void }>;
 	respond(channel: MemberRequestResponseChannel, update: MemberUpdateResult): Promise<void>;
 }
 export interface MemberRequestResponseChannel {
-	readonly send: (update: MemberUpdateResult) => Promise<void>;
+	readonly send: (update: import("../domain/index.ts").MemberChannelUpdate) => Promise<void>;
 	readonly close?: () => void;
 }
 export interface MemberRequestFlowDependencies {
@@ -28,6 +35,8 @@ export interface MemberRequestFlowDependencies {
 	readonly createRequestId?: () => string;
 	readonly setTimeout?: (callback: () => void, delayMs: number) => ReturnType<typeof globalThis.setTimeout>;
 	readonly clearTimeout?: (handle: ReturnType<typeof globalThis.setTimeout>) => void;
+	/** TASK-0080: queued exactly once at the target's first post-context idle. */
+	readonly onFirstIdleReminder?: (requestId: string, requester: MemberRequestMember) => void;
 }
 export interface SendMemberRequestInput {
 	readonly membership: CrewMembership | null;
@@ -35,6 +44,7 @@ export interface SendMemberRequestInput {
 	readonly message: string;
 	readonly instructions?: readonly string[];
 	readonly timeoutSeconds?: number;
+	readonly maxWaitSeconds?: number;
 	readonly signal?: AbortSignal;
 }
 export interface SendMemberRequestAccepted {
@@ -53,6 +63,7 @@ export class MemberRequestFlow {
 	private readonly closes = new Map<string, () => void>();
 	private readonly completed = new Set<string>();
 	private readonly timers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
+	private readonly idleNotified = new Set<string>();
 	private readonly now: () => number;
 	private readonly createRequestId: () => string;
 	private readonly setTimer: (callback: () => void, delayMs: number) => ReturnType<typeof globalThis.setTimeout>;
@@ -82,22 +93,35 @@ export class MemberRequestFlow {
 			throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
 		const requestId = this.createRequestId();
 		const timeoutSeconds = input.timeoutSeconds ?? DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS;
+		const maxWaitSeconds = input.maxWaitSeconds ?? DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS;
 		const registration = this.registry.registerOutbound({
 			requestId,
 			member: { name: target.name, role: target.role },
 			now: this.now(),
 			timeoutSeconds,
+			maxWaitSeconds,
 		});
 		if (registration.ok === false) throw new Error(registration.code);
-		const timer = this.setTimer(() => {
-			const outcome = this.registry.resolveTimeout(requestId);
-			if (outcome.ok) {
-				this.completed.add(requestId);
-				this.finishRequest(requestId);
+		// TASK-0080: the acceptance window is FIXED (5s). Failure here leaves no
+		// accepted slot and starts neither Response timer.
+		let accepted = false;
+		const onUpdate = (update: MemberChannelUpdate) => {
+			if (update.kind === "idle") {
+				// Internal nonterminal idle: arm the post-idle grace ONCE. Never
+				// resolves, never finishes the request, never consumes a wait.
+				const armed = this.registry.armOutboundIdle(requestId, this.now());
+				if (armed.ok && !this.timers.has(`grace:${requestId}`)) {
+					const graceTimer = this.setTimer(() => {
+						this.resolveTerminal(requestId, "response-after-idle");
+					}, timeoutSeconds * 1000);
+					this.timers.set(`grace:${requestId}`, graceTimer);
+				}
+				return;
 			}
-		}, timeoutSeconds * 1000);
-		this.timers.set(requestId, timer);
-		const onUpdate = (update: MemberUpdateResult) => {
+			// Terminal updates. Precedence response > offline > timeout is
+			// enforced by the registry's atomic first-claim: a Response arriving
+			// first in the same handler beats a later socket-close offline, and a
+			// terminal already claimed rejects every later transition.
 			if (update.kind === "response")
 				this.registry.resolveResponse({
 					requestId,
@@ -105,9 +129,8 @@ export class MemberRequestFlow {
 					message: update.message,
 					instructions: update.instructions ?? [],
 				});
-			else if (update.kind === "idle-without-response") this.registry.resolveIdle(requestId);
 			else if (update.kind === "offline") this.registry.resolveOffline(requestId);
-			else this.registry.resolveTimeout(requestId);
+			else this.registry.resolveTimeout(requestId, "max-wait");
 			this.completed.add(requestId);
 			this.finishRequest(requestId);
 		};
@@ -116,35 +139,63 @@ export class MemberRequestFlow {
 			const opened = await this.dependencies.transport.open(
 				endpoint,
 				{ type: "member_request", requestId, payload, timeoutSeconds },
-				{ signal: input.signal, timeoutMs: timeoutSeconds * 1000, onUpdate },
+				{ signal: input.signal, timeoutMs: MEMBER_REQUEST_ACCEPT_DEADLINE_MS, onUpdate },
 			);
 			this.closes.set(requestId, opened.close);
 			this.channels.set(requestId, { send: async () => undefined });
 			if (this.completed.delete(requestId)) this.finishRequest(requestId);
-			const accepted = this.registry.acceptOutbound(requestId);
-			if (accepted.ok === false) throw new Error(accepted.code);
-			// TASK-0075: transport.open resolves only after the target's
-			// pi.sendMessage acceptance, so idle handling is armed here — never
-			// before dispatch and never from a pre-context idle. Without this the
-			// target's later `idle-without-response` is dropped and the
-			// wait_for_request_outcome waiter stays blocked until the deadline.
-			this.registry.armOutboundIdle(requestId);
+			const acceptedOutcome = this.registry.acceptOutbound(requestId);
+			if (acceptedOutcome.ok === false) throw new Error(acceptedOutcome.code);
+			accepted = true;
+			// TASK-0080: hard safety starts exactly once at accepted delivery.
+			const hardTimer = this.setTimer(() => {
+				this.resolveTerminal(requestId, "max-wait");
+			}, maxWaitSeconds * 1000);
+			this.timers.set(`hard:${requestId}`, hardTimer);
 			return { requestId, member: target };
 		} catch (error) {
-			this.clearTimer(this.timers.get(requestId)!);
-			this.timers.delete(requestId);
-			if (error instanceof RpcProtocolError && error.code === "outcome-unknown") {
-				this.registry.closeOutcomeUnknown(requestId);
-				this.finishRequest(requestId);
-			} else this.registry.failBeforeAcceptance(requestId);
+			if (accepted) this.finishRequest(requestId);
+			else {
+				this.clearTimer(this.timers.get(`grace:${requestId}`)!);
+				this.timers.delete(`grace:${requestId}`);
+				if (error instanceof RpcProtocolError && error.code === "outcome-unknown") {
+					this.registry.closeOutcomeUnknown(requestId);
+				} else this.registry.failBeforeAcceptance(requestId);
+			}
 			throw error;
 		}
 	}
 
+	/** TASK-0080: resolve a timeout terminal with its reason and finish exactly once.
+	 * Exact grace/hard tie resolves as response-after-idle (the more specific
+	 * post-idle outcome); hard truncates a LATER grace deadline (max-wait). */
+	private resolveTerminal(requestId: string, reason: "max-wait" | "response-after-idle"): void {
+		if (reason === "max-wait") {
+			const request = this.registry.getOutbound(requestId);
+			if (
+				request?.idleArmed &&
+				request.idleAt !== undefined &&
+				request.idleAt + request.timeoutSeconds * 1000 <= this.now()
+			)
+				reason = "response-after-idle";
+		}
+		const outcome = this.registry.resolveTimeout(requestId, reason);
+		if (!outcome.ok) return; // already terminal / unknown: first-terminal-wins
+		this.completed.add(requestId);
+		this.finishRequest(requestId);
+	}
+
 	private finishRequest(requestId: string): void {
-		const timer = this.timers.get(requestId);
-		if (timer !== undefined) this.clearTimer(timer);
-		this.timers.delete(requestId);
+		// TASK-0080: clear both Response timers (hard:<id>, grace:<id>) plus any
+		// legacy single-key timer, exactly once; a leaked timer would otherwise
+		// keep the event loop alive long after the request is terminal.
+		for (const key of [...this.timers.keys()]) {
+			if (key === requestId || key === `hard:${requestId}` || key === `grace:${requestId}`) {
+				const timer = this.timers.get(key);
+				if (timer !== undefined) this.clearTimer(timer);
+				this.timers.delete(key);
+			}
+		}
 		const channel = this.channels.get(requestId);
 		this.channels.delete(requestId);
 		channel?.close?.();
@@ -159,6 +210,11 @@ export class MemberRequestFlow {
 
 	waitForRequestOutcome(onUpdate: (update: RequestOutcome) => void) {
 		return this.registry.waitForUpdate(onUpdate);
+	}
+
+	/** TASK-0077: true when a Request outcome is already pending or buffered. */
+	hasPendingRequestOutcome(): boolean {
+		return this.registry.hasPendingOutcome();
 	}
 
 	registerInboundRequest(input: {
@@ -224,16 +280,23 @@ export class MemberRequestFlow {
 	}
 
 	async settleInboundIdle(requestId: string): Promise<void> {
-		const closed = this.registry.resolveInboundIdle(requestId);
-		if (!closed.ok) return;
-		await this.channels.get(requestId)?.send({
-			kind: "idle-without-response",
-			requestId,
-			member: closed.value.requester,
-		});
-		const idleChannel = this.channels.get(requestId);
-		this.channels.delete(requestId);
-		idleChannel?.close?.();
+		// TASK-0080: first valid post-context idle is NONTERMINAL. It arms the
+		// inbound idle flag once, sends the internal nonresuming member.request.idle
+		// notification to the source (which arms ITS grace once), and queues
+		// exactly one reminder. The request/channel/slot stay alive until a real
+		// terminal (response, offline, grace, hard).
+		const armed = this.registry.armInboundIdleNow(requestId, this.now());
+		if (!armed.ok) return;
+		if (this.idleNotified.has(requestId)) return;
+		this.idleNotified.add(requestId);
+		const request = armed.value;
+		// Reminder first: a broken notification channel must never lose the
+		// exactly-once best-effort reminder (TASK-0080).
+		this.dependencies.onFirstIdleReminder?.(requestId, request.requester);
+		const channel = this.channels.get(requestId);
+		if (channel) {
+			await channel.send({ kind: "idle", requestId, member: request.requester });
+		}
 	}
 
 	async settleAllInboundIdle(): Promise<void> {

@@ -19,8 +19,9 @@ Response or implying completion, correctness, authority, or progress.
 - **Response** — assistant output correlated to one Member request. Ordinary
   Follow-up has no implicit Response expectation.
 - **Request outcome** — the oldest terminal outcome of one outbound Member
-  request: Response, idle without Response, offline, or timeout. It is not a
-  progress stream, task state, or Crew activity.
+  request: Response, offline, timeout after idle, or timeout max-wait. It is
+  not a progress stream, task state, or Crew activity. Idle itself is NOT an
+  outcome: the responder gets a short bounded post-idle grace to report.
 - **Request ID** — an opaque bounded identifier correlating a Member request
   with its Response. It is not a Delivery ID, task ID, proof of identity, or
   authority credential.
@@ -48,8 +49,20 @@ Defaults:
 - normal non-interrupting delivery;
 - exactly one Response expected;
 - no extra instructions;
-- 300-second deadline;
+- `timeout_seconds`: post-idle Response grace, integer 1-600, default 120.
+  Starts once at the responder's first post-context idle; a Response during the
+  grace wins.
+- `max_wait_seconds`: absolute accepted-request safety, integer 60-7200,
+  default 1800, strictly greater than `timeout_seconds`. Starts at accepted
+  delivery; may truncate a late grace.
 - return immediately after accepted delivery with an opaque Request ID.
+
+Migration: the old provisional `timeout_seconds` (a pre-dispatch total
+deadline, default 300) is now `max_wait_seconds`. Callers wanting the old
+configured post-accept safety pass that value as `max_wait_seconds`; the fixed
+5-second acceptance phase means it is not temporally identical (documented
+breaking provisional-contract change). The 5-second acceptance window is the
+`MEMBER_REQUEST_ACCEPT_DEADLINE_MS` constant and is never configurable.
 
 Use ordinary `send_follow_up` when no Response is required. This avoids
 silently creating pending Member requests for information-only communication.
@@ -62,7 +75,7 @@ A QA request that needs a verdict is a Member request, not a Follow-up:
 # Requester (e.g. a developer):
 send_member_request({ member: "Kelly", message: "QA the TASK-0076 changes and report a verdict or blocker" })
 ... no immediate coordination action remains ...
-wait_for_request_outcome()   # requester-side, returns the QA verdict or idle/offline/timeout
+wait_for_request_outcome()   # requester-side, returns the QA verdict or offline/timeout
 
 # Responder (Kelly): the inbound message is visibly marked [member request]
 # with the opaque Request ID; she does the QA work, then:
@@ -103,17 +116,26 @@ appropriate when no immediate coordination action remains.
 
 ## Request outcomes
 
+Terminal outcomes: **Response**, **Offline**, **Timeout after idle**, and
+**Timeout max-wait**. Mechanical idle itself is NOT an outcome; see
+_Awaiting Response_ below.
+
 ### Response
 
 A Response includes the configured member, opaque Request ID, message, and
 ordered instructions. It proves only that correlated assistant output was
 received—not completion, correctness, verification, ownership, or task success.
 
-### Idle without Response
+### Awaiting Response (nonterminal, internal)
 
-The Member request entered the target model context and the target Pi settled
-without a Response. It proves neither that work finished nor that a Response
-will follow. Do not infer progress or completion from it.
+The responder's first post-context idle is a nonterminal, internal signal, never
+an outcome. It arms the source's bounded Response grace, queues the responder's
+one-time reminder with the original Request ID, and preserves the parked
+outbound slot; the Request stays nonterminal until a terminal outcome arrives.
+A Response delivered before the grace, during the reminder, or during the grace
+window always wins. The reminder is queued before the idle notification so a
+broken channel never loses it, and is inert once the Request is terminal. A
+Response after the grace window is rejected as already-terminal.
 
 ### Offline
 
@@ -121,10 +143,18 @@ The request channel disconnected before a Response. Correlated requests are
 transient. For delivery that must survive absence or restart, create a durable
 Inbox message instead.
 
-### Timeout
+### Timeout after idle
 
-The finite Request deadline expired. Timeout never retracts accepted work and
-does not prove work stopped, failed, or completed.
+The post-idle Response grace expired without a Response (default 120s). The
+responder was idle-awaiting-response and the one-time reminder had already been
+queued. Timeout never retracts accepted work and does not prove work stopped,
+failed, or completed.
+
+### Timeout max-wait
+
+The absolute accepted-request safety deadline (`max_wait_seconds`, default
+1800s) expired before any Response; it may truncate a late grace. Timeout never
+retracts accepted work and does not prove work stopped, failed, or completed.
 
 ## Parallel loop
 
@@ -136,8 +166,13 @@ does not prove work stopped, failed, or completed.
 5. Repeat until no ready work or pending Member requests remain.
 
 Outcomes may arrive out of assignment order; opaque Request IDs preserve
-correlation. Response wins if Response and idle occur in the same target
-lifecycle boundary.
+correlation. In the same synchronous-handler boundary the priority is
+`response > offline > grace-expiry > hard-expiry > idle-signal`: a complete
+Response beats a subsequent socket close, and a Response arriving with the
+responder's first idle is simply accepted, because idle is nonterminal and
+never competes with a Response. The `response-after-idle` reason applies only
+to the exact tie where the grace-expiry and hard-expiry timers fire at the
+same instant — never to a Response/idle boundary.
 
 ## Boundaries
 

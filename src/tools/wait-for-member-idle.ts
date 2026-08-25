@@ -6,8 +6,9 @@ import {
 	type MemberIdleWaitSurface,
 	type MemberIdleWaitTransportResult,
 } from "../application/member-idle-wait-flow.ts";
-import { formatMemberIdleWaitResult, type MemberIdleWaitResult } from "../domain/index.ts";
+import { createMemberIdleWaitResult, formatMemberIdleWaitResult } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import type { YieldingWaitRuntime } from "../pi/wait-resume.ts";
 
 const parameters = Type.Object(
 	{
@@ -33,7 +34,7 @@ type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: bo
 export interface MemberIdleWaitToolTransport {
 	/** Finite-time endpoint reachability; failure is a compact offline result. */
 	readonly probeEndpoint: (socketPath: string) => Promise<boolean>;
-	/** Open the one-shot idle subscription and block until a terminal outcome or transport code. */
+	/** Open the one-shot idle subscription and resolve on the terminal outcome or transport code. */
 	readonly requestIdleWait: (
 		endpoint: string,
 		memberLabel: string,
@@ -53,12 +54,13 @@ export function registerWaitForMemberIdleTool(
 	pi: ExtensionAPI,
 	state: SocketState,
 	transport: MemberIdleWaitToolTransport,
+	yieldRuntime: YieldingWaitRuntime,
 ): void {
 	pi.registerTool({
 		name: "wait_for_member_idle",
 		label: "Wait for Member Idle",
 		description:
-			"Block once until another crew member's Pi is mechanically idle (runtime settled after run, retry, compaction, and queued continuation), goes offline, or the bounded timeout expires; then resume and choose any reaction. Activity is mechanical and never proves the member saw a message, finished a task, intends to reply, or will stay idle. The wait never starts, steers, interrupts, or aborts the target turn and never reads its conversation. Timeout is an expected coordination outcome, not a failure. For delivery that can wait, prefer send_follow_up.",
+			"Yield the run and resume once another crew member's Pi is mechanically idle (runtime settled after run, retry, compaction, and queued continuation), goes offline, or the bounded timeout expires. The tool returns a deterministic 'yielded, waiting' result immediately; the terminal outcome arrives in a later turn as a crew-wait-resume message, never while this run stays busy. Activity is mechanical and never proves the member saw a message, finished a task, intends to reply, or will stay idle. The wait never starts, steers, interrupts, or aborts the target turn and never reads its conversation. Timeout is an expected coordination outcome, not a failure. For delivery that can wait, prefer send_follow_up.",
 		parameters,
 		async execute(_toolCallId, params, signal): Promise<ToolResult> {
 			const membership = state.membershipRuntime?.getMembership() ?? null;
@@ -74,14 +76,79 @@ export function registerWaitForMemberIdleTool(
 			};
 			const flow = createMemberIdleWaitFlow(surface);
 			try {
-				const result: MemberIdleWaitResult = await flow.waitForMemberIdle({
-					member: memberLabel,
-					timeoutSeconds,
-					signal,
+				const prepared = await flow.prepareMemberIdleWait({ member: memberLabel, timeoutSeconds });
+				if (prepared.kind === "offline") {
+					const result = createMemberIdleWaitResult(
+						{ name: prepared.target.name, role: prepared.target.role },
+						{ outcome: "offline" },
+						new Date().toISOString(),
+					);
+					return {
+						content: [{ type: "text", text: formatMemberIdleWaitResult(result).slice(0, MAX_OUTPUT) }],
+						details: { result },
+					};
+				}
+				const { target, timeoutSeconds: resolvedTimeout } = prepared;
+
+				// Yield: park the one-shot wait and return immediately; the
+				// terminal outcome resumes the run later via crew-wait-resume.
+				const parked = yieldRuntime.park({
+					kind: "member-idle",
+					target: target.name,
+					deadlineAt: Date.now() + resolvedTimeout * 1_000,
+					sessionId: state.context?.sessionManager?.getSessionId?.(),
 				});
+				if (parked.ok === false)
+					return errorResult(memberLabel || "member", parked.code, `Idle wait park rejected: ${parked.code}`);
+
+				if (signal) {
+					if (signal.aborted) yieldRuntime.cancel(parked.id);
+					else
+						signal.addEventListener(
+							"abort",
+							() => {
+								yieldRuntime.cancel(parked.id);
+							},
+							{ once: true },
+						);
+				}
+
+				void surface
+					.requestIdleWait(target.socketPath, memberLabel, { timeoutSeconds: resolvedTimeout, signal })
+					.then((outcome: MemberIdleWaitTransportResult) => {
+						if (outcome.ok === false) {
+							yieldRuntime.resolve({
+								kind: "member-idle",
+								target: target.name,
+								outcome: outcome.code,
+								observedAt: Date.now(),
+							});
+							return;
+						}
+						yieldRuntime.resolve({
+							kind: "member-idle",
+							target: outcome.result.member.name,
+							outcome:
+								outcome.result.outcome === "idle" ? outcome.result.disposition : outcome.result.outcome,
+							observedAt: Date.now(),
+						});
+					});
+
 				return {
-					content: [{ type: "text", text: formatMemberIdleWaitResult(result).slice(0, MAX_OUTPUT) }],
-					details: { result },
+					content: [
+						{
+							type: "text",
+							text: `[member] ${target.name} idle wait armed; run yielded. You will resume in a later turn with the terminal outcome.`,
+						},
+					],
+					details: {
+						yielded: true,
+						wait: {
+							kind: "member-idle",
+							target: target.name,
+							deadlineAt: Date.now() + resolvedTimeout * 1_000,
+						},
+					},
 				};
 			} catch (error) {
 				if (error instanceof MemberIdleWaitFlowError)
