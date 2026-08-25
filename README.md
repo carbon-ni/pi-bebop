@@ -31,6 +31,16 @@ members; it has no task, Git, review, or CI ownership.
 
 ## Install
 
+### Extension
+```bash
+pi install git:github.com/carbon-ni/pi-bebop
+```
+
+### CLI
+```bash
+npm install -g https://github.com/carbon-ni/pi-bebop
+```
+
 Install from this checkout so the `pi-bebop` bin is on your PATH:
 
 ```bash
