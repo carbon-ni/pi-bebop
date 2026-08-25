@@ -1,7 +1,7 @@
 ---
 id: TASK-0080
 title: Implement Response wait and auto suspension
-status: doing
+status: done
 depends_on: [TASK-0079, TASK-0081]
 priority: high
 tags: [member-request, response, idle, timeout, auto, lifecycle, tdd]
