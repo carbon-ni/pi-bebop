@@ -7,7 +7,7 @@ const deadline = 1_000 + 300_000;
 
 function setup(runIdle = true) {
 	const registry = new YieldingWaitRegistry();
-	const delivered: Array<{ customType: string; content: string; deliverAs: string }> = [];
+	const delivered: Array<{ customType: string; content: string; deliverAs: string; details: unknown }> = [];
 	const runtime = new YieldingWaitRuntime({
 		registry,
 		deliver: (message) => delivered.push(message),
@@ -46,12 +46,51 @@ test("TASK-0077: busy run buffers the resume one-shot as followUp, never lost", 
 	const { runtime, delivered } = setup(false);
 	assert.equal(runtime.park({ kind: "request-outcome", target: "request-1", deadlineAt: deadline }).ok, true);
 	assert.equal(
-		runtime.resolve({ kind: "request-outcome", target: "request-1", outcome: "response", observedAt: 4_000 }),
+		runtime.resolve({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "response",
+			observedAt: 4_000,
+			response: { message: "Kelly approved", instructions: ["attach report"] },
+		}),
 		true,
 	);
 	assert.equal(delivered.length, 1);
 	assert.equal(delivered[0]!.deliverAs, "followUp");
 	assert.match(delivered[0]!.content, /request-outcome request-1: response/);
+	assert.match(delivered[0]!.content, /Kelly approved/);
+	assert.match(delivered[0]!.content, /attach report/);
+});
+
+test("TASK-0080-fix: a correlated Response carries its FULL message + ordered instructions into the resume content and details", () => {
+	const { runtime, delivered } = setup(true);
+	assert.equal(runtime.park({ kind: "request-outcome", target: "request-1", deadlineAt: deadline }).ok, true);
+	assert.equal(
+		runtime.resolve({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "response",
+			observedAt: 4_000,
+			response: { message: "QA verdict: PASS, evidence linked", instructions: ["attach report", "confirm gate"] },
+		}),
+		true,
+	);
+	assert.equal(delivered.length, 1);
+	const details = delivered[0]!.details as { response?: { message: string; instructions: readonly string[] } };
+	assert.equal(details.response?.message, "QA verdict: PASS, evidence linked");
+	assert.deepEqual(details.response?.instructions, ["attach report", "confirm gate"]);
+	// The requester resumes with the actual answer, never a bare outcome marker.
+	assert.match(delivered[0]!.content, /request-outcome request-1: response/);
+	assert.match(delivered[0]!.content, /Response: QA verdict: PASS, evidence linked/);
+	assert.match(delivered[0]!.content, /1\. attach report/);
+	assert.match(delivered[0]!.content, /2\. confirm gate/);
+	// A response outcome WITHOUT the payload is malformed and must never resume.
+	assert.equal(runtime.park({ kind: "request-outcome", target: "request-2", deadlineAt: deadline }).ok, true);
+	assert.equal(
+		runtime.resolve({ kind: "request-outcome", target: "request-2", outcome: "response", observedAt: 5_000 }),
+		false,
+	);
+	assert.equal(delivered.length, 1, "payload-less response must not consume the wait");
 });
 
 test("TASK-0077: cancel removes the parked wait and terminal never resumes", () => {
@@ -152,10 +191,17 @@ test("TASK-0077: request-outcome waits resolve FIFO while member-idle stays targ
 	);
 	// Request-outcome is FIFO: request-2's terminal resolves the oldest parked wait.
 	assert.equal(
-		runtime.resolve({ kind: "request-outcome", target: "request-2", outcome: "response", observedAt: 4_000 }),
+		runtime.resolve({
+			kind: "request-outcome",
+			target: "request-2",
+			outcome: "response",
+			observedAt: 4_000,
+			response: { message: "done", instructions: [] },
+		}),
 		true,
 	);
 	assert.equal(delivered[2]!.content.includes("request-2"), true);
+	assert.match(delivered[2]!.content, /\nResponse: done/);
 	assert.equal(
 		runtime.resolve({
 			kind: "request-outcome",
@@ -166,5 +212,6 @@ test("TASK-0077: request-outcome waits resolve FIFO while member-idle stays targ
 		true,
 	);
 	assert.equal(delivered[3]!.content.includes("request-1"), true);
+	assert.equal(delivered[3]!.content.includes("\nResponse:"), false, "non-response outcomes carry no payload");
 	assert.equal(delivered.length, 4);
 });

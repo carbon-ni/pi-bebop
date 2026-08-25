@@ -15,6 +15,13 @@ export interface YieldingWaitTerminal {
 	readonly target: string;
 	readonly outcome: string;
 	readonly observedAt: number;
+	/**
+	 * Correlated Response payload. Present ONLY for a request-outcome terminal
+	 * with outcome "response"; other kinds/outcomes must omit it. Preserves the
+	 * responder's message + ordered instructions through the crew-wait-resume
+	 * (the requester resumes with the FULL terminal outcome, never a bare marker).
+	 */
+	readonly response?: { readonly message: string; readonly instructions: readonly string[] };
 }
 
 const MEMBER_IDLE_OUTCOMES = new Set(["became-idle", "already-idle", "offline", "timeout"]);
@@ -26,8 +33,20 @@ export type TerminalValidationResult =
 	| { readonly ok: true; readonly value: YieldingWaitTerminal }
 	| {
 			readonly ok: false;
-			readonly code: "invalid-kind" | "invalid-target" | "invalid-outcome" | "invalid-observed-at";
+			readonly code:
+				| "invalid-kind"
+				| "invalid-target"
+				| "invalid-outcome"
+				| "invalid-observed-at"
+				| "invalid-response";
 	  };
+
+/** TASK-0080-fix: response payload bounds mirror MessagePayload instructions. */
+const MAX_RESPONSE_INSTRUCTIONS = 32;
+const validResponseInstructions = (instructions: unknown): boolean =>
+	Array.isArray(instructions) &&
+	instructions.length <= MAX_RESPONSE_INSTRUCTIONS &&
+	instructions.every((item) => typeof item === "string" && item.trim().length > 0);
 
 /**
  * TASK-0077: terminal payload gate. Only well-formed terminal outcomes for the
@@ -49,6 +68,18 @@ export function validateYieldingWaitTerminal(input: unknown): TerminalValidation
 	const observedAt = (input as { observedAt?: unknown }).observedAt;
 	if (typeof observedAt !== "number" || !Number.isFinite(observedAt))
 		return { ok: false, code: "invalid-observed-at" };
+	const response = (input as { response?: unknown }).response;
+	if (kind === "request-outcome" && outcome === "response") {
+		if (typeof response !== "object" || response === null) return { ok: false, code: "invalid-response" };
+		const message = (response as { message?: unknown }).message;
+		if (typeof message !== "string" || message.trim().length === 0) return { ok: false, code: "invalid-response" };
+		const instructions = (response as { instructions?: unknown }).instructions;
+		if (instructions !== undefined && !validResponseInstructions(instructions))
+			return { ok: false, code: "invalid-response" };
+	} else if (response !== undefined) {
+		// The correlated Response payload is exclusive to the "response" outcome.
+		return { ok: false, code: "invalid-response" };
+	}
 	return { ok: true, value: input as YieldingWaitTerminal };
 }
 

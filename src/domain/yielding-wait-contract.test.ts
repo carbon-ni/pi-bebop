@@ -20,6 +20,9 @@ test("TASK-0080 B1: request-outcome terminal union drops idle-without-response a
 			target: "request-1",
 			outcome,
 			observedAt: 2_000,
+			...(outcome === "response"
+				? { response: { message: "Kelly approved", instructions: ["attach report"] } }
+				: {}),
 		});
 		assert.equal(valid.ok, true, `expected ${outcome} to be accepted`);
 	}
@@ -32,6 +35,73 @@ test("TASK-0080 B1: request-outcome terminal union drops idle-without-response a
 		}),
 		{ ok: false, code: "invalid-outcome" },
 	);
+});
+
+test("TASK-0080-fix B3: the correlated Response payload is required for the response outcome and exclusive to it", () => {
+	// A response outcome without the payload is malformed.
+	assert.deepEqual(
+		validateYieldingWaitTerminal({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "response",
+			observedAt: 2_000,
+		}),
+		{ ok: false, code: "invalid-response" },
+	);
+	// An empty message is invalid.
+	assert.deepEqual(
+		validateYieldingWaitTerminal({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "response",
+			observedAt: 2_000,
+			response: { message: "  ", instructions: [] },
+		}),
+		{ ok: false, code: "invalid-response" },
+	);
+	// Non-string / non-array instructions are invalid.
+	assert.deepEqual(
+		validateYieldingWaitTerminal({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "response",
+			observedAt: 2_000,
+			response: { message: "ok", instructions: "nope" },
+		} as never),
+		{ ok: false, code: "invalid-response" },
+	);
+	// A payload on a NON-response outcome is invalid.
+	assert.deepEqual(
+		validateYieldingWaitTerminal({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "offline",
+			observedAt: 2_000,
+			response: { message: "ok", instructions: [] },
+		} as never),
+		{ ok: false, code: "invalid-response" },
+	);
+	// A payload on a member-idle terminal is invalid.
+	assert.deepEqual(
+		validateYieldingWaitTerminal({
+			kind: "member-idle",
+			target: "Kelly",
+			outcome: "became-idle",
+			observedAt: 2_000,
+			response: { message: "ok", instructions: [] },
+		} as never),
+		{ ok: false, code: "invalid-response" },
+	);
+	// The valid response payload passes with the message and ordered instructions.
+	const valid = validateYieldingWaitTerminal({
+		kind: "request-outcome",
+		target: "request-1",
+		outcome: "response",
+		observedAt: 2_000,
+		response: { message: "QA verdict: PASS", instructions: ["attach report", "confirm gate"] },
+	});
+	assert.equal(valid.ok, true);
+	if (valid.ok) assert.deepEqual(valid.value.response?.instructions, ["attach report", "confirm gate"]);
 });
 
 test("TASK-0080 B2: semantic duplicate park (same session+kind+target) returns the EXISTING wait id", () => {
