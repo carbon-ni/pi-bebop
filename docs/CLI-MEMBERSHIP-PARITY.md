@@ -170,6 +170,9 @@ Reconciled action code names: member-targeted commands share `unknown-member`, `
 - Exit 1: operational/action error, partial broadcast, aborted, or outcome unknown.
 - Exit 2: command/flag/value/limit/combination usage error.
 
+Ctrl-C cancels pending stdin reads, in-flight RPC, and one-shot waits with
+bounded cleanup and the `aborted` code.
+
 TOON and JSON encode the same semantic object. Text is concise human presentation and must not remove distinctions such as accepted versus persisted, partial, offline, timeout, or unknown outcome.
 
 ### Discriminated result shapes

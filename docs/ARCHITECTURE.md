@@ -252,3 +252,14 @@ inbox or group turn (per-recipient independent copies), and not redirect-all.
 
 Commit subjects follow `<type>: <summary>` or `<type>(<scope>): <summary>`;
 allowed types are `feat`, `fix`, `docs`, `test`, `chore`, and `refactor`.
+
+### Release verification
+
+`make package-verify` (alias `npm run verify:package`) installs a pinned
+consumer dependency set and may require network or a warm npm cache, so it is
+deliberately separate from quick tests (which pack/extract locally and run the
+bundled CLI with no registry IO). `npm pack` produces the installable
+`pi-bebop-<version>.tgz`; the packaged `node_modules/.bin/pi-bebop` runs the
+same `dist/cli/main.js` the test suite executes directly. Publication to npm is
+never assumed: a documented install must be verifiable locally, and `npm view
+pi-bebop` must succeed for any claimed published version.

@@ -46,6 +46,59 @@ Defaults:
   socket links, member processes, Inbox records, session state, Git commits, or
   Pi trust decisions. Runtime creates `inbox/` only when needed.
 
+## Manual layout
+
+The same layout can be authored by hand or scripted; the minimal manifest is
+version 1 with exact member names/roles and socket-relative paths:
+
+```json
+{
+	"version": 1,
+	"members": [
+		{ "name": "lead", "role": "lead", "socket": "sockets/lead.sock" },
+		{ "name": "developer", "role": "developer", "socket": "sockets/developer.sock" }
+	]
+}
+```
+
+A member may use either inline instructions or a Markdown file, never both;
+file paths stay beneath the active layout's `instructions/` directory and are
+rejected on symlink escapes, directories, invalid UTF-8, NULs, blank files, or
+files over 64 KiB. The file is read once during startup, restore, or explicit
+join/rejoin (no hot reload; leave and rejoin to refresh):
+
+```json
+{ "name": "Bob", "role": "developer", "socket": "sockets/Bob.sock", "instructionsFile": "instructions/developer.md" }
+```
+
+Descriptions are short, stable, crew-visible profiles for choosing an exact
+member when roles repeat — never routing keys, permissions, role instructions,
+or current work. Keep them to one non-secret line:
+
+```json
+{
+	"name": "Bob",
+	"role": "developer",
+	"description": "Builds domain and application changes",
+	"socket": "sockets/Bob.sock"
+}
+```
+
+`/crew members` renders the authoritative roster for the active membership:
+configured project socket paths and exactly `current`, `online`, or `offline`;
+global UUID destinations, aliases, and full instructions are never shown. The
+current member is identified from membership without probing; other endpoints
+are probed independently. Unjoined, `/crew members` prints `Crew not joined.
+Use /crew join <socket>.` with no discovery and no agent turn.
+
+```text
+Crew: /project/.pi/bebop/crew.json
+Members (3):
+- lead (lead) — current — /project/.pi/bebop/sockets/lead.sock
+- Bob (dev) — online — /project/.pi/bebop/sockets/Bob.sock
+- Kelly (qa) — offline — /project/.pi/bebop/sockets/Kelly.sock
+```
+
 ## Mutation contract
 
 - Preflight the project and every managed path before writing.
