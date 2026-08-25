@@ -59,6 +59,8 @@ async function existingReleaseAsset(tag, filename, directory, run) {
 }
 
 export async function publishRelease({ tarball, packageName, version, releaseTag, npmTag, run = execFile }) {
+	if (!qualityGateAllowsPublish(process.env.QUALITY_GATE_RESULT ?? "success"))
+		throw new Error("Quality gate did not authorize publication");
 	if (!releaseTagMatchesVersion(releaseTag, version))
 		throw new Error(`Release tag ${releaseTag} does not match package version ${version}`);
 	const localSha256 = await sha256(tarball);
@@ -104,7 +106,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 		packageName: packageJson.name,
 		version: packageJson.version,
 		releaseTag: process.env.RELEASE_TAG,
-		npmTag: process.env.NPM_TAG ?? "latest",
+		npmTag: process.env.NPM_TAG ?? releaseNpmTag(process.env.RELEASE_PRERELEASE === "true"),
 	});
 	console.log(JSON.stringify(result));
 }

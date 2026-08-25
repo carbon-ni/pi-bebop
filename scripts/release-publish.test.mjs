@@ -116,6 +116,64 @@ test("npm mismatch fails before any publish", async () => {
 	}
 });
 
+test("GitHub artifact mismatch fails closed", async () => {
+	const { root, tarball } = await fixture("local-bytes");
+	try {
+		const run = async (command, args) => {
+			if (command === "npm" && args[0] === "pack") throw npmMissing();
+			if (command === "gh" && args[1] === "view")
+				return { stdout: JSON.stringify({ assets: [{ name: path.basename(tarball) }] }) };
+			if (command === "gh" && args[1] === "download") {
+				const destination = args[args.indexOf("--dir") + 1];
+				await writeFile(path.join(destination, path.basename(tarball)), "remote-bytes");
+			}
+			return { stdout: "" };
+		};
+		await assert.rejects(
+			publishRelease({
+				tarball,
+				packageName: "@carbon-ni/pi-bebop",
+				version: "0.1.0",
+				releaseTag: "v0.1.0",
+				npmTag: "latest",
+				run,
+			}),
+			/GitHub Release .*different/,
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("GitHub checksum mismatch fails closed", async () => {
+	const { root, tarball } = await fixture();
+	try {
+		const run = async (command, args) => {
+			if (command === "npm" && args[0] === "pack") throw npmMissing();
+			if (command === "gh" && args[1] === "view")
+				return { stdout: JSON.stringify({ assets: [{ name: "SHA256SUMS" }] }) };
+			if (command === "gh" && args[1] === "download") {
+				const destination = args[args.indexOf("--dir") + 1];
+				await writeFile(path.join(destination, "SHA256SUMS"), "wrong-checksum\n");
+			}
+			return { stdout: "" };
+		};
+		await assert.rejects(
+			publishRelease({
+				tarball,
+				packageName: "@carbon-ni/pi-bebop",
+				version: "0.1.0",
+				releaseTag: "v0.1.0",
+				npmTag: "latest",
+				run,
+			}),
+			/different SHA256SUMS/,
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("npm-first partial publication skips npm and uploads missing GitHub destinations", async () => {
 	const { root, tarball } = await fixture();
 	const calls = [];
@@ -172,10 +230,30 @@ test("release tag must identify the package version", async () => {
 	}
 });
 
-test("failed quality gate cannot authorize publication", () => {
+test("failed quality gate cannot authorize publication", async () => {
 	assert.equal(qualityGateAllowsPublish("success"), true);
 	assert.equal(qualityGateAllowsPublish("failure"), false);
 	assert.equal(qualityGateAllowsPublish("cancelled"), false);
+	const { root, tarball } = await fixture();
+	const previous = process.env.QUALITY_GATE_RESULT;
+	process.env.QUALITY_GATE_RESULT = "failure";
+	try {
+		await assert.rejects(
+			publishRelease({
+				tarball,
+				packageName: "@carbon-ni/pi-bebop",
+				version: "0.1.0",
+				releaseTag: "v0.1.0",
+				npmTag: "latest",
+				run: async () => ({ stdout: "" }),
+			}),
+			/Quality gate did not authorize/,
+		);
+	} finally {
+		if (previous === undefined) delete process.env.QUALITY_GATE_RESULT;
+		else process.env.QUALITY_GATE_RESULT = previous;
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 test("publication decision remains fail-closed", () => {

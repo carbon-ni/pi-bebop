@@ -73,7 +73,8 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   RELEASE_TAG: ${{ github.event.release.tag_name }}
-                  NPM_TAG: ${{ github.event.release.prerelease && 'next' || 'latest' }}
+                  RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+                  QUALITY_GATE_RESULT: ${{ needs.quality-gate.result }}
               run: |
                   node scripts/release-publish.mjs "$TARBALL"
                   echo "Published or resumed $TARBALL ($(cut -d' ' -f1 .release/SHA256SUMS))." >> "$GITHUB_STEP_SUMMARY"
