@@ -124,7 +124,7 @@ function runtimeServer(
 	void opts;
 }
 
-test("TASK-0077: mutual member-idle waits yield immediately and each resumes exactly once on real settle", async (t) => {
+test("TASK-0081: mutual member-idle waits BLOCK and each returns became-idle exactly once on real settle", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-yielding-idle-"));
 	const aPath = path.join(root, "a.sock");
 	const bPath = path.join(root, "b.sock");
@@ -143,7 +143,6 @@ test("TASK-0077: mutual member-idle waits yield immediately and each resumes exa
 		isIdle: () => false,
 		isProjectTrusted: () => true,
 	} as never;
-	const captureA = captureRuntime();
 	// --- Runtime B (Kelly) ---
 	const stateB = createSocketState();
 	stateB.membershipRuntime = {
@@ -158,7 +157,6 @@ test("TASK-0077: mutual member-idle waits yield immediately and each resumes exa
 		isIdle: () => false,
 		isProjectTrusted: () => true,
 	} as never;
-	const captureB = captureRuntime();
 
 	const serverA = await runtimeServer(aPath, stateA, { isIdle: () => false });
 	const serverB = await runtimeServer(bPath, stateB, { isIdle: () => false });
@@ -175,32 +173,20 @@ test("TASK-0077: mutual member-idle waits yield immediately and each resumes exa
 		{ registerTool: (tool) => toolsA.push(tool as never) } as never,
 		stateA,
 		idleTransport,
-		captureA.runtime,
 	);
 	registerWaitForMemberIdleTool(
 		{ registerTool: (tool) => toolsB.push(tool as never) } as never,
 		stateB,
 		idleTransport,
-		captureB.runtime,
 	);
 	const waitA = toolsA.find((tool) => tool.name === "wait_for_member_idle")!;
 	const waitB = toolsB.find((tool) => tool.name === "wait_for_member_idle")!;
 
-	// Both members wait on each other: each execute MUST return immediately
-	// (the pre-fix behavior blocked until the deadline — mutual busy-wait
-	// deadlock). The guard bounds the wait well under the 10s idle timeout.
-	const resultA = await within(
-		2_000,
-		waitA.execute("id", { member: "Kelly" } as never),
-		"A blocked instead of yielding",
-	);
-	const resultB = await within(
-		2_000,
-		waitB.execute("id", { member: "Tony" } as never),
-		"B blocked instead of yielding",
-	);
-	assert.equal((resultA as { details: { yielded: boolean } }).details.yielded, true);
-	assert.equal((resultB as { details: { yielded: boolean } }).details.yielded, true);
+	// Both members wait on each other: each execute BLOCKS (never yields) and
+	// releases only when the target settles or an accepted message/abort/timeout
+	// arrives. The bounded timeout is the fallback, so this never deadlocks.
+	const pendingA = waitA.execute("id", { member: "Kelly" } as never);
+	const pendingB = waitB.execute("id", { member: "Tony" } as never);
 	// Fire-and-forget RPC registration is async; wait until both servers armed
 	// their one-shot subscriptions before settling, so no terminal is lost.
 	await within(2_000, waitForSubscriptions([stateA, stateB]), "subscriptions never registered");
@@ -209,14 +195,18 @@ test("TASK-0077: mutual member-idle waits yield immediately and each resumes exa
 	emitIdleSettled(stateA, { isIdle: () => true } as never);
 	emitIdleSettled(stateB, { isIdle: () => true } as never);
 
-	await within(2_000, captureA.nextDelivery(), "A never resumed after B settled");
-	await within(2_000, captureB.nextDelivery(), "B never resumed after A settled");
-	assert.equal(captureA.delivered.length, 1, "A resumes exactly once");
-	assert.equal(captureB.delivered.length, 1, "B resumes exactly once");
-	assert.match(captureA.delivered[0]!.content, /member-idle Kelly: became-idle/);
-	assert.match(captureB.delivered[0]!.content, /member-idle Tony: became-idle/);
-	assert.equal(captureA.delivered[0]!.deliverAs, "steer");
-	assert.equal(captureB.delivered[0]!.deliverAs, "steer");
+	const resultA = (await within(2_000, pendingA, "A never released after B settled")) as {
+		details: { result: { outcome: string; disposition?: string } };
+	};
+	const resultB = (await within(2_000, pendingB, "B never released after A settled")) as {
+		details: { result: { outcome: string; disposition?: string } };
+	};
+	assert.equal(resultA.details.yielded, undefined, "blocking wait must not yield");
+	assert.equal(resultB.details.yielded, undefined, "blocking wait must not yield");
+	assert.equal(resultA.details.result.outcome, "idle");
+	assert.equal(resultA.details.result.disposition, "became-idle");
+	assert.equal(resultB.details.result.outcome, "idle");
+	assert.equal(resultB.details.result.disposition, "became-idle");
 });
 
 test("TASK-0080: request-outcome wait yields, stays parked through the internal idle, and resolves only at post-idle grace expiry", async (t) => {
@@ -338,5 +328,121 @@ test("TASK-0080: request-outcome wait yields, stays parked through the internal 
 	await within(5_000, capture.nextDelivery(), "source never resumed at post-idle grace expiry");
 	assert.equal(capture.delivered.length, 1, "request outcome resumes exactly once");
 	assert.match(capture.delivered[0]!.content, /request-outcome request-real-1: timeout:response-after-idle/);
+	assert.equal(flow.registry.outboundCount(), 0);
+});
+
+test("TASK-0081: request-outcome wait resumes with the FULL Response (message + instructions) in the crew-wait-resume", async (t) => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-response-resume-"));
+	const targetPath = path.join(root, "target.sock");
+	const sourcePath = path.join(root, "source.sock");
+
+	// --- Target runtime: real handleCommand member_request path ---
+	const targetState = createSocketState();
+	targetState.membershipRuntime = {
+		getMembership: () =>
+			joinedMembership({ name: "Kelly", role: "qa", socketPath: targetPath }, [
+				{ name: "Tony", role: "lead", socketPath: sourcePath },
+			]),
+	} as never;
+	targetState.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "target", getSessionName: () => null, getEntries: () => [] },
+		isIdle: () => false,
+		isProjectTrusted: () => true,
+	} as never;
+	targetState.memberRequestFlow = new MemberRequestFlow({
+		transport: {
+			open: async () => ({ close: () => undefined }),
+			respond: async () => undefined,
+		},
+		resolveEndpoint: resolveMemberEndpoint,
+	});
+	const targetServer = await createRpcServer(targetPath, (command, socket) =>
+		handleCommand(
+			{
+				sendMessage: () => undefined,
+			} as never,
+			targetState,
+			command,
+			socket,
+		),
+	);
+	t.after(async () => {
+		await closeRpcServer(targetServer);
+		await fs.rm(root, { recursive: true, force: true });
+	});
+
+	// --- Source runtime: real flow + real wait tool + real capture runtime ---
+	const sourceState = createSocketState();
+	const flow = new MemberRequestFlow({
+		transport: {
+			open: (endpoint, command, options) =>
+				sendMemberRequest(endpoint, command, {
+					timeout: options.timeoutMs,
+					signal: options.signal,
+					onUpdate: options.onUpdate,
+				}),
+			respond: async (channel, update) => channel.send(update),
+		},
+		resolveEndpoint: resolveMemberEndpoint,
+		now: () => 1_000,
+		createRequestId: () => "request-real-2",
+		setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+		clearTimeout: (handle) => clearTimeout(handle),
+	});
+	sourceState.memberRequestFlow = flow;
+	sourceState.membershipRuntime = {
+		getMembership: () =>
+			joinedMembership({ name: "Tony", role: "lead", socketPath: sourcePath }, [
+				{ name: "Kelly", role: "qa", socketPath: targetPath },
+			]),
+	} as never;
+	sourceState.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "source", getSessionName: () => null, getEntries: () => [] },
+		isIdle: () => false,
+		isProjectTrusted: () => true,
+	} as never;
+	const capture = captureRuntime();
+	const tools: Array<{ name: string; execute: (...args: never[]) => unknown }> = [];
+	registerWaitForRequestOutcomeTool(
+		{ registerTool: (tool) => tools.push(tool as never) } as never,
+		sourceState,
+		capture.runtime,
+	);
+	const wait = tools.find((tool) => tool.name === "wait_for_request_outcome")!;
+
+	// Real send + accept, then the wait tool yields immediately.
+	const accepted = await flow.sendMemberRequest({
+		membership: sourceState.membershipRuntime.getMembership(),
+		member: "Kelly",
+		message: "Report evidence",
+		timeoutSeconds: 60,
+	});
+	assert.equal(accepted.ok, true);
+	if (!accepted.ok) return;
+	const yieldResult = await wait.execute("id", {} as never);
+	assert.equal((yieldResult as { details: { yielded: boolean } }).details.yielded, true);
+
+	// Kelly responds with message + instructions through the real channel.
+	const inbound = targetState.memberRequestFlow!.registry.selectInbound("request-real-2");
+	assert.equal(inbound.ok, true);
+	if (inbound.ok) {
+		await targetState.memberRequestFlow!.respondToMemberRequest({
+			message: "QA verdict: PASS, evidence linked",
+			instructions: ["attach report", "confirm gate"],
+			requestId: "request-real-2",
+			member: { name: "Kelly", role: "qa" },
+		});
+	}
+
+	// The requester resumes with the FULL terminal outcome: the message and the
+	// ordered instructions must be readable in the crew-wait-resume.
+	await within(2_000, capture.nextDelivery(), "source never resumed after the Response");
+	assert.equal(capture.delivered.length, 1, "request outcome resumes exactly once");
+	assert.match(capture.delivered[0]!.content, /request-outcome request-real-2: response/);
+	assert.match(capture.delivered[0]!.content, /QA verdict: PASS, evidence linked/);
+	assert.match(capture.delivered[0]!.content, /attach report/);
+	assert.match(capture.delivered[0]!.content, /confirm gate/);
 	assert.equal(flow.registry.outboundCount(), 0);
 });

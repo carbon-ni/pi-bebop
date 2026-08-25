@@ -8,7 +8,6 @@ import {
 } from "../application/member-idle-wait-flow.ts";
 import { createMemberIdleWaitResult, formatMemberIdleWaitResult } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
-import type { YieldingWaitRuntime } from "../pi/wait-resume.ts";
 
 const parameters = Type.Object(
 	{
@@ -18,10 +17,10 @@ const parameters = Type.Object(
 		}),
 		timeout_seconds: Type.Optional(
 			Type.Integer({
-				minimum: 1,
-				maximum: 600,
+				minimum: 60,
+				maximum: 7200,
 				description:
-					"Bounded wait deadline in seconds (default 300). Timeout is an expected outcome, not a failure.",
+					"Bounded wait deadline in seconds (default 1800). Timeout is an expected outcome, not a failure.",
 			}),
 		),
 	},
@@ -54,17 +53,14 @@ export function registerWaitForMemberIdleTool(
 	pi: ExtensionAPI,
 	state: SocketState,
 	transport: MemberIdleWaitToolTransport,
-	yieldRuntime: YieldingWaitRuntime,
 ): void {
 	pi.registerTool({
 		name: "wait_for_member_idle",
 		label: "Wait for Member Idle",
 		description:
-			"Yield the run and resume once another crew member's Pi is mechanically idle (runtime settled after run, retry, compaction, and queued continuation), goes offline, or the bounded timeout expires. The tool returns a deterministic 'yielded, waiting' result immediately; the terminal outcome arrives in a later turn as a crew-wait-resume message, never while this run stays busy. Activity is mechanical and never proves the member saw a message, finished a task, intends to reply, or will stay idle. The wait never starts, steers, interrupts, or aborts the target turn and never reads its conversation. Timeout is an expected coordination outcome, not a failure. For delivery that can wait, prefer send_follow_up.",
+			"Block this run until the selected member becomes mechanically idle, goes offline, the bounded timeout expires, or a Bebop message is accepted for this session. An accepted message releases the idle wait so delivery can proceed under its original Follow-up or Redirect mode; it does not imply member idle or task completion. Only one blocking Member Idle Wait may be active locally. Two members waiting on each other's idle may remain blocked until a message, offline event, abort, or timeout. The bounded timeout is always armed: default 1,800 seconds (30 minutes), configurable from 60 to 7,200 seconds. Activity is mechanical and never proves the member saw a message, finished a task, intends to reply, or will stay idle. The wait never starts, steers, interrupts, or aborts the target turn and never reads its conversation. For delivery that can wait, prefer send_follow_up.",
 		parameters,
 		async execute(_toolCallId, params, signal): Promise<ToolResult> {
-			const membership = state.membershipRuntime?.getMembership() ?? null;
-			if (!membership) return errorResult("member", "not-joined", "Not joined to a crew");
 			const memberLabel = params.member.trim();
 			const timeoutSeconds = typeof params.timeout_seconds === "number" ? params.timeout_seconds : undefined;
 			const surface: MemberIdleWaitSurface = {
@@ -76,79 +72,113 @@ export function registerWaitForMemberIdleTool(
 			};
 			const flow = createMemberIdleWaitFlow(surface);
 			try {
-				const prepared = await flow.prepareMemberIdleWait({ member: memberLabel, timeoutSeconds });
-				if (prepared.kind === "offline") {
-					const result = createMemberIdleWaitResult(
-						{ name: prepared.target.name, role: prepared.target.role },
-						{ outcome: "offline" },
-						new Date().toISOString(),
-					);
-					return {
-						content: [{ type: "text", text: formatMemberIdleWaitResult(result).slice(0, MAX_OUTPUT) }],
-						details: { result },
+				// TASK-0081: pure resolution (no IO), then acquire the single local
+				// slot synchronously BEFORE the reachability probe so a concurrent
+				// second wait fails `wait-in-progress` before any IO and never
+				// shares, replaces, or opens a subscription.
+				const resolved = flow.resolveMemberIdleWait({ member: memberLabel, timeoutSeconds });
+				const targetIdentity = { name: resolved.target.name, role: resolved.target.role };
+				const observedAt = () => new Date().toISOString();
+
+				const owned = new AbortController();
+				const terminal = await new Promise<MemberIdleWaitTransportResult>((resolveTerminal) => {
+					let settled = false;
+					const finish = (outcome: MemberIdleWaitTransportResult) => {
+						if (settled) return;
+						settled = true;
+						resolveTerminal(outcome);
 					};
-				}
-				const { target, timeoutSeconds: resolvedTimeout } = prepared;
-
-				// Yield: park the one-shot wait and return immediately; the
-				// terminal outcome resumes the run later via crew-wait-resume.
-				const parked = yieldRuntime.park({
-					kind: "member-idle",
-					target: target.name,
-					deadlineAt: Date.now() + resolvedTimeout * 1_000,
-					sessionId: state.context?.sessionManager?.getSessionId?.(),
-				});
-				if (parked.ok === false)
-					return errorResult(memberLabel || "member", parked.code, `Idle wait park rejected: ${parked.code}`);
-
-				if (signal) {
-					if (signal.aborted) yieldRuntime.cancel(parked.id);
-					else
+					const wakeListener = (deliveryId: string) => {
+						void deliveryId;
+						owned.abort();
+						finish({
+							ok: true,
+							result: createMemberIdleWaitResult(
+								targetIdentity,
+								{ outcome: "message-received" },
+								observedAt(),
+							),
+						});
+					};
+					const armed = state.wakeGate.arm(wakeListener);
+					if (armed.ok === false) {
+						finish({ ok: false, code: "wait-in-progress" });
+						return;
+					}
+					const cleanup = () => {
+						state.wakeGate.release(wakeListener);
+						owned.abort();
+					};
+					if (signal) {
+						if (signal.aborted) {
+							cleanup();
+							finish({ ok: false, code: "aborted" });
+							return;
+						}
 						signal.addEventListener(
 							"abort",
 							() => {
-								yieldRuntime.cancel(parked.id);
+								cleanup();
+								finish({ ok: false, code: "aborted" });
 							},
 							{ once: true },
 						);
-				}
-
-				void surface
-					.requestIdleWait(target.socketPath, memberLabel, { timeoutSeconds: resolvedTimeout, signal })
-					.then((outcome: MemberIdleWaitTransportResult) => {
-						if (outcome.ok === false) {
-							yieldRuntime.resolve({
-								kind: "member-idle",
-								target: target.name,
-								outcome: outcome.code,
-								observedAt: Date.now(),
+					}
+					// Reachability probe (IO) runs AFTER the slot is armed; offline
+					// is a compact offline outcome. Then open the one-shot
+					// subscription with the owned controller so a winning local
+					// terminal (message/abort) cancels it.
+					void (async () => {
+						const alive = await surface.probeEndpoint(resolved.target.socketPath);
+						if (!alive) {
+							cleanup();
+							finish({
+								ok: true,
+								result: createMemberIdleWaitResult(
+									targetIdentity,
+									{ outcome: "offline" },
+									observedAt(),
+								),
 							});
 							return;
 						}
-						yieldRuntime.resolve({
-							kind: "member-idle",
-							target: outcome.result.member.name,
-							outcome:
-								outcome.result.outcome === "idle" ? outcome.result.disposition : outcome.result.outcome,
-							observedAt: Date.now(),
-						});
-					});
+						try {
+							const outcome = await surface.requestIdleWait(resolved.target.socketPath, memberLabel, {
+								timeoutSeconds: resolved.timeoutSeconds,
+								signal: owned.signal,
+							});
+							cleanup();
+							finish(outcome);
+						} catch {
+							cleanup();
+							finish({ ok: false, code: "transport-error" });
+						}
+					})();
+				});
 
+				// Map the transport terminal onto the domain outcome union. First
+				// terminal wins; every later callback only performed idempotent
+				// cleanup. Accepted-message wake resolves BEFORE the unchanged
+				// message is submitted; the message keeps its FIFO/steer mode.
+				let result: ReturnType<typeof createMemberIdleWaitResult>;
+				if (terminal.ok === true) {
+					result = terminal.result;
+				} else if (terminal.code === "timeout") {
+					result = createMemberIdleWaitResult(targetIdentity, { outcome: "timeout" }, observedAt());
+				} else if (terminal.code === "wait-in-progress") {
+					return errorResult(
+						memberLabel || "member",
+						"wait-in-progress",
+						"Only one blocking Member Idle Wait may be active locally",
+					);
+				} else if (terminal.code === "aborted") {
+					return errorResult(memberLabel || "member", "aborted", "Idle wait aborted by the run");
+				} else {
+					return errorResult(memberLabel || "member", terminal.code, `Idle wait failed: ${terminal.code}`);
+				}
 				return {
-					content: [
-						{
-							type: "text",
-							text: `[member] ${target.name} idle wait armed; run yielded. You will resume in a later turn with the terminal outcome.`,
-						},
-					],
-					details: {
-						yielded: true,
-						wait: {
-							kind: "member-idle",
-							target: target.name,
-							deadlineAt: Date.now() + resolvedTimeout * 1_000,
-						},
-					},
+					content: [{ type: "text", text: formatMemberIdleWaitResult(result).slice(0, MAX_OUTPUT) }],
+					details: { result },
 				};
 			} catch (error) {
 				if (error instanceof MemberIdleWaitFlowError)

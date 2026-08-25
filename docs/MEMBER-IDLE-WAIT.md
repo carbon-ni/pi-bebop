@@ -21,19 +21,25 @@ it reply, is it available, is it healthy/productive, or will it stay idle.
 Implemented tool:
 
 ```text
-wait_for_member_idle({ member: "Bob", timeout_seconds?: 300 })
+wait_for_member_idle({ member: "Bob", timeout_seconds?: 1800 })
 ```
 
 The tool blocks the current caller's tool execution once (no repeated model
-calls, no polling). The target runtime atomically registers the one-shot
-subscription and snapshots `ctx.isIdle()`; already-idle completes immediately
-with `idle/already-idle`, and a busy target completes from Pi `agent_settled`
-only (never `agent_end` or `turn_end`), returning `idle/became-idle` after all
-retry, compaction, and queued-continuation work is exhausted. Disconnect or
-restart during the wait completes as `offline`; the bounded deadline completes
-as `timeout`. Caller cancellation (AbortSignal) closes the socket and removes
-the remote subscription promptly. Exactly one terminal outcome wins; later
-events are ignored.
+calls, no polling, no yielding). The target runtime atomically registers the
+one-shot subscription and snapshots `ctx.isIdle()`; already-idle completes
+immediately with `idle/already-idle`, and a busy target completes from Pi
+`agent_settled` only (never `agent_end` or `turn_end`), returning
+`idle/became-idle` after all retry, compaction, and queued-continuation work
+is exhausted. Disconnect or restart during the wait completes as `offline`;
+the bounded deadline completes as `timeout`. An accepted Bebop message
+(Follow-up, Redirect, Member request, Response resume, Inbox, Broadcast,
+reminder) releases the wait with `message-received` before the unchanged
+message is submitted under its original delivery mode; the message is
+processed after the tool returns, never dropped or reordered (Redirect keeps
+non-FIFO steering). Caller cancellation (AbortSignal) closes the socket and
+removes the remote subscription promptly. Exactly one terminal outcome wins;
+later events are ignored. Only one blocking Member Idle Wait may be active
+locally; a second call fails `wait-in-progress` before any IO.
 
 Bebop never chooses the caller's reaction: after the terminal event the caller
 may send a Follow-up, Redirect, Interrupt, or do nothing.
@@ -80,7 +86,8 @@ alone is insufficient while any continuation remains. Idle is:
    disconnect, timeout, and cancellation.
 
 Unjoined, self, unknown, and ambiguous targets are rejected before any network
-IO. Timeout is finite: default 300 seconds, accepted range 1-600 seconds.
+IO. Timeout is finite: default 1,800 seconds (30 minutes), accepted range
+60–7,200 seconds.
 Caller cancellation releases the local connection and remote subscription
 promptly.
 

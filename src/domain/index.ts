@@ -17,6 +17,7 @@ export * from "./crew-presence.ts";
 export * from "./presence.ts";
 export * from "./member-status.ts";
 export * from "./member-idle-wait.ts";
+export * from "./accepted-local-message-wake-gate.ts";
 export * from "./crew-init.ts";
 export * from "./crew-role.ts";
 export * from "./member-inbox.ts";

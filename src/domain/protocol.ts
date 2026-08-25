@@ -552,8 +552,12 @@ export const CrewBroadcastResultSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-export const MAX_MEMBER_IDLE_WAIT_TIMEOUT = 600;
-const MemberIdleWaitTimeoutSchema = Type.Integer({ minimum: 1, maximum: MAX_MEMBER_IDLE_WAIT_TIMEOUT });
+export const MAX_MEMBER_IDLE_WAIT_TIMEOUT = 7200;
+export const MIN_MEMBER_IDLE_WAIT_TIMEOUT = 60;
+const MemberIdleWaitTimeoutSchema = Type.Integer({
+	minimum: MIN_MEMBER_IDLE_WAIT_TIMEOUT,
+	maximum: MAX_MEMBER_IDLE_WAIT_TIMEOUT,
+});
 /** One-shot idle wait: one bounded member label and an optional bounded timeout. */
 export const MemberIdleWaitParamsSchema = Type.Object(
 	{

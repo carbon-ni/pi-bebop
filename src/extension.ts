@@ -40,6 +40,7 @@ import {
 	ensureControlServer,
 	reconcileMembershipTools,
 	refreshIntrayStatus,
+	notifyAcceptedMessage,
 } from "./pi/control-runtime.ts";
 import { getSocketPath } from "./infra/intray-paths.ts";
 import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
@@ -164,6 +165,13 @@ export default function (pi: ExtensionAPI) {
 				details: { wait: message.details },
 				display: true,
 			};
+			// TASK-0081: the crew-wait-resume MODEL delivery is a Bebop-owned
+			// delivery; a local blocking idle wait wakes on it (a Response on the
+			// request-scoped RPC channel alone is not a wake).
+			notifyAcceptedMessage(
+				state,
+				`wait-resume-${String((message.details as { waitId?: string }).waitId ?? "")}`,
+			);
 			if (isIdle) pi.sendMessage(customMessage, { triggerTurn: true });
 			else pi.sendMessage(customMessage, { triggerTurn: true, deliverAs: message.deliverAs });
 		},
@@ -187,24 +195,19 @@ export default function (pi: ExtensionAPI) {
 	registerInterruptMemberTool(pi, state);
 	registerGetMemberStatusTool(pi, state, createMemberStatusTransport());
 	registerUpdateMemberFocusTool(pi, state);
-	registerWaitForMemberIdleTool(
-		pi,
-		state,
-		{
-			probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
-			requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
-				try {
-					const resolved = await resolveMemberEndpoint(endpoint);
-					const command: MemberIdleWaitCommand = { type: "member_idle_wait", member: memberLabel };
-					return await sendMemberIdleWait(resolved, command, { timeoutSeconds, signal });
-				} catch (error) {
-					if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
-					return { ok: false, code: "transport-error" };
-				}
-			},
+	registerWaitForMemberIdleTool(pi, state, {
+		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
+		requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
+			try {
+				const resolved = await resolveMemberEndpoint(endpoint);
+				const command: MemberIdleWaitCommand = { type: "member_idle_wait", member: memberLabel };
+				return await sendMemberIdleWait(resolved, command, { timeoutSeconds, signal });
+			} catch (error) {
+				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+				return { ok: false, code: "transport-error" };
+			}
 		},
-		yieldRuntime,
-	);
+	});
 	// Membership tools stay registered (getAllTools) and are deactivated at
 	// session_start before the first agent request: Pi's extension runtime does
 	// NOT allow action methods (getActiveTools/setActiveTools) during extension

@@ -18,6 +18,7 @@ import {
 	type MemberInterruptRequest,
 } from "../domain/index.ts";
 import {
+	AcceptedLocalMessageWakeGate,
 	createMemberIdleWaitResult,
 	createOnlineMemberStatus,
 	MAX_MEMBER_IDLE_WAIT_SUBSCRIPTIONS,
@@ -99,6 +100,8 @@ export interface SocketState {
 	aliasTimer: ReturnType<typeof setInterval> | null;
 	turnEndSubscriptions: TurnEndSubscription[];
 	idleWaitSubscriptions: IdleWaitSubscription[];
+	/** TASK-0081: session-local accepted-message wake seam for the single blocking idle wait. */
+	wakeGate: AcceptedLocalMessageWakeGate;
 	membershipRuntime: MembershipRuntime | null;
 	presenceObserver?: PresenceObserver;
 	onInboxHint?: () => void;
@@ -296,7 +299,9 @@ export async function handleCommand(
 			socket.once("error", cleanupInbound);
 			// Registration precedes Pi visibility. Once sendMessage accepts the
 			// request into context, arm idle handling and acknowledge delivery.
+			// TASK-0081: accepted Bebop model delivery wakes a local blocking idle wait.
 			const message = renderMemberRequestModelContent(command.payload, command.requestId);
+			notifyAcceptedMessage(state, command.requestId);
 			pi.sendMessage(
 				{
 					customType: SESSION_MESSAGE_TYPE,
@@ -862,6 +867,9 @@ export async function handleCommand(
 			display: true,
 		};
 
+		// TASK-0081: accepted Bebop model delivery (Follow-up/Redirect) wakes a
+		// local blocking idle wait; the unchanged message keeps its mode/FIFO.
+		notifyAcceptedMessage(state, `delivery-${id}`);
 		if (isIdle) {
 			pi.sendMessage(customMessage, { triggerTurn: true });
 		} else {
@@ -1002,6 +1010,7 @@ export function createSocketState(): SocketState {
 		aliasTimer: null,
 		turnEndSubscriptions: [],
 		idleWaitSubscriptions: [],
+		wakeGate: new AcceptedLocalMessageWakeGate(),
 		membershipRuntime: null,
 	};
 }
@@ -1024,6 +1033,21 @@ export function emitTurnEnd(state: SocketState, event: TurnEndEvent, ctx: Extens
 			subscriptionId: sub.subscriptionId,
 		});
 	}
+}
+
+/**
+ * TASK-0081 composition helper: every Bebop-owned model-bound delivery calls
+ * this after protocol acceptance and BEFORE `pi.sendMessage`. An armed
+ * blocking-idle-wait listener claims `message-received` (cancelling the remote
+ * idle subscription) and the unchanged message keeps its original
+ * Follow-up/Redirect mode and FIFO position. Redirect is a wake but not FIFO.
+ * A Response arriving only on its request-scoped RPC channel is NOT a wake;
+ * its later crew-wait-resume model delivery is.
+ */
+export function notifyAcceptedMessage(state: SocketState, deliveryId: string): void {
+	// Null-safe: partial-state consumers (tests) without a wake gate are a no-op.
+	if (!state.wakeGate) return;
+	state.wakeGate.notifyAccepted(deliveryId);
 }
 
 /**

@@ -99,12 +99,13 @@ import {
 test("member.idle_wait params are strict: one bounded member label plus optional bounded timeout", () => {
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob" }), true);
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 300 }), true);
-	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 1 }), true);
-	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 600 }), true);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 60 }), true);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 7200 }), true);
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, {}), false);
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "" }), false);
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 0 }), false);
-	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 601 }), false);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 1 }), false);
+	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 7201 }), false);
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", timeoutSeconds: 1.5 }), false);
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob", extra: true }), false);
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "x".repeat(1000) }), false);
@@ -166,7 +167,7 @@ test("member.idle_wait round-trips through requestToCommand and commandToRequest
 				jsonrpc: "2.0",
 				id: "q-5",
 				method: "member.idle_wait",
-				params: { member: "Bob", timeoutSeconds: 700 },
+				params: { member: "Bob", timeoutSeconds: 7201 },
 			}),
 		true,
 	);
@@ -235,7 +236,7 @@ test("member.idle_wait notification schema is strict and validated", () => {
 test("member.idle_wait method resolves the strict subscription ack schema and timeout bound", () => {
 	assert.equal(methodResultSchema("member.idle_wait"), MemberIdleWaitSubscribeResultSchema);
 	assert.equal(methodResultSchema("member.idle_wait") === undefined, false);
-	assert.equal(MAX_MEMBER_IDLE_WAIT_TIMEOUT, 600);
+	assert.equal(MAX_MEMBER_IDLE_WAIT_TIMEOUT, 7200);
 });
 
 test("member.status params are strict: exactly one bounded member label, no caller-selected fields", () => {

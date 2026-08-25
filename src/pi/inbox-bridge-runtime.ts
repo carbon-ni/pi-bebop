@@ -9,7 +9,7 @@ import {
 	type InboxBridgeOwnership,
 	type OfferingStateStore,
 } from "../application/inbox-bridge.ts";
-import type { SocketState } from "./control-runtime.ts";
+import { notifyAcceptedMessage, type SocketState } from "./control-runtime.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
 
 export const INBOX_OFFERING_ENTRY_TYPE = "intray-inbox-offering";
@@ -98,6 +98,9 @@ export function createInboxBridgeController(
 		offerItem: async (entry: InboxItem) => {
 			const context = state.context;
 			if (!context) return false;
+			// TASK-0081: the inbox offer is a Bebop-owned model delivery; a local
+			// blocking idle wait wakes on it before the unchanged message submits.
+			notifyAcceptedMessage(state, `inbox-${entry.id}`);
 			pi.sendMessage(
 				{
 					customType: SESSION_MESSAGE_TYPE,
