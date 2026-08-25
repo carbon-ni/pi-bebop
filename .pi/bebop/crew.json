@@ -1,34 +1,34 @@
 {
   "version": 1,
   "presence": { "notifications": true },
-  "intake": { "contact": "product" },
+  "intake": { "contact": "Mary" },
   "members": [
     {
-      "name": "lead",
+      "name": "Mony",
       "role": "lead",
       "description": "Coordinates ownership, verification, and integration",
       "socket": "sockets/lead.sock",
       "instructionsFile": "instructions/lead.md"
     },
     {
-      "name": "product",
-      "role": "product",
+      "name": "Mary",
+      "role": "po",
       "description": "Shapes problems, acceptance criteria, and shared language",
-      "socket": "sockets/product.sock",
+      "socket": "sockets/po.sock",
       "instructionsFile": "instructions/product.md"
     },
     {
-      "name": "developer",
-      "role": "developer",
+      "name": "Dave",
+      "role": "dev",
       "description": "Builds domain and application changes",
-      "socket": "sockets/developer.sock",
+      "socket": "sockets/dev.sock",
       "instructionsFile": "instructions/developer.md"
     },
     {
-      "name": "quality",
-      "role": "quality",
+      "name": "Kelly",
+      "role": "qa",
       "description": "Verifies acceptance and failure paths",
-      "socket": "sockets/quality.sock",
+      "socket": "sockets/qa.sock",
       "instructionsFile": "instructions/quality.md"
     }
   ]
