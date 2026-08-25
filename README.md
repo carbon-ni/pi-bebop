@@ -32,13 +32,15 @@ members; it has no task, Git, review, or CI ownership.
 ## Install
 
 ### Extension
+
 ```bash
 pi install git:github.com/carbon-ni/pi-bebop
 ```
 
 ### CLI
+
 ```bash
-npm install -g https://github.com/carbon-ni/pi-bebop
+npm install -g @carbon-ni/pi-bebop
 ```
 
 Install from this checkout so the `pi-bebop` bin is on your PATH:
@@ -51,15 +53,15 @@ pi-bebop --help
 Or install the packed tarball into a project:
 
 ```bash
-npm install ./pi-bebop-0.1.0.tgz
+npm install ./carbon-ni-pi-bebop-0.1.0.tgz
 npx pi-bebop --help
 ```
 
 `pi-bebop --help` prints deterministic root help and exits 0 with no project,
 session, or filesystem IO. Leaf help is `pi-bebop <command> --help`; leaf `-h`
 is intentionally a structured usage error (exit 2), matching the
-canonical-long-flags-only contract. The package is not published to npm; install
-locally only.
+canonical-long-flags-only contract. The scoped package is prepared for publication
+but is not published to npm yet; install from a checkout or tarball locally.
 
 ## Start a Crew
 

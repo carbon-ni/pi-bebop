@@ -110,7 +110,7 @@ function npmPublished(pkg) {
 		return false;
 	}
 }
-const piPublished = npmPublished("pi-bebop");
+const piPublished = npmPublished("@carbon-ni/pi-bebop");
 const cliPublished = npmPublished("pi-bebop-cli");
 const claimsPublication =
 	/is\s+published\s+to\s+npm|were\s+published|published\s+on\s+npm|registry\.npmjs\.org|legacy\s+package\s+name/.test(

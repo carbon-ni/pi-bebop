@@ -11,6 +11,17 @@ const fixture = path.join(root, "package-fixtures", "release-consumer");
 const archiveDir = await mkdtemp(path.join(tmpdir(), "pi-bebop-package-"));
 const consumerDir = await mkdtemp(path.join(tmpdir(), "pi-bebop-consumer-"));
 const environment = { ...process.env, NODE_PATH: "" };
+const packageName = "@carbon-ni/pi-bebop";
+const packageVersion = "0.1.0";
+const allowedPath = (file) =>
+	file === "LICENSE" ||
+	file === "README.md" ||
+	file === "index.ts" ||
+	file === "package.json" ||
+	file === "dist/cli/main.js" ||
+	file === "dist/extension.js" ||
+	file.startsWith("src/") ||
+	file.startsWith("docs/");
 try {
 	await cp(path.join(fixture, "package.json"), path.join(consumerDir, "package.json"));
 	await cp(path.join(fixture, "package-lock.json"), path.join(consumerDir, "package-lock.json"));
@@ -20,17 +31,35 @@ try {
 		env: environment,
 	});
 
+	const dryRun = await execFile("npm", ["pack", "--dry-run", "--json"], { cwd: root, env: environment });
+	const dryManifest = JSON.parse(dryRun.stdout)[0];
+	if (dryManifest.name !== packageName || dryManifest.version !== packageVersion)
+		throw new Error(`Package identity mismatch: ${dryManifest.name}@${dryManifest.version}`);
+	const dryFiles = dryManifest.files.map((entry) => entry.path);
+	if (dryFiles.some((file) => !allowedPath(file)))
+		throw new Error(`Unexpected packed file: ${dryFiles.find((file) => !allowedPath(file))}`);
+	for (const required of ["package.json", "dist/extension.js", "dist/cli/main.js", "LICENSE", "README.md"])
+		if (!dryFiles.includes(required)) throw new Error(`Required packed file missing: ${required}`);
+	const cliEntry = dryManifest.files.find((entry) => entry.path === "dist/cli/main.js");
+	if ((cliEntry.mode & 0o111) === 0) throw new Error("Packed CLI is not executable");
+	if (dryFiles.some((file) => /(^|\/)(plans|\.pi|\.tmp|node_modules|package-fixtures|.*\.(log|db))($|\/)/.test(file)))
+		throw new Error("Repository-local files leaked into package");
+
 	const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root, env: environment });
 	const archiveName = packed.stdout
 		.trim()
 		.split("\n")
 		.find((line) => line.endsWith(".tgz"));
 	if (!archiveName) throw new Error("npm pack did not produce an archive");
-	const packageRoot = path.join(consumerDir, "node_modules", "pi-bebop");
+	const packageRoot = path.join(consumerDir, "node_modules", "@carbon-ni", "pi-bebop");
 	await mkdir(packageRoot, { recursive: true });
 	await execFile("tar", ["-xzf", path.join(archiveDir, archiveName), "-C", packageRoot, "--strip-components=1"]);
 
 	const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json")));
+	if (manifest.name !== packageName || manifest.version !== packageVersion)
+		throw new Error(`Installed package identity mismatch: ${manifest.name}@${manifest.version}`);
+	if (manifest.publishConfig?.access !== "public")
+		throw new Error("Scoped package is not configured for public access");
 	if (manifest.main !== "./dist/extension.js") throw new Error("Installed extension entrypoint is not configured");
 	const testedTypebox = JSON.parse(
 		await readFile(path.join(consumerDir, "node_modules", "typebox", "package.json")),
@@ -102,7 +131,7 @@ try {
 		const binDir = path.join(consumerDir, "node_modules", ".bin");
 		await mkdir(binDir, { recursive: true });
 		const bin = path.join(binDir, "pi-bebop");
-		await symlink(path.join("..", "pi-bebop", "dist", "cli", "main.js"), bin);
+		await symlink(path.join("..", "@carbon-ni", "pi-bebop", "dist", "cli", "main.js"), bin);
 
 		const binHome = await execFile(process.execPath, [bin], { cwd: initDir, env: environment });
 		if (!/status: home/.test(binHome.stdout) || !/executable:/.test(binHome.stdout))
@@ -135,7 +164,7 @@ try {
 		[
 			"--input-type=module",
 			"-e",
-			"const resolved = await import.meta.resolve('./node_modules/pi-bebop/dist/extension.js'); if (!resolved.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(resolved); const loaded = await import('file://' + process.cwd() + '/node_modules/pi-bebop/dist/extension.js'); if (typeof loaded.default !== 'function') throw new Error('extension entrypoint missing'); const toon = await import('@toon-format/toon'); if (!toon.encode) throw new Error('runtime dependency missing'); const peer = await import.meta.resolve('@earendil-works/pi-coding-agent'); if (!peer.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(peer);",
+			"const resolved = await import.meta.resolve('./node_modules/@carbon-ni/pi-bebop/dist/extension.js'); if (!resolved.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(resolved); const loaded = await import('file://' + process.cwd() + '/node_modules/@carbon-ni/pi-bebop/dist/extension.js'); if (typeof loaded.default !== 'function') throw new Error('extension entrypoint missing'); const toon = await import('@toon-format/toon'); if (!toon.encode) throw new Error('runtime dependency missing'); const peer = await import.meta.resolve('@earendil-works/pi-coding-agent'); if (!peer.startsWith('file://' + process.cwd() + '/node_modules/')) throw new Error(peer);",
 		],
 		{ cwd: consumerDir, env: environment },
 	);

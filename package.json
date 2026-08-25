@@ -1,5 +1,8 @@
 {
-	"name": "pi-bebop",
+	"name": "@carbon-ni/pi-bebop",
+	"publishConfig": {
+		"access": "public"
+	},
 	"version": "0.1.0",
 	"description": "Independent crew management for Pi agents",
 	"type": "module",
