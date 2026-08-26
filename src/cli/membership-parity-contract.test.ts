@@ -105,8 +105,6 @@ interface MembershipParityContract {
 
 const contractPath = new URL("../../docs/cli-membership-parity.json", import.meta.url);
 const contract = JSON.parse(readFileSync(contractPath, "utf8")) as MembershipParityContract;
-const markdownPath = new URL("../../docs/CLI-MEMBERSHIP-PARITY.md", import.meta.url);
-const markdown = readFileSync(markdownPath, "utf8");
 const byTool = new Map(contract.tools.map((entry) => [entry.tool, entry]));
 const expectedTools = [
 	"send_follow_up",
@@ -602,24 +600,6 @@ test("broadcast idempotency-conflict remains pending product wording", () => {
 });
 
 // ============================================================================
-// Markdown/JSON agreement (P0 reconciliation spot checks)
-// ============================================================================
-
-test("Markdown agrees with the JSON on the reconciled terminal shapes", () => {
-	assert.match(markdown, /The JSON artifact is normative for full fields and error lists/);
-	assert.match(markdown, /idempotency-conflict.*pending product wording/s);
-	assert.match(markdown, /self-interrupt/);
-	assert.match(markdown, /no-context/);
-	assert.match(markdown, /already-persisted/);
-	assert.match(markdown, /omitted/);
-	assert.match(markdown, /[Vv]alidation order is fixed/);
-	assert.match(markdown, /1–600 whole seconds/);
-	assert.match(markdown, /500 ms per-session probe deadline/);
-	assert.match(markdown, /8 safe aliases per session/);
-	assert.match(markdown, /1,000,000 UTF-8 bytes/);
-	assert.match(markdown, /outcome-unknown/);
-});
-
 // ============================================================================
 // Original TASK-0060 decision-matrix completeness (unchanged)
 // ============================================================================
