@@ -2,7 +2,7 @@
 
 <img width="240" height="164" alt="bebop" src="https://github.com/user-attachments/assets/ff4eccd9-73e7-4e09-a617-ce7b7db7e299" align="right" />
 
-Give a small dysfunctional but effective crew to your Pi agents.
+Make independent PI instances part of a dysfunctional but effective crew.
 
 </br>
 </br>
