@@ -113,6 +113,48 @@ test("startup role join delegates selected manifest socket and does not activate
 	]);
 });
 
+test("startup role join reports actionable invalid intake configuration", async () => {
+	const notices: string[] = [];
+	let joins = 0;
+	const manifestPath = "/project/.pi/bebop/crew.json";
+	const runtime = {
+		join: async () => {
+			joins += 1;
+			return { ok: false, error: new Error("must not join") };
+		},
+		leave: async () => ({ ok: true, left: false }),
+		getMembership: () => null,
+	} as unknown as MembershipRuntime;
+	const handled = await maybeHandleStartupRoleJoin(
+		context({ ui: { notify: (message: string) => notices.push(message) } }),
+		piWithFlag("developer"),
+		{ role: "crew-role" },
+		runtime,
+		"/tmp/global.sock",
+		() =>
+			resolveStartupCrewRole("developer", "/project", true, {
+				manifestExists: async (candidate) => candidate === manifestPath,
+				readManifest: async (candidate) =>
+					parseCrewManifest(
+						{
+							version: 1,
+							members: [
+								{ name: "Mary", role: "po", socket: "sockets/mary.sock" },
+								{ name: "Tony", role: "lead", socket: "sockets/tony.sock" },
+							],
+							intake: { contact: "Ghost" },
+						},
+						candidate,
+					),
+			}),
+	);
+	assert.equal(handled, false);
+	assert.equal(joins, 0);
+	assert.deepEqual(notices, [
+		"Crew startup role join failed: Crew configuration invalid: manifest path /project/.pi/bebop/crew.json; intake.contact rejected value 'Ghost'; valid exact member names in manifest order: [Mary, Tony]. Fixes: change intake.contact to one of those exact names, or add a member named 'Ghost'; remove intake to disable external intake.",
+	]);
+});
+
 test("startup socket paths normalize leading @ and startup cwd", () => {
 	assert.equal(
 		normalizeStartupSocketPath("@.pi/intray/sockets/dev.sock", "/project"),

@@ -277,7 +277,7 @@ export async function maybeHandleStartupRoleJoin(
 	} catch (error) {
 		reportStartupControlSend(
 			ctx,
-			`Crew startup role selection failed: ${error instanceof Error ? error.message : "manifest read failed"}`,
+			`Crew startup role join failed: ${error instanceof Error ? error.message : "manifest read failed"}`,
 			"error",
 		);
 		return false;

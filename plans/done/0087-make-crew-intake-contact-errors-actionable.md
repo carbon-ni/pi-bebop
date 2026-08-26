@@ -1,7 +1,7 @@
 ---
 id: TASK-0087
 title: Make Crew Intake contact errors actionable
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, intake, manifest, errors, ux, tdd]
@@ -35,13 +35,20 @@ The diagnostic is the first concrete slice of the product-wide actionable error 
 
 ## Acceptance criteria
 
-- [ ] Unknown `intake.contact` identifies the failed Crew startup operation and says Crew configuration is invalid.
-- [ ] The error identifies the actual safe manifest path and field `intake.contact`.
-- [ ] The error shows the rejected value and available exact member names in deterministic manifest order.
-- [ ] The error tells the user to select an existing member name or add a member with the requested name.
-- [ ] Exact-name contact semantics remain unchanged; role inference and silent correction are absent.
-- [ ] Canonical and compatibility manifest paths are covered by deterministic tests.
-- [ ] Existing success output and failure status remain unchanged.
+- [x] Unknown `intake.contact` identifies the failed Crew startup operation and says Crew configuration is invalid.
+- [x] The error identifies the actual safe manifest path and field `intake.contact`.
+- [x] The error shows the rejected value and available exact member names in deterministic manifest order.
+- [x] The error tells the user to select an existing member name or add a member with the requested name.
+- [x] Exact-name contact semantics remain unchanged; role inference and silent correction are absent.
+- [x] Canonical and compatibility manifest paths are covered by deterministic tests.
+- [x] Existing success output and failure status remain unchanged.
+
+## Evidence
+
+- `node --test --import tsx src/pi/startup-send.test.ts --test-name-pattern='actionable invalid intake'`: red before the startup-boundary wording change, then green.
+- Focused manifest/store/startup run: 39 tests passed across `src/domain/crew-manifest.test.ts`, `src/infra/crew-manifest-store.test.ts`, and `src/pi/startup-send.test.ts`.
+- `npm run format:check` and `npm run lint` passed.
+- Domain diagnostics retain `CrewManifestError` code/details and deterministic member order for `.pi/bebop/crew.json` and `.pi/crew/crew.json`; role selection remains exact-role and does not infer Intake contacts.
 
 ## Non-goals
 
