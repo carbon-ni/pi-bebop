@@ -13,7 +13,7 @@
 - `npm run lint`: pass.
 - `npm run verify:package`: pass in isolated consumer/Pi host loader.
 - Commit pre-hook: 948/948 tests pass.
-- Funzzy gen 210 reached the test phase and reported 947/948; the only failure was the pre-existing `rpc-client` offline terminal-close race (reported separately by lead). Earlier gens 208/209 failed acquiring a stale/superseded `.bebop-build.lock`; the stale lock was removed and watcher ignores were added.
+- Funzzy gen 217 passed `npm test && npm run format:check && npm run lint && make all` (948/948, after the concurrent CLI flake fix landed). Earlier gen 210 reported 947/948 from the pre-existing `rpc-client` offline terminal-close race; gens 208/209 failed acquiring a stale/superseded `.bebop-build.lock`; the stale lock was removed and watcher ignores were added.
 
 ## Commit
 - `444afd6 feat: show crew identity in status line`

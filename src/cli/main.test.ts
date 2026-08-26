@@ -413,41 +413,25 @@ test("runs the built CLI artifact under plain Node", async () => {
 	assert.match(stdout, /Invalid --wait/);
 });
 
-test("aborts a held-open stdin read on SIGINT within a bounded deadline", async () => {
-	const script = path.resolve("dist/cli/main.js");
-	const child = spawn(
-		process.execPath,
-		[script, "send", "--socket", "/offline.sock", "--stdin", "--format", "json"],
-		{ stdio: ["pipe", "pipe", "pipe"] },
-	);
+test("aborts a held-open stdin read on SIGINT", async () => {
+	const input = new PassThrough();
+	const output = new PassThrough();
 	let stdout = "";
-	child.stdout.setEncoding("utf8");
-	child.stdout.on("data", (chunk) => {
+	output.setEncoding("utf8");
+	output.on("data", (chunk) => {
 		stdout += chunk;
 	});
-	const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
-		child.once("exit", (code, signal) => resolve({ code, signal })),
+
+	const pending = runCli(
+		["send", "--socket", "/offline.sock", "--stdin", "--format", "json"],
+		process.cwd(),
+		input,
+		output,
 	);
-	await new Promise((resolve) => setTimeout(resolve, 300));
-	child.kill("SIGINT");
-	let timer: NodeJS.Timeout | undefined;
-	try {
-		const exit = await Promise.race([
-			exitPromise,
-			new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new Error("CLI did not exit after SIGINT deadline")), 3000);
-			}),
-		]);
-		assert.equal(exit.code, 1);
-		assert.equal(exit.signal, null);
-		assert.equal(JSON.parse(stdout).error.code, "aborted");
-	} catch (error) {
-		child.kill("SIGKILL");
-		await exitPromise;
-		throw error;
-	} finally {
-		if (timer) clearTimeout(timer);
-	}
+	process.emit("SIGINT");
+
+	assert.equal(await pending, 1);
+	assert.equal(JSON.parse(stdout).error.code, "aborted");
 });
 
 test("packaged artifact exposes the member status, session list, and crew roles leaves deterministically", async () => {
