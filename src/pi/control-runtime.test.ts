@@ -84,6 +84,11 @@ test("status derives stopped, online, and joined from server and crew state", ()
 	assert.equal(deriveIntrayStatus(true, false), "online");
 	assert.equal(deriveIntrayStatus(true, true), "joined");
 	assert.equal(formatIntrayFooter("session-id", "joined"), "session-id joined");
+	assert.equal(
+		formatIntrayFooter("session-id", "joined", { name: "Mary", role: "po" }),
+		"session-id joined Mary (po)",
+	);
+	assert.equal(formatIntrayFooter("session-id", "online", { name: "Mary", role: "po" }), "session-id online");
 });
 
 test("membership transitions refresh the footer online to joined to online", () => {
@@ -102,11 +107,13 @@ test("membership transitions refresh the footer online to joined to online", () 
 	} as never;
 	state.membershipRuntime = { getMembership: () => null } as never;
 	refreshIntrayStatus(state);
-	state.membershipRuntime = { getMembership: () => ({}) } as never;
+	state.membershipRuntime = {
+		getMembership: () => ({ member: { name: "Mary", role: "po" } }),
+	} as never;
 	refreshIntrayStatus(state);
 	state.membershipRuntime = { getMembership: () => null } as never;
 	refreshIntrayStatus(state);
-	assert.deepEqual(statuses, ["session online", "session joined", "session online"]);
+	assert.deepEqual(statuses, ["session online", "session joined Mary (po)", "session online"]);
 });
 
 test("RPC status reports online and joined without legacy fields", async () => {
