@@ -3,6 +3,10 @@
 	"publishConfig": {
 		"access": "public"
 	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/carbon-ni/pi-bebop"
+	},
 	"version": "0.1.0",
 	"description": "Independent crew management for Pi agents",
 	"type": "module",
