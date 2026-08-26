@@ -10,6 +10,12 @@ const names = [...devDependencies.matchAll(/^\s*"([^"]+)"\s*:/gm)].map((match) =
 const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
 if (duplicates.length > 0) throw new Error(`Duplicate devDependency keys: ${[...new Set(duplicates)].join(", ")}`);
 if (packageJson.devDependencies?.prettier !== "3.6.2") throw new Error("Prettier must remain pinned exactly at 3.6.2");
+if (packageJson.repository?.url !== "https://github.com/carbon-ni/pi-bebop")
+	throw new Error("repository.url must be https://github.com/carbon-ni/pi-bebop");
+if (packageJson.bin?.["pi-bebop"] !== "./dist/cli/main.js")
+	throw new Error("pi-bebop global CLI entrypoint must remain dist/cli/main.js");
+if (!packageJson.pi?.extensions?.includes("./dist/extension.js"))
+	throw new Error("Pi npm extension entrypoint must remain dist/extension.js");
 if (!new Set(["npm run build", "node scripts/build-for-test.mjs"]).has(packageJson.scripts?.pretest))
 	throw new Error("pretest must build the current artifacts before tests");
 if (packageJson.scripts?.["typecheck:presence-tests"] !== "tsc --noEmit -p tsconfig.tests.json")
