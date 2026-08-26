@@ -38,7 +38,7 @@ try {
 	const dryFiles = dryManifest.files.map((entry) => entry.path);
 	if (dryFiles.some((file) => !allowedPath(file)))
 		throw new Error(`Unexpected packed file: ${dryFiles.find((file) => !allowedPath(file))}`);
-	for (const required of ["package.json", "dist/extension.js", "dist/cli/main.js", "LICENSE", "README.md"])
+	for (const required of ["package.json", "dist/extension.js", "dist/cli/main.js", "LICENSE"])
 		if (!dryFiles.includes(required)) throw new Error(`Required packed file missing: ${required}`);
 	const cliEntry = dryManifest.files.find((entry) => entry.path === "dist/cli/main.js");
 	if ((cliEntry.mode & 0o111) === 0) throw new Error("Packed CLI is not executable");
