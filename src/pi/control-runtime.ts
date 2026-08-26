@@ -46,7 +46,7 @@ import {
 	type RpcCommand,
 	SESSION_MESSAGE_TYPE,
 } from "../domain/index.ts";
-import type { MembershipRuntime } from "../infra/membership-runtime.ts";
+import type { Membership, MembershipRuntime } from "../infra/membership-runtime.ts";
 import type { PresenceObserver } from "../application/presence-observer.ts";
 import { createInterruptFlow } from "../application/interrupt-flow.ts";
 import {
@@ -938,8 +938,13 @@ export function refreshIntrayStatus(state: SocketState, ctx: ExtensionContext | 
 	updateStatus(ctx, state);
 }
 
-export function formatIntrayFooter(sessionId: string, status: IntrayStatus): string {
-	return `${sessionId} ${status}`;
+export function formatIntrayFooter(
+	sessionId: string,
+	status: IntrayStatus,
+	member?: Pick<Membership["member"], "name" | "role">,
+): string {
+	const identity = status === "joined" && member ? ` ${member.name} (${member.role})` : "";
+	return `${sessionId} ${status}${identity}`;
 }
 
 function updateStatus(ctx: ExtensionContext | null, state: SocketState, enabled = true): void {
@@ -950,8 +955,9 @@ function updateStatus(ctx: ExtensionContext | null, state: SocketState, enabled 
 			return;
 		}
 		const sessionId = ctx.sessionManager.getSessionId();
-		const status = deriveIntrayStatus(Boolean(state.server), Boolean(state.membershipRuntime?.getMembership()));
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", formatIntrayFooter(sessionId, status)));
+		const membership = state.membershipRuntime?.getMembership();
+		const status = deriveIntrayStatus(Boolean(state.server), Boolean(membership));
+		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", formatIntrayFooter(sessionId, status, membership?.member)));
 	} catch (error) {
 		if (!isStaleContextError(error)) throw error;
 	}
