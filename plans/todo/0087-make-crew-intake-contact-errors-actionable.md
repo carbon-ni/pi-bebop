@@ -1,7 +1,7 @@
 ---
 id: TASK-0087
 title: Make Crew Intake contact errors actionable
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, intake, manifest, errors, ux, tdd]
