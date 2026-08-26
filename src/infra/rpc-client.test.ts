@@ -1136,6 +1136,10 @@ test("sendMemberRequest reports offline terminal closure and caller close idempo
 			}),
 		async (socketPath) => {
 			const updates: unknown[] = [];
+			let resolveOffline!: () => void;
+			const offline = new Promise<void>((resolve) => {
+				resolveOffline = resolve;
+			});
 			const result = await sendMemberRequest(
 				socketPath,
 				{
@@ -1145,9 +1149,14 @@ test("sendMemberRequest reports offline terminal closure and caller close idempo
 					payload: { content: "x" },
 					timeoutSeconds: 1,
 				},
-				{ onUpdate: (update) => updates.push(update) },
+				{
+					onUpdate: (update) => {
+						updates.push(update);
+						if (update.kind === "offline") resolveOffline();
+					},
+				},
 			);
-			await new Promise((resolve) => setTimeout(resolve, 20));
+			await within(1000, offline);
 			result.close();
 			result.close();
 			assert.equal(updates.length, 1);
