@@ -125,11 +125,18 @@ correlated Request outcome waits never deadlock.
 
 ```bash
 npm install
+make hooks-install
+make hooks-check
 npm run build
 npm test
 ```
 
-`make all` runs the pre-push gate (format, package, lint, build, test, security).
+`make hooks-install` opts this checkout into the repository-owned pre-push hook;
+`make hooks-check` verifies the local Git setting and executable hook without
+changing anything. Hooks provide early feedback, but GitHub CI remains
+authoritative. `make all` runs the same pre-push/CI gate (format, package, lint,
+build, test, security).
+
 Release verification is separate because it installs a pinned consumer dependency
 set and may need network:
 

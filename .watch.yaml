@@ -7,6 +7,7 @@ on:
     debounce: 500ms
     respect_gitignore: true
     ignore:
+        - .git/**
         - .tmp/**
         - .pi/**
         - node_modules/**
@@ -62,12 +63,5 @@ jobs:
 
     - name: quality gate @agent-final
       run: make all
-      change:
-          - src/**/*.ts
-          - package.json
-          - package-lock.json
-          - tsconfig.json
-          - Makefile
-          - .watch.yaml
-          - README.md
+      change: "**/*"
       run_on_init: true
