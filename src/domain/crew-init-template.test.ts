@@ -7,7 +7,8 @@ import {
 	describeTemplateSource,
 	selectTemplateRoot,
 	validateTemplate,
-	type TemplateFileSet,
+	type TemplateEntries,
+	type TemplateEntry,
 	type TemplateSourceDescriptor,
 } from "./crew-init-template.ts";
 import { classifyCrewInitTarget, crewInitTemplateBytes, type CrewInitFSSnapshot } from "./crew-init.ts";
@@ -30,9 +31,12 @@ const validManifest = JSON.stringify(
 	2,
 );
 
-const validFiles = (extra: TemplateFileSet = {}): TemplateFileSet => ({
-	"crew.json": validManifest,
-	"instructions/captain.md": "# Captain\n",
+const file = (bytes: string): TemplateEntry => ({ kind: "file", bytes });
+
+const validFiles = (extra: TemplateEntries = {}): TemplateEntries => ({
+	"instructions/": { kind: "directory" },
+	"crew.json": file(validManifest),
+	"instructions/captain.md": file("# Captain\n"),
 	...extra,
 });
 
@@ -47,6 +51,7 @@ test("classifyTemplateSource recognizes git URL shapes", () => {
 		"ssh://git@github.com/acme/t.git",
 		"git@github.com:acme/t.git",
 		"https://host/repo.git/",
+		"ftp://example.com/t",
 	];
 	for (const value of git) {
 		const source = classifyTemplateSource(value);
@@ -107,7 +112,7 @@ test("validateTemplate accepts a valid template and returns the parsed manifest"
 });
 
 test("validateTemplate rejects malformed manifest JSON with a stable code", () => {
-	const verdict = validateTemplate({ "crew.json": "{ not json", "instructions/captain.md": "x\n" });
+	const verdict = validateTemplate({ "crew.json": file("{ not json"), "instructions/captain.md": file("x\n") });
 	assert.equal(verdict.ok, false);
 	if (!verdict.ok) {
 		assert.equal(verdict.code, "template-invalid-manifest");
@@ -117,7 +122,7 @@ test("validateTemplate rejects malformed manifest JSON with a stable code", () =
 
 test("validateTemplate surfaces parseCrewManifest strictness verbatim", () => {
 	const bad = JSON.stringify({ version: 2, members: [] });
-	const verdict = validateTemplate({ "crew.json": bad, "instructions/captain.md": "x\n" });
+	const verdict = validateTemplate({ "crew.json": file(bad), "instructions/captain.md": file("x\n") });
 	assert.equal(verdict.ok, false);
 	if (!verdict.ok) {
 		assert.equal(verdict.code, "template-invalid-manifest:invalid-version");
@@ -125,7 +130,7 @@ test("validateTemplate surfaces parseCrewManifest strictness verbatim", () => {
 });
 
 test("validateTemplate rejects a referenced instruction file that is missing", () => {
-	const verdict = validateTemplate({ "crew.json": validManifest });
+	const verdict = validateTemplate({ "crew.json": file(validManifest) });
 	assert.equal(verdict.ok, false);
 	if (!verdict.ok) {
 		assert.equal(verdict.code, "template-missing-instruction");
@@ -133,18 +138,45 @@ test("validateTemplate rejects a referenced instruction file that is missing", (
 	}
 });
 
+test("validateTemplate rejects symlinked manifests and referenced instructions without following them", () => {
+	const symlinkedManifest = validateTemplate({ "crew.json": { kind: "symlink" } });
+	assert.equal(symlinkedManifest.ok, false);
+	if (!symlinkedManifest.ok) assert.equal(symlinkedManifest.code, "template-not-found");
+
+	const symlinkedInstruction = validateTemplate({
+		"crew.json": file(validManifest),
+		"instructions/captain.md": { kind: "symlink" },
+	});
+	assert.equal(symlinkedInstruction.ok, false);
+	if (!symlinkedInstruction.ok) {
+		assert.equal(symlinkedInstruction.code, "template-symlinked-path");
+		assert.match(symlinkedInstruction.message, /instructions\/captain\.md/);
+	}
+});
+
+test("validateTemplate rejects a referenced instruction that is a directory", () => {
+	const verdict = validateTemplate({
+		"crew.json": file(validManifest),
+		"instructions/": { kind: "directory" },
+		"instructions/captain.md": { kind: "directory" },
+	});
+	assert.equal(verdict.ok, false);
+	if (!verdict.ok) assert.equal(verdict.code, "template-missing-instruction");
+});
+
 test("validateTemplate rejects every runtime-owned path, naming it", () => {
-	const cases: readonly [string, TemplateFileSet][] = [
-		["sockets", { "sockets/lead.sock": "x" }],
-		["inbox", { "inbox/pending.json": "x" }],
-		[".gitignore", { ".gitignore": "x" }],
+	const cases: readonly [string, TemplateEntries][] = [
+		["sockets", { "sockets/lead.sock": file("x") }],
+		["inbox", { "inbox/pending.json": file("x") }],
+		[".gitignore", { ".gitignore": file("x") }],
+		["sockets directory", { "sockets/": { kind: "directory" } }],
 	];
 	for (const [name, extra] of cases) {
 		const verdict = validateTemplate(validFiles(extra));
 		assert.equal(verdict.ok, false, name);
 		if (!verdict.ok) {
 			assert.equal(verdict.code, "template-runtime-owned-path");
-			assert.ok(verdict.message.includes(name), `${verdict.message} should name ${name}`);
+			assert.ok(verdict.message.includes(name.split(" ")[0]), `${verdict.message} should name ${name}`);
 		}
 	}
 });
@@ -154,7 +186,7 @@ test("validateTemplate accepts inline instructions without any files", () => {
 		version: 1,
 		members: [{ name: "solo", role: "lead", socket: "sockets/solo.sock", instructions: "Be brief." }],
 	});
-	const verdict = validateTemplate({ "crew.json": manifest });
+	const verdict = validateTemplate({ "crew.json": file(manifest) });
 	assert.equal(verdict.ok, true);
 });
 
@@ -163,11 +195,15 @@ test("validateTemplate accepts inline instructions without any files", () => {
 // ---------------------------------------------------------------------------
 
 test("adoptedBytesFromTemplate maps manifest and instructions into .pi/bebop, verbatim", () => {
-	const files = validFiles({ "docs/extra.md": "ignored\n", "README.md": "ignored\n" });
+	const files = validFiles({
+		"docs/": { kind: "directory" },
+		"docs/extra.md": file("ignored\n"),
+		"README.md": file("ignored\n"),
+	});
 	const verdict = validateTemplate(files);
 	assert.equal(verdict.ok, true);
 	if (!verdict.ok) return;
-	const adopted = adoptedBytesFromTemplate(files, verdict.manifest);
+	const adopted = adoptedBytesFromTemplate(verdict.files, verdict.manifest);
 	assert.deepEqual(adopted, {
 		".pi/bebop/crew.json": validManifest,
 		".pi/bebop/instructions/captain.md": "# Captain\n",

@@ -30,11 +30,28 @@ export function classifyTemplateSource(raw: string): TemplateSourceDescriptor {
 }
 
 function isGitUrl(value: string): boolean {
-	if (/^(https?|ssh|git|git\+ssh):\/\//i.test(value)) return true;
+	// Explicit path forms are always local, even with a .git suffix.
+	if (value.startsWith("./") || value.startsWith("../") || value.startsWith("/") || value.startsWith("~")) {
+		return false;
+	}
+	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return true;
 	if (/^git@[\w.-]+:/.test(value)) return true;
 	if (value.toLowerCase().endsWith(".git")) return true;
 	return false;
 }
+
+/**
+ * A template entry: file bytes, a recorded-but-never-followed symlink, or a
+ * directory (recorded with a trailing `/`). Symlinks are never traversed, so
+ * a template cannot reach outside its source through a link.
+ */
+export type TemplateEntry =
+	| { readonly kind: "file"; readonly bytes: string }
+	| { readonly kind: "symlink" }
+	| { readonly kind: "directory" };
+
+/** Template entries keyed by template-root-relative posix path (dirs end with `/`). */
+export type TemplateEntries = Record<string, TemplateEntry>;
 
 /** Serializable provenance carried in created/unchanged results. */
 export interface CrewInitProvenance {
@@ -80,7 +97,6 @@ export function selectTemplateRoot(entries: readonly string[]): TemplateRootVerd
 
 /** Template file set keyed by template-root-relative posix path. */
 export type TemplateFileSet = Record<string, string>;
-
 const RUNTIME_OWNED_FILES = new Set([".gitignore"]);
 
 function runtimeOwnedPath(relative: string): string | undefined {
@@ -100,8 +116,9 @@ export type TemplateValidationVerdict =
  * must exist, and runtime-owned paths must be absent (rejected, never
  * skipped). Pure: reads nothing, writes nothing.
  */
-export function validateTemplate(files: TemplateFileSet): TemplateValidationVerdict {
-	for (const relative of Object.keys(files).sort()) {
+export function validateTemplate(entries: TemplateEntries): TemplateValidationVerdict {
+	const keys = Object.keys(entries).sort();
+	for (const relative of keys) {
 		const owned = runtimeOwnedPath(relative);
 		if (owned) {
 			return {
@@ -111,17 +128,56 @@ export function validateTemplate(files: TemplateFileSet): TemplateValidationVerd
 			};
 		}
 	}
-	const manifestBytes = files["crew.json"];
-	if (manifestBytes === undefined) {
+	const manifestEntry = entries["crew.json"];
+	if (manifestEntry?.kind !== "file") {
 		return {
 			ok: false,
 			code: "template-not-found",
-			message: "Template has no crew.json: expected <source>/crew.json or <source>/template/crew.json",
+			message: "Template has no crew.json file: expected <source>/crew.json or <source>/template/crew.json",
 		};
 	}
+	const parsedManifest = parseTemplateManifest(manifestEntry.bytes);
+	if (parsedManifest.ok === false) {
+		const failure: { ok: false; code: string; message: string } = parsedManifest;
+		return failure;
+	}
+	const manifest = parsedManifest.manifest;
+	for (const member of manifest.members) {
+		const referenced = member.instructionsFile;
+		if (referenced === undefined) continue;
+		const entry = entries[referenced];
+		if (entry?.kind === "symlink") {
+			return {
+				ok: false,
+				code: "template-symlinked-path",
+				message: `Template references '${referenced}' but it is a symlink; symlinks are never followed; replace it with a real file and rerun`,
+			};
+		}
+		if (entry === undefined || entry.kind === "directory") {
+			return {
+				ok: false,
+				code: "template-missing-instruction",
+				message: `Template crew.json references '${referenced}' but the template does not contain it; add the file to the template and rerun`,
+			};
+		}
+	}
+	return { ok: true, manifest, files: fileSetOf(entries) };
+}
+
+function fileSetOf(entries: TemplateEntries): TemplateFileSet {
+	const files: TemplateFileSet = {};
+	for (const [relative, entry] of Object.entries(entries).sort(([a], [b]) => a.localeCompare(b))) {
+		if (entry.kind === "file") files[relative] = entry.bytes;
+	}
+	return files;
+}
+
+function parseTemplateManifest(
+	bytes: string,
+): { ok: true; manifest: CrewManifest } | { ok: false; code: string; message: string } {
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(manifestBytes);
+		parsed = JSON.parse(bytes);
 	} catch {
 		return {
 			ok: false,
@@ -129,9 +185,8 @@ export function validateTemplate(files: TemplateFileSet): TemplateValidationVerd
 			message: "Template crew.json is not valid JSON; fix the template manifest and rerun",
 		};
 	}
-	let manifest: CrewManifest;
 	try {
-		manifest = parseCrewManifest(parsed, "crew.json");
+		return { ok: true, manifest: parseCrewManifest(parsed, "crew.json") };
 	} catch (error) {
 		const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : "";
 		return {
@@ -140,17 +195,6 @@ export function validateTemplate(files: TemplateFileSet): TemplateValidationVerd
 			message: `Template crew.json is invalid: ${(error as { message?: unknown }).message ?? "unknown error"}`,
 		};
 	}
-	for (const member of manifest.members) {
-		const referenced = member.instructionsFile;
-		if (referenced !== undefined && files[referenced] === undefined) {
-			return {
-				ok: false,
-				code: "template-missing-instruction",
-				message: `Template crew.json references '${referenced}' but the template does not contain it; add the file to the template and rerun`,
-			};
-		}
-	}
-	return { ok: true, manifest, files };
 }
 
 // ============================================================================
