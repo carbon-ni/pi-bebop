@@ -8,13 +8,16 @@ test("parses post flags without inferring kind from message prose", () => {
 		message: "tip this is a note",
 	});
 	assert.deepEqual(
-		parseCrewBoardCommand("post", "--kind tip --ref TASK-1 --ref docs/README.md --disputes post-abc hello world"),
+		parseCrewBoardCommand(
+			"post",
+			"--kind tip --ref TASK-1 --ref docs/README.md --disputes post-" + "a".repeat(64) + " hello world",
+		),
 		{
 			action: "post",
 			kind: "tip",
 			references: ["TASK-1", "docs/README.md"],
 			relation: "disputes",
-			postId: "post-abc",
+			postId: "post-" + "a".repeat(64),
 			message: "hello world",
 		},
 	);
@@ -29,9 +32,27 @@ test("rejects malformed post flags and duplicates before application", () => {
 		"--ref",
 		"--ref A --ref A hi",
 		"--supersedes x --disputes y hi",
-		"hello --kind tip",
 	]) {
 		assert.ok("error" in parseCrewBoardCommand("post", raw), raw);
+	}
+	assert.deepEqual(parseCrewBoardCommand("post", "-- --kind warning is prose"), {
+		action: "post",
+		message: "--kind warning is prose",
+	});
+	assert.deepEqual(parseCrewBoardCommand("post", "hello --kind tip"), {
+		action: "post",
+		message: "hello --kind tip",
+	});
+});
+
+test("enforces bounded option tails and canonical board limit grammar", () => {
+	assert.ok("error" in parseCrewBoardCommand("post", "x".repeat(21_505)));
+	assert.ok("error" in parseCrewBoardCommand("board", "x".repeat(1_025)));
+	for (const limit of ["0", "01", "+1", "1.0", "1e2", "101"]) {
+		assert.ok("error" in parseCrewBoardCommand("board", `--limit ${limit}`), limit);
+	}
+	for (const limit of ["1", "20", "100"]) {
+		assert.deepEqual(parseCrewBoardCommand("board", `--limit ${limit}`), { action: "board", limit: Number(limit) });
 	}
 });
 

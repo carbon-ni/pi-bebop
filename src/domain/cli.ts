@@ -20,7 +20,7 @@ export type ParsedSessionControlAction =
 	| { action: "agreements"; target: string };
 
 const SESSION_CONTROL_USAGE =
-	"join <socket>|leave|members|status|stop|board [options]|post [options] <message>|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume";
+	"join <socket>|leave|members|status|board [options]|post [options] <message>|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume";
 const INBOX_USAGE = "status|cancel <id>|pause|resume";
 
 function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: string } {

@@ -3,7 +3,9 @@ import {
 	formatCrewRoster,
 	parseSessionControlAction,
 	parseCrewBoardCommand,
+	normalizeBoardKinds,
 	type SessionControlAction,
+	type CrewPostKind,
 } from "../domain/index.ts";
 import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
 import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
@@ -48,10 +50,10 @@ const ACTIONS: SessionControlAction[] = [
 	"members",
 	"status",
 	"stop",
-	"board",
-	"post",
 	"agreements",
 	"inbox",
+	"board",
+	"post",
 ];
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
@@ -70,20 +72,34 @@ function renderStatus(state: SocketState): string {
 const BOARD_RENDER_LIMIT = 20000;
 let boardOperationSequence = 0;
 
-function renderCrewBoard(result: BoardReadResult): string {
-	if (result.posts.length === 0) return "Crew Board: no Posts found.";
-	const lines = ["Crew Board:"];
+function renderCrewBoard(result: BoardReadResult, requestedKinds: readonly CrewPostKind[] | undefined): string {
+	const lines = [
+		`Crew Board: returned ${result.posts.length} Post${result.posts.length === 1 ? "" : "s"}; hasMore=${result.hasMore}; corruptCount=${result.corruptCount}; quarantinedThisRead=${result.quarantinedThisRead}; corruptCountTruncated=${result.corruptCountTruncated}`,
+	];
 	for (const post of result.posts) {
 		const message = post.message.replace(/\r?\n/gu, " ");
 		const bounded = message.length > 500 ? `${message.slice(0, 500)}…` : message;
-		lines.push(`${post.sequence}. [${post.kind}] ${post.author.name} (${post.author.role}): ${bounded}`);
+		const references = post.references.length ? ` references=${JSON.stringify(post.references)}` : "";
+		const link = post.link ? ` link=${JSON.stringify(post.link)}` : "";
+		const redactions = post.redactions.length ? ` redactions=${JSON.stringify(post.redactions)}` : "";
+		lines.push(
+			`#${post.sequence} ${post.id} [${post.kind}] ${post.author.name} (${post.author.role}) createdAt ${post.createdAt}: ${bounded}${references}${link}${redactions}`,
+		);
 		if (lines.join("\n").length >= BOARD_RENDER_LIMIT) break;
 	}
-	if (result.hasMore && result.nextCursor)
-		lines.push(`More Posts available; use /crew board --after ${result.nextCursor}.`);
-	if (result.corruptCount > 0 || result.quarantinedThisRead > 0)
-		lines.push(`Board repair: ${result.corruptCount} invalid, ${result.quarantinedThisRead} quarantined.`);
+	if (result.nextCursor) {
+		const filters = normalizeBoardKinds(requestedKinds)
+			.map((kind) => `--kind ${kind}`)
+			.join(" ");
+		lines.push(`Continue: /crew board${filters ? ` ${filters}` : ""} --after ${result.nextCursor}`);
+	}
 	return lines.join("\n").slice(0, BOARD_RENDER_LIMIT);
+}
+
+function renderCrewPostConfirmation(result: Awaited<ReturnType<typeof leaveCrewPost>>): string {
+	const post = result.post;
+	const prefix = result.alreadyPersisted ? "Crew Post already persisted" : "Crew Post persisted";
+	return `${prefix}: ${post.id} (#${post.sequence}, ${post.kind}, ${post.author.name} (${post.author.role}), createdAt ${post.createdAt})`;
 }
 
 function boardDependencies(
@@ -244,9 +260,7 @@ async function handleBoardAction(
 				},
 				board,
 			);
-			pi.appendEntry("crew-board", {
-				content: `Crew Post persisted: ${result.post.id} (sequence ${result.post.sequence})`,
-			});
+			pi.appendEntry("crew-board", { content: renderCrewPostConfirmation(result) });
 			return;
 		}
 		const result = await readCrewBoard(
@@ -258,7 +272,7 @@ async function handleBoardAction(
 			},
 			board,
 		);
-		pi.appendEntry("crew-board", { content: renderCrewBoard(result) });
+		pi.appendEntry("crew-board", { content: renderCrewBoard(result, parsedBoard.kinds) });
 	} catch (error) {
 		notify(ctx, `Crew Board ${action} failed: ${boardErrorMessage(error)}`, "error");
 	}
@@ -272,7 +286,8 @@ export function registerSessionControlCommand(
 ): void {
 	pi.registerCommand(commandName, {
 		description:
-			"Join, inspect crew members, use /crew board to inspect shared Posts, or /crew post to add one; leave, show status, or stop Bebop",
+			"Join and manage Crew; use /crew board to inspect shared Posts and /crew post to add one (pull-only).",
+
 		getArgumentCompletions: (prefix) => {
 			const matches = ACTIONS.filter((action) => action.startsWith(prefix.trim()));
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
@@ -322,15 +337,16 @@ export function registerSessionControlCommand(
 						notify(ctx, `Crew join failed: ${result.error.message}`, "error");
 						return;
 					}
-					const joinedMessage = `Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}. Crew Board: use /crew board to inspect shared Posts and /crew post to add one; Posts are not delivered automatically.`;
+					const joinedMessage = `Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`;
+					const joinedOutput = `${joinedMessage}\nCrew Board: use /crew board to inspect shared Posts and /crew post to add one. Posts are pull-only and are not delivered automatically.`;
 					deps.persistMembership?.(true, result.membership);
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
 					await deps.refreshPresence?.();
-					deps.announceMembership?.(joinedMessage);
+					deps.announceMembership?.(joinedOutput);
 					deps.inboxBridge?.establish(ownershipFromMembership(result.membership));
 					void deps.inboxBridge?.attemptOffer();
-					notify(ctx, joinedMessage);
+					notify(ctx, joinedOutput);
 					return;
 				}
 				case "leave": {

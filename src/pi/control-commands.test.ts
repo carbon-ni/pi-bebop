@@ -51,13 +51,13 @@ test("crew command completions expose only the consolidated command surface", as
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
 		({ value }) => value,
 	);
-	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "board", "post", "agreements", "inbox"]);
-	assert.match((setupState.getCommand() as any).description, /crew members/i);
+	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "agreements", "inbox", "board", "post"]);
+	assert.match((setupState.getCommand() as any).description, /manage Crew/i);
 	assert.match((setupState.getCommand() as any).description, /\/crew board/);
 	assert.match((setupState.getCommand() as any).description, /\/crew post/);
 	await setupState.getCommand().handler("list", setupState.ctx);
 	assert.deepEqual(setupState.notifications, [
-		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop|board [options]|post [options] <message>|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume.",
+		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|board [options]|post [options] <message>|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume.",
 	]);
 });
 

@@ -17,6 +17,8 @@ export type ParsedCrewBoardCommand =
 	  };
 
 export type CrewBoardCommandParseResult = ParsedCrewBoardCommand | { readonly error: string };
+const POST_TAIL_MAX_BYTES = 21_504;
+const BOARD_TAIL_MAX_BYTES = 1_024;
 
 type Token = { readonly value: string };
 
@@ -91,7 +93,8 @@ function parseBoardFlag(tokens: readonly Token[], index: number, state: BoardSta
 	}
 	if (token === "--limit") {
 		if (state.limit !== undefined) return { error: "Duplicate --limit flag." };
-		if (!/^\d+$/u.test(value.value)) return { error: `Invalid limit: ${value.value}.` };
+		if (!/^(?:[1-9]|[1-9]\d|100)$/u.test(value.value)) return { error: `Invalid limit: ${value.value}.` };
+
 		state.limit = Number(value.value);
 		return index + 2;
 	}
@@ -99,7 +102,9 @@ function parseBoardFlag(tokens: readonly Token[], index: number, state: BoardSta
 		error: token.startsWith("--") ? `Unknown board flag: ${token}.` : "Board does not accept a message argument.",
 	};
 }
-function parseBoard(tokens: readonly Token[]): CrewBoardCommandParseResult {
+function parseBoard(tokens: readonly Token[], raw: string): CrewBoardCommandParseResult {
+	if (Buffer.byteLength(raw, "utf8") > BOARD_TAIL_MAX_BYTES)
+		return { error: "Crew Board options exceed 1,024 UTF-8 bytes." };
 	const state: BoardState = { kinds: [] };
 	for (let index = 0; index < tokens.length; ) {
 		const next = parseBoardFlag(tokens, index, state);
@@ -126,29 +131,37 @@ function parsePostFlag(tokens: readonly Token[], index: number, state: PostState
 		return index + 2;
 	}
 	if (token === "--ref") {
+		if (state.references.length >= 16) return { error: "Too many --ref flags." };
 		if (state.references.includes(value.value)) return { error: `Duplicate reference: ${value.value}.` };
 		state.references.push(value.value);
 		return index + 2;
 	}
 	if (token === "--supersedes" || token === "--disputes") {
 		if (state.relation !== undefined) return { error: "Only one of --supersedes or --disputes may be used." };
+		if (!/^post-[a-f0-9]{64}$/u.test(value.value)) return { error: `Invalid Post ID: ${value.value}.` };
 		state.relation = token.slice(2) as CrewPostRelation;
 		state.postId = value.value;
 		return index + 2;
 	}
 	return { error: `Unknown post flag: ${token}.` };
 }
-function parsePost(tokens: readonly Token[]): CrewBoardCommandParseResult {
+function parsePost(tokens: readonly Token[], raw: string): CrewBoardCommandParseResult {
+	if (Buffer.byteLength(raw, "utf8") > POST_TAIL_MAX_BYTES)
+		return { error: "Crew Post command exceeds 21,504 UTF-8 bytes." };
 	const state: PostState = { references: [] };
 	let messageStart = 0;
-	while (messageStart < tokens.length && tokens[messageStart]!.value.startsWith("--")) {
+	while (
+		messageStart < tokens.length &&
+		tokens[messageStart]!.value !== "--" &&
+		tokens[messageStart]!.value.startsWith("--")
+	) {
 		const next = parsePostFlag(tokens, messageStart, state);
 		if (typeof next !== "number") return next;
 		messageStart = next;
 	}
+	if (messageStart < tokens.length && tokens[messageStart]!.value === "--") messageStart += 1;
 	if (messageStart >= tokens.length) return { error: "Missing message. Use /crew post <message>." };
-	if (tokens.slice(messageStart).some((token) => token.value.startsWith("--")))
-		return { error: "Post flags must appear before the message." };
+
 	const message = tokens
 		.slice(messageStart)
 		.map((token) => token.value)
@@ -167,5 +180,5 @@ function parsePost(tokens: readonly Token[]): CrewBoardCommandParseResult {
 export function parseCrewBoardCommand(action: "board" | "post", raw: string): CrewBoardCommandParseResult {
 	const tokenized = tokenize(raw);
 	if (tokenized.error) return { error: tokenized.error };
-	return action === "board" ? parseBoard(tokenized.tokens ?? []) : parsePost(tokenized.tokens ?? []);
+	return action === "board" ? parseBoard(tokenized.tokens ?? [], raw) : parsePost(tokenized.tokens ?? [], raw);
 }
