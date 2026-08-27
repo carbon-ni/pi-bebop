@@ -69,7 +69,6 @@ function renderStatus(state: SocketState): string {
 	return `Crew ${status}${crew}`;
 }
 
-const BOARD_RENDER_LIMIT = 20000;
 let boardOperationSequence = 0;
 
 function renderCrewBoard(result: BoardReadResult, requestedKinds: readonly CrewPostKind[] | undefined): string {
@@ -77,15 +76,13 @@ function renderCrewBoard(result: BoardReadResult, requestedKinds: readonly CrewP
 		`Crew Board: returned ${result.posts.length} Post${result.posts.length === 1 ? "" : "s"}; hasMore=${result.hasMore}; corruptCount=${result.corruptCount}; quarantinedThisRead=${result.quarantinedThisRead}; corruptCountTruncated=${result.corruptCountTruncated}`,
 	];
 	for (const post of result.posts) {
-		const message = post.message.replace(/\r?\n/gu, " ");
-		const bounded = message.length > 500 ? `${message.slice(0, 500)}…` : message;
+		const message = post.message;
 		const references = post.references.length ? ` references=${JSON.stringify(post.references)}` : "";
 		const link = post.link ? ` link=${JSON.stringify(post.link)}` : "";
 		const redactions = post.redactions.length ? ` redactions=${JSON.stringify(post.redactions)}` : "";
 		lines.push(
-			`#${post.sequence} ${post.id} [${post.kind}] ${post.author.name} (${post.author.role}) createdAt ${post.createdAt}: ${bounded}${references}${link}${redactions}`,
+			`#${post.sequence} ${post.id} [${post.kind}] ${post.author.name} (${post.author.role}) createdAt ${post.createdAt}: ${message}${references}${link}${redactions}`,
 		);
-		if (lines.join("\n").length >= BOARD_RENDER_LIMIT) break;
 	}
 	if (result.nextCursor) {
 		const filters = normalizeBoardKinds(requestedKinds)
@@ -93,7 +90,7 @@ function renderCrewBoard(result: BoardReadResult, requestedKinds: readonly CrewP
 			.join(" ");
 		lines.push(`Continue: /crew board${filters ? ` ${filters}` : ""} --after ${result.nextCursor}`);
 	}
-	return lines.join("\n").slice(0, BOARD_RENDER_LIMIT);
+	return lines.join("\n");
 }
 
 function renderCrewPostConfirmation(result: Awaited<ReturnType<typeof leaveCrewPost>>): string {

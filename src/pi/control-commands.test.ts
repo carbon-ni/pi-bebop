@@ -118,6 +118,65 @@ test("/crew board and post delegate to shared operations with TUI-only output", 
 	assert.equal(setupState.messages.length, 0);
 });
 
+test("/crew board renders canonical multiline and long Post content without silent truncation", async () => {
+	const setupState = setup();
+	const manifestPath = "/project/.pi/bebop/crew.json";
+	const manifest = parseCrewManifest(
+		{ version: 1, members: [{ name: "Mary", role: "po", socket: "sockets/mary.sock" }] },
+		manifestPath,
+	);
+	const membership = {
+		manifestPath,
+		socketPath: manifest.members[0]!.socketPath,
+		globalSocketPath: "/tmp/global.sock",
+		member: manifest.members[0]!,
+		manifest,
+	} as never;
+	setupState.state.membershipRuntime = { getMembership: () => membership } as never;
+	const message = `first line\n${"x".repeat(700)}\nlast line`;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewBoard: {
+				isProjectTrusted: () => true,
+				getCurrentMembership: () => membership,
+				openStore: async () => ({
+					append: async () => ({ version: 1 as const, post: {} as never, alreadyPersisted: false }),
+					read: async () => ({
+						version: 1 as const,
+						posts: [
+							{
+								version: 1 as const,
+								id: "post-1",
+								sequence: 1,
+								createdAt: 7,
+								author: { name: "Mary", role: "po" },
+								kind: "note" as const,
+								message,
+								references: ["TASK-1"],
+								link: null,
+								redactions: ["credential" as const],
+								semanticFingerprint: "f".repeat(64),
+							},
+						],
+						nextCursor: null,
+						hasMore: false,
+						corruptCount: 0,
+						quarantinedThisRead: 0,
+						corruptCountTruncated: false,
+					}),
+				}),
+			},
+		}),
+	);
+	await setupState.getCommand().handler("board", setupState.ctx);
+	const rendered = (setupState.entries.at(-1)!.data as { content: string }).content;
+	assert.ok(rendered.includes(message), "canonical message must remain lossless");
+	assert.match(rendered, /references=\["TASK-1"\]/);
+	assert.match(rendered, /redactions=\["credential"\]/);
+});
+
 test("Crew Board parser rejects malformed tails before application/store IO", async () => {
 	const setupState = setup();
 	const manifestPath = "/project/.pi/bebop/crew.json";
