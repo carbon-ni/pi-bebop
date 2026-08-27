@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+	constrainedGitEnvironment,
 	createGitTemplateSourceAdapter,
 	createLocalTemplateSourceAdapter,
 	readTemplateEntries,
@@ -331,6 +332,15 @@ test("git adapter classifies clone failures distinctly without leaking stderr (G
 			if (expectedCode === "git-auth-required") assert.match(result.message, /not supported/);
 		}
 	}
+});
+
+test("production Git environment disables prompts and ambient config", () => {
+	assert.deepEqual(constrainedGitEnvironment("/custom/bin"), {
+		GIT_CONFIG_GLOBAL: "/dev/null",
+		GIT_CONFIG_NOSYSTEM: "1",
+		GIT_TERMINAL_PROMPT: "0",
+		PATH: "/custom/bin",
+	});
 });
 
 test("git adapter strips URL userinfo from clone arguments and provenance", async () => {

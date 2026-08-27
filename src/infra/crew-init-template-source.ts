@@ -5,7 +5,7 @@
  *   recorded, never followed; `.git` directories are skipped entirely).
  * - Git: plain `git` CLI behind an injected runner; clone -> optional
  *   detached checkout of `--ref` -> `rev-parse HEAD` -> local read; the
- *   clone directory is always removed. No prompts, no config, no env.
+ * clone directory is always removed. Git runs with no prompts and a constrained environment.
  *
  * Bounds keep template reading deterministic and cheap: depth, file count,
  * and byte ceilings with a stable overflow code.
@@ -296,6 +296,16 @@ export function createGitTemplateSourceAdapter(deps: GitSourceDeps): TemplateSou
 	};
 }
 
+/** The only environment passed to Git; ambient config and prompting are disabled. */
+export function constrainedGitEnvironment(pathValue = process.env.PATH): NodeJS.ProcessEnv {
+	return {
+		GIT_CONFIG_GLOBAL: "/dev/null",
+		GIT_CONFIG_NOSYSTEM: "1",
+		GIT_TERMINAL_PROMPT: "0",
+		PATH: pathValue ?? "/usr/bin:/bin",
+	};
+}
+
 /** Production adapter composition. All process and filesystem effects remain in infra. */
 export function createNodeCrewInitTemplateSourceAdapter(): TemplateSourceAdapter {
 	const localFs: LocalTemplateFs = {
@@ -308,12 +318,7 @@ export function createNodeCrewInitTemplateSourceAdapter(): TemplateSourceAdapter
 			try {
 				const result = await promisify(execFile)("git", [...args], {
 					encoding: "utf8",
-					env: {
-						GIT_CONFIG_GLOBAL: "/dev/null",
-						GIT_CONFIG_NOSYSTEM: "1",
-						GIT_TERMINAL_PROMPT: "0",
-						PATH: process.env.PATH ?? "/usr/bin:/bin",
-					},
+					env: constrainedGitEnvironment(),
 				});
 				return { status: 0, stdout: result.stdout, stderr: result.stderr };
 			} catch (error) {
