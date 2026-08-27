@@ -1,7 +1,7 @@
 ---
 id: TASK-0098
 title: Split RPC handleCommand into per-command handlers
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: []
