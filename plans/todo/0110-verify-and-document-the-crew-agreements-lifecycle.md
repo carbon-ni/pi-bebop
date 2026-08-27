@@ -16,9 +16,10 @@ Without executable end-to-end evidence and clear operator guidance, the Crew cou
 Final product gate for the complete manual and cadence-assisted lifecycle.
 
 ## Acceptance criteria
-- [ ] Executable matrix proves proposal → manual Crew Retrospective → candidate revision → explicit activation → next-Membership snapshot plus durable Agreement activation notice.
+- [ ] Executable matrix proves bounded evidence collection from Bebop + repository + Member sessions → shared Crew Retrospective Record → Member challenge/correction → Agreement proposal → candidate revision → explicit activation → next-Membership snapshot plus durable Agreement activation notice.
 - [ ] At least two Members load byte-identical Current Crew Agreements while retaining distinct Role instructions; active snapshots never hot-reload.
-- [ ] Failure matrix proves no Role/Origin/facilitator/message can activate, all validation failures write zero target state, and conflicts/restarts remain deterministic.
+- [ ] At least two Members receive the exact same Retrospective Record; every situation links evidence and labels interpretation separately from fact or Agreement proposal.
+- [ ] Failure matrix proves no Role/Origin/facilitator/message/evidence can activate, credentials are redacted, missing/corrupt/oversized collectors are explicit, all validation failures write zero target state, and conflicts/restarts remain deterministic.
 - [ ] Cadence matrix proves one reminder only, offline durable handoff, no automatic start, no fallback facilitator, and injected-clock boundary behavior.
 - [ ] Template matrix proves initial Agreement adoption/provenance without importing proposals or retrospective history.
 - [ ] `UL.md`, README, architecture docs, CLI/tool affordances, manifest examples, and recovery guidance use only canonical `crew-agreements` language.

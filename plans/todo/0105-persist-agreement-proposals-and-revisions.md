@@ -13,7 +13,7 @@ tags: [crew-agreements, domain, persistence, audit, security, tdd]
 Agreement ideas currently exist only in transient conversation, so evidence is lost, proposals can be confused with current instructions, and amendments or removals have no deterministic audit trail.
 
 ## Context
-Proposal and revision records are evidence and candidates, never active instructions.
+Proposal and revision records are candidates, never active instructions. A Retrospective situation/evidence item may support a proposal but remains a separate immutable record; evidence is not duplicated or silently rewritten as a proposed rule.
 
 ## Acceptance criteria
 - [ ] Agreement proposal has stable ID, add/amend/remove intent, problem/evidence, proposed observable behavior, and optional target Agreement ID.
