@@ -431,6 +431,28 @@ test("anonymous functions get deterministic identities and cannot bypass the cei
 	assert.equal(clean.complexity.find((entry) => entry.function === "anonymous@2")?.value, 2);
 });
 
+test("single-line anonymous map callbacks are counted as complexity offenders", () => {
+	const source = [
+		"export const items=[true].map((a)=>{",
+		...Array.from({ length: 16 }, (_, i) => `\tif (a) value${i}++;`),
+		"});",
+	].join("\n");
+	const result = analyze([file("src/domain/anonymous-map.ts", source)]);
+	assert.deepEqual(result.complexity, [
+		{ file: "src/domain/anonymous-map.ts", function: "anonymous@1", line: 1, value: 17 },
+	]);
+	const ratchet = applyRatchet(result, emptyBaseline);
+	assert.equal(ratchet.ok, false);
+	assert.deepEqual(ratchet.failures, [{
+		check: "complexity",
+		file: "src/domain/anonymous-map.ts",
+		function: "anonymous@1",
+		line: 1,
+		value: 17,
+		reason: "new",
+	}]);
+});
+
 test("class-property arrows are named by the property", () => {
 	const source = [
 		"export class Runner {",

@@ -1,5 +1,10 @@
 import {
+	adoptedBytesFromTemplate,
+	adoptedManagedPaths,
 	classifyCrewInitTarget,
+	describeTemplateSource,
+	selectTemplateRoot,
+	validateTemplate,
 	CREW_INIT_MANIFEST_REL,
 	CREW_INIT_PROJECT_DIR,
 	CREW_INIT_SOCKETS_REL,
@@ -7,8 +12,13 @@ import {
 	crewInitTemplateBytes,
 	redactCrewInitPath,
 	type CrewInitPathEntry,
+	type CrewInitProvenance,
 	type CrewInitTargetVerdict,
+	type CrewInitTemplatePlan,
+	type TemplateEntries,
+	type TemplateSourceDescriptor,
 } from "../domain/index.ts";
+import type { TemplateSourceAdapter } from "../infra/crew-init-template-source.ts";
 
 /**
  * Deterministic `pi-bebop crew init` application flow (TASK-0054).
@@ -39,7 +49,22 @@ export type CrewInitFlowErrorCode =
 	| "partial-layout"
 	| "permission-denied"
 	| "publish-failed"
-	| "staging-failed";
+	| "staging-failed"
+	| "template-not-found"
+	| "template-invalid-manifest"
+	| "template-missing-instruction"
+	| "template-runtime-owned-path"
+	| "template-symlinked-path"
+	| "template-source-unreadable"
+	| "template-source-too-large"
+	| "git-unavailable"
+	| "git-clone-failed"
+	| "git-network-unreachable"
+	| "git-auth-required"
+	| "git-unsupported-url"
+	| "git-ref-not-found"
+	| "git-checkout-failed"
+	| "git-resolve-failed";
 
 export type CrewInitPathKind = "file" | "directory" | "symlink" | "missing";
 
@@ -67,8 +92,14 @@ export type CrewInitFlowResult =
 			readonly createdPaths: readonly string[];
 			readonly verifiedPaths: readonly string[];
 			readonly nextCommands: readonly string[];
+			readonly source?: CrewInitProvenance;
 	  }
 	| { readonly ok: false; readonly error: { readonly code: CrewInitFlowErrorCode; readonly message: string } };
+
+/** Optional deps for `--from` template adoption. */
+export interface CrewInitFlowDeps {
+	readonly sourceAdapter?: TemplateSourceAdapter;
+}
 
 function errnoCode(error: unknown): string {
 	return typeof error === "object" && error !== null && "code" in error
@@ -76,8 +107,145 @@ function errnoCode(error: unknown): string {
 		: "";
 }
 
-export function createCrewInitFlow(adapter: CrewInitFsAdapter) {
-	const classify = async (projectAbs: string): Promise<CrewInitTargetVerdict> => {
+/** Loads and validates an external template into a scaffold plan. Pure error mapping, zero destination IO. */
+async function loadTemplatePlan(
+	sourceAdapter: TemplateSourceAdapter,
+	from: TemplateSourceDescriptor,
+	cwd: string,
+): Promise<{ ok: true; plan: CrewInitTemplatePlan; source: CrewInitProvenance } | { ok: false; code: CrewInitFlowErrorCode; message: string }> {
+	const read = await sourceAdapter.read(from, { cwd });
+	if (read.ok === false) return { ok: false, code: read.code as CrewInitFlowErrorCode, message: read.message };
+	const root = selectTemplateRoot(Object.keys(read.entries));
+	if (root.ok === false) return { ok: false, code: root.code, message: root.message };
+	const scoped: TemplateEntries = {};
+	for (const [key, entry] of Object.entries(read.entries)) {
+		if (key.startsWith(root.root)) scoped[key.slice(root.root.length)] = entry;
+	}
+	const verdict = validateTemplate(scoped);
+	if (verdict.ok === false) return { ok: false, code: verdict.code as CrewInitFlowErrorCode, message: verdict.message };
+	const bytes = adoptedBytesFromTemplate(verdict.files, verdict.manifest);
+	return {
+		ok: true,
+		plan: { bytes, managedPaths: adoptedManagedPaths(bytes) },
+		source: describeTemplateSource(read.descriptor),
+	};
+}
+
+type TemplateLoadResult =
+	| { readonly ok: true; readonly plan?: CrewInitTemplatePlan; readonly source?: CrewInitProvenance }
+	| { readonly ok: false; readonly code: CrewInitFlowErrorCode; readonly message: string };
+
+async function loadRequestedTemplate(
+	deps: CrewInitFlowDeps,
+	options: { from?: TemplateSourceDescriptor; cwd?: string },
+): Promise<TemplateLoadResult> {
+	if (options.from === undefined) return { ok: true };
+	if (!deps.sourceAdapter) {
+		return { ok: false, code: "staging-failed", message: "Template source adapter is not configured" };
+	}
+	return loadTemplatePlan(deps.sourceAdapter, options.from, options.cwd ?? "");
+}
+
+function managedFiles(plan?: CrewInitTemplatePlan): readonly string[] {
+	return (plan?.managedPaths ?? crewInitManagedPaths()).filter((path) => !path.endsWith("/"));
+}
+
+function successResult(
+	project: string,
+	status: "created" | "unchanged",
+	createdPaths: readonly string[],
+	verifiedPaths: readonly string[],
+	source?: CrewInitProvenance,
+): CrewInitFlowResult {
+	return {
+		ok: true,
+		status,
+		project,
+		manifestPath: CREW_INIT_MANIFEST_REL,
+		createdPaths,
+		verifiedPaths,
+		nextCommands: [`pi --crew-role lead`, `pi --crew-role developer`],
+		...(source ? { source } : {}),
+	};
+}
+
+function conflictResult(verdict: Extract<CrewInitTargetVerdict, { kind: "conflict" }>): CrewInitFlowResult {
+	return {
+		ok: false,
+		error: {
+			code: verdict.code as CrewInitFlowErrorCode,
+			message: `Crew init conflict at ${redactCrewInitPath(verdict.path)}: ${verdict.nextStep}`,
+		},
+	};
+}
+
+function publishFailure(project: string, error: unknown): CrewInitFlowResult {
+	const code = errnoCode(error);
+	return {
+		ok: false,
+		error: {
+			code: code === "EACCES" || code === "EPERM" ? "permission-denied" : "publish-failed",
+			message: `Failed to publish crew scaffold: ${redactCrewInitPath(project)}`,
+		},
+	};
+}
+
+async function writeStaging(
+	adapter: CrewInitFsAdapter,
+	staging: string,
+	plan?: CrewInitTemplatePlan,
+): Promise<void> {
+	const templates = plan?.bytes ?? crewInitTemplateBytes();
+	const managed = plan?.managedPaths ?? crewInitManagedPaths();
+	for (const relative of managed) {
+		if (relative.endsWith("/")) continue;
+		const stagingRelative = relative.replace(`${CREW_INIT_PROJECT_DIR}/`, "");
+		await adapter.writeFile(`${staging}/${stagingRelative}`, templates[relative]!);
+	}
+	await adapter.mkdir(`${staging}/${CREW_INIT_SOCKETS_REL.replace(`${CREW_INIT_PROJECT_DIR}/`, "")}`);
+}
+
+type PublishResult =
+	| { readonly kind: "created" }
+	| { readonly kind: "unchanged" }
+	| { readonly kind: "conflict"; readonly verdict: Extract<CrewInitTargetVerdict, { kind: "conflict" }> }
+	| { readonly kind: "error"; readonly error: unknown };
+
+async function publishStaging(
+	adapter: CrewInitFsAdapter,
+	project: string,
+	plan: CrewInitTemplatePlan | undefined,
+	classify: (project: string, plan?: CrewInitTemplatePlan) => Promise<CrewInitTargetVerdict>,
+): Promise<PublishResult> {
+	let staging: string | undefined;
+	try {
+		staging = await adapter.createStaging(project);
+		await writeStaging(adapter, staging, plan);
+		try {
+			await adapter.publishStaging(staging, `${project}/${CREW_INIT_PROJECT_DIR}`);
+		} catch (error) {
+			const code = errnoCode(error);
+			if (code === "ENOTEMPTY" || code === "EEXIST") {
+				const after = await classify(project, plan);
+				if (after.kind === "unchanged") return { kind: "unchanged" };
+				if (after.kind === "conflict") return { kind: "conflict", verdict: after };
+			}
+			return { kind: "error", error };
+		}
+		staging = undefined;
+		return { kind: "created" };
+	} catch (error) {
+		return { kind: "error", error };
+	} finally {
+		if (staging) await adapter.remove(staging);
+	}
+}
+
+export function createCrewInitFlow(adapter: CrewInitFsAdapter, deps: CrewInitFlowDeps = {}) {
+	const classify = async (
+		projectAbs: string,
+		plan: CrewInitTemplatePlan = { bytes: crewInitTemplateBytes(), managedPaths: crewInitManagedPaths() },
+	): Promise<CrewInitTargetVerdict> => {
 		const rootKind = await adapter.readKind(projectAbs);
 		const snapshot = {
 			readRootKind: () => rootKind,
@@ -93,118 +261,35 @@ export function createCrewInitFlow(adapter: CrewInitFsAdapter) {
 		};
 		// classifyCrewInitTarget is synchronous over the snapshot; the async
 		// reads above are collected first.
-		const reads = crewInitManagedPaths().map((relative) => snapshot.readPath(relative));
+		const reads = plan.managedPaths.map((relative) => snapshot.readPath(relative));
 		const entries = await Promise.all(reads);
 		const entryByPath = new Map<string, CrewInitPathEntry>();
-		crewInitManagedPaths().forEach((relative, index) => entryByPath.set(relative, entries[index]!));
+		plan.managedPaths.forEach((relative, index) => entryByPath.set(relative, entries[index]!));
 		const syncSnapshot = {
 			readRootKind: () => rootKind,
 			readPath: (relative: string) => entryByPath.get(relative) ?? { kind: "missing" },
 		};
-		return classifyCrewInitTarget(syncSnapshot);
+		return classifyCrewInitTarget(syncSnapshot, plan);
 	};
 
-	const run = async (projectAbs: string): Promise<CrewInitFlowResult> => {
-		const verdict = await classify(projectAbs);
-		if (verdict.kind === "unchanged") {
-			return {
-				ok: true,
-				status: "unchanged",
-				project: projectAbs,
-				manifestPath: CREW_INIT_MANIFEST_REL,
-				createdPaths: [],
-				verifiedPaths: crewInitManagedPaths().filter((p) => !p.endsWith("/")),
-				nextCommands: [`pi --crew-role lead`, `pi --crew-role developer`],
-			};
-		}
-		if (verdict.kind === "conflict") {
-			return {
-				ok: false,
-				error: {
-					code: verdict.code as CrewInitFlowErrorCode,
-					message: `Crew init conflict at ${redactCrewInitPath(verdict.path)}: ${verdict.nextStep}`,
-				},
-			};
-		}
+	const run = async (
+		projectAbs: string,
+		options: { from?: TemplateSourceDescriptor; cwd?: string } = {},
+	): Promise<CrewInitFlowResult> => {
+		const loaded = await loadRequestedTemplate(deps, options);
+		if (loaded.ok === false) return { ok: false, error: { code: loaded.code, message: loaded.message } };
+		const plan = loaded.plan;
+		const source = loaded.source;
+		const verified = managedFiles(plan);
+		const verdict = await classify(projectAbs, plan);
+		if (verdict.kind === "unchanged") return successResult(projectAbs, "unchanged", [], verified, source);
+		if (verdict.kind === "conflict") return conflictResult(verdict);
 
-		// verdict.kind === "created": stage under project `.pi`, publish atomically.
-		let staging: string | undefined;
-		try {
-			staging = await adapter.createStaging(projectAbs);
-			const templates = crewInitTemplateBytes();
-			for (const relative of crewInitManagedPaths()) {
-				if (relative.endsWith("/")) continue;
-				// Staging is the eventual `.pi/bebop` content root: strip the project prefix.
-				const stagingRelative = relative.replace(`${CREW_INIT_PROJECT_DIR}/`, "");
-				await adapter.writeFile(`${staging}/${stagingRelative}`, templates[relative]!);
-			}
-			// sockets/ empty directory for immediate discoverability.
-			await adapter.mkdir(`${staging}/${CREW_INIT_SOCKETS_REL.replace(`${CREW_INIT_PROJECT_DIR}/`, "")}`);
-			const targetAbs = `${projectAbs}/${CREW_INIT_PROJECT_DIR}`;
-			try {
-				await adapter.publishStaging(staging, targetAbs);
-			} catch (error) {
-				const code = errnoCode(error);
-				if (code === "ENOTEMPTY" || code === "EEXIST") {
-					// Concurrent initializer won: reconcile to unchanged or stable conflict.
-					const after = await classify(projectAbs);
-					if (after.kind === "unchanged") {
-						return {
-							ok: true,
-							status: "unchanged",
-							project: projectAbs,
-							manifestPath: CREW_INIT_MANIFEST_REL,
-							createdPaths: [],
-							verifiedPaths: crewInitManagedPaths().filter((p) => !p.endsWith("/")),
-							nextCommands: [`pi --crew-role lead`, `pi --crew-role developer`],
-						};
-					}
-					if (after.kind === "conflict") {
-						return {
-							ok: false,
-							error: {
-								code: after.code as CrewInitFlowErrorCode,
-								message: `Crew init conflict at ${redactCrewInitPath(after.path)}: ${after.nextStep}`,
-							},
-						};
-					}
-				}
-				return {
-					ok: false,
-					error: {
-						code: code === "EACCES" || code === "EPERM" ? "permission-denied" : "publish-failed",
-						message: `Failed to publish crew scaffold: ${redactCrewInitPath(projectAbs)}`,
-					},
-				};
-			}
-			staging = undefined;
-			return {
-				ok: true,
-				status: "created",
-				project: projectAbs,
-				manifestPath: CREW_INIT_MANIFEST_REL,
-				createdPaths: crewInitManagedPaths().filter((p) => !p.endsWith("/")),
-				verifiedPaths: [],
-				nextCommands: [`pi --crew-role lead`, `pi --crew-role developer`],
-			};
-		} catch (error) {
-			const code = errnoCode(error);
-			return {
-				ok: false,
-				error: {
-					code:
-						code === "EACCES" || code === "EPERM"
-							? "permission-denied"
-							: code === "ENOTDIR"
-								? "managed-path-shape"
-								: "staging-failed",
-					message: `Crew init failed: ${redactCrewInitPath(projectAbs)}`,
-				},
-			};
-		} finally {
-			if (staging) await adapter.remove(staging);
-		}
+		const published = await publishStaging(adapter, projectAbs, plan, classify);
+		if (published.kind === "created") return successResult(projectAbs, "created", verified, [], source);
+		if (published.kind === "unchanged") return successResult(projectAbs, "unchanged", [], verified, source);
+		if (published.kind === "conflict") return conflictResult(published.verdict);
+		return publishFailure(projectAbs, published.error);
 	};
-
 	return { run, classify };
 }

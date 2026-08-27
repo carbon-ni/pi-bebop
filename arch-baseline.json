@@ -4,12 +4,6 @@
 	"entries": [
 		{
 			"check": "complexity",
-			"file": "src/application/crew-init-flow.ts",
-			"function": "run",
-			"value": 17
-		},
-		{
-			"check": "complexity",
 			"file": "src/application/direct-message.ts",
 			"function": "sendDirectMessage",
 			"value": 16
@@ -87,11 +81,6 @@
 			"value": 16
 		},
 		{
-			"check": "file-size",
-			"file": "src/domain/protocol.ts",
-			"value": 1293
-		},
-		{
 			"check": "complexity",
 			"file": "src/domain/protocol.ts",
 			"function": "commandToRequest",
@@ -128,11 +117,6 @@
 			"value": 34
 		},
 		{
-			"check": "file-size",
-			"file": "src/infra/rpc-client.ts",
-			"value": 504
-		},
-		{
 			"check": "complexity",
 			"file": "src/infra/rpc-client.ts",
 			"function": "anonymous@135",
@@ -151,11 +135,6 @@
 			"value": 29
 		},
 		{
-			"check": "file-size",
-			"file": "src/pi/control-runtime.ts",
-			"value": 1062
-		},
-		{
 			"check": "complexity",
 			"file": "src/pi/control-runtime.ts",
 			"function": "handleCommand",
@@ -166,6 +145,21 @@
 			"file": "src/pi/startup-send.ts",
 			"function": "maybeHandleStartupControlSend",
 			"value": 22
+		},
+		{
+			"check": "file-size",
+			"file": "src/domain/protocol.ts",
+			"value": 1293
+		},
+		{
+			"check": "file-size",
+			"file": "src/infra/rpc-client.ts",
+			"value": 504
+		},
+		{
+			"check": "file-size",
+			"file": "src/pi/control-runtime.ts",
+			"value": 1062
 		}
 	]
 }
