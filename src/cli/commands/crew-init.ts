@@ -34,7 +34,7 @@ export function buildCrewInitCommand(): Command {
 		.option("--project <directory>", "Target project root (default: current working directory)")
 		.option("--from <template>", "Adopt a local directory or public git template")
 		.option("--ref <ref>", "Git ref to check out (requires --from)")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option("--format <format>", "Output format: text (default), json, or toon", "text")
 		.showHelpAfterError(false)
 		.helpOption(false); // --help handled by the app pre-pass; no short aliases
 }
@@ -46,6 +46,6 @@ export function readCrewInitLeafOptions(parsed: Command): CrewInitLeafOptions {
 		...(opts.project === undefined ? {} : { project: opts.project }),
 		...(opts.from === undefined ? {} : { from: opts.from }),
 		...(opts.ref === undefined ? {} : { ref: opts.ref }),
-		format: (opts.format ?? "toon") as CliFormat,
+		format: (opts.format ?? "text") as CliFormat,
 	};
 }

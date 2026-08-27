@@ -50,7 +50,7 @@ function intentWord(intent: MemberMessageIntent): "follow-up" | "redirect" {
 	return intent === "follow_up" ? "follow-up" : "redirect";
 }
 
-export function buildMemberMessageCommand(intent: MemberMessageIntent): Command {
+export function buildMemberMessageCommand(intent: MemberMessageIntent, defaultFormat: CliFormat = "toon"): Command {
 	const word = intentWord(intent);
 	const label = intent === "follow_up" ? "Follow-up" : "Redirect";
 	const description =
@@ -63,7 +63,11 @@ export function buildMemberMessageCommand(intent: MemberMessageIntent): Command 
 		.option("--message <text>", "Message text")
 		.option("--stdin", "Read message from stdin")
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			`Output format: ${defaultFormat} (default), ${FORMATS.filter((format) => format !== defaultFormat).join(", ")}`,
+			defaultFormat,
+		)
 		.argument("[<member>]", "Crew member name or unique role")
 		.showHelpAfterError(false)
 		.helpOption(false);
@@ -150,11 +154,12 @@ type MemberMessageRawOptions = { session?: string; message?: string; stdin?: boo
 function parseMemberMessageTokens(
 	tokens: readonly string[],
 	intent: MemberMessageIntent,
+	defaultFormat: CliFormat,
 ): {
 	opts: MemberMessageRawOptions;
 	member: string;
 } {
-	const program = buildMemberMessageCommand(intent)
+	const program = buildMemberMessageCommand(intent, defaultFormat)
 		.exitOverride()
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
 	try {
@@ -171,8 +176,9 @@ function validateMemberMessageOptions(
 	member: string,
 	help: boolean,
 	instructions: readonly string[],
+	defaultFormat: CliFormat,
 ): { format: CliFormat; hasMessage: boolean; hasStdin: boolean } {
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormat) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	validateInstructions(instructions);
@@ -198,6 +204,7 @@ export function parseMemberMessageCommand(
 	args: string[],
 	intent: MemberMessageIntent,
 	_cwd = process.cwd(),
+	defaultFormat: CliFormat = "toon",
 ): MemberMessageCliOptions {
 	const parsed = parseFlagTokens(args, {
 		valueFlags: SINGLE_VALUE_FLAGS,
@@ -207,8 +214,8 @@ export function parseMemberMessageCommand(
 		rejectFlagLikeValues: true,
 	});
 	const instructions = parsed.repeatableValues.get("--instruction") ?? [];
-	const { opts, member } = parseMemberMessageTokens(parsed.tokens, intent);
-	const validated = validateMemberMessageOptions(opts, member, parsed.help, instructions);
+	const { opts, member } = parseMemberMessageTokens(parsed.tokens, intent, defaultFormat);
+	const validated = validateMemberMessageOptions(opts, member, parsed.help, instructions, defaultFormat);
 	return {
 		command: intent === "follow_up" ? "member-follow-up" : "member-redirect",
 		intent,

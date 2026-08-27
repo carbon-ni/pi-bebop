@@ -66,7 +66,7 @@ test("interrupt parser enforces message source, preserves instructions, and supp
 		message: "stop",
 		instructions: ["first", "second"],
 		stdin: false,
-		format: "toon",
+		format: "text",
 	});
 	assert.throws(() => parseMemberInterruptCommand(["Kelly", "--message", "x", "--stdin"], "/project"), /exactly one/);
 });

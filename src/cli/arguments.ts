@@ -46,6 +46,8 @@ export type CrewRolesCliOptions = {
 
 export type HomeCliOptions = {
 	readonly command: "home";
+	readonly format: CliFormat;
+	readonly help?: boolean;
 };
 
 export type CliCommand = SendCliOptions | CrewInitCliOptions | CrewRolesCliOptions | HomeCliOptions;

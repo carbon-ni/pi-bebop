@@ -39,7 +39,7 @@ export function isCliFormat(value: string): value is CliFormat {
 export function buildCrewRolesCommand(): Command {
 	return new Command("roles")
 		.description("List configured crew roles (read-only discovery)")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option("--format <format>", "Output format: text (default), json, or toon", "text")
 		.option("--full", "Full response without truncation")
 		.showHelpAfterError(false)
 		.helpOption(false); // --help handled by the app pre-pass; no short aliases
@@ -57,7 +57,7 @@ export function crewRolesHelp(): string {
 		"destinations.",
 		"",
 		"Options:",
-		"  --format <format>   toon (default), json, or text",
+		"  --format <format>   text (default), json, or toon",
 		"  --full              Full response without truncation",
 		"",
 		"Manifest resolution: reads .pi/bebop/crew.json (or the .pi/crew",
@@ -94,7 +94,7 @@ export function parseCrewRolesCommand(args: string[], _cwd = process.cwd()): Cre
 	}
 
 	// App-owned enum validation.
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? "text") as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "crew-roles", format: format as CliFormat, full, ...(help ? { help: true } : {}) };

@@ -56,8 +56,8 @@ const LIVE: FakeStore = {
 
 // --- parse ---
 
-test("session list parse: default toon, optional --format, --help short-circuit", () => {
-	assert.deepEqual(parseSessionListCommand([]), { command: "session-list", format: "toon" });
+test("session list parse: default text, optional --format, --help short-circuit", () => {
+	assert.deepEqual(parseSessionListCommand([]), { command: "session-list", format: "text" });
 	assert.deepEqual(parseSessionListCommand(["--format", "json"]), { command: "session-list", format: "json" });
 	assert.equal(parseSessionListCommand(["--help"]).help, true);
 	assert.throws(() => parseSessionListCommand(["--format", "toon", "--format", "json"]), /Duplicate flag: --format/);

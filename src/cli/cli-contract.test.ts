@@ -26,7 +26,9 @@ const cwd = "/project";
 // ---------------------------------------------------------------------------
 
 test("command tree: home, send, crew init, member status, session list, member follow-up, member redirect are the public commands", () => {
-	assert.deepEqual(parseCliCommand([], cwd), { command: "home" });
+	assert.deepEqual(parseCliCommand([], cwd), { command: "home", format: "text" });
+	assert.equal(parseCliCommand(["--format", "toon"], cwd).format, "toon");
+	assert.equal(parseCliCommand(["--format=json"], cwd).format, "json");
 	assert.equal(parseCliCommand(["send", "--socket", "/x", "--message", "m"], cwd).command, "send");
 	assert.equal(parseCliCommand(["crew", "init"], cwd).command, "crew-init");
 	assert.equal(parseCliCommand(["crew", "roles"], cwd).command, "crew-roles");
@@ -171,11 +173,8 @@ test("no-argument home: compact schema, not full help", async () => {
 	const code = await runCli([], dir, process.stdin, output);
 	assert.equal(code, 0);
 	const lines = text.trim().split("\n");
-	assert.equal(lines[0], "ok: true");
-	assert.ok(
-		lines.some((line) => line.startsWith("status: home")),
-		"home status present",
-	);
+	assert.equal(lines[0], "Message completed");
+	assert.equal(text.trim(), "Message completed");
 	assert.ok(!text.includes("Usage:") && !text.includes("Options:"), "home is not full help");
 });
 
@@ -183,25 +182,25 @@ test("no-argument home: compact schema, not full help", async () => {
 // crew init
 // ---------------------------------------------------------------------------
 
-test("crew init: local --help accepted, defaults to cwd and toon", () => {
+test("crew init: local --help accepted, defaults to cwd and text", () => {
 	const withHelp = parseCliCommand(["crew", "init", "--help"], cwd);
 	assert.equal(withHelp.help, true);
 	const defaults = parseCliCommand(["crew", "init"], cwd);
 	assert.equal(defaults.project, undefined);
-	assert.equal(defaults.format, "toon");
+	assert.equal(defaults.format, "text");
 });
 
 // ---------------------------------------------------------------------------
 // crew roles
 // ---------------------------------------------------------------------------
 
-test("crew roles: local --help accepted, defaults to toon and full=false", () => {
+test("crew roles: local --help accepted, defaults to text and full=false", () => {
 	const withHelp = parseCliCommand(["crew", "roles", "--help"], cwd);
 	assert.equal(withHelp.help, true);
 	const defaults = parseCliCommand(["crew", "roles"], cwd);
 	assert.deepEqual(
 		{ command: defaults.command, format: defaults.format, full: (defaults as { full?: boolean }).full },
-		{ command: "crew-roles", format: "toon", full: false },
+		{ command: "crew-roles", format: "text", full: false },
 	);
 	assert.equal(parseCliCommand(["crew", "roles", "--format", "json"], cwd).format, "json");
 	assert.equal((parseCliCommand(["crew", "roles", "--full"], cwd) as { full: boolean }).full, true);
@@ -265,7 +264,7 @@ test("usage error: --format=json and --format json both steer usage output", asy
 	const jsonSeparate = await usageOutput(["bogus", "--format", "json"]);
 	assert.match(jsonSeparate, /^\{"/, "separate --format json produces JSON");
 	const toon = await usageOutput(["bogus"]);
-	assert.match(toon, /^ok: false/, "default usage output is TOON");
+	assert.match(toon, /^Invalid command/, "default usage output is human text");
 });
 
 async function usageOutput(args: string[]): Promise<string> {

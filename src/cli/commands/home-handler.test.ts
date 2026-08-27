@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runHomeCommand } from "./home-handler.ts";
+import { buildHomeCommand, parseHomeCommand, runHomeCommand } from "./home-handler.ts";
 
 test("home reports missing scaffold with crew init next command", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-home-"));
@@ -13,7 +13,7 @@ test("home reports missing scaffold with crew init next command", async () => {
 		if (outcome.kind !== "result") return;
 		assert.equal(outcome.result.status, "home");
 		assert.equal(outcome.result.ok, true);
-		assert.equal(outcome.format, "toon");
+		assert.equal(outcome.format, "text");
 		const data = outcome.result.data as Record<string, unknown>;
 		assert.equal(data.executable, "~/pi-bebop");
 		assert.equal(data.project, dir);
@@ -23,6 +23,20 @@ test("home reports missing scaffold with crew init next command", async () => {
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
+});
+
+test("home accepts every explicit format and defaults to text", async () => {
+	assert.deepEqual(parseHomeCommand([]), { command: "home", format: "text" });
+	assert.deepEqual(parseHomeCommand(["--format", "toon"]), { command: "home", format: "toon" });
+	assert.deepEqual(parseHomeCommand(["--format=json"]), { command: "home", format: "json" });
+	assert.match(
+		buildHomeCommand().options.find((option) => option.long === "--format")?.description ?? "",
+		/text \(default\)/,
+	);
+	assert.throws(
+		() => parseHomeCommand(["--format", "xml"]),
+		/Invalid --format 'xml'; valid alternatives: toon, json, text/,
+	);
 });
 
 test("home falls back to executable name and preserves paths without HOME", async () => {

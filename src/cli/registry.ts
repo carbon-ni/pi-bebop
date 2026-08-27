@@ -4,7 +4,7 @@ import { buildSendCommand } from "./commands/send.ts";
 import { parseCrewInitCommand, parseSendCommand } from "./parser.ts";
 import { crewInitHelp } from "../domain/index.ts";
 import { sendHelp } from "./commands/send.ts";
-import { runHomeCommand } from "./commands/home-handler.ts";
+import { buildHomeCommand, parseHomeCommand, runHomeCommand } from "./commands/home-handler.ts";
 import { runCrewInitCommand } from "./commands/crew-init-handler.ts";
 import { runSendCommand } from "./commands/send-handler.ts";
 import {
@@ -159,8 +159,14 @@ export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
 		leaf.id === "home"
 			? {
 					...leaf,
-					run: (_options: unknown, context: CliContext) =>
-						runHomeCommand(context.cwd, vocabulary, process.env, process.argv[1]),
+					run: (options: unknown, context: CliContext) =>
+						runHomeCommand(
+							context.cwd,
+							vocabulary,
+							process.env,
+							process.argv[1],
+							(options as { format?: import("./arguments.ts").CliFormat }).format,
+						),
 				}
 			: leaf,
 	);
@@ -174,10 +180,10 @@ export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
 			return leaf;
 		},
 		parseCliCommand: (args, cwd = process.cwd()) => {
-			if (args.length === 0) {
+			if (args.length === 0 || args[0] === "--format" || args[0]?.startsWith("--format=")) {
 				const home = byId.get("home");
 				if (home === undefined) throw new UsageError("No command provided");
-				return home.parse([], cwd);
+				return home.parse(args, cwd);
 			}
 			let best: { leaf: CliLeaf; tokens: string[] } | undefined;
 			for (const leaf of effectiveLeaves) {
@@ -204,11 +210,18 @@ export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
 const homeLeaf: CliLeaf = {
 	id: "home",
 	names: [],
-	build: () => new Command("home"), // never added to the root tree (no command word)
+	build: () => buildHomeCommand(), // never added to the root tree (no command word)
 	help: () => "",
-	parse: () => ({ command: "home" }),
+	parse: (tokens) => parseHomeCommand([...tokens]),
 	// Vocabulary is wired by composeRegistry; this base body is never used.
-	run: (_options, context) => runHomeCommand(context.cwd, [], process.env, process.argv[1]),
+	run: (options, context) =>
+		runHomeCommand(
+			context.cwd,
+			[],
+			process.env,
+			process.argv[1],
+			(options as { format?: import("./arguments.ts").CliFormat }).format,
+		),
 };
 
 const sendLeaf: CliLeaf = {

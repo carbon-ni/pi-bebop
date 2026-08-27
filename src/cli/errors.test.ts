@@ -26,7 +26,9 @@ test("errorCode maps malformed JSON or parse failures to malformed-response", ()
 });
 
 test("requestedFormat honors --format and --format=, last occurrence wins", () => {
-	assert.equal(requestedFormat([]), "toon");
+	assert.equal(requestedFormat([]), "text");
+	assert.equal(requestedFormat(["send", "--format", "toon"]), "toon");
+	assert.equal(requestedFormat(["member", "status", "--format", "toon"]), "toon");
 	assert.equal(requestedFormat(["--format", "json"]), "json");
 	assert.equal(requestedFormat(["--format=text"]), "text");
 	assert.equal(requestedFormat(["--format", "json", "--format=text"]), "text");

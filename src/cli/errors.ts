@@ -33,18 +33,31 @@ export function errorCode(error: unknown): string {
  * --format=json forms). Last occurrence wins, consistent with the parser.
  */
 export function requestedFormat(args: string[]): CliFormat {
-	let format: CliFormat = "toon";
+	let format: CliFormat = defaultFormatForCommand(args);
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index]!;
 		if (arg === "--format") {
 			const value = args[index + 1];
-			if (value === "json" || value === "text") format = value;
+			if (value === "toon" || value === "json" || value === "text") format = value;
 		} else if (arg.startsWith("--format=")) {
 			const value = arg.slice("--format=".length);
-			if (value === "json" || value === "text") format = value;
+			if (value === "toon" || value === "json" || value === "text") format = value;
 		}
 	}
 	return format;
+}
+
+/** Defaults used when parsing fails before a leaf can provide its options. */
+function defaultFormatForCommand(args: readonly string[]): CliFormat {
+	const [group, leaf] = args;
+	if (group === "send") return "toon";
+	if (
+		group === "member" &&
+		(leaf === "follow-up" || leaf === "redirect" || leaf === "inbox" || leaf === "status" || leaf === "wait-idle")
+	)
+		return "toon";
+	if (group === "crew" && leaf === "broadcast") return "toon";
+	return "text";
 }
 
 /** Exit-2 usage result shape (status: usage drives the exit code). */

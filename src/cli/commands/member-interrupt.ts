@@ -28,7 +28,7 @@ export function buildMemberInterruptCommand(): Command {
 		.option("--message <text>", "Recovery guidance message")
 		.option("--stdin", "Read recovery guidance from stdin")
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option("--format <format>", "Output format: text (default), json, or toon", "text")
 		.argument("[<member>]", "Crew member name or unique role")
 		.showHelpAfterError(false)
 		.helpOption(false);
@@ -51,7 +51,7 @@ export function memberInterruptHelp(): string {
 		"  --message <text>        Recovery guidance (exactly one of --message or --stdin)",
 		"  --stdin                 Read recovery guidance from stdin",
 		"  --instruction <text>    Ordered instruction (repeatable, at most 32)",
-		"  --format <format>       toon (default), json, or text",
+		"  --format <format>       text (default), json, or toon",
 		"",
 		`Discover sessions with: ${SESSION_LIST_HINT}`,
 		"",
@@ -59,7 +59,7 @@ export function memberInterruptHelp(): string {
 }
 
 export function parseMemberInterruptCommand(args: string[], cwd = process.cwd()): MemberInterruptCliOptions {
-	const parsed = parseMemberMessageCommand(args, "follow_up", cwd);
+	const parsed = parseMemberMessageCommand(args, "follow_up", cwd, "text");
 	return {
 		command: "member-interrupt",
 		member: parsed.member,

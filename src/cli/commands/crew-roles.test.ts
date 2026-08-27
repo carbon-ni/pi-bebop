@@ -52,10 +52,10 @@ function deps(overrides: Partial<CrewRolesDependencies> = {}): CrewRolesDependen
 // Parser
 // ---------------------------------------------------------------------------
 
-test("crew roles parse defaults: format toon, full false, no help", () => {
+test("crew roles parse defaults: format text, full false, no help", () => {
 	assert.deepEqual(parseCrewRolesCommand([], "/project"), {
 		command: "crew-roles",
-		format: "toon",
+		format: "text",
 		full: false,
 	});
 });
@@ -85,7 +85,7 @@ test("crew roles parse rejects duplicate and invalid flags", () => {
 test("crew roles parse --help returns help option while still validating format", () => {
 	assert.deepEqual(parseCrewRolesCommand(["--help"], "/project"), {
 		command: "crew-roles",
-		format: "toon",
+		format: "text",
 		full: false,
 		help: true,
 	});

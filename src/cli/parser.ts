@@ -43,7 +43,7 @@ function validateCrewInitSource(from: string | undefined, ref: string | undefine
 }
 
 function validateCrewInitOptions(opts: RawCrewInitOptions): { format: CliFormat; from?: string; ref?: string } {
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? "text") as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: ${FORMAT_ALTERNATIVES}`);
 	validateCrewInitSource(opts.from, opts.ref);

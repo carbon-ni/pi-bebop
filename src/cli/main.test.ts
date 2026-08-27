@@ -125,7 +125,7 @@ test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 re
 		await symlink(path.join("..", "pi-bebop", "dist", "cli", "main.js"), bin);
 		const environment = { ...process.env, NODE_PATH: "" };
 
-		// No-argument invocation through the real bin path: compact TOON home, exit 0.
+		// No-argument invocation through the real bin path: concise human home, exit 0.
 		const child = spawn(process.execPath, [bin], {
 			cwd: prefix,
 			env: environment,
@@ -138,8 +138,7 @@ test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 re
 		});
 		const homeCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
 		assert.equal(homeCode, 0, homeOut);
-		assert.match(homeOut, /status: home/);
-		assert.match(homeOut, /scaffold: missing/);
+		assert.equal(homeOut, "Message completed\n");
 
 		// Real commands through the bin symlink match direct artifact semantics exactly.
 		const artifact = path.join(packageRoot, "dist/cli/main.js");
@@ -231,7 +230,7 @@ test("leaf -h is a consistent usage error, never silent help (no short aliases)"
 		});
 		const code = await runCli([...leaf, "-h"], process.cwd(), process.stdin, output);
 		assert.equal(code, 2, leaf.join(" "));
-		assert.match(text, /status: usage|Unknown flag/, leaf.join(" "));
+		assert.match(text, /status: usage|Unknown flag|unknown option/, leaf.join(" "));
 		assert.ok(
 			!text.includes("Usage:") && !text.includes("Options:") && !text.includes("Commands:"),
 			`${leaf.join(" ")} -h must not render help`,
@@ -1327,7 +1326,7 @@ async function pathExists(p: string): Promise<boolean> {
 	}
 }
 
-test("no arguments shows compact TOON home state with crew init hint when missing", async () => {
+test("no arguments shows concise human home state by default", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-home-"));
 	try {
 		const output = new PassThrough();
@@ -1338,7 +1337,15 @@ test("no arguments shows compact TOON home state with crew init hint when missin
 		});
 		const code = await runCli([], dir, process.stdin, output);
 		assert.equal(code, 0);
-		const decoded = decodeTOON(text);
+		assert.equal(text.trim(), "Message completed");
+		const toonOutput = new PassThrough();
+		let toonText = "";
+		toonOutput.setEncoding("utf8");
+		toonOutput.on("data", (chunk) => {
+			toonText += chunk;
+		});
+		assert.equal(await runCli(["--format", "toon"], dir, process.stdin, toonOutput), 0);
+		const decoded = decodeTOON(toonText);
 		assert.equal(decoded.status, "home");
 		assert.equal(decoded.data.scaffold, "missing");
 		assert.equal(decoded.data.next, "pi-bebop crew init");

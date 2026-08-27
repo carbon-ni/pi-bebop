@@ -40,7 +40,7 @@ const PROBE_TIMEOUT_MS = 500;
 export function buildSessionListCommand(): Command {
 	return new Command("list")
 		.description("List reachable Pi sessions with safe aliases and joined state")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option("--format <format>", "Output format: text (default), json, or toon", "text")
 		.showHelpAfterError(false)
 		.helpOption(false);
 }
@@ -55,7 +55,7 @@ export function sessionListHelp(): string {
 		"or tool history.",
 		"",
 		"Options:",
-		"  --format <format>   toon (default), json, or text",
+		"  --format <format>   text (default), json, or toon",
 		"",
 		"Use the reported session id as --session <id> for member commands.",
 		"",
@@ -88,7 +88,7 @@ export function parseSessionListCommand(args: string[], _cwd = process.cwd()): S
 		}
 		throw error;
 	}
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? "text") as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "session-list", format: format as CliFormat, ...(help ? { help: true } : {}) };

@@ -181,7 +181,7 @@ test("rejects live-delivery flags with --crew and keeps --socket surface intact"
 
 test("crew init parses optional --project and --format with defaults", () => {
 	const parsed = parseCliCommand(["crew", "init"], cwd);
-	assert.deepEqual(parsed, { command: "crew-init", format: "toon" });
+	assert.deepEqual(parsed, { command: "crew-init", format: "text" });
 	const withProject = parseCliCommand(["crew", "init", "--project", ".", "--format", "json"], cwd);
 	assert.deepEqual(withProject, { command: "crew-init", project: path.resolve(cwd, "."), format: "json" });
 });
@@ -208,7 +208,7 @@ test("crew init rejects unknown, duplicate, missing-value, and incompatible flag
 
 test("crew init --help is accepted as a command-local help flag", () => {
 	const parsed = parseCliCommand(["crew", "init", "--help"], cwd);
-	assert.deepEqual(parsed, { command: "crew-init", format: "toon", help: true });
+	assert.deepEqual(parsed, { command: "crew-init", format: "text", help: true });
 });
 
 test("crew without init, unknown commands, and no command are usage errors with valid alternatives", () => {
