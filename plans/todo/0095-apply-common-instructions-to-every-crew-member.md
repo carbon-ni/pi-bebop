@@ -4,13 +4,16 @@ title: Apply common instructions to every crew member
 status: todo
 depends_on: []
 priority: high
-tags: [crew, manifest, instructions, system-prompt, security, scaffold, tdd]
+tags: [crew, crew-agreements, manifest, instructions, system-prompt, security, scaffold, tdd]
 ---
 
 # Apply common instructions to every crew member
 
 ## Problem
 Operators must currently duplicate team-wide guidance across every member role file. Copies drift, and joining members can receive inconsistent collaboration rules even though they belong to the same manifest-defined crew.
+
+## Relationship to Crew Agreements
+This is prerequisite shared-context plumbing for the `crew-agreements` stream, not the Agreement lifecycle itself. Common instructions remain stable operator-authored foundations; Current Crew Agreements remain separately stored, revised, and activated.
 
 ## Desired outcome
 A crew manifest can declare one common Markdown instruction file that is loaded for every member in addition to that member's role instructions. Existing project-wide `AGENTS.md` guidance and member-specific responsibilities remain separate concepts.
