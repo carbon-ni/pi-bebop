@@ -152,7 +152,13 @@ describe("coordination-evidence-collector", () => {
 
 	describe("coordinationSourceGap", () => {
 		it("creates unavailable evidence for a missing source", () => {
-			const input = coordinationSourceGap("member-request", "req-missing", "source rotated", INTERVAL);
+			const input = coordinationSourceGap(
+				"member-request",
+				"req-missing",
+				"source rotated",
+				INTERVAL,
+				"2026-01-01T00:00:00.000Z",
+			);
 			assert.equal(input.availability, "unavailable");
 			assert.ok(input.gap !== undefined);
 			assert.ok(input.gap!.reason.includes("source rotated"));
@@ -160,7 +166,7 @@ describe("coordination-evidence-collector", () => {
 
 		it("bounds gap reason", () => {
 			const longReason = "y".repeat(2000);
-			const input = coordinationSourceGap("inbox", "inbox-1", longReason, INTERVAL);
+			const input = coordinationSourceGap("inbox", "inbox-1", longReason, INTERVAL, "2026-01-01T00:00:00.000Z");
 			assert.ok(input.gap!.reason.length < longReason.length);
 		});
 	});
@@ -283,7 +289,11 @@ describe("coordination-evidence-collector", () => {
 		it("collects from a single source", () => {
 			const source = makeSource({
 				events: [
-					makeEvent({ source: { family: "member-request", identity: "req-1", reference: "ref" }, outcome: "member-request-response", correlationId: "req-1" }),
+					makeEvent({
+						source: { family: "member-request", identity: "req-1", reference: "ref" },
+						outcome: "member-request-response",
+						correlationId: "req-1",
+					}),
 				],
 			});
 			const result = collectFromSources([source], INTERVAL, FIXED_FINGERPRINT);
@@ -295,15 +305,33 @@ describe("coordination-evidence-collector", () => {
 			const sources: CoordinationEventSource[] = [
 				makeSource({
 					family: "member-request",
-					events: [makeEvent({ source: { family: "member-request", identity: "r1", reference: "ref" }, outcome: "member-request-response", correlationId: "r1" })],
+					events: [
+						makeEvent({
+							source: { family: "member-request", identity: "r1", reference: "ref" },
+							outcome: "member-request-response",
+							correlationId: "r1",
+						}),
+					],
 				}),
 				makeSource({
 					family: "interrupt",
-					events: [makeEvent({ source: { family: "interrupt", identity: "i1", reference: "ref" }, outcome: "interrupt-handoff", correlationId: "i1" })],
+					events: [
+						makeEvent({
+							source: { family: "interrupt", identity: "i1", reference: "ref" },
+							outcome: "interrupt-handoff",
+							correlationId: "i1",
+						}),
+					],
 				}),
 				makeSource({
 					family: "broadcast",
-					events: [makeEvent({ source: { family: "broadcast", identity: "b1", reference: "ref" }, outcome: "broadcast-persisted", correlationId: "b1" })],
+					events: [
+						makeEvent({
+							source: { family: "broadcast", identity: "b1", reference: "ref" },
+							outcome: "broadcast-persisted",
+							correlationId: "b1",
+						}),
+					],
 				}),
 			];
 			const result = collectFromSources(sources, INTERVAL, FIXED_FINGERPRINT);
@@ -335,7 +363,13 @@ describe("coordination-evidence-collector", () => {
 
 		it("one failing source does not prevent other sources from being collected", () => {
 			const goodSource = makeSource({
-				events: [makeEvent({ source: { family: "membership", identity: "m1", reference: "ref" }, outcome: "membership-join-failed", correlationId: "m1" })],
+				events: [
+					makeEvent({
+						source: { family: "membership", identity: "m1", reference: "ref" },
+						outcome: "membership-join-failed",
+						correlationId: "m1",
+					}),
+				],
 			});
 			const failingSource = makeSource({
 				family: "interrupt",
@@ -367,7 +401,11 @@ describe("coordination-evidence-collector", () => {
 		it("rejects events from source that have non-mechanical context", () => {
 			const source = makeSource({
 				events: [
-					makeEvent({ context: { productive: true } as unknown as import("../domain/coordination-evidence.ts").CoordinationMechanicalContext }),
+					makeEvent({
+						context: {
+							productive: true,
+						} as unknown as import("../domain/coordination-evidence.ts").CoordinationMechanicalContext,
+					}),
 				],
 			});
 			const result = collectFromSources([source], INTERVAL, FIXED_FINGERPRINT);

@@ -9,7 +9,6 @@ import {
 	boundContentSummary,
 	isMechanicalContextOnly,
 } from "../domain/coordination-evidence.ts";
-import type { RetrospectiveEvidenceInterval, RetrospectiveEvidence } from "../domain/index.ts";
 import {
 	type RetrospectiveEvidenceInput,
 	type RetrospectiveEvidenceInterval,
@@ -47,6 +46,9 @@ export function coordinationEventToEvidenceInput(
 		? coordinationEvidenceId(event.source.family, event.correlationId, event.outcome)
 		: coordinationEvidenceId(event.source.family, event.source.identity, event.outcome);
 
+	// capturedAt is anchored to the event occurrence so repeated collection of the
+	// same event is byte-identical (idempotent replay + fingerprint dedup).
+	// No ambient clock dependence.
 	return {
 		id,
 		interval,
@@ -56,9 +58,9 @@ export function coordinationEventToEvidenceInput(
 			reference: coordinationSourceReference(event.source.family, event.source.identity, event.outcome),
 		},
 		availability: "captured",
-		...(representation === undefined ? {} : { representation }),
+		representation,
 		capture: {
-			capturedAt: new Date().toISOString(),
+			capturedAt: event.occurredAt,
 			collector: COORDINATION_COLLECTOR_ID,
 			provenance: `bebop-coordination.${event.source.family}.${event.outcome}`,
 		},
@@ -106,6 +108,7 @@ export function coordinationSourceGap(
 	identity: string,
 	reason: string,
 	interval: RetrospectiveEvidenceInterval,
+	capturedAt: string,
 ): RetrospectiveEvidenceInput {
 	const safeReason = reason.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 20) || "unknown";
 	const id = `${family}.${identity}.unavailable.${safeReason}`;
@@ -120,7 +123,7 @@ export function coordinationSourceGap(
 		availability: "unavailable",
 		gap: { reason: boundContentSummary(reason) },
 		capture: {
-			capturedAt: new Date().toISOString(),
+			capturedAt,
 			collector: COORDINATION_COLLECTOR_ID,
 			provenance: `bebop-coordination.${family}.unavailable`,
 		},
@@ -179,7 +182,14 @@ export function collectFromSources(
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
 			try {
-				const gapInput = coordinationSourceGap(source.family, source.identity, reason, interval);
+				// Gap capture anchored to interval start for deterministic replay.
+				const gapInput = coordinationSourceGap(
+					source.family,
+					source.identity,
+					reason,
+					interval,
+					interval.start,
+				);
 				gaps.push(createRetrospectiveEvidence(gapInput, fingerprint));
 			} catch {
 				// Gap creation itself failed; skip silently to avoid cascading errors.
