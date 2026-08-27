@@ -16,7 +16,7 @@ Without executable end-to-end evidence and clear operator guidance, the Crew cou
 Final product gate for the complete manual and cadence-assisted lifecycle.
 
 ## Acceptance criteria
-- [ ] Executable matrix proves proposal → manual Crew Retrospective → candidate revision → explicit activation → next-Membership snapshot → Crew Broadcast announcement.
+- [ ] Executable matrix proves proposal → manual Crew Retrospective → candidate revision → explicit activation → next-Membership snapshot plus durable Agreement activation notice.
 - [ ] At least two Members load byte-identical Current Crew Agreements while retaining distinct Role instructions; active snapshots never hot-reload.
 - [ ] Failure matrix proves no Role/Origin/facilitator/message can activate, all validation failures write zero target state, and conflicts/restarts remain deterministic.
 - [ ] Cadence matrix proves one reminder only, offline durable handoff, no automatic start, no fallback facilitator, and injected-clock boundary behavior.

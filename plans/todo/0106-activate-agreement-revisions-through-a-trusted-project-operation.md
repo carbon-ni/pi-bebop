@@ -20,8 +20,8 @@ Activation is separate from proposal and retrospective coordination because agre
 - [ ] Preflight verifies candidate integrity and exact current base revision before any write; stale, missing, corrupt, or already-conflicting state fails atomically with stable code.
 - [ ] Activation atomically changes Current Crew Agreements and immutable revision state; exact rerun is an unchanged success.
 - [ ] Active Membership snapshots remain unchanged; activated revision applies only on next join/restore.
-- [ ] After durable activation, Crew Broadcast announces bounded revision metadata to every other Member without exposing private proposal evidence.
-- [ ] Broadcast partial failure cannot roll back activated instructions and is reported honestly per recipient without duplicate activation.
+- [ ] After durable activation, Bebop enqueues one bounded Agreement activation notice through each configured Member's Inbox without exposing private proposal evidence; this system-produced fan-out is not Crew Broadcast because no Current member initiated it.
+- [ ] Notice enqueue partial failure cannot roll back activated instructions and is reported honestly per Member without duplicate activation.
 - [ ] TOON/JSON/text output exposes revision ID, prior revision, disposition, and actionable next steps without leaking absolute/private paths.
 - [ ] Happy/unhappy tests prove authority boundary, zero-write failures, idempotency, concurrency, snapshot stability, and broadcast outcomes.
 
