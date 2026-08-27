@@ -1,7 +1,7 @@
 ---
 id: TASK-0111
 title: Establish bounded Crew retrospective evidence
-status: doing
+status: done
 depends_on: [TASK-0103]
 priority: high
 tags: [crew-agreements, retrospective, evidence, domain, persistence, tdd]
