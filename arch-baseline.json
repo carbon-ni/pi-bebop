@@ -1,0 +1,159 @@
+{
+	"version": 1,
+	"note": "Architecture ratchet baseline (TASK-0100). Entries may only shrink or be removed (arch-check --update-baseline). Never regenerate upward; a new offender must be fixed, not recorded.",
+	"entries": [
+		{
+			"check": "complexity",
+			"file": "src/application/crew-init-flow.ts",
+			"function": "run",
+			"value": 17
+		},
+		{
+			"check": "complexity",
+			"file": "src/application/direct-message.ts",
+			"function": "sendDirectMessage",
+			"value": 16
+		},
+		{
+			"check": "complexity",
+			"file": "src/application/interrupt-flow.ts",
+			"function": "latestInterruptEvidence",
+			"value": 17
+		},
+		{
+			"check": "complexity",
+			"file": "src/cli/commands/crew-roles.ts",
+			"function": "parseCrewRolesCommand",
+			"value": 16
+		},
+		{
+			"check": "complexity",
+			"file": "src/cli/commands/durable-message.ts",
+			"function": "parseDurableMessageCommand",
+			"value": 33
+		},
+		{
+			"check": "complexity",
+			"file": "src/cli/commands/member-idle-wait.ts",
+			"function": "parseMemberIdleWaitCommand",
+			"value": 23
+		},
+		{
+			"check": "complexity",
+			"file": "src/cli/commands/member-message.ts",
+			"function": "parseMemberMessageCommand",
+			"value": 42
+		},
+		{
+			"check": "complexity",
+			"file": "src/cli/commands/member-status.ts",
+			"function": "parseMemberStatusCommand",
+			"value": 23
+		},
+		{
+			"check": "complexity",
+			"file": "src/cli/parser.ts",
+			"function": "parseCrewInitCommand",
+			"value": 16
+		},
+		{
+			"check": "complexity",
+			"file": "src/cli/parser.ts",
+			"function": "parseSendCommand",
+			"value": 31
+		},
+		{
+			"check": "complexity",
+			"file": "src/cli/parser.ts",
+			"function": "validateSendSemantics",
+			"value": 21
+		},
+		{
+			"check": "complexity",
+			"file": "src/domain/cli.ts",
+			"function": "parseSessionControlAction",
+			"value": 20
+		},
+		{
+			"check": "complexity",
+			"file": "src/domain/crew-manifest.ts",
+			"function": "parseCrewManifest",
+			"value": 47
+		},
+		{
+			"check": "complexity",
+			"file": "src/domain/member-request.ts",
+			"function": "registerOutbound",
+			"value": 16
+		},
+		{
+			"check": "file-size",
+			"file": "src/domain/protocol.ts",
+			"value": 1293
+		},
+		{
+			"check": "complexity",
+			"file": "src/domain/protocol.ts",
+			"function": "commandToRequest",
+			"value": 26
+		},
+		{
+			"check": "complexity",
+			"file": "src/domain/protocol.ts",
+			"function": "methodResultSchema",
+			"value": 19
+		},
+		{
+			"check": "complexity",
+			"file": "src/domain/protocol.ts",
+			"function": "requestToCommand",
+			"value": 51
+		},
+		{
+			"check": "complexity",
+			"file": "src/domain/yielding-wait.ts",
+			"function": "validateYieldingWaitTerminal",
+			"value": 22
+		},
+		{
+			"check": "complexity",
+			"file": "src/infra/crew-manifest-store.ts",
+			"function": "readTrustedCrewManifest",
+			"value": 34
+		},
+		{
+			"check": "file-size",
+			"file": "src/infra/rpc-client.ts",
+			"value": 504
+		},
+		{
+			"check": "complexity",
+			"file": "src/infra/rpc-server.ts",
+			"function": "methodForCommand",
+			"value": 19
+		},
+		{
+			"check": "complexity",
+			"file": "src/pi/control-commands.ts",
+			"function": "handler",
+			"value": 29
+		},
+		{
+			"check": "file-size",
+			"file": "src/pi/control-runtime.ts",
+			"value": 1062
+		},
+		{
+			"check": "complexity",
+			"file": "src/pi/control-runtime.ts",
+			"function": "handleCommand",
+			"value": 116
+		},
+		{
+			"check": "complexity",
+			"file": "src/pi/startup-send.ts",
+			"function": "maybeHandleStartupControlSend",
+			"value": 22
+		}
+	]
+}
