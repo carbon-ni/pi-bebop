@@ -1,7 +1,7 @@
 ---
 id: TASK-0116
 title: Define Crew-wide idle gate semantics
-status: todo
+status: doing
 depends_on: [TASK-0046, TASK-0050, TASK-0081]
 priority: high
 tags: [crew, idle, coordination, auto, wait-lock, product, ubiquitous-language, determinism]
