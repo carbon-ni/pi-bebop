@@ -1,7 +1,7 @@
 ---
 id: TASK-0103
 title: Define Crew Agreements and Crew Retrospective contract
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew-agreements, product, ubiquitous-language, security, determinism]
