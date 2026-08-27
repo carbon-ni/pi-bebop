@@ -1,7 +1,7 @@
 ---
 id: TASK-0116
 title: Define Crew-wide idle gate semantics
-status: doing
+status: done
 depends_on: [TASK-0046, TASK-0050, TASK-0081]
 priority: high
 tags: [crew, idle, coordination, auto, wait-lock, product, ubiquitous-language, determinism]
@@ -63,17 +63,25 @@ At the same scheduling boundary, accepted message wins so queued context is neve
 
 ## Acceptance criteria
 
-- [ ] `UL.md` defines Crew Idle Gate, final status round, and Crew Idle Lock separately from Member Idle Wait, Member Status, task completion, response correlation, Presence, and availability.
-- [ ] Target set is a manifest-order snapshot of every other configured Member; self is excluded and a one-Member Crew returns `ready/no-other-members` without transport IO.
-- [ ] `ready` requires every target response in one final round to be `online/idle`; prior idle observations alone never satisfy the gate.
-- [ ] Contract explicitly states the final round is not an atomic simultaneous snapshot and makes no promise of future idleness, task completion, acknowledgement, willingness, or lack of queued work.
-- [ ] Busy and compacting are non-ready; offline is an explicit non-ready terminal rather than silently excluded or treated as idle.
-- [ ] Repeated rounds are event-driven and bounded by one absolute deadline plus a named finite round limit; no polling or per-target timeout multiplication.
-- [ ] Crew Idle Lock is detected from explicit transient blocking-wait state, never generic `busy` status or conversation/task inference.
-- [ ] Lock detection releases only caller's gate with `wait-lock`; it never changes another Member's run or grants Lead role authority.
-- [ ] Accepted inbound message, ready, wait-lock, offline, timeout, unstable, abort, and failure races have deterministic first-terminal cleanup and documented priority.
-- [ ] Results are bounded, manifest-ordered, privacy-safe, and contain only configured identity plus mechanical outcome/observation data.
-- [ ] A deterministic adversarial matrix covers initial ready, busy-to-ready, earlier Member becoming busy again, compaction, offline/restart, activity churn, message wake, timeout, cancellation, no peers, mutual waits, all-Member Crew Idle Gates, and same-boundary races.
+- [x] `UL.md` defines Crew Idle Gate, final status round, and Crew Idle Lock separately from Member Idle Wait, Member Status, task completion, response correlation, Presence, and availability.
+- [x] Target set is a manifest-order snapshot of every other configured Member; self is excluded and a one-Member Crew returns `ready/no-other-members` without transport IO.
+- [x] `ready` requires every target response in one final round to be `online/idle`; prior idle observations alone never satisfy the gate.
+- [x] Contract explicitly states the final round is not an atomic simultaneous snapshot and makes no promise of future idleness, task completion, acknowledgement, willingness, or lack of queued work.
+- [x] Busy and compacting are non-ready; offline is an explicit non-ready terminal rather than silently excluded or treated as idle.
+- [x] Repeated rounds are event-driven and bounded by one absolute deadline plus a named finite round limit; no polling or per-target timeout multiplication.
+- [x] Crew Idle Lock is detected from explicit transient blocking-wait state, never generic `busy` status or conversation/task inference.
+- [x] Lock detection releases only caller's gate with `wait-lock`; it never changes another Member's run or grants Lead role authority.
+- [x] Accepted inbound message, ready, wait-lock, offline, timeout, unstable, abort, and failure races have deterministic first-terminal cleanup and documented priority.
+- [x] Results are bounded, manifest-ordered, privacy-safe, and contain only configured identity plus mechanical outcome/observation data.
+- [x] A deterministic adversarial matrix covers initial ready, busy-to-ready, earlier Member becoming busy again, compaction, offline/restart, activity churn, message wake, timeout, cancellation, no peers, mutual waits, all-Member Crew Idle Gates, and same-boundary races.
+
+## Acceptance evidence
+
+- Product contract: `docs/CREW-IDLE-GATE.md` (`b548c6f`).
+- Canonical terms and distinctions: `UL.md` (`b548c6f`).
+- Independent adversarial matrix: `.tmp/reports/27-08-26/task-0116-crew-idle-gate-acceptance-matrix.md`.
+- QA verdict: Kelly accepted the product contract with no contradiction; executable implementation remains TASK-0117–TASK-0119.
+- Clean commit hook: lint, architecture, and 1155/1155 tests passed.
 
 ## Constraints and non-goals
 
