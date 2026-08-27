@@ -1,7 +1,7 @@
 ---
 id: TASK-0113
 title: Collect repository evidence for retrospectives
-status: todo
+status: doing
 depends_on: [TASK-0111]
 priority: high
 tags: [crew-agreements, retrospective, evidence, git, plans, verification, tdd]
