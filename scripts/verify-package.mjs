@@ -147,7 +147,9 @@ try {
 			"Next: pi --crew-role lead\n" +
 			"Commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast\n";
 		if (binHome.stdout !== expectedHomeAfter)
-			throw new Error("Installed bin shim no-argument invocation did not render the locked text state after scaffold");
+			throw new Error(
+				"Installed bin shim no-argument invocation did not render the locked text state after scaffold",
+			);
 
 		const binRootHelp = await execFile(process.execPath, [bin, "--help"], { cwd: initDir, env: environment });
 		const binShortHelp = await execFile(process.execPath, [bin, "-h"], { cwd: initDir, env: environment });
