@@ -1,7 +1,7 @@
 ---
 id: TASK-0097
 title: Extract shared CLI flag tokenizer
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: []
