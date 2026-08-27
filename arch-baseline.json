@@ -129,12 +129,6 @@
 		},
 		{
 			"check": "complexity",
-			"file": "src/pi/control-runtime.ts",
-			"function": "handleCommand",
-			"value": 116
-		},
-		{
-			"check": "complexity",
 			"file": "src/pi/startup-send.ts",
 			"function": "maybeHandleStartupControlSend",
 			"value": 22
@@ -148,11 +142,6 @@
 			"check": "file-size",
 			"file": "src/infra/rpc-client.ts",
 			"value": 504
-		},
-		{
-			"check": "file-size",
-			"file": "src/pi/control-runtime.ts",
-			"value": 1062
 		}
 	]
 }
