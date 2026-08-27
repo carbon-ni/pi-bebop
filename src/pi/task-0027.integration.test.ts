@@ -18,11 +18,13 @@ async function fixture(layout: "bebop" | "crew" = "bebop") {
 	const manifestPath = path.join(crew, "crew.json");
 	const socketPath = path.join(sockets, "dev.sock");
 	const globalSocketPath = path.join(root, "global.sock");
+	await fs.writeFile(path.join(instructions, "common.md"), "old common\n");
 	await fs.writeFile(path.join(instructions, "dev.md"), "old role\n");
 	await fs.writeFile(
 		manifestPath,
 		JSON.stringify({
-			version: 1,
+			version: 2,
+			commonInstructionsFile: "instructions/common.md",
 			members: [
 				{ name: "dev", role: "developer", socket: "sockets/dev.sock", instructionsFile: "instructions/dev.md" },
 			],
@@ -91,24 +93,38 @@ test("rejects an invalid member atomically before claiming any endpoint", async 
 	}
 });
 
-test("injects file-backed Role instructions through the before-agent-start context", async () => {
+test("rejects a missing common instructions file atomically before claiming any endpoint", async () => {
 	const crew = await fixture();
 	try {
-		const runtime = runtimeFor(crew);
-		const joined = await runtime.join({
+		await fs.writeFile(
+			crew.manifestPath,
+			JSON.stringify({
+				version: 2,
+				commonInstructionsFile: "instructions/missing-common.md",
+				members: [
+					{
+						name: "dev",
+						role: "developer",
+						socket: "sockets/dev.sock",
+						instructionsFile: "instructions/dev.md",
+					},
+				],
+			}),
+		);
+		const claimed = { value: 0 };
+		const result = await runtimeFor(crew, claimed).join({
 			manifestPath: crew.manifestPath,
 			socketPath: crew.socketPath,
 			globalSocketPath: crew.globalSocketPath,
 		});
-		assert.equal(joined.ok, true);
-		if (joined.ok)
-			assert.match(appendMembershipContext("Base system", joined.membership), /Role instructions: old role\n/);
+		assert.equal(result.ok, false);
+		assert.equal(claimed.value, 0);
 	} finally {
 		await crew.cleanup();
 	}
 });
 
-test("keeps the active instruction snapshot unchanged after the file is edited", async () => {
+test("injects distinct common and Role instructions through before-agent-start context", async () => {
 	const crew = await fixture();
 	try {
 		const runtime = runtimeFor(crew);
@@ -118,15 +134,40 @@ test("keeps the active instruction snapshot unchanged after the file is edited",
 			globalSocketPath: crew.globalSocketPath,
 		});
 		assert.equal(joined.ok, true);
+		if (joined.ok) {
+			const context = appendMembershipContext("Base system", joined.membership);
+			assert.match(context, /Common Crew instructions:\nold common\n/);
+			assert.match(context, /Role instructions: old role\n/);
+		}
+	} finally {
+		await crew.cleanup();
+	}
+});
+
+test("keeps active common and Role instruction snapshots unchanged after edits", async () => {
+	const crew = await fixture();
+	try {
+		const runtime = runtimeFor(crew);
+		const joined = await runtime.join({
+			manifestPath: crew.manifestPath,
+			socketPath: crew.socketPath,
+			globalSocketPath: crew.globalSocketPath,
+		});
+		assert.equal(joined.ok, true);
+		await fs.writeFile(path.join(path.dirname(crew.manifestPath), "instructions/common.md"), "new common\n");
 		await fs.writeFile(path.join(path.dirname(crew.manifestPath), "instructions/dev.md"), "new role\n");
-		if (joined.ok)
-			assert.match(appendMembershipContext("Base system", joined.membership), /Role instructions: old role\n/);
+		if (joined.ok) {
+			const context = appendMembershipContext("Base system", joined.membership);
+			assert.match(context, /Common Crew instructions:\nold common\n/);
+			assert.match(context, /Role instructions: old role\n/);
+			assert.doesNotMatch(context, /new common|new role/);
+		}
 	} finally {
 		await crew.cleanup();
 	}
 });
 
-test("restores the current instruction snapshot from the changed file", async () => {
+test("restores the current common and Role instruction snapshots from changed files", async () => {
 	const crew = await fixture();
 	try {
 		const runtime = runtimeFor(crew);
@@ -140,6 +181,7 @@ test("restores the current instruction snapshot from the changed file", async ()
 			).ok,
 			true,
 		);
+		await fs.writeFile(path.join(path.dirname(crew.manifestPath), "instructions/common.md"), "restored common\n");
 		await fs.writeFile(path.join(path.dirname(crew.manifestPath), "instructions/dev.md"), "restored role\n");
 		const restoredRuntime = runtimeFor(crew);
 		const restored = await restorePersistedMembership({
@@ -154,13 +196,15 @@ test("restores the current instruction snapshot from the changed file", async ()
 		assert.equal(restored, true);
 		const membership = restoredRuntime.getMembership();
 		assert.ok(membership);
-		assert.match(appendMembershipContext("Base system", membership), /Role instructions: restored role\n/);
+		const context = appendMembershipContext("Base system", membership);
+		assert.match(context, /Common Crew instructions:\nrestored common\n/);
+		assert.match(context, /Role instructions: restored role\n/);
 	} finally {
 		await crew.cleanup();
 	}
 });
 
-test("refreshes instructions from old to new content after leave and rejoin", async () => {
+test("refreshes both common and Role instructions after leave and rejoin", async () => {
 	const crew = await fixture();
 	try {
 		const runtime = runtimeFor(crew);
@@ -172,8 +216,10 @@ test("refreshes instructions from old to new content after leave and rejoin", as
 		assert.equal((await runtime.join(request)).ok, true);
 		assert.equal(runtime.getMembership()?.member.instructions, "old role\n");
 		assert.equal((await runtime.leave()).ok, true);
+		await fs.writeFile(path.join(path.dirname(crew.manifestPath), "instructions/common.md"), "new common\n");
 		await fs.writeFile(path.join(path.dirname(crew.manifestPath), "instructions/dev.md"), "new role\n");
 		assert.equal((await runtime.join(request)).ok, true);
+		assert.equal(runtime.getMembership()?.manifest.commonInstructions, "new common\n");
 		assert.equal(runtime.getMembership()?.member.instructions, "new role\n");
 	} finally {
 		await crew.cleanup();
