@@ -1,7 +1,7 @@
 ---
 id: TASK-0105
 title: Persist Agreement proposals and revisions
-status: doing
+status: done
 depends_on: [TASK-0103]
 priority: high
 tags: [crew-agreements, domain, persistence, audit, security, tdd]

@@ -291,7 +291,8 @@ export function canTransitionAgreementRevisionStatus(
 	to: AgreementRevisionStatus,
 ): boolean {
 	if (from === to) return true;
-	return from === "candidate" && ["activated", "superseded", "rejected"].includes(to);
+	if (from === "candidate") return ["activated", "superseded", "rejected"].includes(to);
+	return from === "activated" && to === "superseded";
 }
 
 /** Activation code can require every included proposal to be member-attributed. */

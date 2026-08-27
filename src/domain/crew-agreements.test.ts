@@ -76,6 +76,7 @@ test("proposal intent, evidence references, trial state, and lifecycle shapes fa
 	assert.equal(canTransitionAgreementProposalStatus("proposed", "rejected"), true);
 	assert.equal(canTransitionAgreementProposalStatus("rejected", "proposed"), false);
 	assert.equal(canTransitionAgreementRevisionStatus("candidate", "activated"), true);
+	assert.equal(canTransitionAgreementRevisionStatus("activated", "superseded"), true);
 	assert.equal(canTransitionAgreementRevisionStatus("activated", "candidate"), false);
 	assert.throws(() =>
 		createAgreementRevision({
