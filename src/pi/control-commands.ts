@@ -73,7 +73,7 @@ let boardOperationSequence = 0;
 
 function renderCrewBoard(result: BoardReadResult, requestedKinds: readonly CrewPostKind[] | undefined): string {
 	const lines = [
-		`Crew Board: returned ${result.posts.length} Post${result.posts.length === 1 ? "" : "s"}; hasMore=${result.hasMore}; corruptCount=${result.corruptCount}; quarantinedThisRead=${result.quarantinedThisRead}; corruptCountTruncated=${result.corruptCountTruncated}`,
+		`Crew Board: returned ${result.posts.length} Post${result.posts.length === 1 ? "" : "s"}; hasMore=${result.hasMore}; corruptCount=${result.corruptCount}; quarantinedThisRead=${result.quarantinedThisRead}; corruptCountTruncated=${result.corruptCountTruncated}; contentTruncated=false`,
 	];
 	for (const post of result.posts) {
 		const message = post.message;

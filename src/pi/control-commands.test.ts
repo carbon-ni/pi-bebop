@@ -173,6 +173,7 @@ test("/crew board renders canonical multiline and long Post content without sile
 	await setupState.getCommand().handler("board", setupState.ctx);
 	const rendered = (setupState.entries.at(-1)!.data as { content: string }).content;
 	assert.ok(rendered.includes(message), "canonical message must remain lossless");
+	assert.match(rendered, /contentTruncated=false/);
 	assert.match(rendered, /references=\["TASK-1"\]/);
 	assert.match(rendered, /redactions=\["credential"\]/);
 });
