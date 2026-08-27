@@ -6,6 +6,7 @@ import { probeMemberEndpoint } from "../../infra/member-endpoint.ts";
 import { sendRpcCommand } from "../../infra/rpc-client.ts";
 import { isSafeAlias, isSafeSessionId } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
+import { parseFlagTokens } from "../flags.ts";
 import { errorResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
@@ -68,25 +69,8 @@ function isCliFormat(value: string): value is CliFormat {
 }
 
 export function parseSessionListCommand(args: string[], _cwd = process.cwd()): SessionListCliOptions {
-	const tokens: string[] = [];
-	let help = false;
-	let seenFormat = false;
-	for (const raw of args) {
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--format") {
-			if (seenFormat) throw new UsageError("Duplicate flag: --format");
-			seenFormat = true;
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
+	const parsed = parseFlagTokens(args, { valueFlags: new Set(["--format"]) });
+	const { tokens, help } = parsed;
 	const program = buildSessionListCommand()
 		.exitOverride()
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });

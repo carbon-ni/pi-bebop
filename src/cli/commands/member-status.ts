@@ -3,6 +3,7 @@ import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberStatusResult, formatMemberStatus, type MemberStatus } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
+import { parseFlagTokens } from "../flags.ts";
 import { errorResult, usageResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
@@ -82,35 +83,11 @@ function mapCommanderError(error: CommanderError): UsageError {
 
 /** App-owned parse facade: pre-pass (help/duplicates/sentinel), Commander tokenization, then validation. */
 export function parseMemberStatusCommand(args: string[], _cwd = process.cwd()): MemberStatusCliOptions {
-	const tokens: string[] = [];
-	let help = false;
-	const seen = new Set<string>();
-	for (let index = 0; index < args.length; index += 1) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--session" || flag === "--format") {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-			if (equals > 0) {
-				tokens.push(raw);
-				continue;
-			}
-			if (args[index + 1] === "--" && args[index + 2] !== undefined) {
-				tokens.push(`${flag}=${args[index + 2]}`);
-				index += 2;
-				continue;
-			}
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
+	const parsed = parseFlagTokens(args, {
+		valueFlags: new Set(["--session", "--format"]),
+		escapedValueFlags: new Set(["--session", "--format"]),
+	});
+	const { tokens, help } = parsed;
 
 	const program = buildMemberStatusCommand()
 		.exitOverride()

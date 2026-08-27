@@ -3,6 +3,7 @@ import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberMessageResult, MAX_MESSAGE_INSTRUCTIONS, type MemberMessageResult } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
+import { parseFlagTokens } from "../flags.ts";
 import { errorResult, usageResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
@@ -144,99 +145,80 @@ function validateInstructions(instructions: readonly string[]): void {
 	}
 }
 
+type MemberMessageRawOptions = { session?: string; message?: string; stdin?: boolean; format?: string };
+
+function parseMemberMessageTokens(
+	tokens: readonly string[],
+	intent: MemberMessageIntent,
+): {
+	opts: MemberMessageRawOptions;
+	member: string;
+} {
+	const program = buildMemberMessageCommand(intent)
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	try {
+		program.parse(tokens, { from: "user" });
+		return { opts: program.opts(), member: program.args[0] ?? "" };
+	} catch (error) {
+		if (error instanceof CommanderError) throw mapCommanderError(error);
+		throw error;
+	}
+}
+
+function validateMemberMessageOptions(
+	opts: MemberMessageRawOptions,
+	member: string,
+	help: boolean,
+	instructions: readonly string[],
+): { format: CliFormat; hasMessage: boolean; hasStdin: boolean } {
+	const format = (opts.format ?? "toon") as string;
+	if (!isCliFormat(format))
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
+	validateInstructions(instructions);
+	if (!help && member.trim().length === 0)
+		throw new UsageError("Missing <member>; provide a crew member name or unique role");
+	if (!help && (member !== member.trim() || Buffer.byteLength(member, "utf8") > MAX_TARGET_BYTES))
+		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
+	const hasMessage = opts.message !== undefined;
+	const hasStdin = opts.stdin === true;
+	if (!help) validateMessageSource(opts.message, hasMessage, hasStdin);
+	return { format: format as CliFormat, hasMessage, hasStdin };
+}
+
+function validateMessageSource(message: string | undefined, hasMessage: boolean, hasStdin: boolean): void {
+	if (hasMessage && hasStdin) throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
+	if (!hasMessage && !hasStdin) throw new UsageError("Missing message source; use --message <text> or --stdin");
+	if (hasMessage && message!.trim().length === 0) throw new UsageError("--message must not be empty");
+	if (hasMessage) validateMessageContent(message!, "message");
+}
+
 /** App-owned parse facade: pre-pass (help/duplicates/sentinel), Commander tokenization, then validation. */
 export function parseMemberMessageCommand(
 	args: string[],
 	intent: MemberMessageIntent,
 	_cwd = process.cwd(),
 ): MemberMessageCliOptions {
-	const tokens: string[] = [];
-	let help = false;
-	const seen = new Set<string>();
-	const instructionValues: string[] = [];
-	for (let index = 0; index < args.length; index += 1) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--instruction") {
-			let value: string | undefined;
-			let escaped = false;
-			if (equals > 0) value = raw.slice(equals + 1);
-			else if (args[index + 1] === "--" && args[index + 2] !== undefined) {
-				value = args[index + 2];
-				escaped = true;
-				index += 2;
-			} else value = args[++index];
-			if (value === undefined || (equals < 0 && !escaped && value.startsWith("--")))
-				throw new UsageError("Missing value for --instruction");
-			instructionValues.push(value);
-			continue;
-		}
-		if (SINGLE_VALUE_FLAGS.has(flag) || flag === "--stdin") {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-			if (flag === "--stdin" || equals > 0) {
-				tokens.push(raw);
-				continue;
-			}
-			if (args[index + 1] === "--" && args[index + 2] !== undefined) {
-				tokens.push(`${flag}=${args[index + 2]}`);
-				index += 2;
-				continue;
-			}
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
-
-	const program = buildMemberMessageCommand(intent)
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { session?: string; message?: string; stdin?: boolean; format?: string };
-	try {
-		program.parse(tokens, { from: "user" });
-		opts = program.opts();
-	} catch (error) {
-		if (error instanceof CommanderError) throw mapCommanderError(error);
-		throw error;
-	}
-	const format = (opts.format ?? "toon") as string;
-	if (!isCliFormat(format))
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	validateInstructions(instructionValues);
-
-	const member = program.args[0] ?? "";
-	if (!help && member.trim().length === 0)
-		throw new UsageError("Missing <member>; provide a crew member name or unique role");
-	if (!help && (member !== member.trim() || Buffer.byteLength(member, "utf8") > MAX_TARGET_BYTES))
-		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
-
-	const hasMessage = opts.message !== undefined;
-	const hasStdin = opts.stdin === true;
-	if (!help) {
-		if (hasMessage && hasStdin)
-			throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
-		if (!hasMessage && !hasStdin) throw new UsageError("Missing message source; use --message <text> or --stdin");
-		if (hasMessage && opts.message!.trim().length === 0) throw new UsageError("--message must not be empty");
-		if (hasMessage) validateMessageContent(opts.message!, "message");
-	}
-
+	const parsed = parseFlagTokens(args, {
+		valueFlags: SINGLE_VALUE_FLAGS,
+		booleanFlags: new Set(["--stdin"]),
+		repeatableFlags: new Set(["--instruction"]),
+		escapedValueFlags: new Set([...SINGLE_VALUE_FLAGS, "--instruction"]),
+		rejectFlagLikeValues: true,
+	});
+	const instructions = parsed.repeatableValues.get("--instruction") ?? [];
+	const { opts, member } = parseMemberMessageTokens(parsed.tokens, intent);
+	const validated = validateMemberMessageOptions(opts, member, parsed.help, instructions);
 	return {
 		command: intent === "follow_up" ? "member-follow-up" : "member-redirect",
 		intent,
 		member: member.trim(),
 		...(opts.session === undefined ? {} : { session: opts.session }),
-		...(hasMessage ? { message: opts.message } : {}),
-		instructions: instructionValues,
-		stdin: hasStdin,
-		format: format as CliFormat,
-		...(help ? { help: true } : {}),
+		...(validated.hasMessage ? { message: opts.message } : {}),
+		instructions,
+		stdin: validated.hasStdin,
+		format: validated.format,
+		...(parsed.help ? { help: true } : {}),
 	};
 }
 

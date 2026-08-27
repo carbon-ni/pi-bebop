@@ -5,6 +5,7 @@ import { buildCrewInitCommand } from "./commands/crew-init.ts";
 import { buildSendCommand, readSendLeafOptions, type SendLeafOptions } from "./commands/send.ts";
 import { classifyTemplateSource, MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
 import { UsageError, type CliFormat, type SendCliOptions } from "./arguments.ts";
+import { parseFlagTokens } from "./flags.ts";
 
 export interface DeclarativeCrewInitOptions {
 	readonly command: "crew-init";
@@ -21,36 +22,11 @@ const FORMAT_ALTERNATIVES = "toon, json, text";
 
 /** App-owned pre-pass for the crew init grammar. */
 function prepareCrewInitArgs(args: readonly string[]): { tokens: string[]; help: boolean } {
-	const tokens: string[] = [];
-	let help = false;
-	const seen = new Set<string>();
-	for (let index = 0; index < args.length; index += 1) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (!VALUE_FLAGS.has(flag)) {
-			tokens.push(raw);
-			continue;
-		}
-		if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-		seen.add(flag);
-		if (equals > 0) {
-			tokens.push(raw);
-			continue;
-		}
-		if (args[index + 1] === "--" && args[index + 2] !== undefined) {
-			tokens.push(`${flag}=${args[index + 2]}`);
-			index += 2;
-			continue;
-		}
-		tokens.push(raw);
-	}
-	return { tokens, help };
+	const parsed = parseFlagTokens(args, {
+		valueFlags: VALUE_FLAGS,
+		escapedValueFlags: VALUE_FLAGS,
+	});
+	return { tokens: parsed.tokens, help: parsed.help };
 }
 
 type RawCrewInitOptions = { project?: string; from?: string; ref?: string; format?: string };

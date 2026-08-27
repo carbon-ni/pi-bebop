@@ -8,6 +8,7 @@ import {
 	type MemberInboxSendResult,
 } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
+import { parseFlagTokens } from "../flags.ts";
 import { errorResult, usageResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
@@ -130,54 +131,38 @@ function validateInstructions(instructions: readonly string[]): void {
 	}
 }
 
-export function parseDurableMessageCommand(
-	args: string[],
+type DurableMessageRawOptions = { session?: string; message?: string; stdin?: boolean; format?: string };
+
+function parseDurableMessageTokens(
+	tokens: readonly string[],
 	intent: DurableMessageIntent,
-	cwd = process.cwd(),
-): DurableMessageCliOptions {
-	const tokens: string[] = [];
-	const instructions: string[] = [];
-	let help = false;
-	const seen = new Set<string>();
-	for (let index = 0; index < args.length; index += 1) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--instruction") {
-			const value = equals > 0 ? raw.slice(equals + 1) : args[++index];
-			if (value === undefined || value.startsWith("--")) throw new UsageError("Missing value for --instruction");
-			instructions.push(value);
-			continue;
-		}
-		if (["--session", "--message", "--stdin", "--format"].includes(flag)) {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
+): {
+	opts: DurableMessageRawOptions;
+	member?: string;
+} {
 	const program = buildDurableMessageCommand(intent)
 		.exitOverride()
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { session?: string; message?: string; stdin?: boolean; format?: string };
 	try {
 		program.parse(tokens, { from: "user" });
-		opts = program.opts();
+		return { opts: program.opts(), ...(intent === "inbox" ? { member: program.args[0] ?? "" } : {}) };
 	} catch (error) {
 		if (error instanceof CommanderError) throw mapCommanderError(error);
 		throw error;
 	}
+}
+
+function validateDurableMessageOptions(
+	opts: DurableMessageRawOptions,
+	intent: DurableMessageIntent,
+	member: string | undefined,
+	help: boolean,
+	instructions: readonly string[],
+): { format: CliFormat; hasMessage: boolean; hasStdin: boolean } {
 	const format = (opts.format ?? "toon") as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	validateInstructions(instructions);
-	const member = intent === "inbox" ? (program.args[0] ?? "") : undefined;
 	if (!help && intent === "inbox" && (!member || member.trim().length === 0))
 		throw new UsageError("Missing <member>");
 	if (
@@ -188,21 +173,39 @@ export function parseDurableMessageCommand(
 		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
 	const hasMessage = opts.message !== undefined;
 	const hasStdin = opts.stdin === true;
-	if (!help) {
-		if (hasMessage === hasStdin)
-			throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
-		if (hasMessage) validateContent(opts.message!, "message");
-	}
+	if (!help) validateDurableMessageSource(opts.message, hasMessage, hasStdin);
+	return { format: format as CliFormat, hasMessage, hasStdin };
+}
+
+function validateDurableMessageSource(message: string | undefined, hasMessage: boolean, hasStdin: boolean): void {
+	if (hasMessage === hasStdin) throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
+	if (hasMessage) validateContent(message!, "message");
+}
+
+export function parseDurableMessageCommand(
+	args: string[],
+	intent: DurableMessageIntent,
+	_cwd = process.cwd(),
+): DurableMessageCliOptions {
+	const parsed = parseFlagTokens(args, {
+		valueFlags: new Set(["--session", "--message", "--format"]),
+		booleanFlags: new Set(["--stdin"]),
+		repeatableFlags: new Set(["--instruction"]),
+		rejectFlagLikeValues: true,
+	});
+	const instructions = parsed.repeatableValues.get("--instruction") ?? [];
+	const { opts, member } = parseDurableMessageTokens(parsed.tokens, intent);
+	const validated = validateDurableMessageOptions(opts, intent, member, parsed.help, instructions);
 	return {
 		command: intent === "inbox" ? "member-inbox-send" : "crew-broadcast",
 		intent,
 		...(member === undefined ? {} : { member: member.trim() }),
 		...(opts.session === undefined ? {} : { session: opts.session }),
-		...(hasMessage ? { message: opts.message } : {}),
+		...(validated.hasMessage ? { message: opts.message } : {}),
 		instructions,
-		stdin: hasStdin,
-		format: format as CliFormat,
-		...(help ? { help: true } : {}),
+		stdin: validated.hasStdin,
+		format: validated.format,
+		...(parsed.help ? { help: true } : {}),
 	};
 }
 

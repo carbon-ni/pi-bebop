@@ -4,6 +4,7 @@ import { sendMemberIdleWait, type MemberIdleWaitClientOutcome } from "../../infr
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { parsePositiveDurationMs } from "../parser.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
+import { parseFlagTokens } from "../flags.ts";
 import { errorResult, usageResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
@@ -76,27 +77,10 @@ export function memberIdleWaitHelp(): string {
 }
 
 export function parseMemberIdleWaitCommand(args: string[], _cwd = process.cwd()): MemberIdleWaitCliOptions {
-	const tokens: string[] = [];
-	let help = false;
-	const seen = new Set<string>();
-	for (let index = 0; index < args.length; index += 1) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--session" || flag === "--timeout" || flag === "--format") {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-			if (equals > 0) tokens.push(raw);
-			else tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
+	const parsed = parseFlagTokens(args, {
+		valueFlags: new Set(["--session", "--timeout", "--format"]),
+	});
+	const { tokens, help } = parsed;
 	const program = buildMemberIdleWaitCommand()
 		.exitOverride()
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });

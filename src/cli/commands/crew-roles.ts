@@ -5,6 +5,7 @@ import { CrewManifestError, projectCrewRoles, type CrewManifest } from "../../do
 import { CrewManifestReadError, readTrustedCrewManifest } from "../../infra/crew-manifest-store.ts";
 import { getTrustedCrewManifestPaths } from "../../infra/crew-layout.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
+import { parseFlagTokens } from "../flags.ts";
 import { errorResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome, CliResult } from "../output.ts";
@@ -66,33 +67,12 @@ export function crewRolesHelp(): string {
 }
 
 export function parseCrewRolesCommand(args: string[], _cwd = process.cwd()): CrewRolesCliOptions {
-	// App-owned pre-pass: help detection and duplicate rejection.
-	const tokens: string[] = [];
-	let help = false;
-	let full = false;
-	let seenFormat = false;
-	for (const raw of args) {
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--full") {
-			if (full) throw new UsageError("Duplicate flag: --full");
-			full = true;
-			tokens.push(raw);
-			continue;
-		}
-		if (flag === "--format") {
-			if (seenFormat) throw new UsageError("Duplicate flag: --format");
-			seenFormat = true;
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
+	const parsed = parseFlagTokens(args, {
+		valueFlags: new Set(["--format"]),
+		booleanFlags: new Set(["--full"]),
+	});
+	const { tokens, help } = parsed;
+	const full = parsed.seen.has("--full");
 
 	// Commander tokenization with injected argv and no ambient IO.
 	const program = buildCrewRolesCommand()
