@@ -64,8 +64,9 @@ export interface CrewBoardStoreOptions {
 	readonly projectRoot: string;
 	readonly manifestPath: string;
 	readonly isProjectTrusted: () => boolean;
+	/** Append-time author snapshot; Membership authorization is application-owned. */
 	readonly member: CrewBoardStoreMember;
-	readonly members: readonly CrewBoardStoreMember[];
+	readonly members?: readonly CrewBoardStoreMember[];
 }
 export interface CrewBoardStore {
 	append(
@@ -139,15 +140,22 @@ function assertOptions(options: CrewBoardStoreOptions): void {
 	const manifest = path.resolve(options.manifestPath);
 	if (!isTrustedCrewManifestPath(manifest, options.projectRoot))
 		throw error("untrusted-path", "Crew Board requires an active trusted manifest");
-	const member = options.members.find((candidate) => candidate.name === options.member.name);
+	const member = options.member;
 	if (
-		!member ||
-		member.role !== options.member.role ||
-		path.resolve(member.socketPath) !== path.resolve(options.member.socketPath)
+		typeof member.name !== "string" ||
+		typeof member.role !== "string" ||
+		typeof member.socketPath !== "string" ||
+		member.name.trim() !== member.name ||
+		member.role.trim() !== member.role ||
+		member.socketPath.trim() !== member.socketPath ||
+		member.name.length === 0 ||
+		member.role.length === 0 ||
+		member.socketPath.length === 0 ||
+		member.name.includes("\0") ||
+		member.role.includes("\0") ||
+		member.socketPath.includes("\0")
 	)
-		throw error("invalid-member", "active Membership does not match the manifest");
-	if (options.members.some((candidate) => candidate.name === options.member.name && candidate !== member))
-		throw error("invalid-member", "ambiguous active Membership");
+		throw error("invalid-member", "append-time author snapshot is invalid");
 }
 let lockSequence = 0;
 async function acquire(lock: string): Promise<() => Promise<void>> {
@@ -270,6 +278,7 @@ async function scanForRead(
 		await assertContained(postsDir, parent);
 	} catch (cause) {
 		if (isCode(cause, "ENOENT")) return { posts: [], corrupt: 0, quarantined: 0 };
+		if (cause instanceof CrewBoardStoreError) throw cause;
 		throw error("read-failed", "failed to inspect Crew Board posts", cause);
 	}
 	const release = await acquire(lock);
@@ -394,11 +403,9 @@ export async function openTrustedCrewBoardStore(options: CrewBoardStoreOptions):
 	const quarantineDir = path.join(board, CREW_BOARD_QUARANTINE_DIRNAME);
 	const lock = path.join(board, ".lock");
 	if (!inside(root, board)) throw error("untrusted-path", "Crew Board escapes project root");
-	const realLayout = await deps.realpath(layout);
 	return {
 		async append(input, now) {
-			if (input.author.name !== options.member.name || input.author.role !== options.member.role)
-				throw error("invalid-append", "append author must come from the active Membership");
+			const realLayout = await deps.realpath(layout);
 			try {
 				await deps.stat(board);
 				await assertContained(board, realLayout);
@@ -415,6 +422,7 @@ export async function openTrustedCrewBoardStore(options: CrewBoardStoreOptions):
 			if (!Number.isSafeInteger(limit) || limit < 1 || limit > BOARD_MAX_LIMIT)
 				throw error("invalid-read", "Crew Board limit is invalid");
 			const kinds = normalizeKinds(readOptions.kinds);
+			const realLayout = await deps.realpath(layout);
 			const after = readOptions.after
 				? decodeBoardCursor(readOptions.after, boardScopeForLayout(realLayout), kinds)
 				: undefined;
