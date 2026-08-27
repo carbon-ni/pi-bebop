@@ -1,7 +1,7 @@
 ---
 id: TASK-0125
 title: Add Crew Board slash commands
-status: doing
+status: done
 depends_on: [TASK-0124]
 priority: high
 tags: [crew, board, command, tui, application, membership, tdd]
