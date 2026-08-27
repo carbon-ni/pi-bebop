@@ -18,12 +18,12 @@ Activation is separate from proposal and retrospective coordination because agre
 ## Acceptance criteria
 - [ ] Operator-facing command activates one candidate Agreement revision explicitly; no membership tool, Role, Origin, Message instruction, or facilitator status can activate it.
 - [ ] Preflight verifies candidate integrity and exact current base revision before any write; stale, missing, corrupt, or already-conflicting state fails atomically with stable code.
-- [ ] Activation atomically changes Current Crew Agreements and immutable revision state; exact rerun is an unchanged success.
+- [ ] Activation atomically changes Current Crew Agreements and immutable revision state; exact rerun is unchanged only while that exact revision is already current, while a later/different current revision makes the candidate stale/conflicting.
 - [ ] Active Membership snapshots remain unchanged; activated revision applies only on next join/restore.
-- [ ] After durable activation, Bebop enqueues one bounded Agreement activation notice through each configured Member's Inbox without exposing private proposal evidence; this system-produced fan-out is not Crew Broadcast because no Current member initiated it.
+- [ ] After durable activation, Bebop enqueues one bounded Agreement activation notice through each configured Member's Inbox without exposing credentials, raw evidence, or unbounded proposal content; this system-produced fan-out is not Crew Broadcast because no Current member initiated it.
 - [ ] Notice enqueue partial failure cannot roll back activated instructions and is reported honestly per Member without duplicate activation.
-- [ ] TOON/JSON/text output exposes revision ID, prior revision, disposition, and actionable next steps without leaking absolute/private paths.
-- [ ] Happy/unhappy tests prove authority boundary, zero-write failures, idempotency, concurrency, snapshot stability, and broadcast outcomes.
+- [ ] TOON/JSON/text output exposes revision ID, prior revision, disposition, and actionable next steps without leaking unsafe absolute paths or secrets.
+- [ ] Happy/unhappy tests prove authority boundary, zero-write failures, exact-current idempotency, concurrency, snapshot stability, and Agreement activation notice enqueue outcomes.
 
 ## Non-goals
 Crew voting, automatic activation, hot reload, or editing revision bytes in place.

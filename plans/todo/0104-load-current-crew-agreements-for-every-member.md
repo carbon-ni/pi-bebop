@@ -18,7 +18,7 @@ Builds on TASK-0095's shared-context composition while keeping common instructio
 ## Acceptance criteria
 - [ ] Crew manifest may optionally select one Current Crew Agreements Markdown file rooted under the trusted Bebop layout.
 - [ ] Every Member receives the same exact Agreement revision, including a Member without Role instructions.
-- [ ] System context labels and orders project guidance, common Crew instructions, Current Crew Agreements, and Role instructions without claiming override semantics.
+- [ ] System context labels and orders project guidance, Common Crew instructions, Current Crew Agreements, and Role instructions without claiming override semantics.
 - [ ] Join, restore, and repeated prompt hooks load one stable snapshot and never duplicate sections; edits do not hot-reload an active Membership.
 - [ ] Missing, blank, oversized, invalid UTF-8, NUL-containing, directory, symlink-escaped, unreadable, or concurrently changed files fail closed before Membership claim.
 - [ ] A Crew without agreements preserves existing behavior; Agreement content never leaks through Presence, Member Status, roster, ordinary tools, logs, or message payloads.

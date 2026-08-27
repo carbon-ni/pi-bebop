@@ -121,8 +121,11 @@ facilitator's `agent_settled`, an explicit Retrospective status/start operation,
 and Retrospective completion. It does not arm a timer or poll while every
 Member is inactive. At each boundary it derives:
 
-- **not due** — no round is open and `now < dueAt`;
-- **due** — no round is open and `now >= dueAt`;
+- **not due** — no round is open, no due marker exists for the current anchor,
+  and `now < dueAt`;
+- **due** — no round is open and either a persisted due marker exists for the
+  current anchor or `now >= dueAt`; the first crossing persists the marker
+  before its reminder side effect;
 - **open** — one round exists, regardless of later clock movement;
 - **completed** — terminal state of a specific round, retained as history; the
   Crew's next schedule anchors to its `completedAt`.
@@ -135,9 +138,10 @@ Due detection:
   interrupts a Member;
 - does not create one round per missed cadence when the clock jumps forward;
   one due state remains until one round starts/completes;
-- does not rewrite the anchor when the clock moves backward. When
-  `now < anchor`, it reports a clock-before-anchor diagnostic and remains not
-  due;
+- does not rewrite the anchor when the clock moves backward. Before the due
+  transition, `now < anchor` reports a clock-before-anchor diagnostic and
+  remains not due. After the transition, the persisted due marker wins over
+  wall-clock regression and remains due until its round opens/completes;
 - is idempotent across repeated hooks, concurrent sessions, and restart.
 
 An offline facilitator receives the reminder later through Inbox. A missing or
@@ -163,11 +167,12 @@ open round unchanged. Starting while another round is open reports the existing
 round and performs no second collection or Member request.
 
 An unavailable facilitator never causes automatic reassignment. A trusted
-project operator may perform an explicit round-scoped takeover by naming an
-exact configured Member. Takeover records prior/new facilitator and reason,
-does not edit the manifest, does not grant activation authority, and reuses
-existing collection/request identities so restart or takeover cannot duplicate
-Member requests.
+project operator may perform an explicit takeover by naming an exact configured
+Member. Before start, takeover binds to the exact persisted due marker/cadence
+anchor; after start, it binds to the exact open Retrospective ID. Takeover
+records prior/new facilitator and reason, does not edit the manifest, does not
+grant activation authority, and reuses existing collection/request identities
+so restart or takeover cannot duplicate Member requests.
 
 Open round state is durable and survives process/session restart. Restore
 continues the persisted phase; it never creates a new round from cadence.
@@ -216,9 +221,11 @@ interval.
 - Events at `anchor` are included.
 - Events at or after `startedAt` belong to the next interval.
 - Collector results arriving before record freeze may enter the current record.
-- Evidence discovered after record freeze cannot mutate the record. During
-  review it may be appended as correction/challenge evidence; after completion
-  it belongs to the next Retrospective.
+- Evidence discovered after record freeze cannot mutate the record or current
+  candidate revision and is retained with provenance for the next
+  Retrospective. During review, a Member may append an attributed
+  correction/dispute annotation against existing evidence, but newly supplied
+  supporting evidence still carries forward.
 
 ### Crew Retrospective Record
 
@@ -266,9 +273,10 @@ consent from silence. The trusted operator decides whether to activate a
 candidate after seeing objections and missing Responses.
 
 The reviewing phase has one persisted deadline. A Response received after that
-deadline is labelled late and cannot silently alter the frozen record. Before
-completion, the facilitator may reference it as appended review evidence. After
-completion, it becomes input for the next Retrospective.
+deadline is labelled late; only its late outcome marker attaches to the current
+round. Its content is retained with provenance for the next Retrospective and
+cannot alter the frozen record, current interpretation decisions, or candidate
+revision—even when it arrives before current-round completion.
 
 ## Completion and candidate revision
 
@@ -284,7 +292,12 @@ Completion persists:
 - every expected Member Response outcome;
 - corrections, disputes, objections, and missing-source states;
 - no-change reason or candidate revision ID;
-- explicit carryover/Trial Agreement decisions.
+- one explicit result for every reviewed Trial Agreement: `retain-trial`,
+  `graduate`, `amend`, or `remove`.
+
+Trial Agreements never expire automatically. Until an Agreement revision
+containing `graduate`, `amend`, or `remove` is activated, the prior Trial
+Agreement remains Current and must appear again at the next Crew Retrospective.
 
 Completion is terminal and idempotent. Restart cannot reopen or duplicate it.
 A clock value before `startedAt` cannot produce completion; it reports a
@@ -338,21 +351,21 @@ The notice:
 
 ## Restart and failure semantics
 
-| Situation                                   | Required result                                                                                 |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Repeated due checks                         | One due state and at most one facilitator reminder per anchor                                   |
-| Clock moves backward                        | Keep durable anchor/state; report diagnostic; no new reminder/round/completion                  |
-| Clock jumps across several cadences         | One due state, never catch-up rounds                                                            |
-| Duplicate start                             | Return same open Retrospective; no duplicate collectors/requests                                |
-| Facilitator unavailable                     | Remain due/open; no fallback; require explicit takeover                                         |
-| Restart while collecting/reviewing          | Resume persisted phase with stable IDs and deadlines                                            |
-| Collector missing/fails                     | Record explicit source gap; do not fabricate completeness                                       |
-| Member offline/times out                    | Preserve exact Request outcome; never infer agreement                                           |
-| Late Response/evidence                      | Append as review evidence before completion or carry to next round; never rewrite frozen record |
-| Member disputes interpretation              | Preserve evidence plus dispute; never silently create consensus                                 |
-| Current Agreement changes during open round | Candidate keeps captured base; activation later fails stale unless intentionally rebuilt        |
-| Duplicate completion/activation             | Same semantic operation is unchanged success                                                    |
-| Activation notice enqueue fails             | Activation stays durable; report/retry failed Member notices only                               |
+| Situation                                   | Required result                                                                                            |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Repeated due checks                         | One persisted due marker and at most one facilitator reminder per anchor                                   |
+| Clock moves backward                        | Before crossing, report diagnostic; after crossing, persisted due marker wins; never duplicate or skip due |
+| Clock jumps across several cadences         | One due state, never catch-up rounds                                                                       |
+| Duplicate start                             | Return same open Retrospective; no duplicate collectors/requests                                           |
+| Facilitator unavailable                     | Remain due/open; no fallback; takeover names exact Member and binds due marker/open round                  |
+| Restart while collecting/reviewing          | Resume persisted phase with stable IDs and deadlines                                                       |
+| Collector missing/fails                     | Record explicit source gap; do not fabricate completeness                                                  |
+| Member offline/times out                    | Preserve exact Request outcome; never infer agreement                                                      |
+| Late Response/evidence                      | Record late marker only; content/evidence carries to next round and cannot affect current candidate        |
+| Member disputes interpretation              | Preserve evidence plus dispute; never silently create consensus                                            |
+| Current Agreement changes during open round | Candidate keeps captured base; activation later fails stale unless intentionally rebuilt                   |
+| Duplicate completion/activation             | Same semantic operation is unchanged success                                                               |
+| Activation notice enqueue fails             | Activation stays durable; report/retry failed Member notices only                                          |
 
 ## Explicitly deferred
 

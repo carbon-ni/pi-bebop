@@ -128,11 +128,16 @@ Offline Member Status marks Activity unavailable rather than stale
 Busy Interrupt persists pending recovery, requests abort, then hands recovery guidance before older queued Follow-ups
 Crew work contributes bounded Retrospective evidence for one fixed interval
 Bebop coordination, repository work, and Member retrospective reports contribute Retrospective evidence
+Crew Retrospective lifecycle is not-due -> due -> open -> completed
+Bebop alone detects due from injected clock/cadence; due never starts a round
+Persisted due marker wins over later clock rollback until exact round opens/completes
+Exact Retrospective facilitator starts and coordinates; explicit takeover names exact Member and due marker/open round
 Crew Retrospective start freezes roster, interval, and exact Current Crew Agreements revision
 Retrospective evidence supports Retrospective situations without becoming interpretation or Agreement proposal
 Crew Retrospective Record is immutable and shared byte-identically with every configured Member
 Member review confirms, corrects, or disputes situations; silence, timeout, and offline never imply agreement
 Crew Retrospective produces no change or one candidate Agreement revision
+Trial Agreement has explicit retain-trial/graduate/amend/remove review result and never expires automatically
 Agreement revision references one exact Current Crew Agreements base revision
 Only trusted project operation performs Agreement activation
 Agreement activation changes Current Crew Agreements atomically and never hot-reloads active Memberships
@@ -195,6 +200,9 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Activation notice/Crew Broadcast/Inbox:** Agreement activation notice is system-produced per-Member Inbox fan-out after activation. Crew Broadcast requires a Current member initiator. Inbox supplies durability; neither notification operation activates Agreements.
 - **Current Agreements/hot reload:** Agreement activation changes durable Current Crew Agreements; active Membership instruction snapshots remain unchanged until join/restore/rejoin.
 - **Retrospective Record/consensus:** every configured Member reviews the same immutable record, but identical evidence does not imply identical interpretation, consent, or unanimous consensus.
+- **Retrospective due/open/completed:** due is a persisted cadence result and reminder only; exact facilitator explicitly starts one open round; facilitator explicitly completes it with no change or one candidate revision. None performs Agreement activation.
+- **Late/correction/new evidence:** on-time correction appends an attributed annotation without rewriting the frozen record. Late Response content and newly supplied post-freeze evidence carry to the next round and cannot affect the current candidate revision.
+- **Trial/review/expiration:** each reviewed Trial Agreement records retain-trial, graduate, amend, or remove. It remains Current and reappears until a revision containing another result is activated; no automatic expiration.
 - **Socket/endpoint:** endpoint is product identity; socket is transport implementation.
 
 ## Sources
