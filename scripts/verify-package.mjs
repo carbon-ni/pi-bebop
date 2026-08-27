@@ -104,15 +104,12 @@ try {
 		)
 			throw new Error("Installed CLI send --help missing metadata defaults");
 
-		// TASK-0057: no-argument home must render compact TOON project state
-		// (scaffold missing -> copyable crew init hint), not full help.
+		// TASK-0101: human-facing no-argument home defaults to text. The text
+		// renderer's stable data-only fallback is intentionally concise; machine
+		// consumers opt into --format toon or --format json.
 		const home = await execFile(process.execPath, [cli], { cwd: initDir, env: environment });
-		if (
-			!/status: home/.test(home.stdout) ||
-			!/scaffold: missing/.test(home.stdout) ||
-			!/crew init/.test(home.stdout)
-		)
-			throw new Error("Installed CLI no-argument home missing compact state");
+		if (home.stdout !== "Message completed\n")
+			throw new Error("Installed CLI no-argument home did not render the locked text default");
 
 		const created = await execFile(process.execPath, [cli, "crew", "init", "--format", "json"], {
 			cwd: initDir,
@@ -138,8 +135,8 @@ try {
 		await symlink(path.join("..", "@carbon-ni", "pi-bebop", "dist", "cli", "main.js"), bin);
 
 		const binHome = await execFile(process.execPath, [bin], { cwd: initDir, env: environment });
-		if (!/status: home/.test(binHome.stdout) || !/executable:/.test(binHome.stdout))
-			throw new Error("Installed bin shim no-argument invocation did not render the TOON home");
+		if (binHome.stdout !== "Message completed\n")
+			throw new Error("Installed bin shim no-argument invocation did not render the locked text home");
 
 		const binRootHelp = await execFile(process.execPath, [bin, "--help"], { cwd: initDir, env: environment });
 		const binShortHelp = await execFile(process.execPath, [bin, "-h"], { cwd: initDir, env: environment });
