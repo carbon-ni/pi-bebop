@@ -30,6 +30,8 @@ export class CrewBoardApplicationError extends Error {
 
 export interface CrewBoardStoreDependencies {
 	readonly isProjectTrusted: () => boolean;
+	/** Read the runtime membership again at the store authorization boundary. */
+	readonly getCurrentMembership?: () => Membership | null;
 	readonly openStore: (options: {
 		readonly manifestPath: string;
 		readonly projectRoot: string;
@@ -59,6 +61,15 @@ function projectRootOf(manifestPath: string): string {
 	return path.resolve(path.dirname(manifestPath), "..", "..");
 }
 
+function sameMembership(left: Membership, right: Membership): boolean {
+	return (
+		left.manifestPath === right.manifestPath &&
+		left.socketPath === right.socketPath &&
+		left.member.name === right.member.name &&
+		left.member.role === right.member.role
+	);
+}
+
 function requireMembership(membership: Membership | null, dependencies: CrewBoardStoreDependencies): Membership {
 	if (!membership) throw new CrewBoardApplicationError("not-joined", "Crew Board requires joined Membership");
 	if (!dependencies.isProjectTrusted())
@@ -84,7 +95,10 @@ async function openBoardStore(
 	membership: Membership | null,
 	dependencies: CrewBoardStoreDependencies,
 ): Promise<{ readonly membership: Membership; readonly store: CrewBoardStore }> {
-	const current = requireMembership(membership, dependencies);
+	const observed = dependencies.getCurrentMembership ? dependencies.getCurrentMembership() : membership;
+	if (!membership || !observed || !sameMembership(membership, observed))
+		throw new CrewBoardApplicationError("stale-membership", "Membership changed before Crew Board access");
+	const current = requireMembership(observed, dependencies);
 	const store = await dependencies.openStore({
 		manifestPath: current.manifestPath,
 		projectRoot: projectRootOf(current.manifestPath),
@@ -113,7 +127,9 @@ export async function leaveCrewPost(
 	};
 	try {
 		validateBoardAppendInput(input);
-		const { store } = await openBoardStore(membership, dependencies);
+		const { membership: admitted, store } = await openBoardStore(membership, dependencies);
+		if (!sameMembership(membership, admitted))
+			throw new CrewBoardApplicationError("stale-membership", "Membership changed before Crew Board access");
 		return await store.append(input, request.now);
 	} catch (error) {
 		if (error instanceof CrewBoardApplicationError) throw error;

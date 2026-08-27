@@ -88,6 +88,26 @@ test("unjoined, untrusted, stale, and unsupported Membership reject before store
 	assert.equal(opened, 0);
 });
 
+test("store-boundary Membership recheck rejects a leave or switch before opening", async () => {
+	let opened = 0;
+	const dependencies = {
+		isProjectTrusted: () => true,
+		getCurrentMembership: () => null,
+		openStore: async () => {
+			opened += 1;
+			throw new Error("must not open");
+		},
+	};
+	await assert.rejects(
+		() => readCrewBoard({ membership }, dependencies),
+		(error: unknown) => {
+			assert.equal((error as CrewBoardApplicationError).code, "stale-membership");
+			return true;
+		},
+	);
+	assert.equal(opened, 0);
+});
+
 test("invalid append and read input reject before store IO", async () => {
 	const { opened, dependencies } = deps({
 		append: async () => {

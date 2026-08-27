@@ -116,6 +116,6 @@ test("read tool returns shared result and Membership loss rejects", async () => 
 	current.value = null;
 	const rejected = await tool.execute("r", {});
 	assert.equal(rejected.isError, true);
-	assert.equal(rejected.details.error, "not-joined");
+	assert.equal(rejected.details.error, "stale-membership");
 	assert.equal(reads, 1);
 });

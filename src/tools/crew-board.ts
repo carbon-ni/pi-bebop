@@ -49,6 +49,7 @@ function defaultDependencies(state: SocketState): CrewBoardStoreDependencies {
 	const isProjectTrusted = () => state.context?.isProjectTrusted?.() === true;
 	return {
 		isProjectTrusted,
+		getCurrentMembership: () => state.membershipRuntime?.getMembership() ?? null,
 		openStore: (options) => openTrustedCrewBoardStore(options),
 	};
 }

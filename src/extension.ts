@@ -215,10 +215,12 @@ export default function (pi: ExtensionAPI) {
 	});
 	registerLeaveCrewPostTool(pi, state, {
 		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+		getCurrentMembership: () => state.membershipRuntime?.getMembership() ?? null,
 		openStore: (options) => openTrustedCrewBoardStore(options),
 	});
 	registerReadCrewBoardTool(pi, state, {
 		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+		getCurrentMembership: () => state.membershipRuntime?.getMembership() ?? null,
 		openStore: (options) => openTrustedCrewBoardStore(options),
 	});
 	// Membership tools stay registered (getAllTools) and are deactivated at
