@@ -335,6 +335,15 @@ export function encodeBoardCursor(cursor: BoardCursor): string {
 	if (encoded.length > MAX_BOARD_CURSOR_BYTES) fail("invalid-cursor", "cursor exceeds bound");
 	return encoded;
 }
+function validCursorBoundary(cursor: Record<string, unknown>): cursor is { id: string; sequence: number } {
+	return (
+		typeof cursor.id === "string" &&
+		/^post-[a-f0-9]{64}$/.test(cursor.id) &&
+		typeof cursor.sequence === "number" &&
+		Number.isSafeInteger(cursor.sequence) &&
+		cursor.sequence >= 1
+	);
+}
 export function decodeBoardCursor(raw: string, board: string, kinds: readonly CrewPostKind[]): BoardCursor {
 	if (typeof raw !== "string" || raw.length > MAX_BOARD_CURSOR_BYTES) fail("invalid-cursor", "cursor is invalid");
 	let value: unknown;
@@ -346,15 +355,16 @@ export function decodeBoardCursor(raw: string, board: string, kinds: readonly Cr
 	if (!value || typeof value !== "object") fail("invalid-cursor", "cursor is malformed");
 	const cursor = value as Record<string, unknown>;
 	const expectedKinds = [...new Set(kinds)].sort((a, b) => KINDS.indexOf(a) - KINDS.indexOf(b));
+	if (Object.keys(cursor).some((key) => !["v", "board", "sequence", "id", "kinds"].includes(key)))
+		fail("invalid-cursor", "cursor contains unsupported fields");
 	if (
 		cursor.v !== 1 ||
 		cursor.board !== board ||
-		cursor.kinds === undefined ||
+		!Array.isArray(cursor.kinds) ||
 		JSON.stringify(cursor.kinds) !== JSON.stringify(expectedKinds)
 	)
 		fail("cursor-filter-mismatch", "cursor does not match filter");
-	if (typeof cursor.id !== "string" || typeof cursor.sequence !== "number")
-		fail("invalid-cursor", "cursor boundary is invalid");
+	if (!validCursorBoundary(cursor)) fail("invalid-cursor", "cursor boundary is invalid");
 	return { board, id: cursor.id, sequence: cursor.sequence, kinds: expectedKinds };
 }
 export function compareCrewPostsNewest(a: CrewPost, b: CrewPost): number {
