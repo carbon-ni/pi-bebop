@@ -1,7 +1,7 @@
 ---
 id: TASK-0101
 title: Split CLI default output formats by audience
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: []
