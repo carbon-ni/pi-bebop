@@ -29,12 +29,14 @@ A shared append-only board can silently lose concurrent posts, leak secrets, dri
 - [ ] Canonical `.pi/bebop` and compatibility `.pi/crew` layouts work independently, including external project roots; no mirroring/cross-layout merge or per-Member board exists.
 - [ ] Join/restore/rejoin grants identical read+append operations; leave/removal/inactive Membership removes them. Role/contact/facilitator/Lead/Origin/kind never changes access.
 - [ ] Agent tools and slash commands produce the same canonical append/read outcomes for identical inputs and store state.
-- [ ] Instrumented Pi host proves append/read generate zero Follow-up, Inbox, Broadcast, Request/Response, Redirect, Interrupt, provider/model-turn, task, Agreement, and automatic-context side effects.
+- [ ] Instrumented Pi host proves append/read generate zero Follow-up, Inbox, Broadcast, Request/Response, Redirect, Interrupt, provider/model-turn, task, Agreement, and automatic Crew Post content side effects.
+- [ ] Fresh join, restore, rejoin, leave, and prompt-rebuild fixtures prove every Current Member sees exactly one bounded Board affordance while no Post count/body/reference/cursor is loaded automatically.
+- [ ] Human join/help fixtures teach `/crew board` and `/crew post` once; merely joining or opening help performs zero Board read and no provider call.
 - [ ] Reading is repeatable and non-consuming; no read receipt, acknowledgement, recipient, delivery, notification, or per-Member cursor is persisted.
 - [ ] Kind matrix proves tip/kudos/feedback/warning/note affect filtering/rendering only. Feedback/kudos are never aggregated or described as ratings, reputation, sentiment, productivity, or performance.
 - [ ] Security/privacy fixtures reject credentials/secrets, unsafe identifiers/references, hidden-reasoning requests, unbounded content, and external anonymous authorship without corrupting healthy posts.
 - [ ] Supersedes/disputes preserve original bytes and provenance; no silent edit, automatic truth decision, workflow transition, or promotion occurs.
-- [ ] Documentation distinguishes Board from all message surfaces, plans/tasks, AGENTS.md, Crew Agreements, and Retrospective evidence; includes copyable tool/slash examples and recovery guidance.
+- [ ] Documentation distinguishes Board from all message surfaces, plans/tasks, AGENTS.md, Crew Agreements, and Retrospective evidence; includes copyable tool/slash examples, suggested voluntary read/append moments, and recovery guidance.
 - [ ] Documentation states runtime Board data is Git-ignored manifest-adjacent local state shared by Crew processes on the same filesystem, not network/cross-machine synchronization.
 - [ ] Focused tests, typecheck, formatting, architecture/package checks, coverage/risk gate, clean full hooks, and fresh watcher verification pass with unchanged-worktree proof.
 

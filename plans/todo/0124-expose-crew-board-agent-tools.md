@@ -36,7 +36,7 @@ read_crew_board({
 1. Write failing application tests for Membership gating, author derivation, canonical append/read results, and zero delivery side effects.
 2. Add injected application operations independent of Pi tool/command types so TASK-0125 reuses the same validation, store, ordering, and errors.
 3. Register compact agent tools that adapt parameters/results only; Membership and manifest are resolved at execute time.
-4. Activate/deactivate board tool access through the existing Membership tool lifecycle without changing system prompt content or automatically reading the board.
+4. Activate/deactivate board tool access through the existing Membership tool lifecycle. Add one bounded stable joined-context affordance line naming both tools, but never load Crew Post content automatically.
 
 ## Acceptance criteria
 
@@ -49,9 +49,10 @@ read_crew_board({
 - [ ] Exact tool-call retry is idempotent; conflicting retry is explicit and cannot overwrite a prior post.
 - [ ] Append/read perform zero Follow-up, Inbox, Crew Broadcast, Member request/Response, Redirect, Interrupt, provider, task, Agreement, or Retrospective mutation side effects.
 - [ ] Reading never consumes, marks read, acknowledges, or creates per-Member state. Leaving/rejoining sees the same shared board.
-- [ ] Tool descriptions teach pull-only semantics, Membership-only access, potentially fallible content, and absence of notification/read receipts/ratings/authority.
+- [ ] Tool descriptions teach pull-only semantics, Membership-only access, potentially fallible content, absence of notification/read receipts/ratings/authority, and useful voluntary triggers: inspect when starting unfamiliar work or seeking shared project context; append when a reusable tip, kudos, feedback, warning, or note should outlive the current session.
+- [ ] Joined/restored/rejoined Membership context includes exactly one concise stable line: use `read_crew_board` to inspect shared Posts and `leave_crew_post` to add one; Posts are not delivered automatically. It includes no Post count/body/reference/cursor and does not duplicate across prompt construction.
 - [ ] Membership loss, abort, store failure, corruption, capacity, and concurrent operation paths clean resources once and return bounded errors.
-- [ ] Existing Membership tool activation order and all messaging/public-context tests remain green; board content is never inserted automatically into system or message context.
+- [ ] Existing Membership tool activation order and all messaging/public-context tests remain green; only the bounded affordance is added, and Crew Post content is never inserted automatically into system or message context.
 
 ## Non-goals
 

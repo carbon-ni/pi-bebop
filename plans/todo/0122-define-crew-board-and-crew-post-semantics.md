@@ -22,7 +22,8 @@ Define one pull-based Crew Board shared equally by every Current Member and one 
 - Canonical terms are **Crew Board** and **Crew Post**.
 - Crew Membership is the only access boundary. Every Current Member has identical read-and-append access; there are no per-Member ACLs, private posts, Role permissions, owners, moderators, or tiers.
 - A post may be labelled `tip`, `kudos`, `feedback`, `warning`, or `note`; the optional kind is browsing metadata only. Bebop never infers kind, recipient, sentiment, importance, or workflow from prose.
-- Board is pull-based. Append/read never delivers a message, injects model context, starts a turn, creates a Response/read receipt, or claims acknowledgement.
+- Board is pull-based. Append/read never delivers a message, injects Board Post content automatically, starts a turn, creates a Response/read receipt, or claims acknowledgement.
+- Discoverability is explicit: joined Membership context teaches the two board tools in one bounded stable affordance line, and human join/help surfaces teach the slash commands. Teaching that the Board exists is distinct from pushing Board content.
 - Posts are attributed statements, not verified truth, instructions, task state, votes, ratings, Agreements, or authority.
 - Correction is a new linked post; existing bytes/provenance are never silently edited.
 
@@ -32,7 +33,8 @@ Define one pull-based Crew Board shared equally by every Current Member and one 
 - [ ] Membership-only access is exact: every joined/restored/rejoined Current Member can read and append; no Role, Origin, facilitator, Lead convention, or post kind changes that access.
 - [ ] Contract defines a closed bounded canonical post shape: version, stable ID, stable sequence/cursor, injected UTC creation time, manifest-backed author attribution, optional kind, bounded message, safe references, and optional supersedes/disputes link.
 - [ ] Contract defines deterministic ordering, cursor/pagination, capacity, exact retry/idempotency, conflicting replay, corruption, restart, and concurrent-writer outcomes.
-- [ ] Pull-only behavior explicitly creates no recipient, delivery state, read/acceptance state, automatic notification, provider call, or model-context injection.
+- [ ] Pull-only behavior explicitly creates no recipient, delivery state, read/acceptance state, automatic notification, provider call, or automatic Crew Post content injection.
+- [ ] Contract defines bounded discovery: every joined/restored/rejoined Member sees one stable tool-affordance line; tool descriptions teach when/how to read or append; human join/help lists `/crew board` and `/crew post`. No Post is read merely because Membership starts.
 - [ ] Tips/feedback/kudos remain fallible Member statements; no aggregation into ratings, reputation, sentiment, productivity, performance, consensus, or authority is allowed.
 - [ ] Credentials/secrets, hidden model reasoning, unsafe paths/identifiers, unbounded attachments/history, anonymous external posting, automatic promotion, and cross-project/network replication boundaries are explicit.
 - [ ] A deliberate later process may promote useful posts into documentation, tests, plans, AGENTS.md, or Crew Agreements; Board append itself never performs promotion.

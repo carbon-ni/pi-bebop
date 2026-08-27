@@ -27,7 +27,7 @@ Omitted post kind is `note`. Flags are explicit so ordinary prose beginning with
 1. Write parser/handler tests for omitted and explicit flags, quoting/spacing, repeated filters/references, invalid combinations, and bounded errors.
 2. Add `/crew post` and `/crew board` adapters to the existing `/crew` command family.
 3. Delegate to TASK-0124 application operations; command code owns only parsing and bounded TUI rendering.
-4. Ensure command lifecycle is observational/synchronous from the human perspective and never calls Pi message/provider APIs.
+4. Ensure command lifecycle is observational/synchronous from the human perspective and never calls Pi message/provider APIs. Add bounded Board guidance to successful join output and `/crew` usage/help without reading the Board.
 
 ## Acceptance criteria
 
@@ -40,7 +40,8 @@ Omitted post kind is `note`. Flags are explicit so ordinary prose beginning with
 - [ ] Append/read render as TUI-only output and trigger zero `sendMessage`, `sendUserMessage`, provider call, model turn, Inbox/Broadcast/Request, or per-Member read state.
 - [ ] Results never claim delivery, readership, agreement, truth, rating, authority, or task/Agreement change.
 - [ ] Reload, leave, stop, shutdown, stale context, abort, concurrent append, corruption, and store failure are bounded and leak-free.
-- [ ] Existing `/crew join|leave|members|status|inbox|stop` parsing/rendering remains byte-compatible outside deliberate shared help additions.
+- [ ] Successful `/crew join` and `/crew` usage/help name `/crew board` and `/crew post` once with pull-only guidance; restore remains discoverable through joined agent context. These surfaces never read/render a Post unless `/crew board` is explicitly invoked.
+- [ ] Existing `/crew join|leave|members|status|inbox|stop` parsing/rendering remains byte-compatible outside the deliberate bounded Board guidance.
 
 ## Non-goals
 
