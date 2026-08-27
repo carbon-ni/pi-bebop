@@ -118,6 +118,66 @@ test("/crew board and post delegate to shared operations with TUI-only output", 
 	assert.equal(setupState.messages.length, 0);
 });
 
+test("Crew Board parser rejects malformed tails before application/store IO", async () => {
+	const setupState = setup();
+	const manifestPath = "/project/.pi/bebop/crew.json";
+	const manifest = parseCrewManifest(
+		{ version: 1, members: [{ name: "Mary", role: "po", socket: "sockets/mary.sock" }] },
+		manifestPath,
+	);
+	const membership = {
+		manifestPath,
+		socketPath: manifest.members[0]!.socketPath,
+		globalSocketPath: "/tmp/global.sock",
+		member: manifest.members[0]!,
+		manifest,
+	} as never;
+	setupState.state.membershipRuntime = { getMembership: () => membership } as never;
+	let opened = 0;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewBoard: {
+				isProjectTrusted: () => true,
+				getCurrentMembership: () => membership,
+				openStore: async () => {
+					opened += 1;
+					return {
+						append: async () => ({
+							version: 1 as const,
+							post: {
+								id: "post-1",
+								sequence: 1,
+								kind: "note",
+								author: { name: "Mary", role: "po" },
+								createdAt: 1,
+							},
+							alreadyPersisted: false,
+						}),
+						read: async () => ({
+							version: 1 as const,
+							posts: [],
+							nextCursor: null,
+							hasMore: false,
+							corruptCount: 0,
+							quarantinedThisRead: 0,
+							corruptCountTruncated: false,
+						}),
+					};
+				},
+			},
+		}),
+	);
+	await setupState.getCommand().handler("post -- --kind warning is prose", setupState.ctx);
+	await setupState.getCommand().handler("board --limit 01", setupState.ctx);
+	await setupState.getCommand().handler(`post ${"x".repeat(21_505)}`, setupState.ctx);
+	await setupState.getCommand().handler(`board ${"x".repeat(1_025)}`, setupState.ctx);
+	assert.equal(opened, 1, "the explicit -- marker is a valid post invocation");
+	assert.equal(setupState.messages.length, 0);
+	assert.equal(setupState.notifications.length, 3);
+});
+
 test("/crew agreements activate invokes the trusted operation and reports deterministic status", async () => {
 	const setupState = setup();
 	const calls: string[] = [];
