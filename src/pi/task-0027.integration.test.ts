@@ -52,6 +52,72 @@ function runtimeFor(crew: Awaited<ReturnType<typeof fixture>>, claimCount?: { va
 	});
 }
 
+test("loads and snapshots one Current Crew Agreements revision for every member", async () => {
+	const crew = await fixture();
+	try {
+		const agreementsDir = path.join(path.dirname(crew.manifestPath), "agreements");
+		await fs.mkdir(agreementsDir, { recursive: true });
+		await fs.writeFile(path.join(agreementsDir, "current.md"), "old agreement\n");
+		await fs.writeFile(
+			crew.manifestPath,
+			JSON.stringify({
+				version: 2,
+				crewAgreements: { file: "agreements/current.md" },
+				members: [
+					{ name: "dev", role: "developer", socket: "sockets/dev.sock" },
+					{ name: "qa", role: "quality", socket: "sockets/qa.sock" },
+				],
+			}),
+		);
+		const runtime = runtimeFor(crew);
+		const request = {
+			manifestPath: crew.manifestPath,
+			socketPath: crew.socketPath,
+			globalSocketPath: crew.globalSocketPath,
+		};
+		const joined = await runtime.join(request);
+		assert.equal(joined.ok, true);
+		if (!joined.ok) return;
+		const firstContext = appendMembershipContext("Base", joined.membership);
+		assert.match(firstContext, /Current Crew Agreements:\nold agreement/);
+		assert.doesNotMatch(firstContext, /Role instructions:/);
+		await fs.writeFile(path.join(agreementsDir, "current.md"), "new agreement\n");
+		assert.equal(appendMembershipContext("Base", joined.membership), firstContext);
+		assert.doesNotMatch(firstContext, /new agreement/);
+		await runtime.leave();
+		const refreshed = await runtime.join(request);
+		assert.equal(refreshed.ok, true);
+		assert.equal(runtime.getMembership()?.manifest.crewAgreements?.content, "new agreement\n");
+	} finally {
+		await crew.cleanup();
+	}
+});
+
+test("missing Current Crew Agreements fails before claiming any endpoint", async () => {
+	const crew = await fixture();
+	try {
+		await fs.mkdir(path.join(path.dirname(crew.manifestPath), "agreements"), { recursive: true });
+		await fs.writeFile(
+			crew.manifestPath,
+			JSON.stringify({
+				version: 2,
+				crewAgreements: { file: "agreements/missing.md" },
+				members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+			}),
+		);
+		const claimed = { value: 0 };
+		const result = await runtimeFor(crew, claimed).join({
+			manifestPath: crew.manifestPath,
+			socketPath: crew.socketPath,
+			globalSocketPath: crew.globalSocketPath,
+		});
+		assert.equal(result.ok, false);
+		assert.equal(claimed.value, 0);
+	} finally {
+		await crew.cleanup();
+	}
+});
+
 test("loads file-backed instructions from the compatibility .pi/crew layout", async () => {
 	const crew = await fixture("crew");
 	try {

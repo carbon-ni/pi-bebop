@@ -92,6 +92,38 @@ test("renders common instructions once before role instructions, including membe
 	assert.doesNotMatch(noRoleRendered, /Role instructions:/);
 });
 
+test("renders Current Crew Agreements between common and Role instructions for a roleless member", () => {
+	const configured = parseCrewManifest(
+		{
+			version: 2,
+			commonInstructionsFile: "instructions/common.md",
+			crewAgreements: { file: "agreements/current.md" },
+			members: [
+				{ name: "dev", role: "developer", socket: "sockets/dev.sock", instructions: "ROLE" },
+				{ name: "qa", role: "quality", socket: "sockets/qa.sock" },
+			],
+		},
+		manifestPath,
+	);
+	const snapshotManifest = {
+		...configured,
+		commonInstructions: "COMMON",
+		commonInstructionsFile: undefined,
+		crewAgreements: { content: "AGREEMENT" },
+	};
+	const joined: Membership = { ...membership, member: configured.members[0], manifest: snapshotManifest };
+	const rendered = formatMembershipContext(joined);
+	assert.equal(rendered.match(/Current Crew Agreements:/g)?.length, 1);
+	assert.ok(rendered.indexOf("Common Crew instructions:") < rendered.indexOf("Current Crew Agreements:"));
+	assert.ok(rendered.indexOf("Current Crew Agreements:") < rendered.indexOf("Role instructions:"));
+	assert.match(rendered, /Role instructions: ROLE/);
+	const roleless: Membership = { ...membership, member: configured.members[1], manifest: snapshotManifest };
+	const rolelessRendered = appendMembershipContext("Base", roleless);
+	assert.match(rolelessRendered, /Current Crew Agreements:\nAGREEMENT/);
+	assert.doesNotMatch(rolelessRendered, /Role instructions:/);
+	assert.equal(rolelessRendered, appendMembershipContext(rolelessRendered, roleless));
+});
+
 test("joined context lists manifest-order name (role): description, keeping others concise and instructions separate", () => {
 	const withDescription = parseCrewManifest(
 		{

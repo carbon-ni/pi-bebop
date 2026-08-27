@@ -69,8 +69,14 @@ file, never both. All file paths stay beneath the active layout's `instructions/
 directory and are rejected on symlink escapes, directories, invalid UTF-8, NULs,
 blank files, or files over 64 KiB. `AGENTS.md` remains project-wide agent
 guidance; `common.md` is shared crew collaboration guidance; role files define
-member-specific responsibilities. Current Crew Agreements remain separate. The file is read once during startup, restore, or explicit
-join/rejoin (no hot reload; leave and rejoin to refresh):
+member-specific responsibilities. Current Crew Agreements remain separate and
+may be selected in version 2 with `crewAgreements.file`, rooted under the
+active layout's `agreements/` directory. The trusted loader snapshots agreement
+bytes for every member before claim and renders them between Common and Role
+sections; section order grants no override authority. Agreement files use the
+same strict 64 KiB UTF-8/NUL/blank/regular-file/real-path checks and fail before
+claim. Files are read once during startup, restore, or explicit join/rejoin (no
+hot reload; leave and rejoin to refresh):
 
 ```json
 { "name": "Bob", "role": "developer", "socket": "sockets/Bob.sock", "instructionsFile": "instructions/developer.md" }

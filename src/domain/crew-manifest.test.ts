@@ -12,6 +12,48 @@ import {
 } from "./index.ts";
 
 describe("crew manifest", () => {
+	test("accepts version 2 Current Crew Agreements file only under agreements", () => {
+		const result = parseCrewManifest(
+			{
+				version: 2,
+				crewAgreements: { file: "agreements/current.md" },
+				members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+			},
+			"/repo/.pi/bebop/crew.json",
+		);
+		assert.deepEqual(result.crewAgreements, { file: "agreements/current.md" });
+		for (const value of [
+			undefined,
+			{},
+			{ file: "" },
+			{ file: "/tmp/current.md" },
+			{ file: "../current.md" },
+			{ file: "agreements/../current.md" },
+			{ file: "agreements/\0.md" },
+			{ file: "agreements/current.md", extra: true },
+		]) {
+			if (value === undefined) continue;
+			assert.throws(
+				() =>
+					parseCrewManifest({
+						version: 2,
+						crewAgreements: value,
+						members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+					}),
+				(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-crew-agreements",
+			);
+		}
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					version: 1,
+					crewAgreements: { file: "agreements/current.md" },
+					members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+				}),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-crew-agreements",
+		);
+	});
+
 	test("accepts version 2 commonInstructionsFile only under instructions", () => {
 		const result = parseCrewManifest(
 			{

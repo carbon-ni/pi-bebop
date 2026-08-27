@@ -27,6 +27,13 @@ export interface CrewIntakeConfig {
 	readonly contact: string;
 }
 
+export interface CrewAgreementsConfig {
+	/** Source path retained until the trusted loader resolves its content. */
+	readonly file?: string;
+	/** Exact Current Crew Agreements bytes loaded by the trusted loader. */
+	readonly content?: string;
+}
+
 export interface CrewManifest {
 	readonly version: typeof CREW_MANIFEST_VERSION | typeof CREW_MANIFEST_V2;
 	readonly members: readonly CrewMember[];
@@ -36,6 +43,8 @@ export interface CrewManifest {
 	readonly commonInstructions?: string;
 	/** Source path retained until the trusted loader resolves its content. */
 	readonly commonInstructionsFile?: string;
+	/** Manifest-selected Current Crew Agreements, populated by the trusted loader. */
+	readonly crewAgreements?: CrewAgreementsConfig;
 }
 
 export type CrewManifestErrorCode =
@@ -46,6 +55,7 @@ export type CrewManifestErrorCode =
 	| "invalid-socket-path"
 	| "invalid-instructions-file"
 	| "invalid-common-instructions-file"
+	| "invalid-crew-agreements"
 	| "invalid-intake-config"
 	| "invalid-intake-contact"
 	| "duplicate-member-name"
@@ -170,6 +180,25 @@ function validateCommonInstructionsFile(value: unknown, version: unknown, manife
 	return value;
 }
 
+function validateCrewAgreements(
+	value: unknown,
+	version: unknown,
+	manifestPath: string,
+): CrewAgreementsConfig | undefined {
+	if (value === undefined) return undefined;
+	if (version !== CREW_MANIFEST_V2) invalid("crewAgreements requires manifest version 2", "invalid-crew-agreements");
+	if (!isRecord(value) || Object.keys(value).some((key) => key !== "file") || typeof value.file !== "string")
+		invalid("crewAgreements must contain only a non-empty file path", "invalid-crew-agreements");
+	if (value.file.trim().length === 0 || value.file.includes("\0") || path.isAbsolute(value.file))
+		invalid("crewAgreements.file must be a non-empty relative path", "invalid-crew-agreements");
+	const agreementsRoot = path.resolve(path.dirname(manifestPath), "agreements");
+	const resolved = path.resolve(path.dirname(manifestPath), value.file);
+	const relative = path.relative(agreementsRoot, resolved);
+	if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+		invalid("crewAgreements.file must remain under the agreements directory", "invalid-crew-agreements");
+	return { file: value.file };
+}
+
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
 	if (!isRecord(input)) invalid("manifest must be an object");
 	if (!isSupportedManifestVersion(input.version)) {
@@ -177,6 +206,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 	}
 	const version = input.version;
 	const commonInstructionsFile = validateCommonInstructionsFile(input.commonInstructionsFile, version, manifestPath);
+	const crewAgreements = validateCrewAgreements(input.crewAgreements, version, manifestPath);
 	if (!Array.isArray(input.members) || input.members.length === 0) {
 		throw new CrewManifestError("invalid-members", "members must be a non-empty array");
 	}
@@ -298,17 +328,19 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 		version,
 		members,
 		presence,
-		...manifestOptionalFields(intake, commonInstructionsFile),
+		...manifestOptionalFields(intake, commonInstructionsFile, crewAgreements),
 	};
 }
 
 function manifestOptionalFields(
 	intake: CrewIntakeConfig | undefined,
 	commonInstructionsFile: string | undefined,
-): Partial<Pick<CrewManifest, "intake" | "commonInstructionsFile">> {
+	crewAgreements: CrewAgreementsConfig | undefined,
+): Partial<Pick<CrewManifest, "intake" | "commonInstructionsFile" | "crewAgreements">> {
 	return {
 		...(intake === undefined ? {} : { intake }),
 		...(commonInstructionsFile === undefined ? {} : { commonInstructionsFile }),
+		...(crewAgreements === undefined ? {} : { crewAgreements }),
 	};
 }
 

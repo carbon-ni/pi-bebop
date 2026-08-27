@@ -28,6 +28,7 @@ export type CrewManifestReadErrorCode =
 	| "read-failed"
 	| "invalid-json"
 	| "instructions-directory-failed"
+	| "agreements-directory-failed"
 	| "instructions-file-missing"
 	| "instructions-file-unreadable"
 	| "instructions-file-directory"
@@ -45,7 +46,16 @@ export type CrewManifestReadErrorCode =
 	| "common-instructions-file-empty"
 	| "common-instructions-file-nul"
 	| "common-instructions-file-oversized"
-	| "common-instructions-file-changed";
+	| "common-instructions-file-changed"
+	| "crew-agreements-file-missing"
+	| "crew-agreements-file-unreadable"
+	| "crew-agreements-file-directory"
+	| "crew-agreements-file-unsafe"
+	| "crew-agreements-file-invalid-encoding"
+	| "crew-agreements-file-empty"
+	| "crew-agreements-file-nul"
+	| "crew-agreements-file-oversized"
+	| "crew-agreements-file-changed";
 
 export class CrewManifestReadError extends Error {
 	readonly code: CrewManifestReadErrorCode;
@@ -77,11 +87,16 @@ async function readInstructionFileBounded(filePath: string, maxBytes: number): P
 	}
 }
 
-type InstructionLabel = "instructionsFile" | "commonInstructionsFile";
+type InstructionLabel = "instructionsFile" | "commonInstructionsFile" | "crewAgreements.file";
 
 function instructionErrorCode(label: InstructionLabel, suffix: string): CrewManifestReadErrorCode {
 	if (label === "instructionsFile") return `instructions-file-${suffix}` as CrewManifestReadErrorCode;
-	return `common-instructions-file-${suffix}` as CrewManifestReadErrorCode;
+	if (label === "commonInstructionsFile") return `common-instructions-file-${suffix}` as CrewManifestReadErrorCode;
+	return `crew-agreements-file-${suffix}` as CrewManifestReadErrorCode;
+}
+
+function instructionRootName(label: InstructionLabel): string {
+	return label === "crewAgreements.file" ? "agreements/" : "instructions/";
 }
 
 function instructionMessage(label: InstructionLabel, memberName: string | undefined, detail: string): string {
@@ -144,7 +159,7 @@ async function loadInstructionFile(
 	}
 	const relative = path.relative(instructionsRoot, realFile);
 	if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-		failInstruction(label, memberName, "unsafe", "is outside instructions/");
+		failInstruction(label, memberName, "unsafe", `is outside ${instructionRootName(label)}`);
 	let before: Awaited<ReturnType<typeof fs.stat>>;
 	try {
 		before = await fs.stat(realFile);
@@ -207,38 +222,82 @@ export async function readTrustedCrewManifest(
 	}
 	const manifest = parseCrewManifest(input, normalizedPath);
 	const hasRoleFiles = manifest.members.some((member) => member.instructionsFile !== undefined);
-	if (manifest.commonInstructionsFile === undefined && !hasRoleFiles) return manifest;
+	const hasCommonFile = manifest.commonInstructionsFile !== undefined;
+	const hasAgreementFile = manifest.crewAgreements?.file !== undefined;
+	if (!hasCommonFile && !hasRoleFiles && !hasAgreementFile) return manifest;
 	const crewRoot = path.dirname(normalizedPath);
 	let realCrewRoot: string;
-	let realInstructionsRoot: string;
 	try {
 		realCrewRoot = await fs.realpath(crewRoot);
-		realInstructionsRoot = await fs.realpath(path.join(crewRoot, "instructions"));
 	} catch (error) {
-		throw new CrewManifestReadError(
-			"instructions-directory-failed",
-			"failed to resolve the member instructions directory",
-			{ cause: error },
-		);
+		throw new CrewManifestReadError("instructions-directory-failed", "failed to resolve the crew directory", {
+			cause: error,
+		});
 	}
-	const rootRelative = path.relative(realCrewRoot, realInstructionsRoot);
-	if (
-		!rootRelative ||
-		rootRelative === ".." ||
-		rootRelative.startsWith(`..${path.sep}`) ||
-		path.isAbsolute(rootRelative)
-	) {
-		throw new CrewManifestReadError(
-			"instructions-file-unsafe",
-			"crew instructions directory is outside the trusted crew directory",
-		);
+	let realInstructionsRoot: string | undefined;
+	if (hasCommonFile || hasRoleFiles) {
+		try {
+			realInstructionsRoot = await fs.realpath(path.join(crewRoot, "instructions"));
+		} catch (error) {
+			throw new CrewManifestReadError(
+				"instructions-directory-failed",
+				"failed to resolve the member instructions directory",
+				{ cause: error },
+			);
+		}
+		const rootRelative = path.relative(realCrewRoot, realInstructionsRoot);
+		if (
+			!rootRelative ||
+			rootRelative === ".." ||
+			rootRelative.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(rootRelative)
+		) {
+			throw new CrewManifestReadError(
+				"instructions-file-unsafe",
+				"crew instructions directory is outside the trusted crew directory",
+			);
+		}
+	}
+	let realAgreementsRoot: string | undefined;
+	if (hasAgreementFile) {
+		try {
+			realAgreementsRoot = await fs.realpath(path.join(crewRoot, "agreements"));
+		} catch (error) {
+			throw new CrewManifestReadError(
+				"agreements-directory-failed",
+				"failed to resolve the Current Crew Agreements directory",
+				{ cause: error },
+			);
+		}
+		const rootRelative = path.relative(realCrewRoot, realAgreementsRoot);
+		if (
+			!rootRelative ||
+			rootRelative === ".." ||
+			rootRelative.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(rootRelative)
+		) {
+			throw new CrewManifestReadError(
+				"crew-agreements-file-unsafe",
+				"Current Crew Agreements directory is outside the trusted crew directory",
+			);
+		}
 	}
 	let commonInstructions: string | undefined;
-	if (manifest.commonInstructionsFile !== undefined) {
+	if (hasCommonFile) {
 		commonInstructions = await loadInstructionFile(
-			path.resolve(crewRoot, manifest.commonInstructionsFile),
-			realInstructionsRoot,
+			path.resolve(crewRoot, manifest.commonInstructionsFile!),
+			realInstructionsRoot!,
 			"commonInstructionsFile",
+			undefined,
+			readInstructionFile,
+		);
+	}
+	let crewAgreements: string | undefined;
+	if (hasAgreementFile) {
+		crewAgreements = await loadInstructionFile(
+			path.resolve(crewRoot, manifest.crewAgreements!.file!),
+			realAgreementsRoot!,
+			"crewAgreements.file",
 			undefined,
 			readInstructionFile,
 		);
@@ -251,7 +310,7 @@ export async function readTrustedCrewManifest(
 		}
 		const instructions = await loadInstructionFile(
 			path.resolve(crewRoot, member.instructionsFile),
-			realInstructionsRoot,
+			realInstructionsRoot!,
 			"instructionsFile",
 			member.name,
 			readInstructionFile,
@@ -262,5 +321,6 @@ export async function readTrustedCrewManifest(
 		...manifest,
 		members,
 		...(commonInstructions === undefined ? {} : { commonInstructions, commonInstructionsFile: undefined }),
+		...(crewAgreements === undefined ? {} : { crewAgreements: { content: crewAgreements, file: undefined } }),
 	};
 }

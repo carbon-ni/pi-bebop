@@ -147,6 +147,89 @@ describe("trusted crew manifest store", { concurrency: false }, () => {
 		assert.equal(loaded.members[1].instructions, undefined);
 	});
 
+	test("loads one Current Crew Agreements snapshot without requiring Role instructions", async () => {
+		const crewDir = path.join(projectDir, ".pi", "bebop");
+		const agreementsDir = path.join(crewDir, "agreements");
+		await fs.mkdir(agreementsDir, { recursive: true });
+		const manifest = getDefaultCrewManifestPath(projectDir);
+		await fs.writeFile(path.join(agreementsDir, "current.md"), "AGREEMENT-SNAPSHOT\\n");
+		await fs.writeFile(
+			manifest,
+			JSON.stringify({
+				version: 2,
+				crewAgreements: { file: "agreements/current.md" },
+				members: [
+					{ name: "dev", role: "developer", socket: "sockets/dev.sock" },
+					{ name: "qa", role: "quality", socket: "sockets/qa.sock", instructions: "role" },
+				],
+			}),
+		);
+		const loaded = await readTrustedCrewManifest(manifest, projectDir, () => true);
+		assert.equal(loaded.crewAgreements?.content, "AGREEMENT-SNAPSHOT\\n");
+		assert.equal(loaded.crewAgreements?.file, undefined);
+		assert.equal(loaded.members[0]?.instructions, undefined);
+		assert.equal(loaded.members[1]?.instructions, "role");
+	});
+
+	test("Current Crew Agreements failures use a dedicated bounded error namespace", async () => {
+		const crewDir = path.join(projectDir, ".pi", "bebop");
+		const agreementsDir = path.join(crewDir, "agreements");
+		await fs.mkdir(agreementsDir, { recursive: true });
+		const manifest = getDefaultCrewManifestPath(projectDir);
+		const agreement = path.join(agreementsDir, "current.md");
+		const writeManifest = async () =>
+			fs.writeFile(
+				manifest,
+				JSON.stringify({
+					version: 2,
+					crewAgreements: { file: "agreements/current.md" },
+					members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+				}),
+			);
+		await writeManifest();
+		await fs.rm(agreement, { force: true });
+		await assert.rejects(
+			() => readTrustedCrewManifest(manifest, projectDir, () => true),
+			(error: unknown) =>
+				error instanceof CrewManifestReadError &&
+				error.code === "crew-agreements-file-missing" &&
+				error.message.includes("crewAgreements.file") &&
+				!error.message.includes(projectDir),
+		);
+		await fs.writeFile(agreement, "   \n");
+		await assert.rejects(
+			() => readTrustedCrewManifest(manifest, projectDir, () => true),
+			(error: unknown) => error instanceof CrewManifestReadError && error.code === "crew-agreements-file-empty",
+		);
+		await fs.writeFile(agreement, Buffer.from([0xc3]));
+		await assert.rejects(
+			() => readTrustedCrewManifest(manifest, projectDir, () => true),
+			(error: unknown) =>
+				error instanceof CrewManifestReadError && error.code === "crew-agreements-file-invalid-encoding",
+		);
+		await fs.writeFile(agreement, Buffer.alloc(MAX_CREW_INSTRUCTIONS_FILE_BYTES + 1, 97));
+		await assert.rejects(
+			() => readTrustedCrewManifest(manifest, projectDir, () => true),
+			(error: unknown) =>
+				error instanceof CrewManifestReadError && error.code === "crew-agreements-file-oversized",
+		);
+		await fs.rm(agreement);
+		await fs.symlink(path.join(projectDir, "outside-agreement.md"), agreement);
+		await fs.writeFile(path.join(projectDir, "outside-agreement.md"), "PRIVATE-AGREEMENT");
+		await assert.rejects(
+			() => readTrustedCrewManifest(manifest, projectDir, () => true),
+			(error: unknown) =>
+				error instanceof CrewManifestReadError &&
+				error.code === "crew-agreements-file-unsafe" &&
+				!error.message.includes("PRIVATE-AGREEMENT"),
+		);
+		await fs.rm(agreement, { force: true });
+		await fs.writeFile(
+			manifest,
+			JSON.stringify({ version: 1, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] }),
+		);
+	});
+
 	test("common file failures name commonInstructionsFile and fail closed", async () => {
 		const crewDir = path.join(projectDir, ".pi", "bebop");
 		const instructionsDir = path.join(crewDir, "instructions");

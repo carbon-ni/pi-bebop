@@ -160,6 +160,7 @@ export function validateTemplate(entries: TemplateEntries): TemplateValidationVe
 	const manifest = parsedManifest.manifest;
 	const references = [
 		...(manifest.commonInstructionsFile === undefined ? [] : [manifest.commonInstructionsFile]),
+		...(manifest.crewAgreements?.file === undefined ? [] : [manifest.crewAgreements.file]),
 		...manifest.members.flatMap((member) =>
 			member.instructionsFile === undefined ? [] : [member.instructionsFile],
 		),
@@ -233,6 +234,9 @@ export function adoptedBytesFromTemplate(files: TemplateFileSet, manifest: CrewM
 	if (manifest.commonInstructionsFile !== undefined && files[manifest.commonInstructionsFile] !== undefined) {
 		adopted[`${CREW_INIT_PROJECT_DIR}/${manifest.commonInstructionsFile}`] =
 			files[manifest.commonInstructionsFile]!;
+	}
+	if (manifest.crewAgreements?.file !== undefined && files[manifest.crewAgreements.file] !== undefined) {
+		adopted[`${CREW_INIT_PROJECT_DIR}/${manifest.crewAgreements.file}`] = files[manifest.crewAgreements.file]!;
 	}
 	for (const member of manifest.members) {
 		if (member.instructionsFile !== undefined && files[member.instructionsFile] !== undefined) {

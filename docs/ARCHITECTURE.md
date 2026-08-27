@@ -97,14 +97,21 @@ legacy `{ type, ... }` envelope; JSON-RPC does not add authentication.
   attempts endpoint release before server cleanup.
 - Common instructions are optional version 2 manifest configuration via one
   relative `commonInstructionsFile`; the trusted loader snapshots that file for
-  every member before claim. Role instructions support one source per member:
-  inline `instructions` or a relative `instructionsFile`. Common and role files
-  are independently loaded as strict UTF-8 snapshots (maximum 64 KiB), only
-  beneath the active layout's `instructions/` directory after real-path checks.
-  Blank, NUL, directory, unreadable, invalid, oversized, or escaping files
-  reject the join atomically. Files are not watched; leave/rejoin refreshes the
-  paired snapshot. `AGENTS.md` is project-wide guidance, `common.md` is shared
-  crew guidance, and role files define member responsibilities.
+  every member before claim. Current Crew Agreements are an independent
+  optional version 2 `crewAgreements.file` source beneath `agreements/`; its
+  exact bytes are loaded once and stored as `crewAgreements.content` for every
+  member, including members without Role instructions. Role instructions
+  support one source per member: inline `instructions` or a relative
+  `instructionsFile`. Common, agreement, and role files are independently
+  loaded as strict UTF-8 snapshots (maximum 64 KiB), only beneath their
+  respective active-layout directories after real-path checks. Blank, NUL,
+  directory, unreadable, invalid, oversized, or escaping files reject the join
+  atomically. Files are not watched; leave/rejoin refreshes the paired common,
+  agreement, and Role snapshots. Prompt sections are ordered Common Crew
+  instructions, Current Crew Agreements, then Role instructions; ordering does
+  not grant override or preference authority. `AGENTS.md` is project-wide
+  guidance, `common.md` is shared crew guidance, and agreement files define
+  Crew-evolved collaboration rules.
 
 Server status is `stopped`, `online`, or `joined`. A session publishes its
 socket and up to two aliases (session name and project/branch alias) under
