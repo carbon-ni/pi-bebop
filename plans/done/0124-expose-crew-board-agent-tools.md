@@ -1,7 +1,7 @@
 ---
 id: TASK-0124
 title: Expose shared Crew Board operations and agent tools
-status: doing
+status: done
 depends_on: [TASK-0123]
 priority: high
 tags: [crew, board, application, tools, membership, collaboration, tdd]
