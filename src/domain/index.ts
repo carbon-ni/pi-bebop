@@ -30,3 +30,4 @@ export * from "./inbox-hint.ts";
 export * from "./member-request.ts";
 export * from "./yielding-wait.ts";
 export * from "./coordination-evidence.ts";
+export * from "./member-report.ts";
