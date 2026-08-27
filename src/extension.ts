@@ -43,6 +43,9 @@ import {
 } from "./pi/control-runtime.ts";
 import { getSocketPath } from "./infra/intray-paths.ts";
 import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
+import { openTrustedCrewAgreementStore } from "./infra/crew-agreement-store.ts";
+import { openTrustedMemberInboxStore } from "./infra/member-inbox-store.ts";
+import { activateAgreementRevision } from "./application/crew-agreement-activation.ts";
 import { createMembershipRuntime } from "./infra/membership-runtime.ts";
 import {
 	appendMembershipContext,
@@ -65,6 +68,7 @@ import { YieldingWaitRegistry } from "./domain/index.ts";
 import { WAIT_RESUME_MESSAGE_TYPE } from "./pi/wait-resume.ts";
 import { YieldingWaitRuntime } from "./pi/wait-resume.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
+import { handleSessionStart } from "./pi/session-start.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
@@ -288,124 +292,29 @@ export default function (pi: ExtensionAPI) {
 			refreshPresence,
 			stopPresence,
 			inboxBridge,
+			activateAgreementRevision: async (revisionId, ctx) => {
+				const membership = state.membershipRuntime?.getMembership();
+				if (!membership) throw new Error("Crew is not joined");
+				const result = await activateAgreementRevision(membership, revisionId, {
+					isProjectTrusted: () => ctx.isProjectTrusted(),
+					openAgreementStore: openTrustedCrewAgreementStore,
+					openInboxStore: openTrustedMemberInboxStore,
+					now: () => Date.now(),
+				});
+				return { ...result.activation, notices: result.notices };
+			},
 		},
 		"crew",
 	);
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
-		const startupSocket =
-			typeof pi.getFlag(CREW_SOCKET_FLAG) === "string" && String(pi.getFlag(CREW_SOCKET_FLAG)).trim().length > 0;
-		const rawCrewRole = pi.getFlag(CREW_ROLE_FLAG);
-		const startupRole = typeof rawCrewRole === "string" && rawCrewRole.trim().length > 0;
-		if (rawCrewRole !== undefined && rawCrewRole !== false && (!startupRole || typeof rawCrewRole !== "string")) {
-			reconcileMembershipTools(pi, false);
-			ctx.hasUI
-				? ctx.ui.notify("Invalid --crew-role: role must be non-empty", "error")
-				: console.error("Invalid --crew-role: role must be non-empty");
-			return;
-		}
-		if (startupSocket && startupRole) {
-			reconcileMembershipTools(pi, false);
-			ctx.hasUI
-				? ctx.ui.notify("Choose exactly one of --crew-role or --crew-socket", "error")
-				: console.error("Choose exactly one of --crew-role or --crew-socket");
-			return;
-		}
-		let startupRoleSelection: StartupRoleSelection | undefined;
-		if (startupRole) {
-			try {
-				startupRoleSelection = await resolveStartupCrewRole(
-					String(rawCrewRole),
-					ctx.cwd,
-					ctx.isProjectTrusted(),
-				);
-			} catch (error) {
-				reconcileMembershipTools(pi, false);
-				const message = error instanceof Error ? error.message : "manifest read failed";
-				ctx.hasUI
-					? ctx.ui.notify(`Crew startup role join failed: ${message}`, "error")
-					: console.error(`Crew startup role join failed: ${message}`);
-				return;
-			}
-			if (startupRoleSelection && "code" in startupRoleSelection) {
-				reconcileMembershipTools(pi, false);
-				const message = `Crew startup role join failed: ${startupRoleSelectionError(startupRoleSelection)}`;
-				ctx.hasUI ? ctx.ui.notify(message, "error") : console.error(message);
-				return;
-			}
-		}
-		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
-		const persisted = getLatestMembershipState(branch);
-		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
-		if (crewRequested || startupSocket || startupRole || persisted?.active === true) {
-			await ensureControlServer(pi, state, ctx);
-		} else {
-			state.context = ctx;
-			state.socketPath = getSocketPath(ctx.sessionManager.getSessionId());
-			// New unjoined session: base server may be off; membership tools stay inactive.
-			reconcileMembershipTools(pi, false);
-		}
-		if (startupRole || startupSocket) {
-			const joined = startupRole
-				? await maybeHandleStartupRoleJoin(
-						ctx,
-						pi,
-						{ role: CREW_ROLE_FLAG },
-						state.membershipRuntime,
-						state.socketPath,
-						async () => startupRoleSelection!,
-					)
-				: await maybeHandleStartupSocketJoin(
-						ctx,
-						pi,
-						{ socket: CREW_SOCKET_FLAG },
-						state.membershipRuntime,
-						state.socketPath,
-					);
-			const membership = state.membershipRuntime.getMembership();
-			if (joined && membership) {
-				activateMembershipTool(pi);
-				refreshIntrayStatus(state);
-				await refreshPresence();
-				persistMembership(true, membership);
-				announceMembership(
-					`Crew joined ${membership.member.name} (${membership.member.role}) at ${membership.socketPath}`,
-				);
-				inboxBridge.establish(ownershipFromMembership(membership));
-				void inboxBridge.attemptOffer();
-				void recoverInterrupts();
-			} else {
-				// Startup socket selected but join failed: stay unjoined, tools inactive.
-				reconcileMembershipTools(pi, false);
-			}
-			return;
-		}
-		await restorePersistedMembership({
-			runtime: state.membershipRuntime,
-			persisted,
-			startupSocketSelected: false,
-			globalSocketPath: state.socketPath,
-			manifestPathForSocket: getCrewManifestPathFromSocketPath,
-			announce: async (message) => {
-				activateMembershipTool(pi);
-				refreshIntrayStatus(state);
-				await refreshPresence();
-				announceMembership(message);
-				const membership = state.membershipRuntime?.getMembership();
-				if (membership) {
-					inboxBridge.establish(ownershipFromMembership(membership));
-					void inboxBridge.attemptOffer();
-					void recoverInterrupts();
-				}
-			},
-			reportFailure: (message) => {
-				if (ctx.hasUI) ctx.ui.notify(`Crew membership restore failed: ${message}`, "error");
-				else console.error(`Crew membership restore failed: ${message}`);
-			},
+		await handleSessionStart(pi, state, ctx, {
+			inboxBridge,
+			recoverInterrupts,
+			refreshPresence,
+			persistMembership,
+			announceMembership,
 		});
-		// Inactive resume/fork state, restore failure, or server-only startup: ensure
-		// membership tools are not active for the model.
-		if (!state.membershipRuntime?.getMembership()) reconcileMembershipTools(pi, false);
 	});
 
 	pi.on("before_agent_start", async (event) => {

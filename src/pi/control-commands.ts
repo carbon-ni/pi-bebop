@@ -20,10 +20,19 @@ export type ControlCommandDeps = {
 	refreshStatus?: () => void;
 	refreshPresence?: () => void | Promise<void>;
 	stopPresence?: () => void | Promise<void>;
+	activateAgreementRevision?: (
+		revisionId: string,
+		ctx: ExtensionContext,
+	) => Promise<{
+		readonly revisionId: string;
+		readonly priorRevisionId: string;
+		readonly disposition: "activated" | "unchanged";
+		readonly notices: readonly { readonly member: string; readonly status: string; readonly message?: string }[];
+	}>;
 	inboxBridge?: InboxBridgeController | null;
 };
 
-const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop", "inbox"];
+const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop", "agreements", "inbox"];
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
 	if (ctx.hasUI) ctx.ui.notify(message, level);
@@ -36,6 +45,35 @@ function renderStatus(state: SocketState): string {
 		? `\nCrew: ${membership.manifestPath}\nMember: ${membership.member.name} (${membership.member.role})\nEndpoint: ${membership.socketPath}`
 		: "";
 	return `Crew ${status}${crew}`;
+}
+
+type AgreementActivationHandler = NonNullable<ControlCommandDeps["activateAgreementRevision"]>;
+
+async function handleAgreementActivation(
+	ctx: ExtensionContext,
+	parsed: { readonly target?: string },
+	activation: AgreementActivationHandler | undefined,
+): Promise<void> {
+	const target = parsed.target ?? "";
+	if (!activation || !target.startsWith("activate ")) {
+		notify(ctx, "Agreement activation is unavailable", "error");
+		return;
+	}
+	const revisionId = target.slice("activate ".length);
+	try {
+		const result = await activation(revisionId, ctx);
+		const failed = result.notices.filter((notice) => notice.status === "failed");
+		const disposition = result.disposition === "unchanged" ? "already active" : "activated";
+		const suffix =
+			failed.length === 0 ? "" : `; notices failed for ${failed.map((notice) => notice.member).join(", ")}`;
+		notify(
+			ctx,
+			`Agreement revision ${result.revisionId} ${disposition} (previous ${result.priorRevisionId})${suffix}`,
+			failed.length === 0 ? "info" : "warning",
+		);
+	} catch (error) {
+		notify(ctx, `Agreement activation failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+	}
 }
 
 export async function renderCrewRoster(
@@ -213,6 +251,9 @@ export function registerSessionControlCommand(
 					notify(ctx, "Bebop stopped");
 					return;
 				}
+				default:
+					await handleAgreementActivation(ctx, parsed, deps.activateAgreementRevision);
+					return;
 			}
 		},
 	});

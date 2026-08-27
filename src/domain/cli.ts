@@ -1,14 +1,16 @@
 export const CONTROL_FLAG = "intray";
 export const CONTROL_SHORT_FLAG = "in";
 
-export type SessionControlAction = "join" | "leave" | "members" | "status" | "stop" | "inbox";
+export type SessionControlAction = "join" | "leave" | "members" | "status" | "stop" | "inbox" | "agreements";
 
 export type ParsedSessionControlAction =
 	| { action: Exclude<SessionControlAction, "join" | "inbox"> }
 	| { action: "join"; target: string }
-	| { action: "inbox"; target: string };
+	| { action: "inbox"; target: string }
+	| { action: "agreements"; target: string };
 
-const SESSION_CONTROL_USAGE = "join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume";
+const SESSION_CONTROL_USAGE =
+	"join <socket>|leave|members|status|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume";
 const INBOX_USAGE = "status|cancel <id>|pause|resume";
 
 function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: string } {
@@ -50,39 +52,49 @@ function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: s
 	return { parts };
 }
 
-export function parseSessionControlAction(args: string): {
-	action?: SessionControlAction;
-	target?: string;
-	error?: string;
-} {
+type SessionControlParseResult = { action?: SessionControlAction; target?: string; error?: string };
+
+function parseJoin(parts: string[]): SessionControlParseResult {
+	if (parts.length === 1) return { error: "Missing target. Use /crew join <socket>." };
+	if (parts.length > 2) return { error: "Join accepts exactly one target." };
+	return { action: "join", target: parts[1] };
+}
+
+function parseAgreements(parts: string[]): SessionControlParseResult {
+	if (parts[1] !== "activate")
+		return { error: "Unknown agreements action. Use /crew agreements activate <revision-id>." };
+	if (parts.length < 3) return { error: "Missing revision id. Use /crew agreements activate <revision-id>." };
+	if (parts.length > 3) return { error: "Agreement activation accepts exactly one revision id." };
+	return { action: "agreements", target: `activate ${parts[2]}` };
+}
+
+function parseInbox(parts: string[]): SessionControlParseResult {
+	const sub = parts[1];
+	if (sub === "status" || sub === "pause" || sub === "resume") {
+		if (parts.length > 2) return { error: `Too many arguments. Use /crew inbox ${sub}.` };
+		return { action: "inbox", target: sub };
+	}
+	if (sub === "cancel") {
+		if (parts.length < 3) return { error: "Missing target. Use /crew inbox cancel <id>." };
+		if (parts.length > 3) return { error: "Too many arguments. Use /crew inbox cancel <id>." };
+		return { action: "inbox", target: `cancel ${parts[2]}` };
+	}
+	if (!sub) return { error: `Missing inbox action. Use /crew inbox ${INBOX_USAGE}.` };
+	return { error: `Unknown inbox action: ${sub}. Use /crew inbox ${INBOX_USAGE}.` };
+}
+
+export function parseSessionControlAction(args: string): SessionControlParseResult {
 	const tokenized = tokenizeSessionControlArgs(args);
 	if (tokenized.error) return tokenized;
 	const parts = tokenized.parts!;
 	if (parts.length === 0) return { action: "status" };
-
 	const action = parts[0];
-	if (action === "join") {
-		if (parts.length === 1) return { error: "Missing target. Use /crew join <socket>." };
-		if (parts.length > 2) return { error: "Join accepts exactly one target." };
-		return { action, target: parts[1] };
-	}
+	if (action === "join") return parseJoin(parts);
+	if (action === "agreements") return parseAgreements(parts);
+	if (action === "inbox") return parseInbox(parts);
 	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
 		if (parts.length > 1) return { error: `Too many arguments. Use /crew ${SESSION_CONTROL_USAGE}.` };
 		return { action };
-	}
-	if (action === "inbox") {
-		const sub = parts[1];
-		if (sub === "status" || sub === "pause" || sub === "resume") {
-			if (parts.length > 2) return { error: `Too many arguments. Use /crew inbox ${sub}.` };
-			return { action: "inbox", target: sub };
-		}
-		if (sub === "cancel") {
-			if (parts.length < 3) return { error: "Missing target. Use /crew inbox cancel <id>." };
-			if (parts.length > 3) return { error: "Too many arguments. Use /crew inbox cancel <id>." };
-			return { action: "inbox", target: `cancel ${parts[2]}` };
-		}
-		if (!sub) return { error: `Missing inbox action. Use /crew inbox ${INBOX_USAGE}.` };
-		return { error: `Unknown inbox action: ${sub}. Use /crew inbox ${INBOX_USAGE}.` };
 	}
 	return { error: `Unknown crew action: ${action}. Use /crew ${SESSION_CONTROL_USAGE}.` };
 }

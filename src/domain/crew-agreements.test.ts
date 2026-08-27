@@ -8,6 +8,8 @@ import {
 	isCurrentAgreementRevisionEligible,
 	canTransitionAgreementProposalStatus,
 	canTransitionAgreementRevisionStatus,
+	createAgreementActivationNotice,
+	renderActivatedAgreementContent,
 	type AgreementProposal,
 } from "./index.ts";
 
@@ -100,6 +102,72 @@ function proposalFixture(): AgreementProposal {
 		origin: { kind: "crew", name: "Dave", role: "dev" },
 	});
 }
+
+test("activation notices are bounded and exclude proposal or evidence content", () => {
+	const notice = createAgreementActivationNotice("revision-1", "genesis");
+	assert.match(notice.content, /revision-1/);
+	assert.match(notice.content, /genesis/);
+	assert.equal("instructions" in notice, false);
+	assert.equal("origin" in notice, false);
+	assert.throws(() => createAgreementActivationNotice("bad id/", "genesis"));
+});
+
+test("activation rendering applies add, amend, and remove markers deterministically", () => {
+	const add = createAgreementProposal({
+		id: "proposal-add",
+		intent: "add",
+		problem: "add",
+		evidence: [{ id: "evidence-add", provenance: "test" }],
+		proposedObservableBehavior: "name an owner",
+		origin: { kind: "crew", name: "Dave", role: "dev" },
+	});
+	const revision = createAgreementRevision({
+		id: "revision-render",
+		status: "candidate",
+		baseRevisionId: "genesis",
+		operations: [{ proposalId: add.id, intent: "add" }],
+		trialAgreement: { state: "none" },
+		origin: { kind: "crew", name: "Mary", role: "po" },
+	});
+	const added = renderActivatedAgreementContent("Existing\n", revision, [add]);
+	assert.equal(added, "Existing\n<!-- bebop-agreement:proposal-add -->\n- name an owner\n");
+
+	const amend = createAgreementProposal({
+		...add,
+		id: "proposal-amend",
+		intent: "amend",
+		targetAgreementId: "proposal-add",
+		proposedObservableBehavior: "use the owner field",
+	});
+	const amendedRevision = createAgreementRevision({
+		id: "revision-amend",
+		status: "candidate",
+		baseRevisionId: "genesis",
+		operations: [{ proposalId: amend.id, intent: "amend", targetAgreementId: "proposal-add" }],
+		trialAgreement: { state: "none" },
+		origin: { kind: "crew", name: "Mary", role: "po" },
+	});
+	const amended = renderActivatedAgreementContent(added, amendedRevision, [amend]);
+	assert.match(amended, /- use the owner field/);
+	assert.equal(amended.includes("proposal-amend"), false);
+
+	const remove = createAgreementProposal({
+		...add,
+		id: "proposal-remove",
+		intent: "remove",
+		targetAgreementId: "proposal-add",
+	});
+	const removedRevision = createAgreementRevision({
+		id: "revision-remove",
+		status: "candidate",
+		baseRevisionId: "genesis",
+		operations: [{ proposalId: remove.id, intent: "remove", targetAgreementId: "proposal-add" }],
+		trialAgreement: { state: "none" },
+		origin: { kind: "crew", name: "Mary", role: "po" },
+	});
+	assert.equal(renderActivatedAgreementContent(added, removedRevision, [remove]), "Existing\n");
+	assert.throws(() => renderActivatedAgreementContent("Existing\n", amendedRevision, [amend]), /not present/);
+});
 
 test("external attribution is valid provenance but never member-authorized", () => {
 	const proposal: AgreementProposal = {

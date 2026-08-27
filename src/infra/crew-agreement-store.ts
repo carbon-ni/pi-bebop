@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { createHash } from "node:crypto";
 import * as path from "node:path";
 import {
 	MAX_AGREEMENT_RECORD_ID_BYTES,
@@ -6,18 +7,23 @@ import {
 	isAgreementProposal,
 	isAgreementRevision,
 	isAgreementRecord,
+	isCurrentAgreementRevisionEligible,
 	type AgreementProposal,
 	type AgreementRecord,
 	type AgreementRevision,
 } from "../domain/index.ts";
 import { isTrustedCrewManifestPath } from "./crew-manifest-store.ts";
+import { activate, validateRevisionReferences, readRecord } from "./crew-agreement-activation-store.ts";
 
-const AGREEMENTS_DIR = "agreements";
+export const AGREEMENTS_DIR = "agreements";
 const HISTORY_DIR = "history";
 const PROPOSALS_DIR = "proposals";
 const REVISIONS_DIR = "revisions";
 const LOCK_FILE = ".lock";
+export const ACTIVATION_STATE_FILE = "activation.json";
+export const ACTIVATION_JOURNAL_FILE = ".activation-pending.json";
 const TEMP_PREFIX = ".tmp-";
+const ACTIVATION_STATE_VERSION = 1 as const;
 export const MAX_AGREEMENT_RECORD_FILE_BYTES = MAX_AGREEMENT_TEXT_BYTES * 4;
 export const MAX_AGREEMENT_RECORD_COUNT = 1024;
 
@@ -36,7 +42,9 @@ export type CrewAgreementStoreErrorCode =
 	| "idempotency-conflict"
 	| "lock-conflict"
 	| "read-failed"
-	| "write-failed";
+	| "write-failed"
+	| "activation-not-configured"
+	| "activation-conflict";
 
 export class CrewAgreementStoreError extends Error {
 	readonly code: CrewAgreementStoreErrorCode;
@@ -48,7 +56,7 @@ export class CrewAgreementStoreError extends Error {
 	}
 }
 
-type Deps = {
+export type Deps = {
 	mkdir: (directory: string) => Promise<void>;
 	readdir: (directory: string) => Promise<string[]>;
 	readFile: (filePath: string) => Promise<Buffer>;
@@ -122,21 +130,28 @@ export interface AgreementRecordSummary {
 	readonly origin: AgreementRecord["origin"];
 }
 
+export interface AgreementActivationResult {
+	readonly revisionId: string;
+	readonly priorRevisionId: string;
+	readonly disposition: "activated" | "unchanged";
+}
+
 export interface CrewAgreementStore {
 	putProposal(record: unknown): Promise<{ readonly record: AgreementProposal; readonly alreadyPersisted?: boolean }>;
 	putRevision(record: unknown): Promise<{ readonly record: AgreementRevision; readonly alreadyPersisted?: boolean }>;
+	activateRevision(revisionId: string): Promise<AgreementActivationResult>;
 	show(kind: AgreementRecord["kind"], id: string): Promise<AgreementRecord>;
 	list(kind?: AgreementRecord["kind"]): Promise<readonly AgreementRecordSummary[]>;
 }
 
-function isErrno(error: unknown, code: string): boolean {
+export function isErrno(error: unknown, code: string): boolean {
 	return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
-function isInside(parent: string, child: string): boolean {
+export function isInside(parent: string, child: string): boolean {
 	const relative = path.relative(parent, child);
 	return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
-function safeId(id: string): boolean {
+export function safeId(id: unknown): id is string {
 	return (
 		typeof id === "string" &&
 		id.trim() === id &&
@@ -145,10 +160,14 @@ function safeId(id: string): boolean {
 		/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)
 	);
 }
-function recordError(code: CrewAgreementStoreErrorCode, message: string, cause?: unknown): CrewAgreementStoreError {
+export function recordError(
+	code: CrewAgreementStoreErrorCode,
+	message: string,
+	cause?: unknown,
+): CrewAgreementStoreError {
 	return new CrewAgreementStoreError(code, message, cause === undefined ? undefined : { cause });
 }
-function stableJson(value: unknown): string {
+export function stableJson(value: unknown): string {
 	if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
 	if (typeof value === "object" && value !== null) {
 		return `{${Object.keys(value)
@@ -158,6 +177,128 @@ function stableJson(value: unknown): string {
 			.join(",")}}`;
 	}
 	return JSON.stringify(value);
+}
+
+export interface ActivationState {
+	readonly version: typeof ACTIVATION_STATE_VERSION;
+	readonly currentRevisionId: string;
+	readonly currentContentHash: string;
+}
+
+export interface ActivationJournal extends ActivationState {
+	readonly priorRevisionId: string;
+	readonly priorContentHash: string;
+	readonly nextContent: string;
+	readonly nextRevision: AgreementRevision;
+}
+
+export function contentHash(content: string): string {
+	return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+export function isHash(value: unknown): value is string {
+	return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+
+export function parseActivationState(value: unknown): ActivationState {
+	if (
+		typeof value !== "object" ||
+		value === null ||
+		Array.isArray(value) ||
+		Object.keys(value).some((key) => !["version", "currentRevisionId", "currentContentHash"].includes(key))
+	) {
+		throw recordError("corrupt-record", "Agreement activation state has an invalid schema");
+	}
+	const state = value as Record<string, unknown>;
+	if (
+		state.version !== ACTIVATION_STATE_VERSION ||
+		!safeId(state.currentRevisionId) ||
+		!isHash(state.currentContentHash)
+	)
+		throw recordError("corrupt-record", "Agreement activation state has invalid values");
+	return {
+		version: ACTIVATION_STATE_VERSION,
+		currentRevisionId: state.currentRevisionId,
+		currentContentHash: state.currentContentHash,
+	};
+}
+
+export function parseActivationJournal(value: unknown): ActivationJournal {
+	if (
+		typeof value !== "object" ||
+		value === null ||
+		Array.isArray(value) ||
+		Object.keys(value).some(
+			(key) =>
+				![
+					"version",
+					"currentRevisionId",
+					"currentContentHash",
+					"priorRevisionId",
+					"priorContentHash",
+					"nextContent",
+					"nextRevision",
+				].includes(key),
+		)
+	) {
+		throw recordError("corrupt-record", "Agreement activation journal has an invalid schema");
+	}
+	const journal = value as Record<string, unknown>;
+	if (
+		journal.version !== ACTIVATION_STATE_VERSION ||
+		!safeId(journal.currentRevisionId) ||
+		!safeId(journal.priorRevisionId) ||
+		!isHash(journal.currentContentHash) ||
+		!isHash(journal.priorContentHash) ||
+		typeof journal.nextContent !== "string" ||
+		Buffer.byteLength(journal.nextContent, "utf8") > MAX_AGREEMENT_TEXT_BYTES ||
+		!isAgreementRevision(journal.nextRevision) ||
+		journal.nextRevision.status !== "activated" ||
+		journal.nextRevision.id !== journal.currentRevisionId
+	) {
+		throw recordError("corrupt-record", "Agreement activation journal has invalid values");
+	}
+	return {
+		version: ACTIVATION_STATE_VERSION,
+		currentRevisionId: journal.currentRevisionId,
+		currentContentHash: journal.currentContentHash,
+		priorRevisionId: journal.priorRevisionId,
+		priorContentHash: journal.priorContentHash,
+		nextContent: journal.nextContent,
+		nextRevision: journal.nextRevision,
+	};
+}
+
+export async function readOptionalJson(filePath: string, deps: Deps): Promise<unknown | undefined> {
+	try {
+		if ((await deps.lstat(filePath)).isSymbolicLink())
+			throw recordError("corrupt-record", "Agreement activation metadata must not be a symbolic link");
+		const stat = await deps.stat(filePath);
+		if (!stat.isFile()) throw recordError("corrupt-record", "Agreement activation metadata is not a regular file");
+		if (stat.size > MAX_AGREEMENT_RECORD_FILE_BYTES)
+			throw recordError("record-oversized", "Agreement activation metadata is oversized");
+		const bytes = await deps.readFile(filePath);
+		return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+	} catch (error) {
+		if (isErrno(error, "ENOENT")) return undefined;
+		if (error instanceof CrewAgreementStoreError) throw error;
+		throw recordError("corrupt-record", "Agreement activation metadata is not valid UTF-8 JSON", error);
+	}
+}
+
+export async function atomicWrite(filePath: string, data: string, deps: Deps): Promise<void> {
+	const temporary = `${filePath}${TEMP_PREFIX}${process.pid}-${Date.now()}`;
+	try {
+		await deps.writeFile(temporary, data);
+		await deps.rename(temporary, filePath);
+	} catch (error) {
+		try {
+			await deps.unlink(temporary);
+		} catch {
+			// Best-effort cleanup. The atomic target was not published.
+		}
+		throw error;
+	}
 }
 
 async function withLock<T>(lockPath: string, deps: Deps, operation: () => Promise<T>): Promise<T> {
@@ -192,7 +333,11 @@ async function validateStorage(layout: string, deps: Deps): Promise<string> {
 	return realHistory;
 }
 
-async function validateRecordDirectory(history: string, kind: AgreementRecord["kind"], deps: Deps): Promise<string> {
+export async function validateRecordDirectory(
+	history: string,
+	kind: AgreementRecord["kind"],
+	deps: Deps,
+): Promise<string> {
 	const directory = path.join(history, kind === "proposal" ? PROPOSALS_DIR : REVISIONS_DIR);
 	await deps.mkdir(directory);
 	const realDirectory = await deps.realpath(directory);
@@ -201,70 +346,14 @@ async function validateRecordDirectory(history: string, kind: AgreementRecord["k
 	return realDirectory;
 }
 
-async function readRecord(filePath: string, deps: Deps): Promise<AgreementRecord> {
-	try {
-		if ((await deps.lstat(filePath)).isSymbolicLink())
-			throw recordError("corrupt-record", "Agreement record must not be a symbolic link");
-	} catch (error) {
-		if (error instanceof CrewAgreementStoreError) throw error;
-		if (!isErrno(error, "ENOENT")) throw recordError("read-failed", "failed to inspect Agreement record", error);
-	}
-	let stat;
-	try {
-		stat = await deps.stat(filePath);
-	} catch (error) {
-		if (isErrno(error, "ENOENT")) throw recordError("record-not-found", "Agreement record was not found");
-		throw recordError("read-failed", "failed to inspect Agreement record", error);
-	}
-	if (!stat.isFile()) throw recordError("corrupt-record", "Agreement record is not a regular file");
-	if (stat.size > MAX_AGREEMENT_RECORD_FILE_BYTES)
-		throw recordError("record-oversized", "Agreement record is oversized");
-	let bytes: Buffer;
-	try {
-		bytes = await deps.readFile(filePath);
-	} catch (error) {
-		throw recordError("read-failed", "failed to read Agreement record", error);
-	}
-	if (bytes.byteLength > MAX_AGREEMENT_RECORD_FILE_BYTES)
-		throw recordError("record-oversized", "Agreement record is oversized");
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-	} catch (error) {
-		throw recordError("corrupt-record", "Agreement record is not valid UTF-8 JSON", error);
-	}
-	if (!isAgreementRecord(parsed)) throw recordError("corrupt-record", "Agreement record failed schema validation");
-	return parsed;
-}
-
-async function validateRevisionReferences(revision: AgreementRevision, history: string, deps: Deps): Promise<void> {
-	for (const operation of revision.operations) {
-		try {
-			const proposalDirectory = await validateRecordDirectory(history, "proposal", deps);
-			const proposal = await readRecord(path.join(proposalDirectory, `${operation.proposalId}.json`), deps);
-			if (
-				proposal.kind !== "proposal" ||
-				proposal.status !== "proposed" ||
-				proposal.intent !== operation.intent ||
-				proposal.targetAgreementId !== operation.targetAgreementId
-			)
-				throw recordError(
-					"invalid-reference",
-					`Agreement operation references an incompatible proposal: ${operation.proposalId}`,
-				);
-		} catch (error) {
-			if (error instanceof CrewAgreementStoreError && error.code === "record-not-found")
-				throw recordError(
-					"invalid-reference",
-					`Agreement operation references a missing proposal: ${operation.proposalId}`,
-				);
-			throw error;
-		}
-	}
-}
-
 async function validateRevisionBase(revision: AgreementRevision, history: string, deps: Deps): Promise<void> {
 	if (revision.baseRevisionId === "genesis") return;
+	const activationState = await readOptionalJson(path.join(history, ACTIVATION_STATE_FILE), deps);
+	if (
+		activationState !== undefined &&
+		parseActivationState(activationState).currentRevisionId === revision.baseRevisionId
+	)
+		return;
 	try {
 		const revisionDirectory = await validateRecordDirectory(history, "revision", deps);
 		const base = await readRecord(path.join(revisionDirectory, `${revision.baseRevisionId}.json`), deps);
@@ -344,6 +433,8 @@ export async function openTrustedCrewAgreementStore(options: {
 			put(record, "proposal") as Promise<{ record: AgreementProposal; alreadyPersisted?: boolean }>,
 		putRevision: (record) =>
 			put(record, "revision") as Promise<{ record: AgreementRevision; alreadyPersisted?: boolean }>,
+		activateRevision: (revisionId) =>
+			withLock(lockPath, deps, () => activate(revisionId, history, manifestPath, deps)),
 		show: async (kind, id) => {
 			if (kind !== "proposal" && kind !== "revision")
 				throw recordError("path-unsafe", "Agreement record kind is not supported");
@@ -357,6 +448,11 @@ export async function openTrustedCrewAgreementStore(options: {
 		list: async (kind) => {
 			const kinds = kind === undefined ? (["proposal", "revision"] as const) : ([kind] as const);
 			const summaries: AgreementRecordSummary[] = [];
+			const activationStateRaw = await readOptionalJson(path.join(history, ACTIVATION_STATE_FILE), deps);
+			const activatedRevisionId =
+				activationStateRaw === undefined
+					? undefined
+					: parseActivationState(activationStateRaw).currentRevisionId;
 			for (const currentKind of kinds) {
 				const directory = await validateRecordDirectory(history, currentKind, deps);
 				let names: string[];
@@ -373,7 +469,9 @@ export async function openTrustedCrewAgreementStore(options: {
 					const record = await readRecord(path.join(directory, name), deps);
 					if (record.kind !== currentKind)
 						throw recordError("corrupt-record", "Agreement record kind does not match its history");
-					summaries.push({ kind: record.kind, id: record.id, status: record.status, origin: record.origin });
+					const status =
+						record.kind === "revision" && record.id === activatedRevisionId ? "activated" : record.status;
+					summaries.push({ kind: record.kind, id: record.id, status, origin: record.origin });
 				}
 			}
 			return summaries.sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`));

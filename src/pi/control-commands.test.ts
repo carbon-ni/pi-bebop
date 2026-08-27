@@ -51,12 +51,35 @@ test("crew command completions expose only the consolidated command surface", as
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
 		({ value }) => value,
 	);
-	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "inbox"]);
+	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "agreements", "inbox"]);
 	assert.match((setupState.getCommand() as any).description, /crew members/i);
 	await setupState.getCommand().handler("list", setupState.ctx);
 	assert.deepEqual(setupState.notifications, [
-		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
+		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume.",
 	]);
+});
+
+test("/crew agreements activate invokes the trusted operation and reports deterministic status", async () => {
+	const setupState = setup();
+	const calls: string[] = [];
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			activateAgreementRevision: async (revisionId) => {
+				calls.push(revisionId);
+				return {
+					revisionId,
+					priorRevisionId: "genesis",
+					disposition: "activated",
+					notices: [{ member: "Mary", status: "persisted" }],
+				};
+			},
+		}),
+	);
+	await setupState.getCommand().handler("agreements activate revision-1", setupState.ctx);
+	assert.deepEqual(calls, ["revision-1"]);
+	assert.deepEqual(setupState.notifications, ["Agreement revision revision-1 activated (previous genesis)"]);
 });
 
 test("/crew join and leave use membership runtime without stopping base server", async () => {
