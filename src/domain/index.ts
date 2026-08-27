@@ -34,3 +34,4 @@ export * from "./member-report.ts";
 export * from "./retrospective-record.ts";
 export * from "./crew-retrospective.ts";
 export * from "./crew-retrospective-cadence.ts";
+export * from "./crew-board.ts";
