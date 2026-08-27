@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	ALLOWED_CYCLES,
 	COMPLEXITY_LIMIT,
@@ -413,4 +417,113 @@ test("constants expose the documented policy", () => {
 	assert.ok(!LAYER_RULES.cli.includes("pi"));
 	assert.ok(!LAYER_RULES.cli.includes("tools"));
 	assert.deepEqual(ALLOWED_CYCLES, [["cli", "cli/commands"]]);
+});
+
+// ---------------------------------------------------------------------------
+// Executable gate fixtures (Kelly's acceptance criterion): run the real
+// scripts/arch-check.mjs CLI against generated fixture trees and assert
+// deterministic diagnostics. Each sabotage case is independent: exactly one
+// FAIL line, byte-exact.
+// ---------------------------------------------------------------------------
+
+const here = dirname(fileURLToPath(import.meta.url));
+const runGate = (root) =>
+	spawnSync(process.execPath, [join(here, "arch-check.mjs"), "--root", root], { encoding: "utf8" });
+const failLines = (stdout) => stdout.split("\n").filter((line) => line.startsWith("FAIL"));
+
+/** Fixture tree: one ratcheted cc offender, one ratcheted file-size offender, clean layering. */
+async function fixtureTree() {
+	const root = await mkdtemp(join("/tmp", "bebop-arch-fixture-"));
+	await mkdir(join(root, "src/domain"), { recursive: true });
+	await mkdir(join(root, "src/infra"), { recursive: true });
+	await writeFile(
+		join(root, "src/domain/complex.ts"),
+		[
+			"export function offender(a: boolean) {",
+			"\tlet r = 0;",
+			...Array.from({ length: 8 }, (_, i) => `\tif (a && a === ${i}) r++;`),
+			"\treturn r;",
+			"}",
+		].join("\n"),
+	);
+	await writeFile(join(root, "src/domain/pure.ts"), "export const x = 1;\n");
+	await writeFile(join(root, "src/domain/big.ts"), "\n".repeat(501));
+	await writeFile(join(root, "src/infra/base.ts"), "export const y = 1;\n");
+	const baseline = {
+		version: 1,
+		entries: [
+			{ check: "complexity", file: "src/domain/complex.ts", function: "offender", value: 17 },
+			{ check: "file-size", file: "src/domain/big.ts", value: 501 },
+		],
+	};
+	await writeFile(join(root, "arch-baseline.json"), `${JSON.stringify(baseline, null, "\t")}\n`);
+	return root;
+}
+
+test("gate fixture: ratcheted baseline passes (executable proof)", async () => {
+	const root = await fixtureTree();
+	try {
+		const result = runGate(root);
+		assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+		assert.match(result.stdout, /arch-check: no violations/);
+		assert.deepEqual(failLines(result.stdout), []);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("gate fixture: new complexity offender independently fails with exact diagnostics", async () => {
+	const root = await fixtureTree();
+	try {
+		await writeFile(
+			join(root, "src/domain/sabotage-complexity.ts"),
+			[
+				"export function sabotage(a: boolean) {",
+				"\tlet r = 0;",
+				...Array.from({ length: 8 }, (_, i) => `\tif (a && a === ${i}) r++;`),
+				"\treturn r;",
+				"}",
+			].join("\n"),
+		);
+		const result = runGate(root);
+		assert.equal(result.status, 1);
+		assert.deepEqual(failLines(result.stdout), [
+			"FAIL complexity src/domain/sabotage-complexity.ts:1 sabotage=17 (limit 15)",
+		]);
+		assert.match(result.stdout, /arch-check: 1 violation\(s\)/);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("gate fixture: illegal cross-layer import independently fails with exact diagnostics", async () => {
+	const root = await fixtureTree();
+	try {
+		await writeFile(
+			join(root, "src/domain/sabotage-layer.ts"),
+			'import { y } from "../infra/base.ts";\nexport const sabotage = y;\n',
+		);
+		const result = runGate(root);
+		assert.equal(result.status, 1);
+		assert.deepEqual(failLines(result.stdout), [
+			"FAIL layer src/domain/sabotage-layer.ts:1 domain -> infra (../infra/base.ts)",
+		]);
+		assert.match(result.stdout, /arch-check: 1 violation\(s\)/);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("gate fixture: removing a baseline entry re-fails its offender (ratchet is load-bearing)", async () => {
+	const root = await fixtureTree();
+	try {
+		const baseline = JSON.parse(await readFile(join(root, "arch-baseline.json"), "utf8"));
+		baseline.entries = baseline.entries.filter((entry) => entry.check !== "file-size");
+		await writeFile(join(root, "arch-baseline.json"), `${JSON.stringify(baseline, null, "\t")}\n`);
+		const result = runGate(root);
+		assert.equal(result.status, 1);
+		assert.deepEqual(failLines(result.stdout), ["FAIL file-size src/domain/big.ts =501 (limit 500)"]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });

@@ -2,9 +2,14 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { analyze, applyRatchet, updateBaseline } from "./arch-analysis.mjs";
 
-const root = process.cwd();
-const baselinePath = path.join(root, "arch-baseline.json");
-const update = process.argv.includes("--update-baseline");
+const args = process.argv.slice(2);
+const update = args.includes("--update-baseline");
+const flagValue = (name, fallback) => {
+	const index = args.indexOf(name);
+	return index !== -1 && args[index + 1] ? args[index + 1] : fallback;
+};
+const root = path.resolve(flagValue("--root", process.cwd()));
+const baselinePath = path.resolve(flagValue("--baseline", path.join(root, "arch-baseline.json")));
 
 async function sourceFiles(dir) {
 	const files = [];
