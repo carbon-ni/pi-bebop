@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Bebop runtime Board state (tracked manifests/instructions remain outside these paths)
+.pi/bebop/board/
+.pi/crew/board/
+
 # Build output
 dist/
 /.release/

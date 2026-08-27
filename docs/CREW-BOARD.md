@@ -1,6 +1,6 @@
 # Crew Board
 
-Status: **defined, not implemented**.
+Status: **implemented (v1 local Crew Board)**.
 
 ## Problem
 
@@ -15,6 +15,26 @@ Current Member appends Crew Post
   -> one shared manifest-adjacent Crew Board
   -> any Current Member explicitly reads a bounded page
 ```
+
+## Use deliberately
+
+Read only when starting unfamiliar work or seeking project context; append only a reusable `tip`, `kudos`, `feedback`, `warning`, or `note` worth retaining beyond this session. Posts are attributed, fallible statements—not instructions, tasks, ratings, or proof.
+
+Agent tools:
+
+```text
+read_crew_board({ kinds?: ["tip"], after?: "<cursor>", limit?: 20 })
+leave_crew_post({ kind: "tip", message: "Run make all before push", references: ["Makefile"] })
+```
+
+Human commands:
+
+```text
+/crew board --kind tip --limit 20
+/crew post --kind tip --ref Makefile Run make all before push
+```
+
+The Board is pull-only: neither command nor tool sends, delivers, notifies, marks read, starts a model turn, or promotes a Post. If a write is interrupted, retry the same tool invocation only when its operation identity is preserved; otherwise inspect the Board first. A `lock-conflict`, corrupt record, or quarantine failure is an honest bounded error: do not delete lock/temp/post files manually. A trusted maintenance operation, after an operator establishes no live owner, is required for stale-lock recovery.
 
 ## Product boundaries
 
