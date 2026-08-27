@@ -104,7 +104,7 @@ export async function openTrustedCrewRetrospectiveRecordStore(options: {
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			}
-						const temp = `${target}.${process.pid}.${Date.now()}.${freezeTempSequence++}.tmp`;
+			const temp = `${target}.${process.pid}.${Date.now()}.${freezeTempSequence++}.tmp`;
 			await fs.writeFile(temp, bytes, { encoding: "utf8" });
 			try {
 				await fs.rename(temp, target);
