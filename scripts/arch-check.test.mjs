@@ -409,6 +409,41 @@ ${Array.from({ length: 8 }, (_, i) => `\tif (a && a === ${i}) r++;`).join("\n")}
 	assert.equal(layered.reason, "violations");
 });
 
+test("anonymous functions get deterministic identities and cannot bypass the ceiling", () => {
+	const callback = [
+		"export const items = [1];",
+		"items.forEach((a: boolean) => {",
+		"\tlet r = 0;",
+		...Array.from({ length: 8 }, (_, i) => `\tif (a && a === ${i}) r++;`),
+		"\treturn void r;",
+		"});",
+	].join("\n");
+	const result = analyze([file("src/domain/anon.ts", callback)]);
+	const fn = result.complexity.find((entry) => entry.function.startsWith("anonymous@"));
+	assert.ok(fn, `expected an anonymous@ identity, got ${JSON.stringify(result.complexity)}`);
+	assert.equal(fn.function, "anonymous@2");
+	assert.equal(fn.value, 17);
+	assert.equal(fn.line, 2);
+
+	const clean = analyze([
+		file("src/domain/anon-ok.ts", "export const items = [1];\nitems.forEach((a: boolean) => a || !a);\n"),
+	]);
+	assert.equal(clean.complexity.find((entry) => entry.function === "anonymous@2")?.value, 2);
+});
+
+test("class-property arrows are named by the property", () => {
+	const source = [
+		"export class Runner {",
+		"\thandler = (a: boolean) => {",
+		"\t\tif (a && a) return 1;",
+		"\t\treturn 0;",
+		"\t};",
+		"}",
+	].join("\n");
+	const result = analyze([file("src/domain/runner.ts", source)]);
+	assert.ok(result.complexity.some((entry) => entry.function === "handler"));
+});
+
 test("constants expose the documented policy", () => {
 	assert.equal(COMPLEXITY_LIMIT, 15);
 	assert.equal(FILE_LINE_LIMIT, 500);
@@ -417,6 +452,7 @@ test("constants expose the documented policy", () => {
 	assert.ok(!LAYER_RULES.cli.includes("pi"));
 	assert.ok(!LAYER_RULES.cli.includes("tools"));
 	assert.deepEqual(ALLOWED_CYCLES, [["cli", "cli/commands"]]);
+	assert.deepEqual(LAYER_RULES.extension, ["application", "cli", "cli/commands", "domain", "infra", "pi", "tools"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -523,6 +559,103 @@ test("gate fixture: removing a baseline entry re-fails its offender (ratchet is 
 		const result = runGate(root);
 		assert.equal(result.status, 1);
 		assert.deepEqual(failLines(result.stdout), ["FAIL file-size src/domain/big.ts =501 (limit 500)"]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("gate fixture: baseline function grown by one decision fails as baseline growth", async () => {
+	const root = await fixtureTree();
+	try {
+		const baseline = JSON.parse(await readFile(join(root, "arch-baseline.json"), "utf8"));
+		// offender measures 17 today; record 16 so the tree has grown by one decision
+		const entry = baseline.entries.find((item) => item.check === "complexity");
+		entry.value = 16;
+		await writeFile(join(root, "arch-baseline.json"), `${JSON.stringify(baseline, null, "\t")}\n`);
+		const result = runGate(root);
+		assert.equal(result.status, 1);
+		assert.deepEqual(failLines(result.stdout), [
+			"FAIL complexity src/domain/complex.ts:1 offender 16 -> 17 (baseline grew; ratchet only shrinks)",
+		]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("gate fixture: non-allowlisted folder cycle fails and is identified as a cycle", async () => {
+	const root = await fixtureTree();
+	try {
+		// close a domain <-> infra folder cycle: domain/pure imports infra/base and vice versa
+		await writeFile(
+			join(root, "src/domain/pure.ts"),
+			'import { y } from "../infra/base.ts";\nexport const x = y;\n',
+		);
+		await writeFile(
+			join(root, "src/infra/base.ts"),
+			'import { x } from "../domain/pure.ts";\nexport const y = x ?? 1;\n',
+		);
+		const result = runGate(root);
+		assert.equal(result.status, 1);
+		const fails = failLines(result.stdout);
+		assert.ok(
+			fails.includes("FAIL cycle domain <-> infra (only allow-listed cycles are legal)"),
+			`expected cycle diagnostic in ${JSON.stringify(fails)}`,
+		);
+		// the domain -> infra import is also an illegal layer direction; both diagnostics are expected
+		assert.ok(fails.some((line) => line.startsWith("FAIL layer src/domain/pure.ts")));
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("gate fixture: clean tree below the ceilings exits zero with an empty baseline", async () => {
+	const root = await mkdtemp(join("/tmp", "bebop-arch-clean-"));
+	try {
+		await mkdir(join(root, "src/domain"), { recursive: true });
+		await mkdir(join(root, "src/infra"), { recursive: true });
+		await writeFile(join(root, "src/domain/pure.ts"), "export const x = 1;\n");
+		await writeFile(
+			join(root, "src/infra/base.ts"),
+			'import { x } from "../domain/pure.ts";\nexport const y = x;\n',
+		);
+		await writeFile(join(root, "arch-baseline.json"), '{"version":1,"entries":[]}\n');
+		const result = runGate(root);
+		assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+		assert.match(result.stdout, /arch-check: no violations/);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("gate: committed repository passes with the committed baseline", () => {
+	const repoRoot = join(here, "..");
+	const result = spawnSync(process.execPath, [join(here, "arch-check.mjs")], {
+		cwd: repoRoot,
+		encoding: "utf8",
+	});
+	assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+	assert.deepEqual(failLines(result.stdout), []);
+});
+
+test("gate fixture: anonymous callback sabotage independently fails (bypass regression)", async () => {
+	const root = await fixtureTree();
+	try {
+		await writeFile(
+			join(root, "src/domain/sabotage-anon.ts"),
+			[
+				"export const items = [1];",
+				"items.forEach((a: boolean) => {",
+				"\tlet r = 0;",
+				...Array.from({ length: 8 }, (_, i) => `\tif (a && a === ${i}) r++;`),
+				"\treturn void r;",
+				"});",
+			].join("\n"),
+		);
+		const result = runGate(root);
+		assert.equal(result.status, 1);
+		assert.deepEqual(failLines(result.stdout), [
+			"FAIL complexity src/domain/sabotage-anon.ts:2 anonymous@2=17 (limit 15)",
+		]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

@@ -117,6 +117,12 @@
 		},
 		{
 			"check": "complexity",
+			"file": "src/extension.ts",
+			"function": "anonymous@295",
+			"value": 30
+		},
+		{
+			"check": "complexity",
 			"file": "src/infra/crew-manifest-store.ts",
 			"function": "readTrustedCrewManifest",
 			"value": 34
@@ -125,6 +131,12 @@
 			"check": "file-size",
 			"file": "src/infra/rpc-client.ts",
 			"value": 504
+		},
+		{
+			"check": "complexity",
+			"file": "src/infra/rpc-client.ts",
+			"function": "anonymous@135",
+			"value": 26
 		},
 		{
 			"check": "complexity",

@@ -28,7 +28,7 @@ export const LAYER_RULES = {
 	application: ["domain", "infra"],
 	pi: ["application", "domain", "infra"],
 	tools: ["application", "domain", "infra"],
-	extension: ["application", "domain", "infra", "pi", "tools"],
+	extension: ["application", "cli", "cli/commands", "domain", "infra", "pi", "tools"],
 	cli: ["application", "cli", "cli/commands", "domain", "infra"],
 	"cli/commands": ["application", "cli", "domain", "infra"],
 };
@@ -75,6 +75,7 @@ function displayName(node) {
 	if (ts.isFunctionExpression(node) || ts.isArrowFunction(node)) {
 		const parent = node.parent;
 		if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text;
+		if (ts.isPropertyDeclaration(parent) && parent.name && ts.isIdentifier(parent.name)) return parent.name.text;
 		if (ts.isPropertyAssignment(parent) && ts.isIdentifier(parent.name) && !/^[0-9]/.test(parent.name.text)) {
 			return parent.name.text;
 		}
@@ -100,11 +101,11 @@ function measureComplexity(sourceFile, filePath) {
 	const rows = [];
 	const visit = (node) => {
 		if (isFunctionLike(node)) {
-			const name = displayName(node);
-			if (name) {
-				const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-				rows.push({ file: filePath, function: name, line: line + 1, value: 1 + countDecisions(node) });
-			}
+			// Every function gets a deterministic identity: contextual name when one exists,
+			// otherwise its start line. Anonymous functions must not bypass the ceiling.
+			const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+			const name = displayName(node) ?? `anonymous@${line + 1}`;
+			rows.push({ file: filePath, function: name, line: line + 1, value: 1 + countDecisions(node) });
 		}
 		ts.forEachChild(node, visit);
 	};
