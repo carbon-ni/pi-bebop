@@ -51,12 +51,71 @@ test("crew command completions expose only the consolidated command surface", as
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
 		({ value }) => value,
 	);
-	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "agreements", "inbox"]);
+	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "board", "post", "agreements", "inbox"]);
 	assert.match((setupState.getCommand() as any).description, /crew members/i);
+	assert.match((setupState.getCommand() as any).description, /\/crew board/);
+	assert.match((setupState.getCommand() as any).description, /\/crew post/);
 	await setupState.getCommand().handler("list", setupState.ctx);
 	assert.deepEqual(setupState.notifications, [
-		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume.",
+		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop|board [options]|post [options] <message>|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume.",
 	]);
+});
+
+test("/crew board and post delegate to shared operations with TUI-only output", async () => {
+	const setupState = setup();
+	const manifestPath = "/project/.pi/bebop/crew.json";
+	const manifest = parseCrewManifest(
+		{ version: 1, members: [{ name: "Mary", role: "po", socket: "sockets/mary.sock" }] },
+		manifestPath,
+	);
+	const membership = {
+		manifestPath,
+		socketPath: manifest.members[0]!.socketPath,
+		globalSocketPath: "/tmp/global.sock",
+		member: manifest.members[0]!,
+		manifest,
+	} as never;
+	setupState.state.membershipRuntime = { getMembership: () => membership } as never;
+	const appended: unknown[] = [];
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewBoard: {
+				isProjectTrusted: () => true,
+				getCurrentMembership: () => membership,
+				openStore: async () => ({
+					append: async (input: unknown) => {
+						appended.push(input);
+						return {
+							version: 1 as const,
+							post: { id: "post-1", sequence: 1, createdAt: 1 },
+							alreadyPersisted: false,
+						};
+					},
+					read: async () => ({
+						version: 1 as const,
+						posts: [],
+						nextCursor: null,
+						hasMore: false,
+						corruptCount: 0,
+						quarantinedThisRead: 0,
+						corruptCountTruncated: false,
+					}),
+				}),
+			},
+			crewBoardOperationId: () => "human-op",
+			crewBoardNow: () => 1,
+		}),
+	);
+	await setupState.getCommand().handler("post --kind tip --ref TASK-1 hello world", setupState.ctx);
+	assert.deepEqual((appended[0] as any).author, { name: "Mary", role: "po" });
+	assert.equal((appended[0] as any).kind, "tip");
+	assert.deepEqual((appended[0] as any).references, ["TASK-1"]);
+	assert.equal(setupState.messages.length, 0);
+	await setupState.getCommand().handler("board --limit 1", setupState.ctx);
+	assert.equal(setupState.entries.at(-1)!.customType, "crew-board");
+	assert.equal(setupState.messages.length, 0);
 });
 
 test("/crew agreements activate invokes the trusted operation and reports deterministic status", async () => {

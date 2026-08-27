@@ -131,6 +131,10 @@ export const renderCrewStatusEntry: EntryRenderer = (entry, _options, theme) =>
 export const renderCrewInboxEntry: EntryRenderer = (entry, _options, theme) =>
 	markdownEntry(contentOfEntry(entry), theme);
 
+/** TUI-only Crew Board entry: durable, never part of LLM context. */
+export const renderCrewBoardEntry: EntryRenderer = (entry, _options, theme) =>
+	markdownEntry(contentOfEntry(entry), theme);
+
 export const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => {
 	const { text, senderText } = getMessageDisplayModel(message, expanded);
 

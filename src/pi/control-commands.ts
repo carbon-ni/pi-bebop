@@ -1,5 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { formatCrewRoster, parseSessionControlAction, type SessionControlAction } from "../domain/index.ts";
+import {
+	formatCrewRoster,
+	parseSessionControlAction,
+	parseCrewBoardCommand,
+	type SessionControlAction,
+} from "../domain/index.ts";
 import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
 import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import type { MembershipRuntime, Membership } from "../infra/membership-runtime.ts";
@@ -7,6 +12,8 @@ import { deriveIntrayStatus, ensureControlServer, type SocketState } from "./con
 import { releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
 import { formatInboxStatus, type InboxBridgeController } from "../application/inbox-bridge.ts";
 import { ownershipFromMembership } from "./inbox-bridge-runtime.ts";
+import { leaveCrewPost, readCrewBoard, type CrewBoardStoreDependencies } from "../application/crew-board.ts";
+import type { BoardReadResult } from "../domain/index.ts";
 
 export type ControlCommandDeps = {
 	ensureControlServer?: typeof ensureControlServer;
@@ -30,9 +37,22 @@ export type ControlCommandDeps = {
 		readonly notices: readonly { readonly member: string; readonly status: string; readonly message?: string }[];
 	}>;
 	inboxBridge?: InboxBridgeController | null;
+	crewBoard?: CrewBoardStoreDependencies;
+	crewBoardOperationId?: (args: string) => string;
+	crewBoardNow?: () => number;
 };
 
-const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop", "agreements", "inbox"];
+const ACTIONS: SessionControlAction[] = [
+	"join",
+	"leave",
+	"members",
+	"status",
+	"stop",
+	"board",
+	"post",
+	"agreements",
+	"inbox",
+];
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
 	if (ctx.hasUI) ctx.ui.notify(message, level);
@@ -45,6 +65,43 @@ function renderStatus(state: SocketState): string {
 		? `\nCrew: ${membership.manifestPath}\nMember: ${membership.member.name} (${membership.member.role})\nEndpoint: ${membership.socketPath}`
 		: "";
 	return `Crew ${status}${crew}`;
+}
+
+const BOARD_RENDER_LIMIT = 20000;
+let boardOperationSequence = 0;
+
+function renderCrewBoard(result: BoardReadResult): string {
+	if (result.posts.length === 0) return "Crew Board: no Posts found.";
+	const lines = ["Crew Board:"];
+	for (const post of result.posts) {
+		const message = post.message.replace(/\r?\n/gu, " ");
+		const bounded = message.length > 500 ? `${message.slice(0, 500)}…` : message;
+		lines.push(`${post.sequence}. [${post.kind}] ${post.author.name} (${post.author.role}): ${bounded}`);
+		if (lines.join("\n").length >= BOARD_RENDER_LIMIT) break;
+	}
+	if (result.hasMore && result.nextCursor)
+		lines.push(`More Posts available; use /crew board --after ${result.nextCursor}.`);
+	if (result.corruptCount > 0 || result.quarantinedThisRead > 0)
+		lines.push(`Board repair: ${result.corruptCount} invalid, ${result.quarantinedThisRead} quarantined.`);
+	return lines.join("\n").slice(0, BOARD_RENDER_LIMIT);
+}
+
+function boardDependencies(
+	deps: ControlCommandDeps,
+	state: SocketState,
+	membership: MembershipRuntime | undefined,
+): CrewBoardStoreDependencies | null {
+	if (!deps.crewBoard) return null;
+	return {
+		...deps.crewBoard,
+		getCurrentMembership:
+			deps.crewBoard.getCurrentMembership ??
+			(() => membership?.getMembership() ?? state.membershipRuntime?.getMembership() ?? null),
+	};
+}
+
+function boardErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message.slice(0, 500) : "Crew Board operation failed";
 }
 
 type AgreementActivationHandler = NonNullable<ControlCommandDeps["activateAgreementRevision"]>;
@@ -105,6 +162,108 @@ export async function renderCrewRoster(
 	return formatCrewRoster(membership.manifestPath, rows);
 }
 
+async function handleInboxAction(
+	ctx: ExtensionContext,
+	pi: ExtensionAPI,
+	deps: ControlCommandDeps,
+	target?: string,
+): Promise<void> {
+	const bridge = deps.inboxBridge;
+	const sub = target ?? "";
+	if (!bridge) {
+		notify(ctx, "Inbox bridge unavailable", "error");
+		return;
+	}
+	if (sub === "status") {
+		const status = await bridge.status();
+		pi.appendEntry("crew-inbox", { content: formatInboxStatus(status) });
+		return;
+	}
+	if (sub === "pause") {
+		bridge.setPaused(true);
+		notify(ctx, "Inbox automatic offering paused");
+		return;
+	}
+	if (sub === "resume") {
+		bridge.setPaused(false);
+		notify(ctx, "Inbox automatic offering resumed");
+		return;
+	}
+	if (sub.startsWith("cancel ")) {
+		const itemId = sub.slice("cancel ".length);
+		const outcome = await bridge.cancel(itemId);
+		if (outcome.removed === true) notify(ctx, `Inbox item cancelled: ${outcome.itemId}`);
+		else if (outcome.reason === "not-pending")
+			notify(ctx, `Inbox item ${itemId} is not pending (already handed to session)`, "warning");
+		else notify(ctx, `Inbox item not found: ${itemId}`, "warning");
+		return;
+	}
+	notify(ctx, `Unknown inbox action: ${sub}`, "error");
+}
+
+async function handleBoardAction(
+	action: "board" | "post",
+	target: string,
+	ctx: ExtensionContext,
+	pi: ExtensionAPI,
+	state: SocketState,
+	deps: ControlCommandDeps,
+	membership: MembershipRuntime | undefined,
+): Promise<void> {
+	const parsedBoard = parseCrewBoardCommand(action, target);
+	if ("error" in parsedBoard) {
+		notify(ctx, parsedBoard.error, "error");
+		return;
+	}
+	const currentMembership = membership?.getMembership() ?? state.membershipRuntime?.getMembership() ?? null;
+	if (!currentMembership) {
+		notify(ctx, "Crew Board requires joined Membership", "error");
+		return;
+	}
+	const board = boardDependencies(deps, state, membership);
+	if (!board) {
+		notify(ctx, "Crew Board is unavailable", "error");
+		return;
+	}
+	try {
+		if (parsedBoard.action === "post") {
+			const now = deps.crewBoardNow?.() ?? Date.now();
+			const operationId = deps.crewBoardOperationId?.(target) ?? `crew-post-${now}-${boardOperationSequence++}`;
+			const result = await leaveCrewPost(
+				{
+					membership: currentMembership,
+					operationId,
+					kind: parsedBoard.kind,
+					message: parsedBoard.message,
+					references: parsedBoard.references,
+					link:
+						parsedBoard.relation && parsedBoard.postId
+							? { relation: parsedBoard.relation, postId: parsedBoard.postId }
+							: undefined,
+					now,
+				},
+				board,
+			);
+			pi.appendEntry("crew-board", {
+				content: `Crew Post persisted: ${result.post.id} (sequence ${result.post.sequence})`,
+			});
+			return;
+		}
+		const result = await readCrewBoard(
+			{
+				membership: currentMembership,
+				kinds: parsedBoard.kinds,
+				after: parsedBoard.after,
+				limit: parsedBoard.limit,
+			},
+			board,
+		);
+		pi.appendEntry("crew-board", { content: renderCrewBoard(result) });
+	} catch (error) {
+		notify(ctx, `Crew Board ${action} failed: ${boardErrorMessage(error)}`, "error");
+	}
+}
+
 export function registerSessionControlCommand(
 	pi: ExtensionAPI,
 	state: SocketState,
@@ -112,7 +271,8 @@ export function registerSessionControlCommand(
 	commandName = "crew",
 ): void {
 	pi.registerCommand(commandName, {
-		description: "Join, inspect crew members, leave, show status, or stop Bebop",
+		description:
+			"Join, inspect crew members, use /crew board to inspect shared Posts, or /crew post to add one; leave, show status, or stop Bebop",
 		getArgumentCompletions: (prefix) => {
 			const matches = ACTIONS.filter((action) => action.startsWith(prefix.trim()));
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
@@ -122,6 +282,11 @@ export function registerSessionControlCommand(
 			const parsed = parseSessionControlAction(args);
 			if (!parsed.action) {
 				notify(ctx, parsed.error ?? "Invalid crew action", "error");
+				return;
+			}
+
+			if (parsed.action === "board" || parsed.action === "post") {
+				await handleBoardAction(parsed.action, parsed.target, ctx, pi, state, deps, membership);
 				return;
 			}
 
@@ -157,7 +322,7 @@ export function registerSessionControlCommand(
 						notify(ctx, `Crew join failed: ${result.error.message}`, "error");
 						return;
 					}
-					const joinedMessage = `Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`;
+					const joinedMessage = `Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}. Crew Board: use /crew board to inspect shared Posts and /crew post to add one; Posts are not delivered automatically.`;
 					deps.persistMembership?.(true, result.membership);
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
@@ -198,40 +363,9 @@ export function registerSessionControlCommand(
 				case "status":
 					pi.appendEntry("crew-status", { content: renderStatus(state) });
 					return;
-				case "inbox": {
-					const bridge = deps.inboxBridge;
-					const sub = parsed.target ?? "";
-					if (!bridge) {
-						notify(ctx, "Inbox bridge unavailable", "error");
-						return;
-					}
-					if (sub === "status") {
-						const status = await bridge.status();
-						pi.appendEntry("crew-inbox", { content: formatInboxStatus(status) });
-						return;
-					}
-					if (sub === "pause") {
-						bridge.setPaused(true);
-						notify(ctx, "Inbox automatic offering paused");
-						return;
-					}
-					if (sub === "resume") {
-						bridge.setPaused(false);
-						notify(ctx, "Inbox automatic offering resumed");
-						return;
-					}
-					if (sub.startsWith("cancel ")) {
-						const itemId = sub.slice("cancel ".length);
-						const outcome = await bridge.cancel(itemId);
-						if (outcome.removed === true) notify(ctx, `Inbox item cancelled: ${outcome.itemId}`);
-						else if (outcome.reason === "not-pending")
-							notify(ctx, `Inbox item ${itemId} is not pending (already handed to session)`, "warning");
-						else notify(ctx, `Inbox item not found: ${itemId}`, "warning");
-						return;
-					}
-					notify(ctx, `Unknown inbox action: ${sub}`, "error");
+				case "inbox":
+					await handleInboxAction(ctx, pi, deps, parsed.target);
 					return;
-				}
 				case "stop": {
 					const previousMembership = membership?.getMembership();
 					await releaseMembershipBeforeCleanup({

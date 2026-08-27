@@ -6,6 +6,7 @@ import {
 	renderCrewRosterEntry,
 	renderCrewStatusEntry,
 	renderCrewInboxEntry,
+	renderCrewBoardEntry,
 	renderSessionMessage,
 	renderCrewInterrupt,
 } from "./pi/message-renderer.ts";
@@ -99,6 +100,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer("crew-roster", renderCrewRosterEntry);
 	pi.registerEntryRenderer("crew-status", renderCrewStatusEntry);
 	pi.registerEntryRenderer("crew-inbox", renderCrewInboxEntry);
+	pi.registerEntryRenderer("crew-board", renderCrewBoardEntry);
 
 	const state = createSocketState();
 	state.membershipRuntime = createMembershipRuntime({
@@ -305,6 +307,12 @@ export default function (pi: ExtensionAPI) {
 			refreshPresence,
 			stopPresence,
 			inboxBridge,
+			crewBoard: {
+				isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+				getCurrentMembership: () => state.membershipRuntime?.getMembership() ?? null,
+				openStore: (options) => openTrustedCrewBoardStore(options),
+			},
+			crewBoardNow: () => Date.now(),
 			activateAgreementRevision: async (revisionId, ctx) => {
 				const membership = state.membershipRuntime?.getMembership();
 				if (!membership) throw new Error("Crew is not joined");

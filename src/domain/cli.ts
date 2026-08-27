@@ -1,16 +1,26 @@
 export const CONTROL_FLAG = "intray";
 export const CONTROL_SHORT_FLAG = "in";
 
-export type SessionControlAction = "join" | "leave" | "members" | "status" | "stop" | "inbox" | "agreements";
+export type SessionControlAction =
+	| "join"
+	| "leave"
+	| "members"
+	| "status"
+	| "stop"
+	| "inbox"
+	| "agreements"
+	| "board"
+	| "post";
 
 export type ParsedSessionControlAction =
-	| { action: Exclude<SessionControlAction, "join" | "inbox"> }
+	| { action: Exclude<SessionControlAction, "join" | "inbox" | "board" | "post"> }
+	| { action: "board" | "post"; target: string }
 	| { action: "join"; target: string }
 	| { action: "inbox"; target: string }
 	| { action: "agreements"; target: string };
 
 const SESSION_CONTROL_USAGE =
-	"join <socket>|leave|members|status|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume";
+	"join <socket>|leave|members|status|stop|board [options]|post [options] <message>|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume";
 const INBOX_USAGE = "status|cancel <id>|pause|resume";
 
 function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: string } {
@@ -90,6 +100,9 @@ export function parseSessionControlAction(args: string): SessionControlParseResu
 	if (parts.length === 0) return { action: "status" };
 	const action = parts[0];
 	if (action === "join") return parseJoin(parts);
+	if (action === "board" || action === "post") {
+		return { action, target: args.trim().slice(action.length).trim() };
+	}
 	if (action === "agreements") return parseAgreements(parts);
 	if (action === "inbox") return parseInbox(parts);
 	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
