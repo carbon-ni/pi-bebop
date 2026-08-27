@@ -42,6 +42,9 @@ export function formatMembershipContext(membership: Membership): string {
 				: `${member.name} (${member.role})`,
 		)
 		.join(", ");
+	const commonInstructions = membership.manifest.commonInstructions
+		? `\nCommon Crew instructions:\n${membership.manifest.commonInstructions}`
+		: "";
 	const instructions = membership.member.instructions ? `\nRole instructions: ${membership.member.instructions}` : "";
 	// Crew contact is the exact manifest member selected by intake.contact to triage
 	// unverified external Crew Intake. It is derived only from the trusted manifest
@@ -55,7 +58,7 @@ export function formatMembershipContext(membership: Membership): string {
 		: "Crew contact: none (Crew Intake disabled)";
 	const coordination =
 		"Coordination: use send_member_request to send a Member request (you are the Requester and alone wait for its outcome with wait_for_request_outcome); when you receive a Member request you are the Responder and send one correlated Response with respond_to_member_request; use send_follow_up for information only — no correlated Response is expected.";
-	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}\n${contactLine}\n${coordination}${instructions}`;
+	return `${MEMBERSHIP_CONTEXT_MARKER}\nMember: ${membership.member.name}\nRole: ${membership.member.role}\nCrew: ${membership.manifestPath}\nMembers: ${members}\n${contactLine}\n${coordination}${commonInstructions}${instructions}`;
 }
 
 export function appendMembershipContext(systemPrompt: string, membership: Membership | null): string {

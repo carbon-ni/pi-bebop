@@ -61,6 +61,37 @@ test("injects concise identity exactly once per system prompt", () => {
 	assert.doesNotMatch(first, /message-context|per-message|Reply with evidence/);
 });
 
+test("renders common instructions once before role instructions, including members without a role file", () => {
+	const commonManifest = parseCrewManifest(
+		{
+			version: 2,
+			commonInstructionsFile: "instructions/common.md",
+			members: [
+				{ name: "dev", role: "developer", socket: "sockets/dev.sock", instructions: "ROLE-SNAPSHOT" },
+				{ name: "qa", role: "quality", socket: "sockets/qa.sock" },
+			],
+		},
+		manifestPath,
+	);
+	const joined: Membership = {
+		manifestPath,
+		socketPath: "/project/.pi/intray/sockets/dev.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: { ...commonManifest.members[0], instructions: "ROLE-SNAPSHOT" },
+		manifest: { ...commonManifest, commonInstructionsFile: undefined, commonInstructions: "COMMON-SNAPSHOT" },
+	};
+	const rendered = appendMembershipContext("Base system", joined);
+	assert.equal(rendered.match(/Common Crew instructions:/g)?.length, 1);
+	assert.equal(rendered.match(/Role instructions:/g)?.length, 1);
+	assert.ok(rendered.indexOf("Common Crew instructions:") < rendered.indexOf("Role instructions:"));
+	assert.equal(appendMembershipContext(rendered, joined), rendered);
+
+	const noRole: Membership = { ...joined, member: commonManifest.members[1] };
+	const noRoleRendered = formatMembershipContext(noRole);
+	assert.match(noRoleRendered, /Common Crew instructions:\nCOMMON-SNAPSHOT/);
+	assert.doesNotMatch(noRoleRendered, /Role instructions:/);
+});
+
 test("joined context lists manifest-order name (role): description, keeping others concise and instructions separate", () => {
 	const withDescription = parseCrewManifest(
 		{

@@ -121,7 +121,7 @@ test("validateTemplate rejects malformed manifest JSON with a stable code", () =
 });
 
 test("validateTemplate surfaces parseCrewManifest strictness verbatim", () => {
-	const bad = JSON.stringify({ version: 2, members: [] });
+	const bad = JSON.stringify({ version: 3, members: [] });
 	const verdict = validateTemplate({ "crew.json": file(bad), "instructions/captain.md": file("x\n") });
 	assert.equal(verdict.ok, false);
 	if (!verdict.ok) {

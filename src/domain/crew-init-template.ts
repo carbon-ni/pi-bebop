@@ -2,8 +2,8 @@
  * `crew init --from <template source>` template contract (pure, no IO).
  *
  * A template is a plain directory that is already a valid crew layout:
- * `crew.json` (strict v1 manifest via the existing `parseCrewManifest`) plus
- * the `instructions/*.md` files it references. The `template/` subdir of a
+ * `crew.json` (strict v1/v2 manifest via the existing `parseCrewManifest`) plus
+ * the `instructions/*.md` files it references, including optional common guidance. The `template/` subdir of a
  * source repository is auto-detected. Runtime-owned paths (`sockets/`,
  * `inbox/`, `.gitignore`) are never adopted; their presence inside a template
  * is an operational error naming the path.
@@ -158,9 +158,13 @@ export function validateTemplate(entries: TemplateEntries): TemplateValidationVe
 		return failure;
 	}
 	const manifest = parsedManifest.manifest;
-	for (const member of manifest.members) {
-		const referenced = member.instructionsFile;
-		if (referenced === undefined) continue;
+	const references = [
+		...(manifest.commonInstructionsFile === undefined ? [] : [manifest.commonInstructionsFile]),
+		...manifest.members.flatMap((member) =>
+			member.instructionsFile === undefined ? [] : [member.instructionsFile],
+		),
+	];
+	for (const referenced of references) {
 		const entry = entries[referenced];
 		if (entry?.kind === "symlink") {
 			return {
@@ -226,6 +230,10 @@ export function adoptedBytesFromTemplate(files: TemplateFileSet, manifest: CrewM
 	const adopted: Record<string, string> = {
 		[`${CREW_INIT_PROJECT_DIR}/crew.json`]: files["crew.json"]!,
 	};
+	if (manifest.commonInstructionsFile !== undefined && files[manifest.commonInstructionsFile] !== undefined) {
+		adopted[`${CREW_INIT_PROJECT_DIR}/${manifest.commonInstructionsFile}`] =
+			files[manifest.commonInstructionsFile]!;
+	}
 	for (const member of manifest.members) {
 		if (member.instructionsFile !== undefined && files[member.instructionsFile] !== undefined) {
 			adopted[`${CREW_INIT_PROJECT_DIR}/${member.instructionsFile}`] = files[member.instructionsFile]!;

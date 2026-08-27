@@ -36,7 +36,16 @@ export type CrewManifestReadErrorCode =
 	| "instructions-file-empty"
 	| "instructions-file-nul"
 	| "instructions-file-oversized"
-	| "instructions-file-changed";
+	| "instructions-file-changed"
+	| "common-instructions-file-missing"
+	| "common-instructions-file-unreadable"
+	| "common-instructions-file-directory"
+	| "common-instructions-file-unsafe"
+	| "common-instructions-file-invalid-encoding"
+	| "common-instructions-file-empty"
+	| "common-instructions-file-nul"
+	| "common-instructions-file-oversized"
+	| "common-instructions-file-changed";
 
 export class CrewManifestReadError extends Error {
 	readonly code: CrewManifestReadErrorCode;
@@ -66,6 +75,101 @@ async function readInstructionFileBounded(filePath: string, maxBytes: number): P
 	} finally {
 		await handle.close();
 	}
+}
+
+type InstructionLabel = "instructionsFile" | "commonInstructionsFile";
+
+function instructionErrorCode(label: InstructionLabel, suffix: string): CrewManifestReadErrorCode {
+	if (label === "instructionsFile") return `instructions-file-${suffix}` as CrewManifestReadErrorCode;
+	return `common-instructions-file-${suffix}` as CrewManifestReadErrorCode;
+}
+
+function instructionMessage(label: InstructionLabel, memberName: string | undefined, detail: string): string {
+	const field = memberName ? `members.${memberName}.${label}` : label;
+	return `${field} ${detail}`;
+}
+
+function failInstruction(
+	label: InstructionLabel,
+	memberName: string | undefined,
+	suffix: string,
+	detail: string,
+	cause?: unknown,
+): never {
+	throw new CrewManifestReadError(
+		instructionErrorCode(label, suffix),
+		instructionMessage(label, memberName, detail),
+		{
+			cause,
+		},
+	);
+}
+
+function validateInstructionStat(
+	stat: Awaited<ReturnType<typeof fs.stat>>,
+	label: InstructionLabel,
+	memberName: string | undefined,
+): void {
+	if (stat.isDirectory()) failInstruction(label, memberName, "directory", "is a directory");
+	if (!stat.isFile()) failInstruction(label, memberName, "unreadable", "is not a regular file");
+	if (stat.size > MAX_CREW_INSTRUCTIONS_FILE_BYTES)
+		failInstruction(label, memberName, "oversized", `exceeds ${MAX_CREW_INSTRUCTIONS_FILE_BYTES} bytes`);
+}
+
+function decodeInstruction(bytes: Buffer, label: InstructionLabel, memberName: string | undefined): string {
+	let text: string;
+	try {
+		text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+	} catch (error) {
+		failInstruction(label, memberName, "invalid-encoding", "is not valid UTF-8", error);
+	}
+	if (text.trim().length === 0) failInstruction(label, memberName, "empty", "is blank");
+	if (text.includes("\0")) failInstruction(label, memberName, "nul", "contains NUL");
+	return text;
+}
+
+async function loadInstructionFile(
+	filePath: string,
+	instructionsRoot: string,
+	label: InstructionLabel,
+	memberName: string | undefined,
+	readInstructionFile: ReadInstructionFile,
+): Promise<string> {
+	let realFile: string;
+	try {
+		realFile = await fs.realpath(filePath);
+	} catch (error) {
+		const suffix = (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unreadable";
+		failInstruction(label, memberName, suffix, "could not be resolved", error);
+	}
+	const relative = path.relative(instructionsRoot, realFile);
+	if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+		failInstruction(label, memberName, "unsafe", "is outside instructions/");
+	let before: Awaited<ReturnType<typeof fs.stat>>;
+	try {
+		before = await fs.stat(realFile);
+	} catch (error) {
+		const suffix = (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unreadable";
+		failInstruction(label, memberName, suffix, "could not be read", error);
+	}
+	validateInstructionStat(before, label, memberName);
+	let bytes: Buffer;
+	try {
+		bytes = await readInstructionFile(realFile, MAX_CREW_INSTRUCTIONS_FILE_BYTES);
+	} catch (error) {
+		failInstruction(label, memberName, "unreadable", "could not be read", error);
+	}
+	let after: Awaited<ReturnType<typeof fs.stat>>;
+	try {
+		after = await fs.stat(realFile);
+	} catch (error) {
+		failInstruction(label, memberName, "changed", "changed while loading", error);
+	}
+	if (bytes.byteLength > MAX_CREW_INSTRUCTIONS_FILE_BYTES || after.size > MAX_CREW_INSTRUCTIONS_FILE_BYTES)
+		failInstruction(label, memberName, "oversized", `exceeds ${MAX_CREW_INSTRUCTIONS_FILE_BYTES} bytes`);
+	if (before.size !== after.size || before.mtimeMs !== after.mtimeMs)
+		failInstruction(label, memberName, "changed", "changed while loading");
+	return decodeInstruction(bytes, label, memberName);
 }
 
 export async function readTrustedCrewManifest(
@@ -102,7 +206,8 @@ export async function readTrustedCrewManifest(
 		});
 	}
 	const manifest = parseCrewManifest(input, normalizedPath);
-	if (!manifest.members.some((member) => member.instructionsFile !== undefined)) return manifest;
+	const hasRoleFiles = manifest.members.some((member) => member.instructionsFile !== undefined);
+	if (manifest.commonInstructionsFile === undefined && !hasRoleFiles) return manifest;
 	const crewRoot = path.dirname(normalizedPath);
 	let realCrewRoot: string;
 	let realInstructionsRoot: string;
@@ -128,110 +233,34 @@ export async function readTrustedCrewManifest(
 			"crew instructions directory is outside the trusted crew directory",
 		);
 	}
+	let commonInstructions: string | undefined;
+	if (manifest.commonInstructionsFile !== undefined) {
+		commonInstructions = await loadInstructionFile(
+			path.resolve(crewRoot, manifest.commonInstructionsFile),
+			realInstructionsRoot,
+			"commonInstructionsFile",
+			undefined,
+			readInstructionFile,
+		);
+	}
 	const members = [] as CrewManifest["members"] extends readonly (infer T)[] ? T[] : never;
 	for (const member of manifest.members) {
 		if (member.instructionsFile === undefined) {
 			members.push(member);
 			continue;
 		}
-		const requested = path.resolve(crewRoot, member.instructionsFile);
-		let realFile: string;
-		try {
-			realFile = await fs.realpath(requested);
-		} catch (error) {
-			const code =
-				(error as NodeJS.ErrnoException).code === "ENOENT"
-					? "instructions-file-missing"
-					: "instructions-file-unreadable";
-			throw new CrewManifestReadError(code, `members.${member.name}.instructionsFile could not be resolved`, {
-				cause: error,
-			});
-		}
-		const relative = path.relative(realInstructionsRoot, realFile);
-		if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-			throw new CrewManifestReadError(
-				"instructions-file-unsafe",
-				`members.${member.name}.instructionsFile is outside instructions/`,
-			);
-		}
-		let before: Awaited<ReturnType<typeof fs.stat>>;
-		try {
-			before = await fs.stat(realFile);
-		} catch (error) {
-			const code =
-				(error as NodeJS.ErrnoException).code === "ENOENT"
-					? "instructions-file-missing"
-					: "instructions-file-unreadable";
-			throw new CrewManifestReadError(code, `members.${member.name}.instructionsFile could not be read`, {
-				cause: error,
-			});
-		}
-		if (before.isDirectory())
-			throw new CrewManifestReadError(
-				"instructions-file-directory",
-				`members.${member.name}.instructionsFile is a directory`,
-			);
-		if (!before.isFile())
-			throw new CrewManifestReadError(
-				"instructions-file-unreadable",
-				`members.${member.name}.instructionsFile is not a regular file`,
-			);
-		if (before.size > MAX_CREW_INSTRUCTIONS_FILE_BYTES)
-			throw new CrewManifestReadError(
-				"instructions-file-oversized",
-				`members.${member.name}.instructionsFile exceeds ${MAX_CREW_INSTRUCTIONS_FILE_BYTES} bytes`,
-			);
-		let bytes: Buffer;
-		try {
-			bytes = await readInstructionFile(realFile, MAX_CREW_INSTRUCTIONS_FILE_BYTES);
-		} catch (error) {
-			throw new CrewManifestReadError(
-				"instructions-file-unreadable",
-				`members.${member.name}.instructionsFile could not be read`,
-				{ cause: error },
-			);
-		}
-		let after: Awaited<ReturnType<typeof fs.stat>>;
-		try {
-			after = await fs.stat(realFile);
-		} catch (error) {
-			throw new CrewManifestReadError(
-				"instructions-file-changed",
-				`members.${member.name}.instructionsFile changed while loading`,
-				{ cause: error },
-			);
-		}
-		if (bytes.byteLength > MAX_CREW_INSTRUCTIONS_FILE_BYTES || after.size > MAX_CREW_INSTRUCTIONS_FILE_BYTES)
-			throw new CrewManifestReadError(
-				"instructions-file-oversized",
-				`members.${member.name}.instructionsFile exceeds ${MAX_CREW_INSTRUCTIONS_FILE_BYTES} bytes`,
-			);
-		if (before.size !== after.size || before.mtimeMs !== after.mtimeMs)
-			throw new CrewManifestReadError(
-				"instructions-file-changed",
-				`members.${member.name}.instructionsFile changed while loading`,
-			);
-		let text: string;
-		try {
-			text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-		} catch (error) {
-			throw new CrewManifestReadError(
-				"instructions-file-invalid-encoding",
-				`members.${member.name}.instructionsFile is not valid UTF-8`,
-				{ cause: error },
-			);
-		}
-		if (text.trim().length === 0)
-			throw new CrewManifestReadError(
-				"instructions-file-empty",
-				`members.${member.name}.instructionsFile is blank`,
-			);
-		if (text.includes("\0"))
-			throw new CrewManifestReadError(
-				"instructions-file-nul",
-				`members.${member.name}.instructionsFile contains NUL`,
-			);
-		members.push({ ...member, instructions: text, instructionsFile: undefined });
+		const instructions = await loadInstructionFile(
+			path.resolve(crewRoot, member.instructionsFile),
+			realInstructionsRoot,
+			"instructionsFile",
+			member.name,
+			readInstructionFile,
+		);
+		members.push({ ...member, instructions, instructionsFile: undefined });
 	}
-	return { ...manifest, members };
+	return {
+		...manifest,
+		members,
+		...(commonInstructions === undefined ? {} : { commonInstructions, commonInstructionsFile: undefined }),
+	};
 }

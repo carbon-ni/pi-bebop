@@ -1,6 +1,7 @@
 import * as path from "node:path";
 
 export const CREW_MANIFEST_VERSION = 1 as const;
+export const CREW_MANIFEST_V2 = 2 as const;
 export const DEFAULT_CREW_MANIFEST_FILE = "crew.json";
 
 /** Maximum UTF-8 byte length of an optional inline crew-visible member description. */
@@ -27,10 +28,14 @@ export interface CrewIntakeConfig {
 }
 
 export interface CrewManifest {
-	readonly version: typeof CREW_MANIFEST_VERSION;
+	readonly version: typeof CREW_MANIFEST_VERSION | typeof CREW_MANIFEST_V2;
 	readonly members: readonly CrewMember[];
 	readonly presence: CrewPresenceConfig;
 	readonly intake?: CrewIntakeConfig;
+	/** Manifest-selected shared instructions, populated by the trusted loader. */
+	readonly commonInstructions?: string;
+	/** Source path retained until the trusted loader resolves its content. */
+	readonly commonInstructionsFile?: string;
 }
 
 export type CrewManifestErrorCode =
@@ -40,6 +45,7 @@ export type CrewManifestErrorCode =
 	| "invalid-member"
 	| "invalid-socket-path"
 	| "invalid-instructions-file"
+	| "invalid-common-instructions-file"
 	| "invalid-intake-config"
 	| "invalid-intake-contact"
 	| "duplicate-member-name"
@@ -141,11 +147,36 @@ export function resolveCrewMemberSocketPath(member: Pick<CrewMember, "socket">, 
 	return socketPath;
 }
 
+function isSupportedManifestVersion(value: unknown): value is typeof CREW_MANIFEST_VERSION | typeof CREW_MANIFEST_V2 {
+	return value === CREW_MANIFEST_VERSION || value === CREW_MANIFEST_V2;
+}
+
+function validateCommonInstructionsFile(value: unknown, version: unknown, manifestPath: string): string | undefined {
+	if (value === undefined) return undefined;
+	if (version !== CREW_MANIFEST_V2)
+		invalid("commonInstructionsFile requires manifest version 2", "invalid-common-instructions-file");
+	if (typeof value !== "string" || value.trim().length === 0 || value.includes("\0"))
+		invalid("commonInstructionsFile must be a non-empty relative path", "invalid-common-instructions-file");
+	if (path.isAbsolute(value)) invalid("commonInstructionsFile must be relative", "invalid-common-instructions-file");
+	const instructionsRoot = path.resolve(path.dirname(manifestPath), "instructions");
+	const resolved = path.resolve(path.dirname(manifestPath), value);
+	const relative = path.relative(instructionsRoot, resolved);
+	if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+		invalid(
+			"commonInstructionsFile must remain under the instructions directory",
+			"invalid-common-instructions-file",
+		);
+	}
+	return value;
+}
+
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
 	if (!isRecord(input)) invalid("manifest must be an object");
-	if (input.version !== CREW_MANIFEST_VERSION) {
+	if (!isSupportedManifestVersion(input.version)) {
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
 	}
+	const version = input.version;
+	const commonInstructionsFile = validateCommonInstructionsFile(input.commonInstructionsFile, version, manifestPath);
 	if (!Array.isArray(input.members) || input.members.length === 0) {
 		throw new CrewManifestError("invalid-members", "members must be a non-empty array");
 	}
@@ -264,10 +295,20 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 	}
 
 	return {
-		version: CREW_MANIFEST_VERSION,
+		version,
 		members,
 		presence,
+		...manifestOptionalFields(intake, commonInstructionsFile),
+	};
+}
+
+function manifestOptionalFields(
+	intake: CrewIntakeConfig | undefined,
+	commonInstructionsFile: string | undefined,
+): Partial<Pick<CrewManifest, "intake" | "commonInstructionsFile">> {
+	return {
 		...(intake === undefined ? {} : { intake }),
+		...(commonInstructionsFile === undefined ? {} : { commonInstructionsFile }),
 	};
 }
 

@@ -12,6 +12,49 @@ import {
 } from "./index.ts";
 
 describe("crew manifest", () => {
+	test("accepts version 2 commonInstructionsFile only under instructions", () => {
+		const result = parseCrewManifest(
+			{
+				version: 2,
+				commonInstructionsFile: "instructions/common.md",
+				members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+			},
+			"/repo/.pi/bebop/crew.json",
+		);
+		assert.equal(result.version, 2);
+		assert.equal(result.commonInstructionsFile, "instructions/common.md");
+		for (const commonInstructionsFile of [
+			"",
+			"/tmp/common.md",
+			"../common.md",
+			"instructions/../common.md",
+			"instructions/\0.md",
+		]) {
+			assert.throws(
+				() =>
+					parseCrewManifest(
+						{
+							version: 2,
+							commonInstructionsFile,
+							members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+						},
+						"/repo/.pi/bebop/crew.json",
+					),
+				(error: unknown) =>
+					error instanceof CrewManifestError && error.code === "invalid-common-instructions-file",
+			);
+		}
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					version: 1,
+					commonInstructionsFile: "instructions/common.md",
+					members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+				}),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-common-instructions-file",
+		);
+	});
+
 	test("parses a valid manifest and resolves member instructions", () => {
 		const result = parseCrewManifest(
 			{

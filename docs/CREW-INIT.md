@@ -29,6 +29,7 @@ Defaults:
 ├── .gitignore
 ├── crew.json
 ├── instructions/
+│   ├── common.md
 │   ├── lead.md
 │   ├── product.md
 │   ├── developer.md
@@ -36,11 +37,12 @@ Defaults:
 └── sockets/
 ```
 
-- `crew.json` is valid version 1 configuration with generic exact names `lead`,
-  `product`, `developer`, and `quality`; matching roles, descriptions, and
-  `instructionsFile` values under `instructions/`; notifications enabled; exact
-  Intake contact `product`. Review names, contact, and instructions before
-  starting member processes.
+- `crew.json` is valid version 2 configuration with generic exact names `lead`,
+  `product`, `developer`, and `quality`; matching roles, descriptions, a shared
+  `commonInstructionsFile`, and role `instructionsFile` values under
+  `instructions/`; notifications enabled; exact Intake contact `product`.
+  Review names, contact, common guidance, and role instructions before starting
+  member processes.
 - `.gitignore` excludes runtime-owned `sockets/` and private durable `inbox/`.
 - Init creates empty `sockets/` for immediate discoverability but never creates
   socket links, member processes, Inbox records, session state, Git commits, or
@@ -61,10 +63,13 @@ version 1 with exact member names/roles and socket-relative paths:
 }
 ```
 
-A member may use either inline instructions or a Markdown file, never both;
-file paths stay beneath the active layout's `instructions/` directory and are
-rejected on symlink escapes, directories, invalid UTF-8, NULs, blank files, or
-files over 64 KiB. The file is read once during startup, restore, or explicit
+Version 2 may select one shared `commonInstructionsFile`, applied to every
+member, while each member may use either inline role instructions or a Markdown
+file, never both. All file paths stay beneath the active layout's `instructions/`
+directory and are rejected on symlink escapes, directories, invalid UTF-8, NULs,
+blank files, or files over 64 KiB. `AGENTS.md` remains project-wide agent
+guidance; `common.md` is shared crew collaboration guidance; role files define
+member-specific responsibilities. Current Crew Agreements remain separate. The file is read once during startup, restore, or explicit
 join/rejoin (no hot reload; leave and rejoin to refresh):
 
 ```json

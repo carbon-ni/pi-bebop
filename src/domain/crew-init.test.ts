@@ -60,12 +60,13 @@ test("managed path set is canonical .pi/bebop layout with no compatibility .pi/c
 	assert.ok(!paths.some((path) => path.startsWith(".pi/crew/")), "never generates compatibility layout");
 });
 
-test("generated crew.json is deterministic version 1 and passes the real manifest parser", () => {
+test("generated crew.json is deterministic version 2 with common instructions and passes the real manifest parser", () => {
 	const json = crewInitCrewJson();
 	const first = crewInitCrewJson();
 	assert.equal(json, first, "bytes must be deterministic across calls");
 	const manifest = parseCrewManifest(JSON.parse(json), manifestPath);
-	assert.equal(manifest.version, 1);
+	assert.equal(manifest.version, 2);
+	assert.equal(manifest.commonInstructionsFile, "instructions/common.md");
 	assert.equal(manifest.intake?.contact, "product");
 	assert.equal(manifest.presence.notifications, true);
 	assert.deepEqual(

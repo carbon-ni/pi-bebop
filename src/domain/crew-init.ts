@@ -29,6 +29,7 @@ export const CREW_INIT_PROJECT_DIR = ".pi/bebop";
 export const CREW_INIT_MANIFEST_REL = `${CREW_INIT_PROJECT_DIR}/crew.json`;
 export const CREW_INIT_GITIGNORE_REL = `${CREW_INIT_PROJECT_DIR}/.gitignore`;
 export const CREW_INIT_INSTRUCTIONS_REL = `${CREW_INIT_PROJECT_DIR}/instructions`;
+export const CREW_INIT_COMMON_INSTRUCTIONS_REL = `${CREW_INIT_INSTRUCTIONS_REL}/common.md`;
 export const CREW_INIT_SOCKETS_REL = `${CREW_INIT_PROJECT_DIR}/sockets/`;
 
 export const CREW_INIT_EXIT_OK = 0;
@@ -45,6 +46,7 @@ export function crewInitManagedPaths(): readonly string[] {
 		CREW_INIT_PROJECT_DIR + "/",
 		CREW_INIT_GITIGNORE_REL,
 		CREW_INIT_MANIFEST_REL,
+		CREW_INIT_COMMON_INSTRUCTIONS_REL,
 		`${CREW_INIT_INSTRUCTIONS_REL}/lead.md`,
 		`${CREW_INIT_INSTRUCTIONS_REL}/product.md`,
 		`${CREW_INIT_INSTRUCTIONS_REL}/developer.md`,
@@ -64,12 +66,13 @@ export function crewInitGitignore(): string {
 	].join(NEWLINE);
 }
 
-/** Deterministic version 1 crew.json with generic exact names and roles. */
+/** Deterministic version 2 crew.json with generic exact names and roles. */
 export function crewInitCrewJson(): string {
 	return [
 		"{",
-		'  "version": 1,',
+		'  "version": 2,',
 		'  "presence": { "notifications": true },',
+		'  "commonInstructionsFile": "instructions/common.md",',
 		'  "intake": { "contact": "product" },',
 		'  "members": [',
 		"    {",
@@ -102,6 +105,18 @@ export function crewInitCrewJson(): string {
 		"    }",
 		"  ]",
 		"}",
+		"",
+	].join(NEWLINE);
+}
+
+/** Stable shared collaboration guidance applied to every joined crew member. */
+export function crewInitCommonInstructions(): string {
+	return [
+		"# Common Crew instructions",
+		"",
+		"Use the crew manifest as the source of truth for membership and roles.",
+		"Keep collaboration explicit, bounded, and evidence-based.",
+		"Do not expose private instructions through status, discovery, messages, or logs.",
 		"",
 	].join(NEWLINE);
 }
@@ -230,6 +245,7 @@ export function crewInitTemplateBytes(): Record<string, string> {
 	return {
 		[CREW_INIT_GITIGNORE_REL]: crewInitGitignore(),
 		[CREW_INIT_MANIFEST_REL]: crewInitCrewJson(),
+		[CREW_INIT_COMMON_INSTRUCTIONS_REL]: crewInitCommonInstructions(),
 		[`${CREW_INIT_INSTRUCTIONS_REL}/lead.md`]: crewInitInstructions("lead"),
 		[`${CREW_INIT_INSTRUCTIONS_REL}/product.md`]: crewInitInstructions("product"),
 		[`${CREW_INIT_INSTRUCTIONS_REL}/developer.md`]: crewInitInstructions("developer"),
