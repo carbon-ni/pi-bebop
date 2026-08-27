@@ -17,3 +17,19 @@ test("presence hint acknowledges the observer result", async () => {
 	);
 	assert.deepEqual(c.responses[0], { data: { accepted: true }, error: undefined });
 });
+
+test("presence hint reports rejection from the observer", async () => {
+	const c = handlerContext();
+	c.state.presenceObserver = { acceptHint: () => false } as never;
+	await handlePresenceHint(
+		{
+			type: "presence_hint",
+			member: { identity: "i", name: "Mary", role: "po" },
+			state: "offline",
+			instanceId: "1",
+			id: "x",
+		},
+		c,
+	);
+	assert.deepEqual(c.responses[0], { data: { accepted: false }, error: undefined });
+});

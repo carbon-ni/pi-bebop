@@ -4,6 +4,17 @@ import { createSocketState } from "../control-runtime.ts";
 import type { RpcSocket } from "../../infra/rpc-server.ts";
 import type { RpcHandlerContext } from "./types.ts";
 
+export function joinedMembership(name = "Dave") {
+	const member = { name, role: "dev", socket: "sockets/dave.sock", socketPath: "/tmp/crew-dave.sock" };
+	const peer = { name: "Mary", role: "po", socket: "sockets/mary.sock", socketPath: "/tmp/crew-mary.sock" };
+	return {
+		member,
+		socketPath: member.socketPath,
+		manifestPath: "/tmp/crew/crew.json",
+		manifest: { version: 1, presence: { notifications: true }, members: [member, peer] },
+	};
+}
+
 export function handlerContext(
 	overrides: Partial<RpcHandlerContext> = {},
 ): RpcHandlerContext & { responses: unknown[] } {

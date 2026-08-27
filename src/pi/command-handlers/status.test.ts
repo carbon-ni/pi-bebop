@@ -8,3 +8,9 @@ test("status reports the online state", async () => {
 	await handleStatus({ type: "status", id: "1" }, c);
 	assert.deepEqual((c.responses[0] as any).data, { status: "online" });
 });
+
+test("status reports stopped when the control server is absent", async () => {
+	const c = handlerContext();
+	await handleStatus({ type: "status", id: "1" }, c);
+	assert.deepEqual((c.responses[0] as any).data, { status: "stopped" });
+});
