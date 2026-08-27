@@ -25,7 +25,7 @@ A shared append-only board can silently lose concurrent posts, leak secrets, dri
 - [ ] Independent matrix maps every upstream criterion to executable evidence; prose/keyword presence alone cannot pass.
 - [ ] Lead, developer, quality, and product Members join the same Crew and each reads/appends the same Board with identical capability despite different Roles.
 - [ ] Concurrent multi-process appends under forced completion orders retain every accepted post exactly once with stable sequence/output; exact retries deduplicate and conflicting retries cannot overwrite.
-- [ ] Crash before/after publish, stale temp/lock, lock contention/timeout, capacity, malformed/oversized/tampered file, quarantine failure, permission loss, symlink/traversal, restart, reload, and shutdown are bounded and recoverable.
+- [ ] Crash before/after publish, stale temp/lock, lock contention/timeout, capacity, malformed/oversized/tampered file, quarantine failure, permission loss, symlink/traversal, restart, reload, and shutdown are bounded and honest. Stale locks are never age/PID-stolen; tests/documentation cover explicit trusted maintenance and prove no live owner's state is removed.
 - [ ] Canonical `.pi/bebop` and compatibility `.pi/crew` layouts work independently, including external project roots; no mirroring/cross-layout merge or per-Member board exists.
 - [ ] Join/restore/rejoin grants identical read+append operations; leave/removal/inactive Membership removes them. Role/contact/facilitator/Lead/Origin/kind never changes access.
 - [ ] Agent tools and slash commands produce the same canonical append/read outcomes for identical inputs and store state.

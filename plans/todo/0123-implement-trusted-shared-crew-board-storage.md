@@ -28,7 +28,7 @@ Use the active trusted manifest layout only. `.pi/bebop` and `.pi/crew` remain i
 
 1. Write failing domain tests for the closed versioned Crew Post schema, canonical bytes, safe references/links, ordering, limits, and exact replay/conflict semantics.
 2. Add a domain Board operation contract independent of filesystem and Pi APIs.
-3. Implement an injected trusted store with one canonical post per file, bounded exclusive board lock, temporary write, atomic rename, and corruption quarantine, following existing Inbox/Retrospective storage patterns without coupling stores.
+3. Implement an injected trusted store with one canonical Post per file, exact ownerHash lock contract, temporary write, atomic no-replace publish, and corruption quarantine, following proven Inbox/Retrospective boundaries without copying their overwrite/stale-lock assumptions.
 4. Read and validate bounded file metadata before content, then return stable `(sequence,id)` order with deterministic cursor/filter/limit behavior.
 5. Add `board/` to runtime-owned layout ignore rules without ignoring manifest/instruction configuration.
 
@@ -38,12 +38,12 @@ Use the active trusted manifest layout only. `.pi/bebop` and `.pi/crew` remain i
 - [ ] Closed schema rejects unknown version/fields, invalid UTF-8/NUL, oversized message/record, invalid kind, unsafe reference/link, invalid author/time/sequence/id, and non-canonical data before publication.
 - [ ] Store opens only beside one validated trusted Crew manifest and rejects traversal, symlink escape, foreign layout, unsupported layout, and untrusted project before record IO.
 - [ ] One accepted post becomes one versioned canonical JSON file; no shared JSONL rewrite or per-Member board directory exists.
-- [ ] Lock covers sequence allocation, capacity check, idempotency/conflict check, temp write, and atomic publish. Lock acquisition is bounded and every path releases once.
+- [ ] One lock critical section covers replay/conflict, quarantine, healthy capacity, link validation, sequence/time allocation, temp write, and no-replace publish. Acquisition is bounded; every path releases only its own ownerHash once.
 - [ ] Concurrent appends are lossless, exact-once by operation identity, and produce stable contiguous acceptance order independent of filesystem enumeration.
 - [ ] Exact retry returns the existing post unchanged; same identity with different canonical bytes is an idempotency conflict and never overwrites.
-- [ ] Crash before rename publishes nothing; crash after rename leaves one complete post. Stale temp/lock recovery is bounded and cannot delete another live writer's state.
+- [ ] Crash before no-replace publish leaves no Post; crash after publish leaves one complete Post. Lock acquisition/release follows the bounded ownerHash contract; stale locks are never age/PID-stolen and require explicit trusted maintenance. Temp recovery after that boundary cannot delete another live writer's state.
 - [ ] Malformed, oversized, foreign, or tampered records are quarantined deterministically while healthy posts remain readable; quarantine failure is explicit.
-- [ ] Reads are non-mutating, bounded, and byte-stable for unchanged state; empty, kind-filtered, after-cursor, invalid cursor, missing cursor, truncation, and capacity cases are explicit.
+- [ ] Missing-Board read creates nothing and returns canonical empty. Other reads never mutate healthy Posts/per-Member state; invalid-file quarantine is the sole explicit repair mutation. Empty, kind-filtered, filter-bound after-cursor, invalid/foreign cursor, truncation, quarantine diagnostics, and directory/canonical capacity cases are bounded.
 - [ ] Injected clock, filesystem, lock, fingerprint/ID, and limits make tests deterministic and avoid network or Pi runtime dependencies.
 - [ ] Both canonical and compatibility layouts pass isolated integration tests; data is never mirrored or merged between them.
 - [ ] No store method sends messages, inspects sessions, mutates Membership, changes tasks/Agreements, or interprets post content.

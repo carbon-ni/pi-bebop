@@ -20,8 +20,7 @@ leave_crew_post({
   kind?: "tip" | "kudos" | "feedback" | "warning" | "note",
   message: string,
   references?: string[],
-  supersedes?: string,
-  disputes?: string
+  link?: { relation: "supersedes" | "disputes", post_id: string }
 })
 
 read_crew_board({
@@ -43,7 +42,7 @@ read_crew_board({
 - [ ] Every Current Member receives identical append/read capability after join/restore/rejoin; Role, description, contact/facilitator/Lead convention, post kind, and claimed Origin never change access.
 - [ ] Unjoined, inactive, removed, untrusted, stale-membership, or unsupported-layout execution rejects before Board store IO with actionable bounded errors.
 - [ ] Author name/Role attribution is derived from the exact active manifest-backed Membership at append time, never accepted from tool arguments. Role remains attribution only.
-- [ ] Tool schemas are closed and bounded. Invalid kind/list, empty or oversized message, duplicate/unsafe references, conflicting supersedes/disputes, cursor, and limit reject before mutation.
+- [ ] Tool schemas are closed and bounded. Invalid kind/list, empty or oversized message, duplicate/unsafe references, invalid/missing/foreign/self/future link, same-author supersedes violation, cursor, and limit reject before mutation. Exactly one optional canonical link object replaces ambiguous parallel supersedes/disputes fields.
 - [ ] Append returns stable post identity/sequence/time and an honest persisted acknowledgement; it never claims delivery, reading, agreement, correctness, or benefit.
 - [ ] Read returns compact deterministic posts plus cursor/truncation metadata in store order; kind filters affect display only and never infer recipient/importance/sentiment.
 - [ ] Exact tool-call retry is idempotent; conflicting retry is explicit and cannot overwrite a prior post.

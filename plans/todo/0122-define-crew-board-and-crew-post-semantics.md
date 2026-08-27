@@ -29,17 +29,25 @@ Define one pull-based Crew Board shared equally by every Current Member and one 
 
 ## Acceptance criteria
 
-- [ ] `UL.md` and one focused contract define Crew Board/Crew Post and distinguish them from Follow-up, Inbox, Member request, Crew Broadcast, task/plan state, AGENTS.md, Current Crew Agreements, and Retrospective evidence.
-- [ ] Membership-only access is exact: every joined/restored/rejoined Current Member can read and append; no Role, Origin, facilitator, Lead convention, or post kind changes that access.
-- [ ] Contract defines a closed bounded canonical post shape: version, stable ID, stable sequence/cursor, injected UTC creation time, manifest-backed author attribution, optional kind, bounded message, safe references, and optional supersedes/disputes link.
-- [ ] Contract defines deterministic ordering, cursor/pagination, capacity, exact retry/idempotency, conflicting replay, corruption, restart, and concurrent-writer outcomes.
-- [ ] Pull-only behavior explicitly creates no recipient, delivery state, read/acceptance state, automatic notification, provider call, or automatic Crew Post content injection.
-- [ ] Contract defines bounded discovery: every joined/restored/rejoined Member sees one stable tool-affordance line; tool descriptions teach when/how to read or append; human join/help lists `/crew board` and `/crew post`. No Post is read merely because Membership starts.
-- [ ] Tips/feedback/kudos remain fallible Member statements; no aggregation into ratings, reputation, sentiment, productivity, performance, consensus, or authority is allowed.
-- [ ] Credentials/secrets, hidden model reasoning, unsafe paths/identifiers, unbounded attachments/history, anonymous external posting, automatic promotion, and cross-project/network replication boundaries are explicit.
-- [ ] A deliberate later process may promote useful posts into documentation, tests, plans, AGENTS.md, or Crew Agreements; Board append itself never performs promotion.
-- [ ] Contract specifies one active-manifest-adjacent runtime store (`.pi/bebop/board` or compatibility `.pi/crew/board`), not mirrored and not per-Member.
-- [ ] Independent product review finds no contradiction with existing messaging, Membership, Agreement, Retrospective, or project-layout terminology.
+- [x] `UL.md` and one focused contract define Crew Board/Crew Post and distinguish them from Follow-up, Inbox, Member request, Crew Broadcast, task/plan state, AGENTS.md, Current Crew Agreements, and Retrospective evidence.
+- [x] Membership-only access is exact: every joined/restored/rejoined Current Member can read and append; no Role, Origin, facilitator, Lead convention, or post kind changes that access.
+- [x] Contract defines a closed bounded canonical post shape: version, stable ID, stable sequence/cursor, injected UTC creation time, manifest-backed author attribution, optional kind, bounded message, safe references, deterministic redaction metadata, and at most one explicit `supersedes|disputes` link.
+- [x] Contract defines deterministic ordering, cursor/pagination, capacity, exact retry/idempotency, conflicting replay, corruption, restart, and concurrent-writer outcomes.
+- [x] Pull-only behavior explicitly creates no recipient, delivery state, read/acceptance state, automatic notification, provider call, or automatic Crew Post content injection.
+- [x] Contract defines bounded discovery: every joined/restored/rejoined Member sees one stable tool-affordance line; tool descriptions teach when/how to read or append; human join/help lists `/crew board` and `/crew post`. No Post is read merely because Membership starts.
+- [x] Tips/feedback/kudos remain fallible Member statements; no aggregation into ratings, reputation, sentiment, productivity, performance, consensus, or authority is allowed.
+- [x] Secret handling is deterministic: canonical message redaction occurs before fingerprint/persistence, sensitive references reject before write, raw sensitive bytes never enter IDs/logs/errors, and exact retry compares persisted redacted form. Hidden reasoning, unsafe paths/identifiers, unbounded attachments/history, anonymous external posting, automatic promotion, and cross-project/network replication boundaries are explicit.
+- [x] A deliberate later process may promote useful posts into documentation, tests, plans, AGENTS.md, or Crew Agreements; Board append itself never performs promotion.
+- [x] Contract specifies one active-manifest-adjacent runtime store (`.pi/bebop/board` or compatibility `.pi/crew/board`), not mirrored and not per-Member.
+- [x] Independent product review finds no contradiction with existing messaging, Membership, Agreement, Retrospective, or project-layout terminology.
+
+## Acceptance evidence
+
+- Product contract: `docs/CREW-BOARD.md`.
+- Canonical terminology/relationships/ambiguities/verbs: `UL.md`.
+- QA matrix: `.tmp/reports/27-08-26/task-0122-crew-board-contract-acceptance-matrix.md` — ACCEPT after deterministic secret/link corrections.
+- Dev readiness review: all 11 requested storage/application decisions are explicit in the contract and TASK-0123–0126 handoff plans.
+- Contract check preserves all 63 prior UL rows and verifies 12 deterministic contract groups; focused formatting and diff checks pass.
 
 ## Non-goals
 
