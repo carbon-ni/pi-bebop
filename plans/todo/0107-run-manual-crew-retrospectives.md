@@ -1,7 +1,7 @@
 ---
 id: TASK-0107
 title: Run manual Crew Retrospectives
-status: todo
+status: doing
 depends_on: [TASK-0104, TASK-0105, TASK-0115]
 priority: high
 tags: [crew-agreements, retrospective, member-request, coordination, tdd]
