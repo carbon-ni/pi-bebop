@@ -29,7 +29,7 @@ A multi-Member gate can appear correct while racing activity changes, missing Cr
 - [ ] Omitted/full/selected/reordered targets, parser edges, initial all-idle, and no-other-Member paths return exact scoped outcomes with no lingering subscriptions.
 - [ ] Developer↔quality mutual Member Idle Wait while Lead waits for Crew yields `wait-lock` to Lead before normal timeout; both remote waits remain untouched.
 - [ ] All Members entering Crew Idle Gates produces deterministic caller-local lock release without remote cancellation, authority inference, or false idle result.
-- [ ] A working-busy or compacting Member prevents false wait-lock; ordinary busy is never interpreted as blocking wait. A proper selected subset never produces the whole-Crew `wait-lock` claim even when every selected target is waiting.
+- [ ] A working-busy or compacting Member prevents false wait-lock; ordinary busy is never interpreted as blocking wait. Agent explicit-complete selection remains lock-eligible; proper subsets and every slash observation never produce `wait-lock`, even when every selected target is waiting.
 - [ ] Same-boundary message versus ready/lock/offline/timeout proves accepted message is consumed exactly once as next provider context and retains payload, instructions, Origin, mode, and FIFO order.
 - [ ] Offline before/during wait, restart, timeout, round exhaustion, malformed response, capacity, abort, membership loss, reload, and shutdown are bounded and leak-free.
 - [ ] Randomized response completion order produces byte-stable manifest-ordered structured results for identical semantic inputs.

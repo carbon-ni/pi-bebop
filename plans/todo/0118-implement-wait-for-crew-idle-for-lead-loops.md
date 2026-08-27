@@ -36,7 +36,7 @@ Omitted `members` snapshots every other configured Member. A non-empty array sel
 - [ ] TDD starts with happy and unhappy paths before orchestration code.
 - [ ] Tool schema exposes only optional non-empty bounded exact-name `members` array and optional bounded integer `timeout_seconds`; timeout default/range match TASK-0116/TASK-0120.
 - [ ] Unjoined/untrusted, empty, duplicate, self, unknown, Role-based, malformed, and oversized selection rejects before target IO; valid targets preserve manifest order and remain fixed for the operation.
-- [ ] Omitted selection snapshots every other configured Member; one-Member Crew returns `ready/no-other-members` immediately without probes/subscriptions. Explicit selection returns `scope=selected` and never claims whole-Crew ready.
+- [ ] Omitted selection snapshots every other configured Member and returns `scope=all`; one-Member Crew returns `ready/no-other-members` immediately without probes/subscriptions. Every explicit selection returns `scope=selected`, exact targets, and `coversAllOtherMembers`; selected ready never claims whole-Crew ready.
 - [ ] Initial all-idle round returns `ready/initial-round`; busy/compacting targets are awaited concurrently, then a full final round is required for `ready/after-wait`.
 - [ ] If an earlier-idle Member is busy in the final round, tool starts another event-driven round and never returns from remembered idle observations.
 - [ ] Explicit blocking-wait observation returns `wait-lock` only when normalized selection covers every other frozen Member; a proper subset never makes a whole-Crew lock claim. Caller cleanup gives normal continuation and no Member is remotely changed.

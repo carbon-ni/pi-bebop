@@ -40,7 +40,8 @@ Omission selects every other configured Member. Explicit comma-separated values 
 - [ ] Omitted selection and explicit selection produce the same normalized target set/results as the agent tool for shared mechanical inputs.
 - [ ] Busy/compacting/pending local Pi rejects command start immediately with actionable guidance; command never waits silently for local idle.
 - [ ] Idle start acquires one local capacity slot before target IO. Concurrent Member Idle Wait, agent Crew gate, or second command rejects without sharing/replacing/cancelling owner.
-- [ ] Later local agent activity cancels only command observation with `local-activity`; inbound message/run remains unchanged and command does not apply agent-tool `terminate` semantics.
+- [ ] Later local agent activity cancels only command observation with `local-activity`; inbound message/run remains unchanged and command does not apply agent-tool `message-received`/`terminate` semantics.
+- [ ] Slash observation owns no `crew-idle` Blocking-wait marker and never returns `wait-lock`, even for full-roster selection; remote blocking waits remain non-ready mechanical observations.
 - [ ] Reload, new/resume/fork, leave, stop, shutdown, timeout, offline, unstable, partial setup, protocol failure, and thrown renderer/notify errors release controllers/subscriptions/status exactly once.
 - [ ] Command result is bounded TUI-only output with scope, frozen manifest-order identities, mechanical outcome/timestamps, and honest selected-vs-all wording; no model context entry or automatic turn is created.
 - [ ] Command never calls `sendUserMessage`, `sendMessage`, Redirect, Interrupt, abort on another Member, or any task-routing operation.
