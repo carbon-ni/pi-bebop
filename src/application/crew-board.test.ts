@@ -123,13 +123,28 @@ test("invalid append and read input reject before store IO", async () => {
 	assert.equal(opened(), 0);
 });
 
+test("read preserves explicit normalized kind filters while omission stays absent", async () => {
+	const seen: unknown[] = [];
+	const { dependencies } = deps({
+		append: async () => {
+			throw new Error("no append");
+		},
+		read: async (options: unknown) => {
+			seen.push(options);
+			return emptyRead;
+		},
+	});
+	await readCrewBoard({ membership, kinds: ["note", "tip"] }, dependencies);
+	assert.deepEqual(seen[0], { limit: 20, kinds: ["tip", "note"] });
+});
+
 test("read is shared and has no delivery side effects", async () => {
 	const { dependencies } = deps({
 		append: async () => {
 			throw new Error("no append");
 		},
 		read: async (options: unknown) => {
-			assert.deepEqual(options, { limit: 20, kinds: [] });
+			assert.deepEqual(options, { limit: 20 });
 			return emptyRead;
 		},
 	});

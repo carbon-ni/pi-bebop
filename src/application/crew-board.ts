@@ -146,7 +146,11 @@ export async function readCrewBoard(
 		const kinds = normalizeBoardKinds(request.kinds);
 		const limit = validateBoardReadLimit(request.limit);
 		const { store } = await openBoardStore(request.membership, dependencies);
-		return await store.read({ limit, kinds, ...(request.after === undefined ? {} : { after: request.after }) });
+		return await store.read({
+			limit,
+			...(request.kinds === undefined ? {} : { kinds }),
+			...(request.after === undefined ? {} : { after: request.after }),
+		});
 	} catch (error) {
 		if (error instanceof CrewBoardApplicationError) throw error;
 		if (error instanceof CrewBoardStoreError) throw new CrewBoardApplicationError(error.code, error.message);
