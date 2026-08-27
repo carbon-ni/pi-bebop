@@ -1,7 +1,7 @@
 ---
 id: TASK-0122
 title: Define Crew Board and Crew Post semantics
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, board, collaboration, product, ubiquitous-language, persistence, determinism]
