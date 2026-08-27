@@ -1,7 +1,7 @@
 ---
 id: TASK-0100
 title: Add architecture guardrails to CI gate
-status: review
+status: done
 depends_on: []
 priority: high
 tags: []
