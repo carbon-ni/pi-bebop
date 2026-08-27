@@ -321,6 +321,16 @@ export async function readTrustedCrewManifest(
 		...manifest,
 		members,
 		...(commonInstructions === undefined ? {} : { commonInstructions, commonInstructionsFile: undefined }),
-		...(crewAgreements === undefined ? {} : { crewAgreements: { content: crewAgreements, file: undefined } }),
+		...(crewAgreements === undefined
+			? {}
+			: {
+					crewAgreements: {
+						content: crewAgreements,
+						file: undefined,
+						...(manifest.crewAgreements?.retrospective === undefined
+							? {}
+							: { retrospective: manifest.crewAgreements.retrospective }),
+					},
+				}),
 	};
 }

@@ -434,3 +434,42 @@ describe("crew intake manifest config", () => {
 		assert.equal(namedLead.intake?.contact, "lead");
 	});
 });
+
+describe("retrospective cadence configuration", () => {
+	const base = {
+		version: 2,
+		crewAgreements: { file: "agreements/current.md", retrospective: { facilitator: "Mary", cadenceDays: 14 } },
+		members: [
+			{ name: "Mary", role: "po", socket: "sockets/mary.sock" },
+			{ name: "Dave", role: "dev", socket: "sockets/dave.sock" },
+		],
+	};
+	test("accepts exact facilitator and bounded cadence, including manual-only omission", () => {
+		assert.deepEqual(parseCrewManifest(base).crewAgreements?.retrospective, {
+			facilitator: "Mary",
+			cadenceDays: 14,
+		});
+		assert.deepEqual(
+			parseCrewManifest({
+				...base,
+				crewAgreements: { file: "agreements/current.md", retrospective: { facilitator: "Mary" } },
+			}).crewAgreements?.retrospective,
+			{ facilitator: "Mary" },
+		);
+	});
+	test("rejects unsupported, non-integer, out-of-range, role, and unknown facilitator values", () => {
+		for (const retrospective of [
+			{ facilitator: "Mary", cadenceDays: 0 },
+			{ facilitator: "Mary", cadenceDays: 366 },
+			{ facilitator: "Mary", cadenceDays: 1.5 },
+			{ facilitator: "po", cadenceDays: 14 },
+			{ facilitator: "Ghost", cadenceDays: 14 },
+			{ facilitator: "Mary", cadenceDays: 14, extra: true },
+		]) {
+			assert.throws(
+				() => parseCrewManifest({ ...base, crewAgreements: { file: "agreements/current.md", retrospective } }),
+				(error: unknown) => error instanceof CrewManifestError,
+			);
+		}
+	});
+});

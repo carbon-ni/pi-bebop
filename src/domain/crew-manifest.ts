@@ -6,6 +6,8 @@ export const DEFAULT_CREW_MANIFEST_FILE = "crew.json";
 
 /** Maximum UTF-8 byte length of an optional inline crew-visible member description. */
 export const MAX_MEMBER_DESCRIPTION_BYTES = 256;
+export const MIN_RETROSPECTIVE_CADENCE_DAYS = 1;
+export const MAX_RETROSPECTIVE_CADENCE_DAYS = 365;
 
 export interface CrewMember {
 	readonly name: string;
@@ -27,11 +29,20 @@ export interface CrewIntakeConfig {
 	readonly contact: string;
 }
 
+export interface CrewRetrospectiveConfig {
+	/** Exact configured facilitator Member name; never a Role. */
+	readonly facilitator: string;
+	/** Optional exact 24-hour durations; omitted means manual-only. */
+	readonly cadenceDays?: number;
+}
+
 export interface CrewAgreementsConfig {
 	/** Source path retained until the trusted loader resolves its content. */
 	readonly file?: string;
 	/** Exact Current Crew Agreements bytes loaded by the trusted loader. */
 	readonly content?: string;
+	/** Optional retrospective scheduling configuration. */
+	readonly retrospective?: CrewRetrospectiveConfig;
 }
 
 export interface CrewManifest {
@@ -56,6 +67,8 @@ export type CrewManifestErrorCode =
 	| "invalid-instructions-file"
 	| "invalid-common-instructions-file"
 	| "invalid-crew-agreements"
+	| "invalid-retrospective-config"
+	| "invalid-retrospective-facilitator"
 	| "invalid-intake-config"
 	| "invalid-intake-contact"
 	| "duplicate-member-name"
@@ -180,6 +193,34 @@ function validateCommonInstructionsFile(value: unknown, version: unknown, manife
 	return value;
 }
 
+function validateRetrospectiveConfig(value: unknown): CrewRetrospectiveConfig {
+	if (!isRecord(value)) invalid("retrospective must be an object", "invalid-retrospective-config");
+	const keys = Object.keys(value);
+	if (keys.some((key) => key !== "facilitator" && key !== "cadenceDays"))
+		invalid("retrospective contains unsupported fields", "invalid-retrospective-config");
+	const facilitator = value.facilitator;
+	if (
+		typeof facilitator !== "string" ||
+		facilitator.trim().length === 0 ||
+		facilitator !== facilitator.trim() ||
+		facilitator.includes("\0")
+	)
+		invalid("retrospective.facilitator must be an exact Member name", "invalid-retrospective-config");
+	const cadenceDays = value.cadenceDays;
+	if (
+		cadenceDays !== undefined &&
+		(typeof cadenceDays !== "number" ||
+			!Number.isSafeInteger(cadenceDays) ||
+			cadenceDays < MIN_RETROSPECTIVE_CADENCE_DAYS ||
+			cadenceDays > MAX_RETROSPECTIVE_CADENCE_DAYS)
+	)
+		invalid(
+			`retrospective.cadenceDays must be an integer from ${MIN_RETROSPECTIVE_CADENCE_DAYS} to ${MAX_RETROSPECTIVE_CADENCE_DAYS}`,
+			"invalid-retrospective-config",
+		);
+	return { facilitator, ...(cadenceDays === undefined ? {} : { cadenceDays: cadenceDays as number }) };
+}
+
 function validateCrewAgreements(
 	value: unknown,
 	version: unknown,
@@ -187,8 +228,10 @@ function validateCrewAgreements(
 ): CrewAgreementsConfig | undefined {
 	if (value === undefined) return undefined;
 	if (version !== CREW_MANIFEST_V2) invalid("crewAgreements requires manifest version 2", "invalid-crew-agreements");
-	if (!isRecord(value) || Object.keys(value).some((key) => key !== "file") || typeof value.file !== "string")
-		invalid("crewAgreements must contain only a non-empty file path", "invalid-crew-agreements");
+	if (!isRecord(value) || Object.keys(value).some((key) => key !== "file" && key !== "retrospective"))
+		invalid("crewAgreements contains unsupported fields", "invalid-crew-agreements");
+	if (typeof value.file !== "string")
+		invalid("crewAgreements.file must be a non-empty relative path", "invalid-crew-agreements");
 	if (value.file.trim().length === 0 || value.file.includes("\0") || path.isAbsolute(value.file))
 		invalid("crewAgreements.file must be a non-empty relative path", "invalid-crew-agreements");
 	const agreementsRoot = path.resolve(path.dirname(manifestPath), "agreements");
@@ -196,7 +239,21 @@ function validateCrewAgreements(
 	const relative = path.relative(agreementsRoot, resolved);
 	if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
 		invalid("crewAgreements.file must remain under the agreements directory", "invalid-crew-agreements");
-	return { file: value.file };
+	const retrospective =
+		value.retrospective === undefined ? undefined : validateRetrospectiveConfig(value.retrospective);
+	return { file: value.file, ...(retrospective === undefined ? {} : { retrospective }) };
+}
+
+function validateRetrospectiveFacilitator(
+	crewAgreements: CrewAgreementsConfig | undefined,
+	names: ReadonlySet<string>,
+): void {
+	const facilitator = crewAgreements?.retrospective?.facilitator;
+	if (facilitator === undefined || names.has(facilitator)) return;
+	throw new CrewManifestError(
+		"invalid-retrospective-facilitator",
+		`retrospective.facilitator must match an exact configured Member name: ${facilitator}`,
+	);
 }
 
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
@@ -324,6 +381,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 		intake = { contact };
 	}
 
+	validateRetrospectiveFacilitator(crewAgreements, names);
 	return {
 		version,
 		members,
