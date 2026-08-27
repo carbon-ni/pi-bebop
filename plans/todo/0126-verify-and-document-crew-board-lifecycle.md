@@ -1,7 +1,7 @@
 ---
 id: TASK-0126
 title: Verify and document Crew Board lifecycle
-status: todo
+status: doing
 depends_on: [TASK-0125]
 priority: high
 tags: [crew, board, verification, integration, concurrency, security, documentation]
