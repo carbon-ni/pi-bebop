@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Value } from "@sinclair/typebox/value";
 
+import type { RpcCommand } from "./index.ts";
+
 import {
 	isSafeAlias,
 	isSafeSessionId,
@@ -525,6 +527,119 @@ test("command and request mappings round-trip through their strict schemas", () 
 			...(command.type === "send" ? { delivery: command.delivery ?? "follow_up" } : {}),
 			id: command.id ?? `roundtrip-${i}`,
 		});
+	}
+});
+
+test("the command codec round-trips every registered discriminator with exact request shapes", () => {
+	const payload = {
+		content: 'hello "crew"\\n世界',
+		instructions: ["follow \\\\path", "preserve \\nline"],
+		origin: { kind: "crew" as const, name: "Bob", role: "developer" },
+		replyTo: { sessionId: "session-1", sessionName: 'name "quoted"' },
+	};
+	const fixtures: Array<{ command: RpcCommand; method: string; params?: object }> = [
+		{
+			command: { type: "send", payload, delivery: "immediate" },
+			method: "message.send",
+			params: { ...payload, delivery: "immediate" },
+		},
+		{
+			command: { type: "send", payload: { content: "minimal" } },
+			method: "message.send",
+			params: { content: "minimal", delivery: "follow_up" },
+		},
+		{
+			command: { type: "interrupt", payload: { content: 'stop \\"now\\"' } },
+			method: "message.interrupt",
+			params: { payload: { content: 'stop \\"now\\"' } },
+		},
+		{ command: { type: "subscribe", event: "turn_end" }, method: "event.subscribe", params: { event: "turn_end" } },
+		{ command: { type: "status" }, method: "session.status" },
+		{ command: { type: "get_message" }, method: "session.get_message" },
+		{ command: { type: "clear" }, method: "session.clear" },
+		{ command: { type: "abort" }, method: "session.abort" },
+		{
+			command: {
+				type: "presence_hint",
+				member: { identity: "id", name: "Bob", role: "developer" },
+				state: "online",
+				instanceId: "instance-1",
+			},
+			method: "presence.hint",
+			params: {
+				member: { identity: "id", name: "Bob", role: "developer" },
+				state: "online",
+				instanceId: "instance-1",
+			},
+		},
+		{ command: { type: "member_status", member: "Bob" }, method: "member.status", params: { member: "Bob" } },
+		{
+			command: { type: "member_status_target", target: "Mary" },
+			method: "member.status_target",
+			params: { target: "Mary" },
+		},
+		{
+			command: { type: "member_request", requestId: "request-1", payload, timeoutSeconds: 60 },
+			method: "member.request",
+			params: { requestId: "request-1", payload, timeoutSeconds: 60 },
+		},
+		{
+			command: { type: "member_response", requestId: "request-1", message: 'done \\"now\\"' },
+			method: "member.respond",
+			params: { requestId: "request-1", message: 'done \\"now\\"' },
+		},
+		{
+			command: { type: "member_response", requestId: "request-2", message: "done", instructions: ["verify"] },
+			method: "member.respond",
+			params: { requestId: "request-2", message: "done", instructions: ["verify"] },
+		},
+		{
+			command: { type: "member_interrupt", target: "Bob", message: "stop" },
+			method: "member.interrupt",
+			params: { target: "Bob", message: "stop" },
+		},
+		{
+			command: { type: "member_follow_up", target: "Bob", message: "follow", instructions: ["one"] },
+			method: "member.follow_up",
+			params: { target: "Bob", message: "follow", instructions: ["one"] },
+		},
+		{
+			command: { type: "member_redirect", target: "Bob", message: "redirect" },
+			method: "member.redirect",
+			params: { target: "Bob", message: "redirect" },
+		},
+		{
+			command: { type: "member_inbox_send", target: "Bob", message: "persist", instructions: ["later"] },
+			method: "member.inbox_send",
+			params: { target: "Bob", message: "persist", instructions: ["later"] },
+		},
+		{
+			command: { type: "crew_broadcast", message: 'broadcast \\"all\\"' },
+			method: "crew.broadcast",
+			params: { message: 'broadcast \\"all\\"' },
+		},
+		{
+			command: { type: "member_idle_wait", member: "Bob", timeoutSeconds: 300 },
+			method: "member.idle_wait",
+			params: { member: "Bob", timeoutSeconds: 300 },
+		},
+	];
+	assert.equal(new Set(fixtures.map(({ command }) => command.type)).size, 18);
+	for (const [index, fixture] of fixtures.entries()) {
+		const id = `codec-${index}`;
+		const request = commandToRequest(fixture.command, id);
+		assert.deepEqual(request, {
+			jsonrpc: "2.0",
+			id,
+			method: fixture.method,
+			...(fixture.params === undefined ? {} : { params: fixture.params }),
+		});
+		assert.deepEqual(requestToCommand(request), {
+			...fixture.command,
+			...(fixture.command.type === "send" ? { delivery: fixture.command.delivery ?? "follow_up" } : {}),
+			id,
+		});
+		assert.deepEqual(commandToRequest(requestToCommand(request) as RpcCommand, id), request);
 	}
 });
 
