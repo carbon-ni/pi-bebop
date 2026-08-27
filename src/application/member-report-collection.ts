@@ -221,10 +221,42 @@ export interface MemberReportMemberResult {
 	readonly evidence?: ReturnType<typeof createRetrospectiveEvidence>;
 }
 
+/** Local self-report seam (Mary's A decision): the collecting member produces
+ * its own report text locally — never through a remote correlated request. */
+export interface MemberReportSelfReportSeam {
+	/** Roster name of the member running this collector locally. */
+	readonly member: string;
+	/** Produces the member's own report text; the same strict parser applies. */
+	produce(request: MemberReportRequestPlan): Promise<string>;
+}
+
+export class SelfRequestRejectedError extends Error {
+	constructor(member: string) {
+		super(`remote member-report request to self is rejected: ${member}`);
+		this.name = "SelfRequestRejectedError";
+	}
+}
+
+function selfReportRequestId(retrospectiveId: string, member: string): string {
+	return `self-report.${retrospectiveId}.${member}`;
+}
+
+function assertRemoteMemberReportTarget(member: string, selfMember: string | undefined): void {
+	if (selfMember !== undefined && member === selfMember) throw new SelfRequestRejectedError(member);
+}
+
+/** Options for one collection pass. */
+export interface MemberReportCollectOptions {
+	/** When set, this roster member reports through the local seam instead of
+	 * a remote correlated request. */
+	readonly selfReport?: MemberReportSelfReportSeam;
+}
+
 /**
  * One bounded pass over the roster in manifest order: exactly one correlated
- * Member request per member; accepted reports become attributed evidence.
- * Read-only apart from the injected request seam; never activates Agreements.
+ * Member request per remote member, and one local self-report for the member
+ * running the collector (when configured). Accepted reports become attributed
+ * evidence. Read-only apart from the injected seams; never activates Agreements.
  */
 export async function collectMemberReports(
 	roster: readonly MemberReportRosterMember[],
@@ -232,35 +264,54 @@ export async function collectMemberReports(
 	interval: RetrospectiveEvidenceInterval,
 	sendRequest: MemberReportSendRequest,
 	fingerprint: RetrospectiveEvidenceFingerprint,
+	options: MemberReportCollectOptions = {},
 ): Promise<readonly MemberReportMemberResult[]> {
 	const collection = new MemberReportCollection(retrospectiveId, interval);
 	const results: MemberReportMemberResult[] = [];
 	for (const member of roster) {
 		const plan = buildMemberReportRequest(member, retrospectiveId, interval);
-		const outcome = await sendRequest(member, plan);
-		const recorded = collection.recordMechanical(member.name, outcome);
-		if (outcome.kind === "response") {
-			const response = collection.recordResponse(member.name, outcome.requestId, outcome.message, {});
-			results.push({
-				member: member.name,
-				outcome: response.outcome,
-				evidence:
-					response.outcome === "response-accepted"
-						? createRetrospectiveEvidence(
-								memberReportToEvidenceInput(
-									(collection.reportForMember(member.name) as { report: MemberSessionReport }).report,
-									member.name,
-									retrospectiveId,
-									interval,
-									outcome.requestId,
-								),
-								fingerprint,
-							)
-						: undefined,
-			});
-			continue;
+		const isSelf = options.selfReport !== undefined && member.name === options.selfReport.member;
+		let requestId: string;
+		let message: string;
+		if (isSelf) {
+			requestId = selfReportRequestId(retrospectiveId, member.name);
+			message = await options.selfReport!.produce(plan);
+		} else {
+			assertRemoteMemberReportTarget(member.name, options.selfReport?.member);
+			const outcome = await sendRequest(member, plan);
+			collection.recordMechanical(member.name, outcome);
+			if (outcome.kind !== "response") {
+				results.push({ member: member.name, outcome: mapMechanicalOutcome(outcome) });
+				continue;
+			}
+			requestId = outcome.requestId;
+			message = outcome.message;
 		}
-		results.push({ member: member.name, outcome: recorded.outcome });
+		const recorded = collection.recordResponse(member.name, requestId, message, {});
+		results.push({
+			member: member.name,
+			outcome: recorded.outcome,
+			evidence:
+				recorded.outcome === "response-accepted"
+					? createRetrospectiveEvidence(
+							memberReportToEvidenceInput(
+								(collection.reportForMember(member.name) as { report: MemberSessionReport }).report,
+								member.name,
+								retrospectiveId,
+								interval,
+								requestId,
+							),
+							fingerprint,
+						)
+					: undefined,
+		});
 	}
 	return results;
+}
+
+function mapMechanicalOutcome(outcome: RequestOutcome): MemberReportOutcomeKind {
+	if (outcome.kind === "offline") return "offline";
+	if (outcome.kind === "timeout")
+		return outcome.reason === "max-wait" ? "timeout-max-wait" : "timeout-response-after-idle";
+	return "malformed";
 }

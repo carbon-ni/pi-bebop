@@ -4,8 +4,10 @@ import type { RequestOutcome } from "../domain/member-request.ts";
 import type { RetrospectiveEvidenceInterval, RetrospectiveEvidence } from "../domain/index.ts";
 import {
 	MemberReportCollection,
+	SelfRequestRejectedError,
 	buildMemberReportRequest,
 	collectMemberReports,
+	type MemberReportSelfReportSeam,
 	type MemberReportSendRequest,
 	memberReportToEvidenceInput,
 	type MemberReportRosterMember,
@@ -336,5 +338,129 @@ describe("no agreement/activation surface", () => {
 		const source = fs.readFileSync("src/application/member-report-collection.ts", "utf8");
 		assert.ok(!source.includes("crew-agreements"));
 		assert.ok(!source.includes("activateAgreement"));
+	});
+});
+
+describe("local self-report seam (Mary's A decision)", () => {
+	function makeSelfSeam(text: string): { seam: MemberReportSelfReportSeam; calls: number[] } {
+		const calls: number[] = [];
+		const seam: MemberReportSelfReportSeam = {
+			member: "Dave",
+			produce: async () => {
+				calls.push(calls.length);
+				return text;
+			},
+		};
+		return { seam, calls };
+	}
+
+	it("self member reports locally; remote members get correlated requests", async () => {
+		const { seam, calls } = makeSelfSeam(VALID_REPORT_TEXT);
+		const remote = makeSend({ Mary: response("Mary", OTHER_VALID_REPORT_TEXT) });
+		const results = await collectMemberReports(
+			roster(["Dave", "Mary"]),
+			RETRO,
+			INTERVAL,
+			remote.send,
+			FIXED_FINGERPRINT,
+			{
+				selfReport: seam,
+			},
+		);
+		assert.equal(results[0]!.member, "Dave");
+		assert.equal(results[0]!.outcome, "response-accepted");
+		assert.equal(results[0]!.evidence!.source.identity, "Dave");
+		assert.equal(results[1]!.outcome, "response-accepted");
+		assert.equal(calls.length, 1);
+		assert.equal(remote.calls.get("Mary"), 1);
+		assert.equal(remote.calls.get("Dave"), undefined, "self must never receive a remote request");
+	});
+
+	it("self report goes through the same strict parser", async () => {
+		const { seam } = makeSelfSeam(MALFORMED_TEXT);
+		const results = await collectMemberReports(
+			roster(["Dave"]),
+			RETRO,
+			INTERVAL,
+			makeSend({}).send,
+			FIXED_FINGERPRINT,
+			{
+				selfReport: seam,
+			},
+		);
+		assert.equal(results[0]!.outcome, "malformed");
+		assert.equal(results[0]!.evidence, undefined);
+	});
+
+	it("self oversized report is explicit", async () => {
+		const { seam } = makeSelfSeam(`${VALID_REPORT_TEXT}\n\n## extra-padding\n- ${"x".repeat(70 * 1024)}`);
+		const results = await collectMemberReports(
+			roster(["Dave"]),
+			RETRO,
+			INTERVAL,
+			makeSend({}).send,
+			FIXED_FINGERPRINT,
+			{
+				selfReport: seam,
+			},
+		);
+		assert.equal(results[0]!.outcome, "oversized");
+	});
+
+	it("self seam produces the same evidence id as a remote report would", async () => {
+		const { seam } = makeSelfSeam(VALID_REPORT_TEXT);
+		const selfRun = await collectMemberReports(
+			roster(["Dave"]),
+			RETRO,
+			INTERVAL,
+			makeSend({}).send,
+			FIXED_FINGERPRINT,
+			{
+				selfReport: seam,
+			},
+		);
+		const remoteRun = await collectMemberReports(
+			roster(["Dave"]),
+			RETRO,
+			INTERVAL,
+			makeSend({ Dave: response("Dave", VALID_REPORT_TEXT) }).send,
+			FIXED_FINGERPRINT,
+		);
+		assert.equal(selfRun[0]!.evidence!.id, remoteRun[0]!.evidence!.id);
+	});
+
+	it("self seam error propagates fail-closed, never fabricates a report", async () => {
+		const seam: MemberReportSelfReportSeam = {
+			member: "Dave",
+			produce: async () => {
+				throw new Error("local session store unreadable");
+			},
+		};
+		await assert.rejects(
+			collectMemberReports(roster(["Dave"]), RETRO, INTERVAL, makeSend({}).send, FIXED_FINGERPRINT, {
+				selfReport: seam,
+			}),
+			/local session store unreadable/,
+		);
+	});
+
+	it("remote send seam is never invoked for the self member", async () => {
+		const { seam } = makeSelfSeam(VALID_REPORT_TEXT);
+		let remoteCalledForSelf = false;
+		const send: MemberReportSendRequest = async (member) => {
+			if (member.name === "Dave") remoteCalledForSelf = true;
+			return response(member.name, VALID_REPORT_TEXT);
+		};
+		await collectMemberReports(roster(["Dave", "Mary"]), RETRO, INTERVAL, send, FIXED_FINGERPRINT, {
+			selfReport: seam,
+		});
+		assert.equal(remoteCalledForSelf, false);
+	});
+
+	it("explicit self-request rejection guards the remote path", async () => {
+		const error = new SelfRequestRejectedError("Dave");
+		assert.equal(error.name, "SelfRequestRejectedError");
+		assert.ok(error.message.includes("Dave"));
+		assert.ok(error.message.includes("rejected"));
 	});
 });

@@ -161,6 +161,41 @@ describe("member report collection → evidence store integration", () => {
 		assert.equal(results[0]!.evidence, undefined);
 		assert.equal((await store.list()).length, 0);
 	});
+
+	it("self seam report persists with self-report reference; remote members correlated", async () => {
+		const store = await openTrustedRetrospectiveEvidenceStore({
+			projectRoot: projectDir,
+			manifestPath,
+			isProjectTrusted: () => true,
+		});
+		const send: MemberReportSendRequest = async (member) =>
+			member.name === "Mary" ? responseOf("Mary", VALID_REPORT_TEXT) : offlineResponse(member.name);
+		const results = await collectMemberReports(
+			[
+				{ name: "Dave", role: "dev" },
+				{ name: "Mary", role: "po" },
+			],
+			RETRO,
+			INTERVAL,
+			send,
+			sha256RetrospectiveEvidenceFingerprint,
+			{ selfReport: { member: "Dave", produce: async () => VALID_REPORT_TEXT } },
+		);
+		assert.equal(results[0]!.outcome, "response-accepted");
+		assert.equal(results[0]!.evidence!.source.reference, `self-report.${RETRO}.Dave`);
+		assert.equal(results[1]!.outcome, "response-accepted");
+		assert.equal(results[1]!.evidence!.source.reference, "req-Mary");
+		for (const result of results) {
+			if (result.evidence) {
+				const put = await store.put(result.evidence);
+				assert.equal(put.alreadyPersisted, undefined);
+			}
+		}
+		const listed = await store.list();
+		assert.equal(listed.length, 2);
+		const identities = listed.map((item) => item.source.identity).sort();
+		assert.deepEqual(identities, ["Dave", "Mary"]);
+	});
 });
 
 function offlineResponse(member: string): RequestOutcome {
