@@ -1,7 +1,7 @@
 ---
 id: TASK-0106
 title: Activate Agreement revisions through a trusted project operation
-status: doing
+status: done
 depends_on: [TASK-0104, TASK-0105]
 priority: high
 tags: [crew-agreements, cli, activation, security, atomicity, tdd]
