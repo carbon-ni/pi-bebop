@@ -225,10 +225,20 @@ async function scan(
 	const posts: CrewPost[] = [];
 	let corrupt = 0;
 	let quarantined = 0;
+	const realPostsDir = await deps.realpath(postsDir);
+	if (mutate) {
+		try {
+			await deps.stat(quarantineDir);
+			await assertContained(quarantineDir, realPostsDir);
+		} catch (cause) {
+			if (!isCode(cause, "ENOENT")) throw cause;
+		}
+	}
 	for (const entry of entries.sort()) {
 		if (!entry.endsWith(".json") || entry.startsWith(".tmp-")) continue;
 		const file = path.join(postsDir, entry);
 		try {
+			if (!inside(realPostsDir, await deps.realpath(file))) throw new Error("post escapes trusted directory");
 			const post = await readPost(file);
 			if (path.basename(file, ".json") !== post.id) throw new Error("post filename does not match id");
 			posts.push(post);
@@ -387,6 +397,14 @@ export async function openTrustedCrewBoardStore(options: CrewBoardStoreOptions):
 	const realLayout = await deps.realpath(layout);
 	return {
 		async append(input, now) {
+			if (input.author.name !== options.member.name || input.author.role !== options.member.role)
+				throw error("invalid-append", "append author must come from the active Membership");
+			try {
+				await deps.stat(board);
+				await assertContained(board, realLayout);
+			} catch (cause) {
+				if (!isCode(cause, "ENOENT")) throw cause;
+			}
 			await deps.mkdir(postsDir);
 			await assertContained(board, realLayout);
 			await assertContained(postsDir, realLayout);

@@ -95,6 +95,12 @@ function safeText(value: unknown, field: string, max: number): string {
 	if (textBytes(value) > max) fail("oversized-" + field, `${field} exceeds ${max} UTF-8 bytes`);
 	return value;
 }
+function safeAuthor(value: unknown): string {
+	const text = safeText(value, "author", MAX_BOARD_AUTHOR_BYTES);
+	if (text.includes("\r") || text.includes("\n") || text !== text.normalize("NFC"))
+		fail("invalid-author", "author must be normalized single-line text");
+	return text;
+}
 function redactMessage(raw: string): { message: string; redactions: readonly CrewPostRedaction[] } {
 	safeText(raw, "message", MAX_BOARD_RAW_MESSAGE_BYTES);
 	if (raw.includes("[REDACTED:credential]") || raw.includes("[REDACTED:secret]"))
@@ -170,8 +176,8 @@ export function createBoardPost(
 		fail("invalid-sequence", "sequence must be positive safe integer");
 	if (!Number.isSafeInteger(createdAt) || createdAt < 0)
 		fail("invalid-created-at", "createdAt must be non-negative safe integer");
-	const name = safeText(input.author.name, "author", MAX_BOARD_AUTHOR_BYTES);
-	const role = safeText(input.author.role, "author", MAX_BOARD_AUTHOR_BYTES);
+	const name = safeAuthor(input.author.name);
+	const role = safeAuthor(input.author.role);
 	const kind = input.kind ?? "note";
 	if (!KINDS.includes(kind)) fail("invalid-kind", "kind is invalid");
 	const { message, redactions } = redactMessage(input.message);
@@ -252,36 +258,36 @@ function validPostReferences(post: CrewPost, references: readonly string[]): boo
 		post.references.length <= MAX_BOARD_REFERENCES
 	);
 }
-function validPostSemantics(post: CrewPost): boolean {
-	if (
-		!post.author ||
-		typeof post.author !== "object" ||
-		Object.keys(post.author).some((key) => key !== "name" && key !== "role") ||
-		!("name" in post.author) ||
-		!("role" in post.author)
-	)
-		return false;
-	const message = safeText(post.message, "message", MAX_BOARD_MESSAGE_BYTES);
-	if (message.includes("[REDACTED:credential]") || message.includes("[REDACTED:secret]")) {
-		if (
-			!post.redactions.every((item) => REDACTIONS.includes(item)) ||
-			new Set(post.redactions).size !== post.redactions.length ||
-			JSON.stringify(post.redactions) !==
-				JSON.stringify(REDACTIONS.filter((item) => post.redactions.includes(item)))
-		)
-			return false;
-	} else {
-		const redacted = redactMessage(message);
-		if (redacted.message !== message || JSON.stringify(redacted.redactions) !== JSON.stringify(post.redactions))
-			return false;
+function validPostAuthor(author: CrewPost["author"]): boolean {
+	return (
+		Boolean(author) &&
+		typeof author === "object" &&
+		Object.keys(author).every((key) => key === "name" || key === "role") &&
+		"name" in author &&
+		"role" in author
+	);
+}
+function validPostRedactions(message: string, redactions: readonly CrewPostRedaction[]): boolean {
+	if (!message.includes("[REDACTED:credential]") && !message.includes("[REDACTED:secret]")) {
+		const expected = redactMessage(message);
+		return expected.message === message && JSON.stringify(expected.redactions) === JSON.stringify(redactions);
 	}
+	return (
+		redactions.every((item) => REDACTIONS.includes(item)) &&
+		new Set(redactions).size === redactions.length &&
+		JSON.stringify(redactions) === JSON.stringify(REDACTIONS.filter((item) => redactions.includes(item))) &&
+		(!message.includes("[REDACTED:credential]") || redactions.includes("credential")) &&
+		(!message.includes("[REDACTED:secret]") || redactions.includes("secret"))
+	);
+}
+function validPostSemantics(post: CrewPost): boolean {
+	if (!validPostAuthor(post.author)) return false;
+	const message = safeText(post.message, "message", MAX_BOARD_MESSAGE_BYTES);
+	if (!validPostRedactions(message, post.redactions)) return false;
 	const references = post.references.map(validateReference);
 	if (!validPostReferences(post, references)) return false;
 	const semantic = {
-		author: {
-			name: safeText(post.author.name, "author", MAX_BOARD_AUTHOR_BYTES),
-			role: safeText(post.author.role, "author", MAX_BOARD_AUTHOR_BYTES),
-		},
+		author: { name: safeAuthor(post.author.name), role: safeAuthor(post.author.role) },
 		kind: post.kind,
 		message,
 		references,
