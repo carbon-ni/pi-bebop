@@ -29,7 +29,7 @@ function proposal(id: string): AgreementProposal {
 		id,
 		intent: "add",
 		problem: "handoff ambiguity",
-		evidence: "accepted request had no owner",
+		evidence: [{ id: `${id}-evidence`, provenance: "member-request:req-1" }],
 		proposedObservableBehavior: "name an owner before handoff",
 		origin: { kind: "crew", name: "Dave", role: "dev" },
 	});
@@ -69,6 +69,37 @@ test("rejects a revision whose exact base is missing", async () => {
 	);
 });
 
+test("rejects revisions with missing or incompatible proposal references", async () => {
+	const store = await openStore();
+	const revision = createAgreementRevision({
+		id: "missing-proposal-revision",
+		status: "candidate",
+		baseRevisionId: "genesis",
+		operations: [{ proposalId: "not-persisted", intent: "add" }],
+		trialAgreement: { state: "none" },
+		origin: { kind: "crew", name: "Mary", role: "po" },
+	});
+	await assert.rejects(
+		() => store.putRevision(revision),
+		(error: unknown) => error instanceof CrewAgreementStoreError && error.code === "invalid-reference",
+	);
+	await store.putProposal(
+		createAgreementProposal({ ...proposal("amend-proposal"), intent: "amend", targetAgreementId: "agreement-1" }),
+	);
+	const incompatible = createAgreementRevision({
+		id: "incompatible-revision",
+		status: "candidate",
+		baseRevisionId: "genesis",
+		operations: [{ proposalId: "amend-proposal", intent: "remove", targetAgreementId: "agreement-1" }],
+		trialAgreement: { state: "none" },
+		origin: { kind: "crew", name: "Mary", role: "po" },
+	});
+	await assert.rejects(
+		() => store.putRevision(incompatible),
+		(error: unknown) => error instanceof CrewAgreementStoreError && error.code === "invalid-reference",
+	);
+});
+
 test("records deterministic candidate revision state and separates it from proposals", async () => {
 	const store = await openStore();
 	const revision = createAgreementRevision({
@@ -77,13 +108,13 @@ test("records deterministic candidate revision state and separates it from propo
 		baseRevisionId: "genesis",
 		operations: [{ proposalId: "proposal-1", intent: "add" }],
 		missingResponses: [{ origin: { kind: "crew", name: "Kelly", role: "qa" } }],
-		trialAgreement: { state: "trial" },
+		trialAgreement: { state: "trial", agreementIds: ["agreement-1"], reviewCondition: "review after seven days" },
 		origin: { kind: "crew", name: "Mary", role: "po" },
 	});
 	await store.putRevision(revision);
 	assert.deepEqual(
 		(await store.list()).map((item) => `${item.kind}:${item.status}`),
-		["proposal:proposed", "revision:candidate"],
+		["proposal:proposed", "proposal:proposed", "revision:candidate"],
 	);
 });
 
@@ -142,6 +173,30 @@ test("atomic temp failure does not publish a partial record and concurrent write
 		() => store.show("proposal", "partial"),
 		(error: unknown) => error instanceof CrewAgreementStoreError && error.code === "record-not-found",
 	);
+});
+
+test("rejects symlinked record directories and record files", async () => {
+	const store = await openStore();
+	const agreements = path.join(projectDir, ".pi", "bebop", "agreements");
+	const history = path.join(agreements, "history");
+	const proposals = path.join(history, "proposals");
+	const outside = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-agreements-outside-"));
+	await fs.rm(proposals, { recursive: true, force: true });
+	await fs.symlink(outside, proposals);
+	await assert.rejects(
+		() => store.putProposal(proposal("directory-escape")),
+		(error: unknown) => error instanceof CrewAgreementStoreError && error.code === "path-unsafe",
+	);
+	await fs.rm(proposals, { force: true });
+	await fs.mkdir(proposals, { recursive: true });
+	const outsideRecord = path.join(outside, "record.json");
+	await fs.writeFile(outsideRecord, JSON.stringify(proposal("symlink-record")));
+	await fs.symlink(outsideRecord, path.join(proposals, "symlink-record.json"));
+	await assert.rejects(
+		() => store.list("proposal"),
+		(error: unknown) => error instanceof CrewAgreementStoreError && error.code === "corrupt-record",
+	);
+	await fs.rm(outside, { recursive: true, force: true });
 });
 
 test("trust is checked before history IO", async () => {

@@ -29,6 +29,7 @@ export type CrewAgreementStoreErrorCode =
 	| "invalid-revision"
 	| "record-not-found"
 	| "stale-base"
+	| "invalid-reference"
 	| "corrupt-record"
 	| "record-oversized"
 	| "duplicate-id"
@@ -55,6 +56,7 @@ type Deps = {
 	rename: (from: string, to: string) => Promise<void>;
 	unlink: (filePath: string) => Promise<void>;
 	stat: (filePath: string) => Promise<{ size: number; isFile(): boolean }>;
+	lstat: (filePath: string) => Promise<{ isSymbolicLink(): boolean }>;
 	realpath: (filePath: string) => Promise<string>;
 	openLock: (filePath: string) => Promise<() => Promise<void>>;
 	lockDeadlineMs: number;
@@ -69,6 +71,7 @@ export interface CrewAgreementStoreDependencies {
 	readonly rename?: (from: string, to: string) => Promise<void>;
 	readonly unlink?: (filePath: string) => Promise<void>;
 	readonly stat?: (filePath: string) => Promise<{ size: number; isFile(): boolean }>;
+	readonly lstat?: (filePath: string) => Promise<{ isSymbolicLink(): boolean }>;
 	readonly realpath?: (filePath: string) => Promise<string>;
 	readonly openLock?: (filePath: string) => Promise<() => Promise<void>>;
 	readonly lockDeadlineMs?: number;
@@ -91,6 +94,10 @@ const defaultDeps: Deps = {
 	stat: async (filePath) => {
 		const stat = await fs.stat(filePath);
 		return { size: stat.size, isFile: () => stat.isFile() };
+	},
+	lstat: async (filePath) => {
+		const stat = await fs.lstat(filePath);
+		return { isSymbolicLink: () => stat.isSymbolicLink() };
 	},
 	realpath: (filePath) => fs.realpath(filePath),
 	openLock: async (filePath) => {
@@ -137,9 +144,6 @@ function safeId(id: string): boolean {
 		Buffer.byteLength(id, "utf8") <= MAX_AGREEMENT_RECORD_ID_BYTES &&
 		/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)
 	);
-}
-function recordPath(directory: string, kind: AgreementRecord["kind"], id: string): string {
-	return path.join(directory, kind === "proposal" ? PROPOSALS_DIR : REVISIONS_DIR, `${id}.json`);
 }
 function recordError(code: CrewAgreementStoreErrorCode, message: string, cause?: unknown): CrewAgreementStoreError {
 	return new CrewAgreementStoreError(code, message, cause === undefined ? undefined : { cause });
@@ -188,7 +192,23 @@ async function validateStorage(layout: string, deps: Deps): Promise<string> {
 	return realHistory;
 }
 
+async function validateRecordDirectory(history: string, kind: AgreementRecord["kind"], deps: Deps): Promise<string> {
+	const directory = path.join(history, kind === "proposal" ? PROPOSALS_DIR : REVISIONS_DIR);
+	await deps.mkdir(directory);
+	const realDirectory = await deps.realpath(directory);
+	if (!isInside(history, realDirectory))
+		throw recordError("path-unsafe", "Agreement record directory escapes trusted history");
+	return realDirectory;
+}
+
 async function readRecord(filePath: string, deps: Deps): Promise<AgreementRecord> {
+	try {
+		if ((await deps.lstat(filePath)).isSymbolicLink())
+			throw recordError("corrupt-record", "Agreement record must not be a symbolic link");
+	} catch (error) {
+		if (error instanceof CrewAgreementStoreError) throw error;
+		if (!isErrno(error, "ENOENT")) throw recordError("read-failed", "failed to inspect Agreement record", error);
+	}
 	let stat;
 	try {
 		stat = await deps.stat(filePath);
@@ -217,15 +237,54 @@ async function readRecord(filePath: string, deps: Deps): Promise<AgreementRecord
 	return parsed;
 }
 
+async function validateRevisionReferences(revision: AgreementRevision, history: string, deps: Deps): Promise<void> {
+	for (const operation of revision.operations) {
+		try {
+			const proposalDirectory = await validateRecordDirectory(history, "proposal", deps);
+			const proposal = await readRecord(path.join(proposalDirectory, `${operation.proposalId}.json`), deps);
+			if (
+				proposal.kind !== "proposal" ||
+				proposal.status !== "proposed" ||
+				proposal.intent !== operation.intent ||
+				proposal.targetAgreementId !== operation.targetAgreementId
+			)
+				throw recordError(
+					"invalid-reference",
+					`Agreement operation references an incompatible proposal: ${operation.proposalId}`,
+				);
+		} catch (error) {
+			if (error instanceof CrewAgreementStoreError && error.code === "record-not-found")
+				throw recordError(
+					"invalid-reference",
+					`Agreement operation references a missing proposal: ${operation.proposalId}`,
+				);
+			throw error;
+		}
+	}
+}
+
+async function validateRevisionBase(revision: AgreementRevision, history: string, deps: Deps): Promise<void> {
+	if (revision.baseRevisionId === "genesis") return;
+	try {
+		const revisionDirectory = await validateRecordDirectory(history, "revision", deps);
+		const base = await readRecord(path.join(revisionDirectory, `${revision.baseRevisionId}.json`), deps);
+		if (base.kind !== "revision" || base.status !== "activated")
+			throw recordError("stale-base", "Agreement revision base is not the current activated revision");
+	} catch (error) {
+		if (error instanceof CrewAgreementStoreError && error.code === "record-not-found")
+			throw recordError("stale-base", `Agreement revision base does not exist: ${revision.baseRevisionId}`);
+		throw error;
+	}
+}
+
 async function persist<T extends AgreementProposal | AgreementRevision>(
 	record: T,
 	kind: T["kind"],
 	history: string,
 	deps: Deps,
 ): Promise<{ readonly record: T; readonly alreadyPersisted?: boolean }> {
-	const directory = path.join(history, kind === "proposal" ? PROPOSALS_DIR : REVISIONS_DIR);
-	await deps.mkdir(directory);
-	const target = recordPath(history, kind, record.id);
+	const directory = await validateRecordDirectory(history, kind, deps);
+	const target = path.join(directory, `${record.id}.json`);
 	try {
 		const existing = await readRecord(target, deps);
 		if (stableJson(existing) === stableJson(record)) return { record, alreadyPersisted: true };
@@ -238,20 +297,8 @@ async function persist<T extends AgreementProposal | AgreementRevision>(
 	}
 	if (kind === "revision") {
 		const revision = record as AgreementRevision;
-		if (revision.baseRevisionId !== "genesis") {
-			try {
-				const base = await readRecord(recordPath(history, "revision", revision.baseRevisionId), deps);
-				if (base.kind !== "revision")
-					throw recordError("stale-base", "Agreement revision base is not a revision");
-			} catch (error) {
-				if (error instanceof CrewAgreementStoreError && error.code === "record-not-found")
-					throw recordError(
-						"stale-base",
-						`Agreement revision base does not exist: ${revision.baseRevisionId}`,
-					);
-				throw error;
-			}
-		}
+		await validateRevisionReferences(revision, history, deps);
+		await validateRevisionBase(revision, history, deps);
 	}
 	const temporary = path.join(directory, `${TEMP_PREFIX}${record.id}-${process.pid}-${Date.now()}.json`);
 	try {
@@ -298,8 +345,11 @@ export async function openTrustedCrewAgreementStore(options: {
 		putRevision: (record) =>
 			put(record, "revision") as Promise<{ record: AgreementRevision; alreadyPersisted?: boolean }>,
 		show: async (kind, id) => {
+			if (kind !== "proposal" && kind !== "revision")
+				throw recordError("path-unsafe", "Agreement record kind is not supported");
 			if (!safeId(id)) throw recordError("path-unsafe", "Agreement record id is not a safe filename");
-			const record = await readRecord(recordPath(history, kind, id), deps);
+			const directory = await validateRecordDirectory(history, kind, deps);
+			const record = await readRecord(path.join(directory, `${id}.json`), deps);
 			if (record.kind !== kind)
 				throw recordError("corrupt-record", "Agreement record kind does not match its history");
 			return record;
@@ -308,7 +358,7 @@ export async function openTrustedCrewAgreementStore(options: {
 			const kinds = kind === undefined ? (["proposal", "revision"] as const) : ([kind] as const);
 			const summaries: AgreementRecordSummary[] = [];
 			for (const currentKind of kinds) {
-				const directory = path.join(history, currentKind === "proposal" ? PROPOSALS_DIR : REVISIONS_DIR);
+				const directory = await validateRecordDirectory(history, currentKind, deps);
 				let names: string[];
 				try {
 					names = await deps.readdir(directory);
