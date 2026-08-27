@@ -1,7 +1,7 @@
 ---
 id: TASK-0114
 title: Collect Member session reports for retrospectives
-status: doing
+status: todo
 depends_on: [TASK-0111]
 priority: high
 tags: [crew-agreements, retrospective, evidence, member-request, session, tdd]
