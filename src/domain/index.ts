@@ -12,6 +12,7 @@ export * from "./crew-manifest.ts";
 export * from "./crew-agreements.ts";
 export * from "./crew-agreement-activation.ts";
 export * from "./retrospective-evidence.ts";
+export * from "./repository-evidence.ts";
 export * from "./crew-intake.ts";
 export * from "./crew-broadcast.ts";
 export * from "./member-interrupt.ts";
