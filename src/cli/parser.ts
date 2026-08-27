@@ -3,34 +3,24 @@ import { CommanderError } from "commander";
 import { isCliFormat } from "./commands/crew-init.ts";
 import { buildCrewInitCommand } from "./commands/crew-init.ts";
 import { buildSendCommand, readSendLeafOptions, type SendLeafOptions } from "./commands/send.ts";
-import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
+import { classifyTemplateSource, MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
 import { UsageError, type CliFormat, type SendCliOptions } from "./arguments.ts";
 
 export interface DeclarativeCrewInitOptions {
 	readonly command: "crew-init";
 	readonly project?: string;
+	readonly from?: string;
+	readonly ref?: string;
 	readonly format: CliFormat;
 	readonly help?: boolean;
 }
 
-const VALID_FLAGS = "--project <directory>, --format toon|json|text, --help";
-const VALUE_FLAGS = new Set(["--project", "--format"]);
+const VALID_FLAGS = "--project <directory>, --from <template>, --ref <ref>, --format toon|json|text, --help";
+const VALUE_FLAGS = new Set(["--project", "--from", "--ref", "--format"]);
 const FORMAT_ALTERNATIVES = "toon, json, text";
 
-/**
- * TASK-0057 parser facade: Commander owns tokenization only. Duplicate-flag
- * rejection, the `--` sentinel escape, help detection, enum validation, path
- * resolution, and error message mapping are application-owned (0056 decision:
- * cross-flag/domain validation, trust/path policy, output rendering, IO, and
- * exit assignment stay outside the framework).
- *
- * Injected argv/output guarantees: parse uses an explicit argv array,
- * `exitOverride()` throws CommanderError instead of process.exit, and
- * `configureOutput` routes library writes to no-ops — the facade never writes
- * to stdout/stderr and never calls process.exit (verified by parser tests).
- */
-export function parseCrewInitCommand(args: string[], cwd = process.cwd()): DeclarativeCrewInitOptions {
-	// 1. App-owned pre-pass: help detection, duplicate rejection, `--` sentinel.
+/** App-owned pre-pass for the crew init grammar. */
+function prepareCrewInitArgs(args: readonly string[]): { tokens: string[]; help: boolean } {
 	const tokens: string[] = [];
 	let help = false;
 	const seen = new Set<string>();
@@ -43,48 +33,77 @@ export function parseCrewInitCommand(args: string[], cwd = process.cwd()): Decla
 			help = true;
 			continue;
 		}
-		if (VALUE_FLAGS.has(flag)) {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-			if (equals > 0) {
-				tokens.push(raw);
-				continue;
-			}
-			// `--` sentinel: --project -- value escapes flag-like values.
-			if (args[index + 1] === "--" && args[index + 2] !== undefined) {
-				tokens.push(`${flag}=${args[index + 2]}`);
-				index += 2;
-				continue;
-			}
+		if (!VALUE_FLAGS.has(flag)) {
 			tokens.push(raw);
+			continue;
+		}
+		if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
+		seen.add(flag);
+		if (equals > 0) {
+			tokens.push(raw);
+			continue;
+		}
+		if (args[index + 1] === "--" && args[index + 2] !== undefined) {
+			tokens.push(`${flag}=${args[index + 2]}`);
+			index += 2;
 			continue;
 		}
 		tokens.push(raw);
 	}
+	return { tokens, help };
+}
 
-	// 2. Commander tokenization with injected argv and no ambient IO.
+type RawCrewInitOptions = { project?: string; from?: string; ref?: string; format?: string };
+
+function validateCrewInitSource(from: string | undefined, ref: string | undefined): void {
+	if (from !== undefined && (from.trim().length === 0 || from !== from.trim() || from.includes("\0")))
+		throw new UsageError("--from must be trimmed, non-empty, and must not contain NUL");
+	if (ref !== undefined && (ref.trim().length === 0 || ref !== ref.trim() || ref.includes("\0")))
+		throw new UsageError("--ref must be trimmed, non-empty, and must not contain NUL");
+	if (ref === undefined) return;
+	if (from === undefined) throw new UsageError("--ref requires --from");
+	if (classifyTemplateSource(from).kind !== "git")
+		throw new UsageError("--ref is only supported with a git template source");
+}
+
+function validateCrewInitOptions(opts: RawCrewInitOptions): { format: CliFormat; from?: string; ref?: string } {
+	const format = (opts.format ?? "toon") as string;
+	if (!isCliFormat(format))
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: ${FORMAT_ALTERNATIVES}`);
+	validateCrewInitSource(opts.from, opts.ref);
+	return {
+		format,
+		...(opts.from === undefined ? {} : { from: opts.from }),
+		...(opts.ref === undefined ? {} : { ref: opts.ref }),
+	};
+}
+
+/**
+ * TASK-0057 parser facade: Commander owns tokenization only. Duplicate-flag
+ * rejection, the `--` sentinel escape, help detection, enum validation, path
+ * resolution, and error message mapping are application-owned.
+ */
+export function parseCrewInitCommand(args: string[], cwd = process.cwd()): DeclarativeCrewInitOptions {
+	const prepared = prepareCrewInitArgs(args);
 	const program = buildCrewInitCommand()
 		.exitOverride()
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { project?: string; format?: string };
+	let opts: RawCrewInitOptions;
 	try {
-		program.parse(tokens, { from: "user" });
+		program.parse(prepared.tokens, { from: "user" });
 		opts = program.opts();
 	} catch (error) {
 		if (error instanceof CommanderError) throw mapCommanderError(error);
 		throw error;
 	}
-
-	// 3. App-owned cross-flag/domain validation.
-	const format = (opts.format ?? "toon") as string;
-	if (!isCliFormat(format))
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: ${FORMAT_ALTERNATIVES}`);
-	const project = opts.project;
+	const validated = validateCrewInitOptions(opts);
 	return {
 		command: "crew-init",
-		...(project === undefined ? {} : { project: path.resolve(cwd, project) }),
-		format,
-		...(help ? { help: true } : {}),
+		...(opts.project === undefined ? {} : { project: path.resolve(cwd, opts.project) }),
+		...(validated.from === undefined ? {} : { from: validated.from }),
+		...(validated.ref === undefined ? {} : { ref: validated.ref }),
+		format: validated.format,
+		...(prepared.help ? { help: true } : {}),
 	};
 }
 

@@ -12,6 +12,10 @@
  */
 
 import path from "node:path";
+import { promises as nodeFs } from "node:fs";
+import { execFile } from "node:child_process";
+import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { classifyTemplateSource, type TemplateEntries, type TemplateSourceDescriptor } from "../domain/index.ts";
 
 export const TEMPLATE_MAX_DEPTH = 3;
@@ -78,8 +82,9 @@ export async function readTemplateEntries(rootAbs: string, fs: LocalTemplateFs):
 			files += 1;
 			if (files > TEMPLATE_MAX_FILES) return tooLarge(`${TEMPLATE_MAX_FILES} files`);
 			const bytes = await fs.readFile(`${dirAbs}/${child.name}`);
-			if (bytes.length > TEMPLATE_MAX_FILE_BYTES) return tooLarge(`${TEMPLATE_MAX_FILE_BYTES} bytes per file`);
-			totalBytes += bytes.length;
+			const byteLength = Buffer.byteLength(bytes, "utf8");
+			if (byteLength > TEMPLATE_MAX_FILE_BYTES) return tooLarge(`${TEMPLATE_MAX_FILE_BYTES} bytes per file`);
+			totalBytes += byteLength;
 			if (totalBytes > TEMPLATE_MAX_TOTAL_BYTES) return tooLarge(`${TEMPLATE_MAX_TOTAL_BYTES} total bytes`);
 			entries[relative] = { kind: "file", bytes };
 		}
@@ -104,7 +109,12 @@ export function createLocalTemplateSourceAdapter(fs: LocalTemplateFs): TemplateS
 			if (descriptor.kind !== "local") throw new Error("local adapter requires a local descriptor");
 			const rootAbs = path.resolve(opts.cwd, descriptor.location);
 			try {
-				return await readTemplateEntries(rootAbs, fs);
+				const result = await readTemplateEntries(rootAbs, fs);
+				// Keep provenance caller-relative: the resolved absolute path is an IO
+				// detail and must never leak into CLI output.
+				if (!result.ok) return result;
+				const location = path.relative(opts.cwd, rootAbs).split(path.sep).join("/") || ".";
+				return { ...result, descriptor: { kind: "local", location } };
 			} catch (error) {
 				const code = errnoCode(error);
 				if (code === "ENOENT") {
@@ -259,5 +269,37 @@ export function createGitTemplateSourceAdapter(deps: GitSourceDeps): TemplateSou
 				await deps.rm(dir);
 			}
 		},
+	};
+}
+
+/** Production adapter composition. All process and filesystem effects remain in infra. */
+export function createNodeCrewInitTemplateSourceAdapter(): TemplateSourceAdapter {
+	const localFs: LocalTemplateFs = {
+		readdir: async (dir) => nodeFs.readdir(dir, { withFileTypes: true }),
+		readFile: (file) => nodeFs.readFile(file, "utf8"),
+	};
+	const local = createLocalTemplateSourceAdapter(localFs);
+	const git = createGitTemplateSourceAdapter({
+		runner: async (args) => {
+			try {
+				const result = await promisify(execFile)("git", [...args], { encoding: "utf8" });
+				return { status: 0, stdout: result.stdout, stderr: result.stderr };
+			} catch (error) {
+				if (errnoCode(error) === "ENOENT") throw error;
+				const failure = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string; status?: number };
+				return {
+					status: failure.status ?? 1,
+					stdout: failure.stdout ?? "",
+					stderr: failure.stderr ?? failure.message,
+				};
+			}
+		},
+		mkdtemp: () => nodeFs.mkdtemp(path.join(tmpdir(), "bebop-template-")),
+		rm: (dir) => nodeFs.rm(dir, { recursive: true, force: true }),
+		fs: localFs,
+	});
+	return {
+		read: (descriptor, opts) =>
+			descriptor.kind === "local" ? local.read(descriptor, opts) : git.read(descriptor, opts),
 	};
 }

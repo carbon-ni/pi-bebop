@@ -16,6 +16,8 @@ import type { CliFormat } from "../arguments.ts";
 
 export interface CrewInitLeafOptions {
 	readonly project?: string;
+	readonly from?: string;
+	readonly ref?: string;
 	readonly format: CliFormat;
 }
 
@@ -30,6 +32,8 @@ export function buildCrewInitCommand(): Command {
 	return new Command("init")
 		.description("Scaffold a canonical .pi/bebop software crew in a project")
 		.option("--project <directory>", "Target project root (default: current working directory)")
+		.option("--from <template>", "Adopt a local directory or public git template")
+		.option("--ref <ref>", "Git ref to check out (requires --from)")
 		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
 		.showHelpAfterError(false)
 		.helpOption(false); // --help handled by the app pre-pass; no short aliases
@@ -37,9 +41,11 @@ export function buildCrewInitCommand(): Command {
 
 /** Reads the parsed leaf values from a command that was parsed with injected argv. */
 export function readCrewInitLeafOptions(parsed: Command): CrewInitLeafOptions {
-	const opts = parsed.opts<{ project?: string; format?: string }>();
+	const opts = parsed.opts<{ project?: string; from?: string; ref?: string; format?: string }>();
 	return {
 		...(opts.project === undefined ? {} : { project: opts.project }),
+		...(opts.from === undefined ? {} : { from: opts.from }),
+		...(opts.ref === undefined ? {} : { ref: opts.ref }),
 		format: (opts.format ?? "toon") as CliFormat,
 	};
 }

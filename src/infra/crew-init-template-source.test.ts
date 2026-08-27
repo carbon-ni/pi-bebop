@@ -5,6 +5,7 @@ import {
 	createLocalTemplateSourceAdapter,
 	readTemplateEntries,
 	resolveTemplateSourceDescriptor,
+	TEMPLATE_MAX_FILE_BYTES,
 	type GitRunner,
 	type LocalTemplateFs,
 } from "./crew-init-template-source.ts";
@@ -169,7 +170,23 @@ test("local adapter reads a relative location against cwd (L1)", async () => {
 	const adapter = createLocalTemplateSourceAdapter(localAdapterFs(validTree));
 	const result = await adapter.read({ kind: "local", location: "../my-template" }, { cwd: "/cwd/project" });
 	assert.equal(result.ok, true);
-	if (result.ok) assert.ok("crew.json" in result.entries);
+	if (result.ok) {
+		assert.ok("crew.json" in result.entries);
+		assert.deepEqual(result.descriptor, { kind: "local", location: "../my-template" });
+		assert.ok(!JSON.stringify(result).includes("/cwd"), "resolved absolute path never leaks into provenance");
+	}
+});
+
+test("template byte limits count UTF-8 bytes, not JavaScript code units", async () => {
+	const multibyte = "é".repeat(Math.floor(TEMPLATE_MAX_FILE_BYTES / 2) + 1);
+	const result = await readTemplateEntries("/src/root", {
+		readdir: async () => [
+			{ name: "large.md", isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false },
+		],
+		readFile: async () => multibyte,
+	});
+	assert.equal(result.ok, false);
+	if (!result.ok) assert.equal(result.code, "template-source-too-large");
 });
 
 test("local adapter reports missing and non-directory sources without absolute paths (V1)", async () => {

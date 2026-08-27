@@ -13,7 +13,13 @@ import type { TemplateEntries, TemplateSourceDescriptor } from "../domain/index.
 const manifest = JSON.stringify({
 	version: 1,
 	members: [
-		{ name: "captain", role: "lead", description: "Runs the ship", socket: "sockets/captain.sock", instructionsFile: "instructions/captain.md" },
+		{
+			name: "captain",
+			role: "lead",
+			description: "Runs the ship",
+			socket: "sockets/captain.sock",
+			instructionsFile: "instructions/captain.md",
+		},
 	],
 });
 
@@ -66,14 +72,14 @@ function fakeFsAdapter(initial: Record<string, { kind: CrewInitPathKind; bytes?:
 			if (fs.failPublishWith) throw fs.failPublishWith;
 			for (const key of [...fs.kinds.keys()]) {
 				if (key.startsWith(`${staging}/`)) {
-				const moved = `${target}${key.slice(staging.length)}`;
-				fs.kinds.set(moved, fs.kinds.get(key)!);
-				fs.kinds.delete(key);
-				const content = fs.bytes.get(key);
-				if (content !== undefined) {
-					fs.bytes.set(moved, content);
-					fs.bytes.delete(key);
-				}
+					const moved = `${target}${key.slice(staging.length)}`;
+					fs.kinds.set(moved, fs.kinds.get(key)!);
+					fs.kinds.delete(key);
+					const content = fs.bytes.get(key);
+					if (content !== undefined) {
+						fs.bytes.set(moved, content);
+						fs.bytes.delete(key);
+					}
 				}
 			}
 			fs.kinds.set(target, "directory");
@@ -114,7 +120,9 @@ const PROJECT = "/proj";
 
 test("from local template: created with adopted bytes and local provenance (L1, P1)", async () => {
 	const { adapter, fs } = fakeFsAdapter({ [PROJECT]: { kind: "directory" } });
-	const flow = createCrewInitFlow(adapter, { sourceAdapter: sourceAdapterWith({ ok: true, entries: templateEntries(), descriptor: local }) });
+	const flow = createCrewInitFlow(adapter, {
+		sourceAdapter: sourceAdapterWith({ ok: true, entries: templateEntries(), descriptor: local }),
+	});
 	const result = await flow.run(PROJECT, { from: local, cwd: "/cwd" });
 	assert.equal(result.ok, true);
 	if (!result.ok) return;
@@ -128,7 +136,13 @@ test("from local template: created with adopted bytes and local provenance (L1, 
 
 test("template validation failures perform zero writes and leave the destination untouched (V1-V3)", async () => {
 	const cases: readonly [string, TemplateEntries][] = [
-		["malformed manifest", { "crew.json": { kind: "file", bytes: "{ nope" }, "instructions/captain.md": { kind: "file", bytes: "x\n" } }],
+		[
+			"malformed manifest",
+			{
+				"crew.json": { kind: "file", bytes: "{ nope" },
+				"instructions/captain.md": { kind: "file", bytes: "x\n" },
+			},
+		],
 		["missing instruction", { "crew.json": { kind: "file", bytes: manifest } }],
 		["runtime-owned socket", templateEntries({ "sockets/captain.sock": { kind: "file", bytes: "x" } })],
 		["runtime-owned inbox", templateEntries({ "inbox/pending.json": { kind: "file", bytes: "x" } })],
@@ -139,7 +153,9 @@ test("template validation failures perform zero writes and leave the destination
 	for (const [name, entries] of cases) {
 		const { adapter, fs, snapshot } = fakeFsAdapter({ [PROJECT]: { kind: "directory" } });
 		const before = snapshot();
-		const flow = createCrewInitFlow(adapter, { sourceAdapter: sourceAdapterWith({ ok: true, entries, descriptor: local }) });
+		const flow = createCrewInitFlow(adapter, {
+			sourceAdapter: sourceAdapterWith({ ok: true, entries, descriptor: local }),
+		});
 		const result = await flow.run(PROJECT, { from: local, cwd: "/cwd" });
 		assert.equal(result.ok, false, name);
 		if (!result.ok) assert.ok(result.error.code.startsWith("template-"), `${name}: ${result.error.code}`);
@@ -149,7 +165,14 @@ test("template validation failures perform zero writes and leave the destination
 });
 
 test("source adapter failures map to operational errors with zero destination writes (G3/G4)", async () => {
-	for (const code of ["git-clone-failed", "git-network-unreachable", "git-auth-required", "git-unsupported-url", "git-unavailable", "template-source-unreadable"]) {
+	for (const code of [
+		"git-clone-failed",
+		"git-network-unreachable",
+		"git-auth-required",
+		"git-unsupported-url",
+		"git-unavailable",
+		"template-source-unreadable",
+	]) {
 		const { adapter, fs, snapshot } = fakeFsAdapter({ [PROJECT]: { kind: "directory" } });
 		const before = snapshot();
 		const flow = createCrewInitFlow(adapter, {
@@ -191,7 +214,9 @@ test("differing template and pre-existing built-in scaffolds conflict; existing 
 		[`${PROJECT}/.pi/bebop/instructions/captain.md`]: { kind: "file", bytes: "old\n" },
 	});
 	const before = snapshot();
-	const flow = createCrewInitFlow(adapter, { sourceAdapter: sourceAdapterWith({ ok: true, entries: templateEntries(), descriptor: local }) });
+	const flow = createCrewInitFlow(adapter, {
+		sourceAdapter: sourceAdapterWith({ ok: true, entries: templateEntries(), descriptor: local }),
+	});
 	const result = await flow.run(PROJECT, { from: local, cwd: "/cwd" });
 	assert.equal(result.ok, false);
 	if (!result.ok) assert.equal(result.error.code, "managed-file-differs");
@@ -230,11 +255,16 @@ test("mid-stage publish failure cleans staging and never reports created (F1)", 
 	const { adapter, fs, snapshot } = fakeFsAdapter({ [PROJECT]: { kind: "directory" } });
 	fs.failPublishWith = Object.assign(new Error("EACCES"), { code: "EACCES" });
 	const before = snapshot();
-	const flow = createCrewInitFlow(adapter, { sourceAdapter: sourceAdapterWith({ ok: true, entries: templateEntries(), descriptor: local }) });
+	const flow = createCrewInitFlow(adapter, {
+		sourceAdapter: sourceAdapterWith({ ok: true, entries: templateEntries(), descriptor: local }),
+	});
 	const result = await flow.run(PROJECT, { from: local, cwd: "/cwd" });
 	assert.equal(result.ok, false);
 	if (!result.ok) assert.equal(result.error.code, "permission-denied");
-	assert.ok(fs.mutations.some((entry) => entry.startsWith("remove:")), "staging cleaned");
+	assert.ok(
+		fs.mutations.some((entry) => entry.startsWith("remove:")),
+		"staging cleaned",
+	);
 	const staged = [...fs.kinds.keys()].filter((key) => key.includes(".bebop-init"));
 	assert.deepEqual(staged, [], "no staging residue");
 	assert.equal(snapshot(), before);
@@ -248,9 +278,19 @@ test("template/ root auto-detection adopts the template/ subtree, not decoy root
 		"template/": { kind: "directory" },
 		...Object.fromEntries(Object.entries(entries).map(([key, value]) => [`template/${key}`, value])),
 	};
-	const flow = createCrewInitFlow(adapter, { sourceAdapter: sourceAdapterWith({ ok: true, entries, descriptor: local }).read
-		? { async read() { return { ok: true, entries: scoped, descriptor: local }; } }
-		: { async read() { return { ok: true, entries: scoped, descriptor: local }; } } });
+	const flow = createCrewInitFlow(adapter, {
+		sourceAdapter: sourceAdapterWith({ ok: true, entries, descriptor: local }).read
+			? {
+					async read() {
+						return { ok: true, entries: scoped, descriptor: local };
+					},
+				}
+			: {
+					async read() {
+						return { ok: true, entries: scoped, descriptor: local };
+					},
+				},
+	});
 	const result = await flow.run(PROJECT, { from: local, cwd: "/cwd" });
 	assert.equal(result.ok, true);
 	assert.equal(fs.bytes.get(`${PROJECT}/.pi/bebop/crew.json`), manifest);

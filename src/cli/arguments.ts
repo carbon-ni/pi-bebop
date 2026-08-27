@@ -30,6 +30,8 @@ export class UsageError extends Error {
 export type CrewInitCliOptions = {
 	readonly command: "crew-init";
 	readonly project?: string;
+	readonly from?: string;
+	readonly ref?: string;
 	readonly format: CliFormat;
 	readonly help?: boolean;
 };

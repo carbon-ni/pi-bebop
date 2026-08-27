@@ -1,6 +1,5 @@
 {
 	"version": 1,
-	"note": "Architecture ratchet baseline (TASK-0100). Entries may only shrink or be removed (arch-check --update-baseline). Never regenerate upward; a new offender must be fixed, not recorded.",
 	"entries": [
 		{
 			"check": "complexity",
@@ -43,12 +42,6 @@
 			"file": "src/cli/commands/member-status.ts",
 			"function": "parseMemberStatusCommand",
 			"value": 23
-		},
-		{
-			"check": "complexity",
-			"file": "src/cli/parser.ts",
-			"function": "parseCrewInitCommand",
-			"value": 16
 		},
 		{
 			"check": "complexity",

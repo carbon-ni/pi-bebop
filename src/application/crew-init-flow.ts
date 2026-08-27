@@ -112,7 +112,10 @@ async function loadTemplatePlan(
 	sourceAdapter: TemplateSourceAdapter,
 	from: TemplateSourceDescriptor,
 	cwd: string,
-): Promise<{ ok: true; plan: CrewInitTemplatePlan; source: CrewInitProvenance } | { ok: false; code: CrewInitFlowErrorCode; message: string }> {
+): Promise<
+	| { ok: true; plan: CrewInitTemplatePlan; source: CrewInitProvenance }
+	| { ok: false; code: CrewInitFlowErrorCode; message: string }
+> {
 	const read = await sourceAdapter.read(from, { cwd });
 	if (read.ok === false) return { ok: false, code: read.code as CrewInitFlowErrorCode, message: read.message };
 	const root = selectTemplateRoot(Object.keys(read.entries));
@@ -122,7 +125,8 @@ async function loadTemplatePlan(
 		if (key.startsWith(root.root)) scoped[key.slice(root.root.length)] = entry;
 	}
 	const verdict = validateTemplate(scoped);
-	if (verdict.ok === false) return { ok: false, code: verdict.code as CrewInitFlowErrorCode, message: verdict.message };
+	if (verdict.ok === false)
+		return { ok: false, code: verdict.code as CrewInitFlowErrorCode, message: verdict.message };
 	const bytes = adoptedBytesFromTemplate(verdict.files, verdict.manifest);
 	return {
 		ok: true,
@@ -190,11 +194,7 @@ function publishFailure(project: string, error: unknown): CrewInitFlowResult {
 	};
 }
 
-async function writeStaging(
-	adapter: CrewInitFsAdapter,
-	staging: string,
-	plan?: CrewInitTemplatePlan,
-): Promise<void> {
+async function writeStaging(adapter: CrewInitFsAdapter, staging: string, plan?: CrewInitTemplatePlan): Promise<void> {
 	const templates = plan?.bytes ?? crewInitTemplateBytes();
 	const managed = plan?.managedPaths ?? crewInitManagedPaths();
 	for (const relative of managed) {

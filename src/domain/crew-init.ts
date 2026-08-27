@@ -404,13 +404,15 @@ export function validateCrewInitUsage(argv: readonly string[]): CrewInitUsageVer
 /** Command-local `--help`: defaults, files, exit codes, and runnable examples. */
 export function crewInitHelp(): string {
 	return [
-		"pi-bebop crew init [--project <directory>] [--format toon|json|text]",
+		"pi-bebop crew init [--project <directory>] [--from <template>] [--ref <ref>] [--format toon|json|text]",
 		"",
 		"Scaffold a canonical .pi/bebop software crew in a project. Non-interactive and idempotent;",
 		"never overwrites existing content and never requires --force.",
 		"",
 		"Options:",
 		"  --project <directory>   Target project root (default: current working directory)",
+		"  --from <template>       Adopt a local directory or public git template",
+		"  --ref <ref>             Git ref to check out (requires --from)",
 		"  --format <format>       Output format: toon (default), json, or text",
 		"  --help                  Show this help",
 		"",
@@ -428,7 +430,8 @@ export function crewInitHelp(): string {
 		"Examples:",
 		"  pi-bebop crew init",
 		"  pi-bebop crew init --project /path/to/project",
-		"  pi-bebop crew init --format json",
+		"  pi-bebop crew init --from ../shared-crew --format json",
+		"  pi-bebop crew init --from https://github.com/acme/crew.git --ref v1",
 		"",
 		"Review crew.json contact/names/instructions before starting member processes.",
 		"",

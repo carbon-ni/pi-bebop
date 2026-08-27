@@ -32,6 +32,43 @@ test("crew init creates a fresh canonical scaffold with created status", async (
 	}
 });
 
+test("crew init --from adopts a local template and redacts absolute provenance", async () => {
+	const target = await mkdtemp(path.join(tmpdir(), "bebop-init-target-"));
+	const source = await mkdtemp(path.join(tmpdir(), "bebop-init-template-"));
+	try {
+		await mkdir(path.join(source, "instructions"), { recursive: true });
+		await writeFile(
+			path.join(source, "crew.json"),
+			JSON.stringify({
+				version: 1,
+				members: [
+					{
+						name: "captain",
+						role: "lead",
+						socket: "sockets/captain.sock",
+						instructionsFile: "instructions/captain.md",
+					},
+				],
+			}),
+		);
+		await writeFile(path.join(source, "instructions/captain.md"), "# Captain\n");
+		const outcome = await runCrewInitCommand(
+			{ command: "crew-init", project: target, from: source, format: "json" },
+			target,
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind !== "result") return;
+		assert.equal(outcome.result.ok, true);
+		const data = outcome.result.data as { source?: { type: string; location: string } };
+		assert.deepEqual(data.source, { type: "local", location: path.relative(target, source) });
+		assert.ok(!path.isAbsolute(data.source?.location ?? ""));
+		assert.equal(await readFileText(path.join(target, ".pi/bebop/instructions/captain.md")), "# Captain\n");
+	} finally {
+		await rm(target, { recursive: true, force: true });
+		await rm(source, { recursive: true, force: true });
+	}
+});
+
 test("crew init exact rerun is unchanged with zero writes", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-init-handler-"));
 	try {

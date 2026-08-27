@@ -443,14 +443,16 @@ test("single-line anonymous map callbacks are counted as complexity offenders", 
 	]);
 	const ratchet = applyRatchet(result, emptyBaseline);
 	assert.equal(ratchet.ok, false);
-	assert.deepEqual(ratchet.failures, [{
-		check: "complexity",
-		file: "src/domain/anonymous-map.ts",
-		function: "anonymous@1",
-		line: 1,
-		value: 17,
-		reason: "new",
-	}]);
+	assert.deepEqual(ratchet.failures, [
+		{
+			check: "complexity",
+			file: "src/domain/anonymous-map.ts",
+			function: "anonymous@1",
+			line: 1,
+			value: 17,
+			reason: "new",
+		},
+	]);
 });
 
 test("class-property arrows are named by the property", () => {

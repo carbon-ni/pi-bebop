@@ -24,6 +24,12 @@ test("declarative crew init defaults to cwd and toon", () => {
 		command: "crew-init",
 		format: "text",
 	});
+	assert.deepEqual(parseCrewInitCommand(["--from", "https://example.test/template.git", "--ref", "v1"], cwd), {
+		command: "crew-init",
+		from: "https://example.test/template.git",
+		ref: "v1",
+		format: "toon",
+	});
 });
 
 test("declarative crew init resolves --project against cwd in both syntaxes", () => {
@@ -63,7 +69,10 @@ test("declarative crew init --help is accepted without IO", () => {
 
 test("declarative crew init rejects unknown, duplicate, and missing flags with exact legacy messages", () => {
 	for (const [args, pattern] of [
-		[["--bogus"], /Unknown flag '--bogus'; valid flags: --project <directory>, --format toon\|json\|text, --help/],
+		[
+			["--bogus"],
+			/Unknown flag '--bogus'; valid flags: --project <directory>, --from <template>, --ref <ref>, --format toon\|json\|text, --help/,
+		],
 		[["extra"], /Unknown flag 'extra'/],
 		[["--project"], /Missing value for --project/],
 		[["--format"], /Missing value for --format/],
@@ -81,6 +90,14 @@ test("declarative crew init rejects unknown, duplicate, and missing flags with e
 			args.join(" "),
 		);
 	}
+});
+
+test("declarative crew init requires --from for --ref and rejects local refs", () => {
+	assert.throws(() => parseCrewInitCommand(["--ref", "v1"], cwd), /--ref requires --from/);
+	assert.throws(
+		() => parseCrewInitCommand(["--from", "../template", "--ref", "v1"], cwd),
+		/only supported with a git/,
+	);
 });
 
 test("declarative crew init rejects incompatible format values", () => {
