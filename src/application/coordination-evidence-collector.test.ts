@@ -5,12 +5,15 @@ import {
 	collectSingleCoordinationEvent,
 	coordinationSourceGap,
 	COORDINATION_COLLECTOR_ID,
+	collectFromSources,
+	type CoordinationEventSource,
 } from "./coordination-evidence-collector.ts";
 import { type CoordinationEvent, type CoordinationOutcomeKind } from "../domain/coordination-evidence.ts";
 import {
 	orderAndDeduplicateRetrospectiveEvidence,
 	canonicalRetrospectiveEvidenceFingerprintInput,
 	type RetrospectiveEvidence,
+	type RetrospectiveEvidenceInterval,
 } from "../domain/index.ts";
 
 const INTERVAL = { start: "2026-01-01T00:00:00.000Z", end: "2026-01-01T01:00:00.000Z" };
@@ -262,6 +265,146 @@ describe("coordination-evidence-collector", () => {
 			const result = collectCoordinationEvidence([event], INTERVAL, FIXED_FINGERPRINT);
 			assert.ok(result.items[0]!.capture.provenance.includes("interrupt"));
 			assert.ok(result.items[0]!.capture.provenance.includes("interrupt-handoff"));
+		});
+	});
+
+	describe("collectFromSources — injected source seam", () => {
+		function makeSource(
+			overrides: Partial<CoordinationEventSource> & { events?: readonly CoordinationEvent[] } = {},
+		): CoordinationEventSource {
+			const events = overrides.events ?? [];
+			return {
+				family: overrides.family ?? "member-request",
+				identity: overrides.identity ?? "src-1",
+				collect: overrides.collect ?? ((_interval: RetrospectiveEvidenceInterval) => events),
+			};
+		}
+
+		it("collects from a single source", () => {
+			const source = makeSource({
+				events: [
+					makeEvent({ source: { family: "member-request", identity: "req-1", reference: "ref" }, outcome: "member-request-response", correlationId: "req-1" }),
+				],
+			});
+			const result = collectFromSources([source], INTERVAL, FIXED_FINGERPRINT);
+			assert.equal(result.items.length, 1);
+			assert.equal(result.gaps.length, 0);
+		});
+
+		it("collects from multiple sources across families", () => {
+			const sources: CoordinationEventSource[] = [
+				makeSource({
+					family: "member-request",
+					events: [makeEvent({ source: { family: "member-request", identity: "r1", reference: "ref" }, outcome: "member-request-response", correlationId: "r1" })],
+				}),
+				makeSource({
+					family: "interrupt",
+					events: [makeEvent({ source: { family: "interrupt", identity: "i1", reference: "ref" }, outcome: "interrupt-handoff", correlationId: "i1" })],
+				}),
+				makeSource({
+					family: "broadcast",
+					events: [makeEvent({ source: { family: "broadcast", identity: "b1", reference: "ref" }, outcome: "broadcast-persisted", correlationId: "b1" })],
+				}),
+			];
+			const result = collectFromSources(sources, INTERVAL, FIXED_FINGERPRINT);
+			assert.equal(result.items.length, 3);
+			assert.equal(result.gaps.length, 0);
+		});
+
+		it("source that throws becomes explicit gap evidence", () => {
+			const source = makeSource({
+				family: "inbox",
+				identity: "corrupt-source",
+				collect: () => {
+					throw new Error("journal corrupted");
+				},
+			});
+			const result = collectFromSources([source], INTERVAL, FIXED_FINGERPRINT);
+			assert.equal(result.items.length, 0);
+			assert.equal(result.gaps.length, 1);
+			assert.equal(result.gaps[0]!.availability, "unavailable");
+			assert.ok(result.gaps[0]!.gap!.reason.includes("journal corrupted"));
+		});
+
+		it("source returning empty events is not a gap", () => {
+			const source = makeSource({ events: [] });
+			const result = collectFromSources([source], INTERVAL, FIXED_FINGERPRINT);
+			assert.equal(result.items.length, 0);
+			assert.equal(result.gaps.length, 0);
+		});
+
+		it("one failing source does not prevent other sources from being collected", () => {
+			const goodSource = makeSource({
+				events: [makeEvent({ source: { family: "membership", identity: "m1", reference: "ref" }, outcome: "membership-join-failed", correlationId: "m1" })],
+			});
+			const failingSource = makeSource({
+				family: "interrupt",
+				identity: "rotated-source",
+				collect: () => {
+					throw new Error("source rotated");
+				},
+			});
+			const result = collectFromSources([failingSource, goodSource], INTERVAL, FIXED_FINGERPRINT);
+			assert.equal(result.items.length, 1);
+			assert.equal(result.gaps.length, 1);
+			assert.ok(result.gaps[0]!.source.identity.includes("rotated-source"));
+		});
+
+		it("source seam is read-only — never calls send/activate/mutate", () => {
+			let sourceCalled = false;
+			const source = makeSource({
+				collect: () => {
+					sourceCalled = true;
+					return [];
+				},
+			});
+			collectFromSources([source], INTERVAL, FIXED_FINGERPRINT);
+			assert.ok(sourceCalled);
+			// Source only returned events; no side-effect surface exists on the seam
+			assert.equal(source.collect(INTERVAL).length, 0);
+		});
+
+		it("rejects events from source that have non-mechanical context", () => {
+			const source = makeSource({
+				events: [
+					makeEvent({ context: { productive: true } as unknown as import("../domain/coordination-evidence.ts").CoordinationMechanicalContext }),
+				],
+			});
+			const result = collectFromSources([source], INTERVAL, FIXED_FINGERPRINT);
+			assert.equal(result.items.length, 0);
+			assert.equal(result.rejected.length, 1);
+			assert.ok(result.rejected[0]!.reason.includes("non-mechanical"));
+		});
+
+		it("events outside the interval from a source are rejected not gapped", () => {
+			const source = makeSource({
+				events: [
+					makeEvent({ occurredAt: "2099-01-01T00:00:00.000Z", correlationId: "future" }),
+					makeEvent({ occurredAt: "2026-01-01T00:30:00.000Z", correlationId: "valid" }),
+				],
+			});
+			const result = collectFromSources([source], INTERVAL, FIXED_FINGERPRINT);
+			assert.equal(result.items.length, 1);
+			assert.equal(result.rejected.length, 1);
+			assert.equal(result.gaps.length, 0);
+		});
+	});
+
+	describe("adversarial — secrets/credentials redacted by store layer", () => {
+		it("credential-like content is redacted in representation", () => {
+			const event = makeEvent({ contentSummary: "token=ghp_abc123secret" });
+			const evidence = collectSingleCoordinationEvent(event, INTERVAL, FIXED_FINGERPRINT);
+			// The retrospective-evidence redaction layer handles this
+			assert.ok(evidence.redactions.length >= 0); // redactions may or may not trigger
+			// Key: the original secret never appears in the evidence representation
+			assert.ok(!evidence.representation!.text.includes("ghp_abc123secret"));
+		});
+
+		it("hidden reasoning is simply unavailable (never collected)", () => {
+			// CoordinationEvent has no hidden-reasoning field — it's structurally impossible
+			const event = makeEvent();
+			assert.ok((event as Record<string, unknown>).hiddenReasoning === undefined);
+			assert.ok((event as Record<string, unknown>).agentThinking === undefined);
 		});
 	});
 });

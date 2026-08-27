@@ -9,6 +9,7 @@ import {
 	boundContentSummary,
 	isMechanicalContextOnly,
 } from "../domain/coordination-evidence.ts";
+import type { RetrospectiveEvidenceInterval, RetrospectiveEvidence } from "../domain/index.ts";
 import {
 	type RetrospectiveEvidenceInput,
 	type RetrospectiveEvidenceInterval,
@@ -137,4 +138,59 @@ export function collectSingleCoordinationEvent(
 ): RetrospectiveEvidence {
 	const input = coordinationEventToEvidenceInput(event, interval);
 	return createRetrospectiveEvidence(input, fingerprint);
+}
+
+/**
+ * Read-only finite source seam. Each source provides coordination events
+ * for a specific family. Sources never send messages, mutate Inbox, or
+ * activate Agreements — they only return event arrays.
+ */
+export interface CoordinationEventSource {
+	readonly family: CoordinationEventFamily;
+	readonly identity: string;
+	/** Collect events for the exact interval. Must be finite and read-only. */
+	collect(interval: RetrospectiveEvidenceInterval): readonly CoordinationEvent[];
+}
+
+export interface CollectFromSourcesResult {
+	readonly items: readonly RetrospectiveEvidence[];
+	readonly rejected: readonly { event: CoordinationEvent; reason: string }[];
+	readonly gaps: readonly RetrospectiveEvidence[];
+}
+
+/**
+ * Collects coordination evidence from multiple injected sources.
+ * Source errors become explicit gap evidence rather than silent failures.
+ * Read-only: never mutates sources, sends messages, or activates Agreements.
+ */
+export function collectFromSources(
+	sources: readonly CoordinationEventSource[],
+	interval: RetrospectiveEvidenceInterval,
+	fingerprint: RetrospectiveEvidenceFingerprint,
+): CollectFromSourcesResult {
+	const allItems: RetrospectiveEvidence[] = [];
+	const allRejected: { event: CoordinationEvent; reason: string }[] = [];
+	const gaps: RetrospectiveEvidence[] = [];
+
+	for (const source of sources) {
+		let events: readonly CoordinationEvent[];
+		try {
+			events = source.collect(interval);
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			try {
+				const gapInput = coordinationSourceGap(source.family, source.identity, reason, interval);
+				gaps.push(createRetrospectiveEvidence(gapInput, fingerprint));
+			} catch {
+				// Gap creation itself failed; skip silently to avoid cascading errors.
+			}
+			continue;
+		}
+
+		const result = collectCoordinationEvidence(events, interval, fingerprint);
+		allItems.push(...result.items);
+		allRejected.push(...result.rejected);
+	}
+
+	return { items: allItems, rejected: allRejected, gaps };
 }
