@@ -1,7 +1,7 @@
 ---
 id: TASK-0095
 title: Apply common instructions to every crew member
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, crew-agreements, manifest, instructions, system-prompt, security, scaffold, tdd]
