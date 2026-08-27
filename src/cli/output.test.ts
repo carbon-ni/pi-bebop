@@ -68,6 +68,43 @@ test("persisted text output renders the one-way acknowledgement", () => {
 	assert.equal(renderCliResult(intakeResult, "text", false), "Persisted for Mary (po) — inbox item inbox-0-abc");
 });
 
+test("text crew init output includes safe provenance for created and unchanged", () => {
+	for (const status of ["created", "unchanged"] as const) {
+		assert.equal(
+			renderCliResult(
+				{
+					ok: true,
+					target: "/project",
+					status,
+					response: status === "created" ? "Scaffolded" : "Already present",
+					data: { source: { type: "local", location: "templates/team" } },
+				},
+				"text",
+				false,
+			),
+			`${status === "created" ? "Scaffolded" : "Already present"}\nSource: local templates/team`,
+		);
+	}
+});
+
+test("text Git provenance includes the resolved commit without URL credentials", () => {
+	const rendered = renderCliResult(
+		{
+			ok: true,
+			target: "/project",
+			status: "created",
+			response: "Scaffolded",
+			data: {
+				source: { type: "git", location: "https://example.test/team.git", resolvedRef: "a".repeat(40) },
+			},
+		},
+		"text",
+		false,
+	);
+	assert.match(rendered, /Source: git https:\/\/example\.test\/team\.git \(resolved a{40}\)$/);
+	assert.ok(!rendered.includes("secret"));
+});
+
 test("persisted text falls back to a neutral ack never 'completed'", () => {
 	assert.equal(
 		renderCliResult({ ok: true, target: "/x", status: "persisted", data: { itemId: "i" } }, "text", false),

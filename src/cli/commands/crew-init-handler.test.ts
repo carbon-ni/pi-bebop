@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runCrewInitCommand } from "./crew-init-handler.ts";
 import { crewInitHelp } from "../../domain/index.ts";
+import { renderCliResult } from "../output.ts";
 
 test("crew init --help returns deterministic local help with zero IO", async () => {
 	const outcome = await runCrewInitCommand({ command: "crew-init", format: "toon", help: true }, "/project");
@@ -66,6 +67,43 @@ test("crew init --from adopts a local template and redacts absolute provenance",
 	} finally {
 		await rm(target, { recursive: true, force: true });
 		await rm(source, { recursive: true, force: true });
+	}
+});
+
+test("crew init --from text output includes provenance for created and unchanged", async () => {
+	const target = await mkdtemp(path.join(tmpdir(), "bebop-init-text-target-"));
+	const source = path.join(target, "template");
+	try {
+		await mkdir(path.join(source, "instructions"), { recursive: true });
+		await writeFile(
+			path.join(source, "crew.json"),
+			JSON.stringify({
+				version: 1,
+				members: [
+					{
+						name: "captain",
+						role: "lead",
+						socket: "sockets/captain.sock",
+						instructionsFile: "instructions/captain.md",
+					},
+				],
+			}),
+		);
+		await writeFile(path.join(source, "instructions/captain.md"), "# Captain\n");
+		const options = { command: "crew-init" as const, project: target, from: "template", format: "text" as const };
+		const created = await runCrewInitCommand(options, target);
+		const unchanged = await runCrewInitCommand(options, target);
+		assert.equal(created.kind, "result");
+		assert.equal(unchanged.kind, "result");
+		if (created.kind === "result" && unchanged.kind === "result") {
+			assert.match(renderCliResult(created.result, "text", false), /Scaffolded[\s\S]*Source: local template$/);
+			assert.match(
+				renderCliResult(unchanged.result, "text", false),
+				/byte-identical[\s\S]*Source: local template$/,
+			);
+		}
+	} finally {
+		await rm(target, { recursive: true, force: true });
 	}
 });
 

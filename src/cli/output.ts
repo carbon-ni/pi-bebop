@@ -36,11 +36,26 @@ export function writeOutcome(output: NodeJS.WritableStream, outcome: CliOutcome)
 
 const MAX_RESPONSE = 2000;
 
+function textProvenance(result: CliResult): string | undefined {
+	if (result.status !== "created" && result.status !== "unchanged") return undefined;
+	if (typeof result.data !== "object" || result.data === null) return undefined;
+	const source = (result.data as { source?: unknown }).source;
+	if (typeof source !== "object" || source === null) return undefined;
+	const descriptor = source as { type?: unknown; location?: unknown; resolvedRef?: unknown };
+	if ((descriptor.type !== "local" && descriptor.type !== "git") || typeof descriptor.location !== "string") {
+		return undefined;
+	}
+	const resolved = typeof descriptor.resolvedRef === "string" ? ` (resolved ${descriptor.resolvedRef})` : "";
+	return `Source: ${descriptor.type} ${descriptor.location}${resolved}`;
+}
+
 export function renderCliResult(result: CliResult, format: CliFormat, full: boolean): string {
 	if (format === "text") {
 		if (!result.ok) return result.error?.message ?? "Operation failed";
 		if (result.status === "persisted") return result.response ?? "Message persisted";
-		return result.response ?? (result.status === "accepted" ? "Message accepted" : "Message completed");
+		const response = result.response ?? (result.status === "accepted" ? "Message accepted" : "Message completed");
+		const provenance = textProvenance(result);
+		return provenance === undefined ? response : `${response}\n${provenance}`;
 	}
 	const output: Record<string, unknown> = { ...result };
 	if (result.response !== undefined) {
