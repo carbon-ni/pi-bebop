@@ -1,7 +1,7 @@
 ---
 id: TASK-0112
 title: Collect Bebop coordination evidence for retrospectives
-status: doing
+status: done
 depends_on: [TASK-0111]
 priority: high
 tags: [crew-agreements, retrospective, evidence, messaging, coordination, tdd]
