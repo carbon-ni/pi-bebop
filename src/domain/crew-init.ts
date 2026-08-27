@@ -257,13 +257,30 @@ export type CrewInitTargetVerdict =
 	| { readonly kind: "unchanged" }
 	| { readonly kind: "conflict"; readonly code: string; readonly path: string; readonly nextStep: string };
 
+/** Optional parameterization: template bytes + managed paths for `--from` adoption. */
+export interface CrewInitTemplatePlan {
+	readonly bytes: Record<string, string>;
+	readonly managedPaths: readonly string[];
+}
+
+/** Default plan: the built-in deterministic template. */
+function builtinTemplatePlan(): CrewInitTemplatePlan {
+	return { bytes: crewInitTemplateBytes(), managedPaths: crewInitManagedPaths() };
+}
+
 /**
  * Pure preflight decision. Missing layout -> created. Exact byte-identical
  * rerun -> unchanged. Any existing, symlinked, partial, or differing layout ->
  * stable conflict with the offending relative path and an actionable next
  * step. Never suggests overwrite or `--force`; never mutates.
+ *
+ * `plan` parameterizes the expected bytes for `--from` adoption; omitted it
+ * is the built-in template (zero-arg behavior stays byte-identical).
  */
-export function classifyCrewInitTarget(snapshot: CrewInitFSSnapshot): CrewInitTargetVerdict {
+export function classifyCrewInitTarget(
+	snapshot: CrewInitFSSnapshot,
+	plan: CrewInitTemplatePlan = builtinTemplatePlan(),
+): CrewInitTargetVerdict {
 	const rootKind = snapshot.readRootKind();
 	if (rootKind !== "directory") {
 		return {
@@ -273,9 +290,9 @@ export function classifyCrewInitTarget(snapshot: CrewInitFSSnapshot): CrewInitTa
 			nextStep: "Choose a directory project root or remove the conflicting file before running crew init",
 		};
 	}
-	const templates = crewInitTemplateBytes();
+	const templates = plan.bytes;
 	let missing = 0;
-	for (const relative of crewInitManagedPaths()) {
+	for (const relative of plan.managedPaths) {
 		if (relative.endsWith("/")) {
 			const entry = snapshot.readPath(relative);
 			if (entry.kind === "missing") {
@@ -305,7 +322,7 @@ export function classifyCrewInitTarget(snapshot: CrewInitFSSnapshot): CrewInitTa
 				`Review ${relative}; edit it or move it aside, then rerun crew init`,
 			);
 	}
-	if (missing === crewInitManagedPaths().length) return { kind: "created" };
+	if (missing === plan.managedPaths.length) return { kind: "created" };
 	if (missing === 0) return { kind: "unchanged" };
 	return {
 		kind: "conflict",

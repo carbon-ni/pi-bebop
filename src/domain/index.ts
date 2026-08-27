@@ -19,6 +19,7 @@ export * from "./member-status.ts";
 export * from "./member-idle-wait.ts";
 export * from "./accepted-local-message-wake-gate.ts";
 export * from "./crew-init.ts";
+export * from "./crew-init-template.ts";
 export * from "./crew-role.ts";
 export * from "./member-inbox.ts";
 export * from "./inbox-hint.ts";
