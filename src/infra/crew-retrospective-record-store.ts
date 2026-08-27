@@ -40,6 +40,8 @@ export interface CrewRetrospectiveRecordStore {
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+let freezeTempSequence = 0;
+
 function recordBytes(record: CrewRetrospectiveRecord): string {
 	return `${JSON.stringify(record, null, "\t")}\n`;
 }
@@ -102,21 +104,24 @@ export async function openTrustedCrewRetrospectiveRecordStore(options: {
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			}
-			const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
+						const temp = `${target}.${process.pid}.${Date.now()}.${freezeTempSequence++}.tmp`;
 			await fs.writeFile(temp, bytes, { encoding: "utf8" });
 			try {
 				await fs.rename(temp, target);
 			} catch (error) {
 				await fs.unlink(temp).catch(() => undefined);
-				// Another writer may have frozen first: treat rename collision as replay check.
-				if (
-					(error as NodeJS.ErrnoException).code === "ENOTEMPTY" ||
-					(error as NodeJS.ErrnoException).code === "EEXIST"
-				) {
+				const code = (error as NodeJS.ErrnoException).code;
+				// Another writer won the race (temp renamed away or target replaced):
+				// compare bytes and treat identical results as idempotent replay.
+				if (code === "ENOENT" || code === "ENOTEMPTY" || code === "EEXIST") {
 					const existing = await fs.readFile(target, "utf8");
 					if (recordFileHash(existing) === recordFileHash(bytes)) {
 						return { record: JSON.parse(existing) as CrewRetrospectiveRecord, alreadyFrozen: true };
 					}
+					throw new CrewRetrospectiveRecordStoreError(
+						"already-frozen-conflict",
+						`record id already frozen with different bytes: ${record.id}`,
+					);
 				}
 				throw new CrewRetrospectiveRecordStoreError("write-failed", `failed to freeze record: ${record.id}`);
 			}

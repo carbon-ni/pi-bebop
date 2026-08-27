@@ -28,7 +28,10 @@ function record(id: string, extra: Partial<CrewRetrospectiveRecord> = {}): CrewR
 }
 
 async function withStore(
-	run: (store: Awaited<ReturnType<typeof openTrustedCrewRetrospectiveRecordStore>>) => Promise<void>,
+	run: (
+		store: Awaited<ReturnType<typeof openTrustedCrewRetrospectiveRecordStore>>,
+		paths: { recordsDir: string },
+	) => Promise<void>,
 ) {
 	const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-retro-record-"));
 	const manifestPath = path.join(projectDir, ".pi", "bebop", "crew.json");
@@ -40,7 +43,7 @@ async function withStore(
 			manifestPath,
 			isProjectTrusted: () => true,
 		});
-		await run(store);
+		await run(store, { recordsDir: path.join(projectDir, ".pi", "bebop", "retrospective-records") });
 	} finally {
 		await fs.rm(projectDir, { recursive: true, force: true });
 	}
@@ -127,5 +130,31 @@ describe("crew retrospective record store", () => {
 		} finally {
 			await fs.rm(projectDir, { recursive: true, force: true });
 		}
+	});
+
+	it("concurrent freeze of identical bytes is idempotent (no partial/corrupt result)", async () => {
+		await withStore(async (store) => {
+			const frozen = record("retro-record.retro-1.00000005");
+			const results = await Promise.all([store.freeze(frozen), store.freeze(frozen), store.freeze(frozen)]);
+			for (const result of results) {
+				assert.equal(result.record.contentHash, frozen.contentHash);
+			}
+			const shown = await store.show(frozen.id);
+			assert.equal(shown.contentHash, frozen.contentHash);
+			const listed = await store.list();
+			assert.equal(listed.length, 1);
+		});
+	});
+
+	it("leftover partial-write temp files are ignored by listing", async () => {
+		await withStore(async (store, { recordsDir }) => {
+			const frozen = record("retro-record.retro-1.00000006");
+			await store.freeze(frozen);
+			// Simulate a crashed partial write next to the frozen record.
+			await fs.writeFile(path.join(recordsDir, `${frozen.id}.999.999999.tmp`), "{ partial", "utf8");
+			const listed = await store.list();
+			assert.equal(listed.length, 1);
+			assert.equal(listed[0]!.id, frozen.id);
+		});
 	});
 });
