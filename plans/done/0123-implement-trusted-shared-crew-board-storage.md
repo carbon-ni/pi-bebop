@@ -1,7 +1,7 @@
 ---
 id: TASK-0123
 title: Implement trusted shared Crew Board storage
-status: doing
+status: done
 depends_on: [TASK-0122]
 priority: high
 tags: [crew, board, domain, infra, persistence, filesystem, atomicity, tdd]
