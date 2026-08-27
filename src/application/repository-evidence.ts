@@ -201,10 +201,7 @@ function artifactEvidence(
 	const pathLine = item.relativePath === undefined ? "" : `\npath=${item.relativePath}`;
 	const summary = boundedText(`kind=${item.source}; id=${item.id}${pathLine}\n${item.summary}`);
 	const identity = boundedText(`${item.source}:${item.id}`, MAX_REPOSITORY_EVIDENCE_REFERENCE_BYTES);
-	const reference = boundedText(
-		item.correlationId ?? item.reference,
-		MAX_REPOSITORY_EVIDENCE_REFERENCE_BYTES,
-	);
+	const reference = boundedText(item.correlationId ?? item.reference, MAX_REPOSITORY_EVIDENCE_REFERENCE_BYTES);
 	const semantic = {
 		repositoryId: options.repositoryId,
 		source: item.source,
