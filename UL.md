@@ -17,6 +17,10 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Presence**                    | Last observed endpoint reachability of configured member.                                                                                                                                                                                                                      | availability, readiness, idle state                     |
 | **Member Status**               | One-shot privacy-safe snapshot combining Presence, live Activity, and pending-message signal.                                                                                                                                                                                  | monitoring, task progress, transcript summary           |
 | **Member Idle Wait**            | One-shot coordination primitive that blocks the current run, bounded and event-driven, until a configured member's Pi settles to mechanical idle, goes offline, the bounded deadline expires, or an accepted Bebop message releases the wait under its original delivery mode. | waiting for a reply, monitoring, availability, presence |
+| **Crew Idle Gate**              | One-shot bounded coordination primitive that blocks its caller, waits event-by-event, and returns ready only after one Final Crew Status Round observes every other frozen configured Member online/idle; it never routes work or grants Lead authority.                         | wait-all completion, scheduler, atomic Crew snapshot    |
+| **Final Crew Status Round**     | One bounded concurrent status query over a Crew Idle Gate's frozen manifest-order targets. All-observed-idle is a distributed momentary result with per-Member timestamps, never atomic simultaneity or a promise to remain idle.                                                   | atomic snapshot, quiet window, completion barrier       |
+| **Blocking-wait marker**        | Transient mechanical state saying a Member currently owns a blocking `member-idle` or `crew-idle` wait. It exposes no wait target/content, is not durable, and exists only for deterministic wait ownership and Crew Idle Lock detection.                                         | task state, intent, monitoring history                  |
+| **Crew Idle Lock**              | Whole-Crew condition where a Crew Idle Gate caller is waiting and every frozen online target explicitly owns a Blocking-wait marker. It releases only the observing caller with `wait-lock`; it is not inferred from busy Activity or used to mutate remote runs.                  | arbitrary deadlock proof, remote cancellation, recovery |
 | **Activity**                    | Mechanical live Pi runtime state: idle when settled, busy while processing/retrying/continuing, or unavailable while offline.                                                                                                                                                  | availability, productivity, manually claimed state      |
 | **Role instructions**           | Stable member guidance loaded when membership starts or restores.                                                                                                                                                                                                              | prompt, message instructions                            |
 | **Message instructions**        | Ordered guidance attached to one crew message.                                                                                                                                                                                                                                 | role instructions                                       |
@@ -90,6 +94,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | Respond to a Member request                                                                                                                              | `respond_to_member_request` | Responder-side: correlates one Response using active request context or opaque Request ID; only for an inbound Member request, never ordinary Follow-up.                                          |
 | Wait for the oldest terminal outbound Request outcome                                                                                                    | `wait_for_request_outcome`  | Requester-side: call only after you sent a Member request; no arguments, no polling, no inbound handling, no unrelated activity; only Response, offline, timeout after idle, or timeout max-wait. |
 | Block this run until another member's Pi is mechanically idle, goes offline, the bounded timeout expires, or an accepted Bebop message releases the wait | `wait_for_member_idle`      | One-shot bounded blocking wait; message-received never implies reply, idle, task completion, or availability. Request-outcome waiting remains yielding.                                           |
+| Block this run until a final round observes every other frozen Crew Member idle, or a bounded non-ready outcome releases it                       | `wait_for_crew_idle`        | Whole-Crew event-driven gate. `ready` is momentary all-observed-idle; `wait-lock` releases caller only. Neither routes work, proves completion, nor grants Lead authority.                           |
 
 `send_follow_up` is canonical normal delivery. `redirect_member` names the
 consequence (changing active work), not transport timing. Legacy
@@ -125,6 +130,11 @@ Bebop hands Inbox item to Pi as normal Follow-up without managing recipient work
 Presence observes Member endpoint; it does not prove availability
 Member Status reads Presence and live Activity without triggering target turn
 Offline Member Status marks Activity unavailable rather than stale
+Crew Idle Gate freezes every other manifest Member and one absolute deadline at start
+Crew Idle Gate ready requires one Final Crew Status Round to observe every frozen target online/idle
+Final Crew Status Round is distributed and momentary, never an atomic or future-idle guarantee
+Blocking-wait marker is transient mechanical state and reveals neither wait target nor content
+Crew Idle Lock releases only the observing caller; no remote wait or run is mutated
 Busy Interrupt persists pending recovery, requests abort, then hands recovery guidance before older queued Follow-ups
 Crew work contributes bounded Retrospective evidence for one fixed interval
 Bebop coordination, repository work, and Member retrospective reports contribute Retrospective evidence
@@ -182,6 +192,10 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Idle/reply:** mechanical idle proves only that the Pi runtime settled; it never proves the target saw a message, finished a task, intends to reply, or will remain idle. Response correlation is supported only through the Member request workflow.
 - **Idle wait/monitoring:** idle wait is one-shot, transient, and bounded; monitoring is continuous background observation.
 - **Idle wait/Member Status:** Member Status is an immediate snapshot; idle wait blocks until a mechanical transition or deadline.
+- **Crew Idle Gate/Member Idle Wait:** Member Idle Wait targets one exact Member and returns from that Member's terminal. Crew Idle Gate freezes every other configured Member, waits event-by-event, and requires a new full status round before ready.
+- **Final round/atomic snapshot:** Final Crew Status Round observations have individual timestamps. `ready` means all-observed-idle in that round, not mathematical simultaneity, an empty queue, or a promise to remain idle.
+- **Crew Idle Lock/busy:** only explicit transient Blocking-wait markers prove the whole-Crew lock predicate. Generic busy/compacting Activity, task state, and conversation never do.
+- **Wait-lock/deadlock recovery:** `wait-lock` cancels and releases only the observing caller's Crew Idle Gate. It never selects a Lead winner, cancels remote waits, interrupts, redirects, assigns work, or diagnoses partial hidden wait cycles.
 - **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or Response produced.
 - **Member request/Follow-up:** a Member request expects exactly one correlated Response; ordinary Follow-up has no implicit Response expectation.
 - **Request outcome/activity:** Request outcome wait returns only the oldest terminal outbound Member request outcome; it never monitors or returns unrelated Crew activity.
@@ -225,5 +239,6 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - `plans/todo/0048-add-crew-visible-member-descriptions.md`
 - `plans/todo/0046-define-member-activity-and-public-focus-status.md`
 - `docs/MEMBER-STATUS.md`
+- `docs/CREW-IDLE-GATE.md`
 - `docs/CREW-AGREEMENTS.md`
 - `plans/todo/0103-define-crew-agreements-and-crew-retrospective-contract.md`
