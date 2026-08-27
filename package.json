@@ -37,6 +37,7 @@
 		"src/domain/accepted-local-message-wake-gate.ts",
 		"src/domain/branch-alias.ts",
 		"src/domain/cli.ts",
+		"src/domain/crew-agreement-activation.ts",
 		"src/domain/crew-agreements.ts",
 		"src/domain/retrospective-evidence.ts",
 		"src/domain/crew-broadcast.ts",
