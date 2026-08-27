@@ -1,7 +1,7 @@
 ---
 id: TASK-0115
 title: Assemble the shared Crew Retrospective Record
-status: todo
+status: doing
 depends_on: [TASK-0112, TASK-0113, TASK-0114]
 priority: high
 tags: [crew-agreements, retrospective, evidence, synthesis, determinism, tdd]
