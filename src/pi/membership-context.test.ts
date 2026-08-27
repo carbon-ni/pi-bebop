@@ -59,6 +59,11 @@ test("injects concise identity exactly once per system prompt", () => {
 	assert.match(first, /Role instructions: Build it/);
 	assert.match(first, /Members: dev \(developer\), qa \(reviewer\)/);
 	assert.doesNotMatch(first, /message-context|per-message|Reply with evidence/);
+	assert.equal(first.match(/Crew Board:/g)?.length, 1);
+	assert.match(
+		first,
+		/Crew Board: use read_crew_board to inspect shared Posts and leave_crew_post to add one\. Posts are not delivered automatically\./,
+	);
 });
 
 test("renders common instructions once before role instructions, including members without a role file", () => {

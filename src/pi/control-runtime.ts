@@ -128,6 +128,8 @@ export const MEMBERSHIP_TOOLS = [
 	"send_member_request",
 	"respond_to_member_request",
 	"wait_for_request_outcome",
+	"leave_crew_post",
+	"read_crew_board",
 ] as const;
 
 /**

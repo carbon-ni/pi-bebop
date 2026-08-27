@@ -17,6 +17,8 @@ const MEMBERSHIP_TOOLS = [
 	"interrupt_member",
 	"get_member_status",
 	"wait_for_member_idle",
+	"leave_crew_post",
+	"read_crew_board",
 ];
 
 test("role rejection preflight leaves control server untouched for invalid, empty, missing, ambiguous, and resolver failure", async () => {

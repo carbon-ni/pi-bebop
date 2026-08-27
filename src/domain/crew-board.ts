@@ -160,6 +160,40 @@ function validateLink(link: CrewPostLink | null | undefined): CrewPostLink | nul
 		fail("invalid-link", "link is invalid");
 	return { relation: link.relation, postId: link.postId };
 }
+export function validateBoardAppendInput(input: BoardAppendInput): void {
+	safeText(input.operationId, "operation-id", MAX_BOARD_OPERATION_ID_BYTES);
+	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(input.operationId))
+		fail("invalid-operation-id", "operation id grammar is invalid");
+	safeAuthor(input.author?.name);
+	safeAuthor(input.author?.role);
+	const kind = input.kind ?? "note";
+	if (!KINDS.includes(kind)) fail("invalid-kind", "kind is invalid");
+	redactMessage(input.message);
+	const references = (input.references ?? []).map(validateReference);
+	if (new Set(references).size !== references.length) fail("duplicate-reference", "references must be unique");
+	if (references.length > MAX_BOARD_REFERENCES) fail("too-many-references", "too many references");
+	validateLink(input.link);
+}
+
+export function normalizeBoardKinds(kinds: readonly CrewPostKind[] | undefined): CrewPostKind[] {
+	if (!kinds) return [];
+	if (
+		kinds.length === 0 ||
+		kinds.length > 5 ||
+		new Set(kinds).size !== kinds.length ||
+		kinds.some((kind) => !KINDS.includes(kind))
+	)
+		fail("invalid-read", "invalid Crew Board kind filter");
+	return [...kinds].sort((a, b) => KINDS.indexOf(a) - KINDS.indexOf(b));
+}
+
+export function validateBoardReadLimit(limit: unknown): number {
+	const value = limit === undefined ? BOARD_DEFAULT_LIMIT : limit;
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > BOARD_MAX_LIMIT)
+		fail("invalid-read", "Crew Board limit is invalid");
+	return value;
+}
+
 export function boardScopeForLayout(realLayout: string): string {
 	return sha256(realLayout);
 }
@@ -169,9 +203,8 @@ export function createBoardPost(
 	createdAt: number,
 	boardScope: string,
 ): CrewPost {
-	const operationId = safeText(input.operationId, "operation-id", MAX_BOARD_OPERATION_ID_BYTES);
-	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(operationId))
-		fail("invalid-operation-id", "operation id grammar is invalid");
+	validateBoardAppendInput(input);
+	const operationId = input.operationId;
 	if (!Number.isSafeInteger(sequence) || sequence < 1)
 		fail("invalid-sequence", "sequence must be positive safe integer");
 	if (!Number.isSafeInteger(createdAt) || createdAt < 0)
@@ -179,11 +212,8 @@ export function createBoardPost(
 	const name = safeAuthor(input.author.name);
 	const role = safeAuthor(input.author.role);
 	const kind = input.kind ?? "note";
-	if (!KINDS.includes(kind)) fail("invalid-kind", "kind is invalid");
 	const { message, redactions } = redactMessage(input.message);
 	const references = (input.references ?? []).map(validateReference);
-	if (new Set(references).size !== references.length) fail("duplicate-reference", "references must be unique");
-	if (references.length > MAX_BOARD_REFERENCES) fail("too-many-references", "too many references");
 	references.sort((a, b) => Buffer.from(a).compare(Buffer.from(b)));
 	const link = validateLink(input.link);
 	const author = { name, role };

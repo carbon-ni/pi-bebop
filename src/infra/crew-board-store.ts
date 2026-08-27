@@ -2,8 +2,6 @@ import { promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
 import * as path from "node:path";
 import {
-	BOARD_DEFAULT_LIMIT,
-	BOARD_MAX_LIMIT,
 	CREW_BOARD_VERSION,
 	MAX_BOARD_CURSOR_BYTES,
 	MAX_BOARD_POSTS,
@@ -15,6 +13,8 @@ import {
 	encodeBoardCursor,
 	isCrewPost,
 	boardScopeForLayout,
+	normalizeBoardKinds,
+	validateBoardReadLimit,
 	type BoardAppendInput,
 	type BoardCursor,
 	type BoardReadResult,
@@ -313,18 +313,6 @@ function pagePosts(
 		hasMore && boundary ? encodeBoardCursor({ board, sequence: boundary.sequence, id: boundary.id, kinds }) : null;
 	return { posts, nextCursor, hasMore };
 }
-function normalizeKinds(kinds: readonly CrewPostKind[] | undefined): CrewPostKind[] {
-	const order: CrewPostKind[] = ["tip", "kudos", "feedback", "warning", "note"];
-	if (!kinds) return [];
-	if (
-		kinds.length === 0 ||
-		kinds.length > 5 ||
-		new Set(kinds).size !== kinds.length ||
-		kinds.some((kind) => !order.includes(kind))
-	)
-		throw error("invalid-read", "invalid Crew Board kind filter");
-	return [...kinds].sort((a, b) => order.indexOf(a) - order.indexOf(b));
-}
 async function appendPost(
 	input: BoardAppendInput,
 	now: number,
@@ -418,10 +406,18 @@ export async function openTrustedCrewBoardStore(options: CrewBoardStoreOptions):
 			return appendPost(input, now, { postsDir, quarantineDir, lock }, boardScopeForLayout(realLayout));
 		},
 		async read(readOptions = {}) {
-			const limit = readOptions.limit ?? BOARD_DEFAULT_LIMIT;
-			if (!Number.isSafeInteger(limit) || limit < 1 || limit > BOARD_MAX_LIMIT)
-				throw error("invalid-read", "Crew Board limit is invalid");
-			const kinds = normalizeKinds(readOptions.kinds);
+			let limit: number;
+			try {
+				limit = validateBoardReadLimit(readOptions.limit);
+			} catch (cause) {
+				throw error("invalid-read", cause instanceof Error ? cause.message : "Crew Board limit is invalid");
+			}
+			let kinds: CrewPostKind[];
+			try {
+				kinds = normalizeBoardKinds(readOptions.kinds);
+			} catch (cause) {
+				throw error("invalid-read", cause instanceof Error ? cause.message : "invalid Crew Board kind filter");
+			}
 			const realLayout = await deps.realpath(layout);
 			const after = readOptions.after
 				? decodeBoardCursor(readOptions.after, boardScopeForLayout(realLayout), kinds)

@@ -20,6 +20,8 @@ import {
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
 	registerWaitForRequestOutcomeTool,
+	registerLeaveCrewPostTool,
+	registerReadCrewBoardTool,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
@@ -45,6 +47,7 @@ import { getSocketPath } from "./infra/intray-paths.ts";
 import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
 import { openTrustedCrewAgreementStore } from "./infra/crew-agreement-store.ts";
 import { openTrustedMemberInboxStore } from "./infra/member-inbox-store.ts";
+import { openTrustedCrewBoardStore } from "./infra/crew-board-store.ts";
 import { activateAgreementRevision } from "./application/crew-agreement-activation.ts";
 import { createMembershipRuntime } from "./infra/membership-runtime.ts";
 import {
@@ -209,6 +212,14 @@ export default function (pi: ExtensionAPI) {
 				return { ok: false, code: "transport-error" };
 			}
 		},
+	});
+	registerLeaveCrewPostTool(pi, state, {
+		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+		openStore: (options) => openTrustedCrewBoardStore(options),
+	});
+	registerReadCrewBoardTool(pi, state, {
+		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+		openStore: (options) => openTrustedCrewBoardStore(options),
 	});
 	// Membership tools stay registered (getAllTools) and are deactivated at
 	// session_start before the first agent request: Pi's extension runtime does
