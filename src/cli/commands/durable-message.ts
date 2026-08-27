@@ -192,6 +192,7 @@ export function parseDurableMessageCommand(
 		booleanFlags: new Set(["--stdin"]),
 		repeatableFlags: new Set(["--instruction"]),
 		rejectFlagLikeValues: true,
+		rejectFlagLikeEquals: true,
 	});
 	const instructions = parsed.repeatableValues.get("--instruction") ?? [];
 	const { opts, member } = parseDurableMessageTokens(parsed.tokens, intent);

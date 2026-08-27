@@ -11,6 +11,8 @@ export interface FlagTokenSpec {
 	readonly escapedValueFlags?: ReadonlySet<string>;
 	/** Whether a separated value beginning with `--` is treated as missing. */
 	readonly rejectFlagLikeValues?: boolean;
+	/** Whether an equals-form repeatable value beginning with `--` is treated as missing. */
+	readonly rejectFlagLikeEquals?: boolean;
 }
 
 export interface FlagTokenResult {
@@ -87,7 +89,11 @@ function readRepeatableValue(
 	flag: string,
 	spec: FlagTokenSpec,
 ): { value: string; nextIndex: number } {
-	if (equals > 0) return { value: raw.slice(equals + 1), nextIndex: index };
+	if (equals > 0) {
+		const value = raw.slice(equals + 1);
+		if (spec.rejectFlagLikeEquals && value.startsWith("--")) throw new UsageError(`Missing value for ${flag}`);
+		return { value, nextIndex: index };
+	}
 	const escaped = readEscapedValue(args, index, flag, spec);
 	if (escaped !== undefined) return escaped;
 	const value = args[index + 1];

@@ -59,6 +59,19 @@ test("flag tokenizer supports the explicit sentinel escape for single and repeat
 	assert.deepEqual(result.repeatableValues.get("--instruction"), ["--looks-like-a-flag"]);
 });
 
+test("flag tokenizer allows or rejects equals flag-like repeatable values by explicit spec", () => {
+	assert.deepEqual(parse(["--instruction=--allowed"]).repeatableValues.get("--instruction"), ["--allowed"]);
+	assert.throws(
+		() =>
+			parseFlagTokens(["--instruction=--rejected"], {
+				valueFlags,
+				repeatableFlags: new Set(["--instruction"]),
+				rejectFlagLikeEquals: true,
+			}),
+		/Missing value for --instruction/,
+	);
+});
+
 test("flag tokenizer keeps missing single values for Commander and rejects missing repeatable values", () => {
 	assert.deepEqual(parse(["--format"]).tokens, ["--format"]);
 	assert.throws(() => parse(["--instruction"]), /Missing value for --instruction/);
