@@ -36,6 +36,28 @@ export function writeOutcome(output: NodeJS.WritableStream, outcome: CliOutcome)
 
 const MAX_RESPONSE = 2000;
 
+function textHome(result: CliResult): string | undefined {
+	if (!result.ok || result.status !== "home" || typeof result.data !== "object" || result.data === null)
+		return undefined;
+	const data = result.data as Record<string, unknown>;
+	if (
+		typeof data.project !== "string" ||
+		(data.scaffold !== "missing" && data.scaffold !== "present") ||
+		typeof data.next !== "string" ||
+		!Array.isArray(data.commands) ||
+		data.commands.some((command) => typeof command !== "string")
+	)
+		return undefined;
+	const clean = (value: string) => value.replace(/[\r\n]/g, " ");
+	return [
+		"Pi Bebop",
+		`Project: ${clean(data.project)}`,
+		`Scaffold: ${data.scaffold}`,
+		`Next: ${clean(data.next)}`,
+		`Commands: ${data.commands.map((command) => clean(command)).join(", ")}`,
+	].join("\n");
+}
+
 function textProvenance(result: CliResult): string | undefined {
 	if (result.status !== "created" && result.status !== "unchanged") return undefined;
 	if (typeof result.data !== "object" || result.data === null) return undefined;
@@ -51,6 +73,8 @@ function textProvenance(result: CliResult): string | undefined {
 
 export function renderCliResult(result: CliResult, format: CliFormat, full: boolean): string {
 	if (format === "text") {
+		const home = textHome(result);
+		if (home !== undefined) return home;
 		if (!result.ok) return result.error?.message ?? "Operation failed";
 		if (result.status === "persisted") return result.response ?? "Message persisted";
 		const response = result.response ?? (result.status === "accepted" ? "Message accepted" : "Message completed");

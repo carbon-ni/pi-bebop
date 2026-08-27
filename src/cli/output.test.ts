@@ -23,6 +23,40 @@ test("bounds assistant output with explicit truncation metadata unless full", ()
 	assert.equal(JSON.parse(renderCliResult(large, "json", true)).response.length, 5000);
 });
 
+test("text renders a concise human home with project state and next commands", () => {
+	assert.equal(
+		renderCliResult(
+			{
+				ok: true,
+				target: "",
+				status: "home",
+				data: {
+					project: "/project",
+					scaffold: "missing",
+					next: "pi-bebop crew init",
+					commands: ["send", "crew init", "crew roles"],
+				},
+			},
+			"text",
+			false,
+		),
+		"Pi Bebop\nProject: /project\nScaffold: missing\nNext: pi-bebop crew init\nCommands: send, crew init, crew roles",
+	);
+	assert.equal(
+		renderCliResult(
+			{
+				ok: true,
+				target: "",
+				status: "home",
+				data: { project: "/project\nprivate", scaffold: "present", next: "pi --crew-role lead", commands: [] },
+			},
+			"text",
+			false,
+		),
+		"Pi Bebop\nProject: /project private\nScaffold: present\nNext: pi --crew-role lead\nCommands: ",
+	);
+});
+
 test("text emits only useful success output and concise errors", () => {
 	assert.equal(renderCliResult(success, "text", false), "hello");
 	assert.equal(

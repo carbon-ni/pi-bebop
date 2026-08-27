@@ -172,9 +172,10 @@ test("no-argument home: compact schema, not full help", async () => {
 	});
 	const code = await runCli([], dir, process.stdin, output);
 	assert.equal(code, 0);
-	const lines = text.trim().split("\n");
-	assert.equal(lines[0], "Message completed");
-	assert.equal(text.trim(), "Message completed");
+	assert.equal(
+		text,
+		"Pi Bebop\nProject: /project\nScaffold: missing\nNext: pi-bebop crew init\nCommands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast\n",
+	);
 	assert.ok(!text.includes("Usage:") && !text.includes("Options:"), "home is not full help");
 });
 

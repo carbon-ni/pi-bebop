@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, cp, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, cp, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,12 +104,17 @@ try {
 		)
 			throw new Error("Installed CLI send --help missing metadata defaults");
 
-		// TASK-0101: human-facing no-argument home defaults to text. The text
-		// renderer's stable data-only fallback is intentionally concise; machine
-		// consumers opt into --format toon or --format json.
+		// TASK-0101: human-facing no-argument home defaults to concise text;
+		// machine consumers opt into --format toon or --format json.
+		const expectedHome =
+			"Pi Bebop\n" +
+			`Project: ${await realpath(initDir)}\n` +
+			"Scaffold: missing\n" +
+			"Next: pi-bebop crew init\n" +
+			"Commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast\n";
 		const home = await execFile(process.execPath, [cli], { cwd: initDir, env: environment });
-		if (home.stdout !== "Message completed\n")
-			throw new Error("Installed CLI no-argument home did not render the locked text default");
+		if (home.stdout !== expectedHome)
+			throw new Error("Installed CLI no-argument home did not render the locked text state");
 
 		const created = await execFile(process.execPath, [cli, "crew", "init", "--format", "json"], {
 			cwd: initDir,
@@ -135,8 +140,14 @@ try {
 		await symlink(path.join("..", "@carbon-ni", "pi-bebop", "dist", "cli", "main.js"), bin);
 
 		const binHome = await execFile(process.execPath, [bin], { cwd: initDir, env: environment });
-		if (binHome.stdout !== "Message completed\n")
-			throw new Error("Installed bin shim no-argument invocation did not render the locked text home");
+		const expectedHomeAfter =
+			"Pi Bebop\n" +
+			`Project: ${await realpath(initDir)}\n` +
+			"Scaffold: present\n" +
+			"Next: pi --crew-role lead\n" +
+			"Commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast\n";
+		if (binHome.stdout !== expectedHomeAfter)
+			throw new Error("Installed bin shim no-argument invocation did not render the locked text state after scaffold");
 
 		const binRootHelp = await execFile(process.execPath, [bin, "--help"], { cwd: initDir, env: environment });
 		const binShortHelp = await execFile(process.execPath, [bin, "-h"], { cwd: initDir, env: environment });

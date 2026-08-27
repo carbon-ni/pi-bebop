@@ -3,7 +3,7 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -138,7 +138,12 @@ test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 re
 		});
 		const homeCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
 		assert.equal(homeCode, 0, homeOut);
-		assert.equal(homeOut, "Message completed\n");
+		assert.equal(
+			homeOut,
+			"Pi Bebop\nProject: " +
+				(await realpath(prefix)) +
+				"\nScaffold: missing\nNext: pi-bebop crew init\nCommands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast\n",
+		);
 
 		// Real commands through the bin symlink match direct artifact semantics exactly.
 		const artifact = path.join(packageRoot, "dist/cli/main.js");
@@ -1337,7 +1342,10 @@ test("no arguments shows concise human home state by default", async () => {
 		});
 		const code = await runCli([], dir, process.stdin, output);
 		assert.equal(code, 0);
-		assert.equal(text.trim(), "Message completed");
+		assert.equal(
+			text,
+			`Pi Bebop\nProject: ${dir}\nScaffold: missing\nNext: pi-bebop crew init\nCommands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast\n`,
+		);
 		const toonOutput = new PassThrough();
 		let toonText = "";
 		toonOutput.setEncoding("utf8");
