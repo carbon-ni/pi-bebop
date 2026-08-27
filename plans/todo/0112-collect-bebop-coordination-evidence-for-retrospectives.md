@@ -27,4 +27,3 @@ Collect facts Bebop owns; never reinterpret mechanical states as intent, product
 
 ## Non-goals
 Repository/session collection, semantic situation synthesis, continuous monitoring UI, or task/progress inference.
-

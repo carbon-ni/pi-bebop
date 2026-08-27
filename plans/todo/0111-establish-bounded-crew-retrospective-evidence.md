@@ -27,4 +27,3 @@ Crew transparency is the default: visible work performed as a Member is availabl
 
 ## Non-goals
 Situation synthesis, Agreement proposals/activation, source-specific collectors, anonymous/private evidence, or unbounded transcript storage.
-

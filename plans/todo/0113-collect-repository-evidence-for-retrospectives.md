@@ -26,4 +26,3 @@ Repository evidence is shared Crew work, but availability differs by project; ab
 
 ## Non-goals
 Network issue trackers, arbitrary plugin ecosystems, evaluating code quality, assigning work, or interpreting test failure causes.
-

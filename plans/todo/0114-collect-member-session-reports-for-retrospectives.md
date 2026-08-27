@@ -27,4 +27,3 @@ Each Member can interpret their own visible Crew-session work. Collection uses e
 
 ## Non-goals
 Hidden reasoning access, sentiment/productivity scoring, facilitator-authored reports for absent Members, or direct Agreement activation.
-

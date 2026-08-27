@@ -28,4 +28,3 @@ The system deterministically assembles evidence; any model/facilitator synthesis
 
 ## Non-goals
 Agreement proposal/activation, automatic consensus, truth adjudication, sentiment/productivity scoring, or unbounded artifact embedding.
-
