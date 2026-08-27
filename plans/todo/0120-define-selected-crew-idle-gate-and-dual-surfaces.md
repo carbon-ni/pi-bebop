@@ -1,7 +1,7 @@
 ---
 id: TASK-0120
 title: Define selected Crew Idle Gate and dual surfaces
-status: todo
+status: doing
 depends_on: [TASK-0116]
 priority: high
 tags: [crew, idle, command, tools, selection, product, ubiquitous-language, determinism]
