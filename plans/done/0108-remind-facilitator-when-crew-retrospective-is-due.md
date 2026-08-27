@@ -1,7 +1,7 @@
 ---
 id: TASK-0108
 title: Remind facilitator when Crew Retrospective is due
-status: doing
+status: done
 depends_on: [TASK-0107]
 priority: high
 tags: [crew-agreements, retrospective, cadence, lifecycle, determinism, tdd]
