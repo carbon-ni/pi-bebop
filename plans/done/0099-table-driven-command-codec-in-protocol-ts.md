@@ -1,7 +1,7 @@
 ---
 id: TASK-0099
 title: Table-driven command codec in protocol.ts
-status: doing
+status: done
 depends_on: [TASK-0098]
 priority: high
 tags: []
