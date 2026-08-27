@@ -1,7 +1,7 @@
 ---
 id: TASK-0104
 title: Load Current Crew Agreements for every Member
-status: doing
+status: done
 depends_on: [TASK-0103, TASK-0095]
 priority: high
 tags: [crew-agreements, membership, instructions, manifest, tdd]
