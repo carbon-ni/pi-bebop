@@ -149,6 +149,26 @@ persists handed-off evidence. On reload, pending evidence without hand-off is
 retried before normal continuation. Pi gives recovery steer precedence over older
 follow-ups, but abort is best-effort and never rolls back prior side effects.
 
+### Agreement proposal and revision history
+
+Agreement proposals and candidate revisions are separate from the active Current
+Crew Agreements snapshot. `src/domain/crew-agreements.ts` defines bounded,
+versioned records: proposals retain add/amend/remove intent, problem/evidence,
+observable behavior, target Agreement ID, and canonical claimed Origin;
+revisions retain one exact base revision, sorted operations, objections, missing
+Responses, and Trial Agreement state. External Origin is provenance only and is
+not eligible for activation.
+
+`src/infra/crew-agreement-store.ts` persists records beneath the trusted
+`.pi/bebop/agreements/history/{proposals,revisions}/` layout. It checks project
+trust before IO, validates real-path containment, rejects corruption and
+oversized records, serializes writers under a bounded lock, and publishes each
+record through temp-file plus atomic rename. Existing IDs are replay-idempotent
+using canonical JSON; different content returns `idempotency-conflict` and a
+missing revision base returns `stale-base`. List/show expose only bounded record
+metadata or the requested record, never Inbox/session content. Activation and
+Current Crew mutation are intentionally separate downstream operations.
+
 ### Durable member inbox
 
 The inbox is a small, transport-only boundary between durable storage and

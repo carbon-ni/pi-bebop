@@ -9,6 +9,7 @@ export * from "./session-messages.ts";
 export * from "./branch-alias.ts";
 export * from "./session-filter.ts";
 export * from "./crew-manifest.ts";
+export * from "./crew-agreements.ts";
 export * from "./crew-intake.ts";
 export * from "./crew-broadcast.ts";
 export * from "./member-interrupt.ts";
