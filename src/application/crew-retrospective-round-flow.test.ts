@@ -19,6 +19,8 @@ type DepsOverrides = Partial<RetrospectiveRoundDependencies>;
 function deps(overrides: DepsOverrides = {}): RetrospectiveRoundDependencies & { sentTo: string[] } {
 	const sentTo: string[] = [];
 	const base: RetrospectiveRoundDependencies = {
+		currentMemberName: async () => "Mony",
+		configuredFacilitator: "Mony",
 		readRecord: async () => ({ id: "retro-record.retro-1.2c8c5d8e", contentHash: RECORD_HASH }),
 		readCurrentAgreementState: async () => ({ currentRevisionId: "rev-1", currentContentHash: "b".repeat(64) }),
 		listPendingProposalIds: async () => ["prop-1"],

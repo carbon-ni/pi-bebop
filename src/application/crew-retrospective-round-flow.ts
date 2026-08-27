@@ -19,9 +19,9 @@ export interface RetrospectiveReviewMember {
 export interface RetrospectiveRoundDependencies {
 	/** Read the frozen 0115 record identity/hash (integrity pre-check). */
 	readonly readRecord: (recordId: string) => Promise<{ readonly id: string; readonly contentHash: string }>;
-	/** Trusted active Membership identity and configured facilitator, when available. */
-	readonly currentMemberName?: () => Promise<string>;
-	readonly configuredFacilitator?: string;
+	/** Trusted active Membership identity and manifest-configured facilitator. */
+	readonly currentMemberName: () => Promise<string>;
+	readonly configuredFacilitator: string;
 	/** Read the current Crew Agreement activation state (0104/0105). */
 	readonly readCurrentAgreementState: () => Promise<{
 		readonly currentRevisionId: string;
@@ -72,12 +72,9 @@ export async function openRetrospectiveRound(
 ): Promise<RetrospectiveRoundOpenResult> {
 	// Authorization is Membership-backed when the trusted seam is configured;
 	// facilitator arguments, Role, and claimed Origin are never authority.
-	if (deps.configuredFacilitator !== undefined && input.facilitator !== deps.configuredFacilitator)
-		throw new Error("facilitator is not the configured Member");
-	if (deps.currentMemberName !== undefined) {
-		const currentMember = await deps.currentMemberName();
-		if (currentMember !== input.facilitator) throw new Error("current Membership is not facilitator");
-	}
+	if (input.facilitator !== deps.configuredFacilitator) throw new Error("facilitator is not the configured Member");
+	const currentMember = await deps.currentMemberName();
+	if (currentMember !== input.facilitator) throw new Error("current Membership is not facilitator");
 	// Integrity pre-check happens BEFORE any write or request.
 	const record = await readRecordOrThrow(input.recordId ?? `retro-record.${input.retrospectiveId}`, deps);
 	const current = await readCurrentStateOrThrow(deps);
@@ -128,7 +125,7 @@ export async function collectRetrospectiveReviews(
 	members: readonly RetrospectiveReviewMember[],
 	deps: RetrospectiveRoundDependencies,
 ): Promise<CrewRetrospectiveRoundState> {
-	const plan = buildRetrospectiveMemberRequest(flow.round.snapshot.recordId);
+	const plan = buildRetrospectiveMemberRequest(flow.round.snapshot.recordId, flow.round.snapshot.recordHash);
 	const byName = new Map(members.map((member) => [member.name, member]));
 	for (const memberName of flow.round.snapshot.roster) {
 		if (flow.round.memberStates[memberName] !== undefined) continue;

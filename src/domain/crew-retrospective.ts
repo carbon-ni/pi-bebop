@@ -337,9 +337,10 @@ export interface RetrospectiveMemberRequestPlan {
 
 /** One bounded request sent to every frozen roster member: identical record
  * identity and identical question set for everyone. */
-export function buildRetrospectiveMemberRequest(recordId: string): RetrospectiveMemberRequestPlan {
+export function buildRetrospectiveMemberRequest(recordId: string, recordHash?: string): RetrospectiveMemberRequestPlan {
 	const message = [
 		`Crew Retrospective record: ${recordId}`,
+		...(recordHash ? [`Record content hash: ${recordHash}`] : []),
 		"",
 		"Please review and respond covering exactly these topics:",
 		"1. evidence correction — any evidence you believe is wrong, with the evidence id",
