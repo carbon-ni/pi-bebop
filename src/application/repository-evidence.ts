@@ -200,12 +200,17 @@ function artifactEvidence(
 ): RetrospectiveEvidence {
 	const pathLine = item.relativePath === undefined ? "" : `\npath=${item.relativePath}`;
 	const summary = boundedText(`kind=${item.source}; id=${item.id}${pathLine}\n${item.summary}`);
+	const identity = boundedText(`${item.source}:${item.id}`, MAX_REPOSITORY_EVIDENCE_REFERENCE_BYTES);
+	const reference = boundedText(
+		item.correlationId ?? item.reference,
+		MAX_REPOSITORY_EVIDENCE_REFERENCE_BYTES,
+	);
 	const semantic = {
 		repositoryId: options.repositoryId,
 		source: item.source,
-		id: item.id,
+		id: identity,
 		occurredAt: item.occurredAt,
-		reference: item.correlationId ?? item.reference,
+		reference,
 		path: item.relativePath,
 		summary,
 	};
@@ -215,8 +220,8 @@ function artifactEvidence(
 			interval: options.interval,
 			source: {
 				kind: "repository-artifact",
-				identity: `${item.source}:${item.id}`,
-				reference: item.correlationId ?? item.reference,
+				identity,
+				reference,
 			},
 			availability: "captured",
 			representation: { kind: "summary", text: summary },
@@ -286,7 +291,9 @@ async function stateEvidence(options: CollectRepositoryEvidenceOptions): Promise
 			networkAccess: "forbidden",
 		});
 		const detached = state.branch === null;
-		const summary = `repository state: head=${state.head}; branch=${state.branch ?? "detached"}; dirty=${state.dirty}; detached=${detached}; rewritten=${state.rewritten}`;
+		const summary = boundedText(
+			`repository state: head=${state.head}; branch=${state.branch ?? "detached"}; dirty=${state.dirty}; detached=${detached}; rewritten=${state.rewritten}`,
+		);
 		return createRetrospectiveEvidence(
 			{
 				id: stableId("state", { repositoryId: options.repositoryId, ...state }, options.fingerprint),

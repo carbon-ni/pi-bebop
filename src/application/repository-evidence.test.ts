@@ -150,6 +150,7 @@ test("redacts credentials and unsafe absolute paths, truncates deterministically
 		adapters: [
 			adapter("git-commits", [
 				artifact("git-commits", "secret", {
+					reference: "/Users/cristian/private/drill-down",
 					summary: `local=/Users/cristian/private/repo/file.ts\nwindows=C:\\Users\\Cristian\\secret.txt\n${long}`,
 					provenance: `git-log api_key=${rawSecret}`,
 				}),
