@@ -60,11 +60,27 @@ export interface CrewInitProvenance {
 	readonly resolvedRef?: string;
 }
 
+function redactGitLocation(location: string): string {
+	try {
+		const parsed = new URL(location);
+		if (parsed.username || parsed.password) {
+			parsed.username = "";
+			parsed.password = "";
+			return parsed.toString();
+		}
+	} catch {
+		// SCP-style locations and malformed values are already non-URL strings.
+	}
+	return location;
+}
+
+/** Renders provenance without exposing credentials embedded in a Git URL. */
 export function describeTemplateSource(source: TemplateSourceDescriptor): CrewInitProvenance {
 	if (source.kind === "git") {
+		const location = redactGitLocation(source.location);
 		return source.resolvedCommit === undefined
-			? { type: "git", location: source.location }
-			: { type: "git", location: source.location, resolvedRef: source.resolvedCommit };
+			? { type: "git", location }
+			: { type: "git", location, resolvedRef: source.resolvedCommit };
 	}
 	return { type: "local", location: source.location };
 }

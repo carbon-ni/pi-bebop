@@ -1,7 +1,10 @@
 import { createCrewInitFlow } from "../../application/crew-init-flow.ts";
 import { createNodeCrewInitFsAdapter } from "../../infra/crew-init-fs.ts";
-import { createNodeCrewInitTemplateSourceAdapter } from "../../infra/crew-init-template-source.ts";
-import { classifyTemplateSource, crewInitHelp } from "../../domain/index.ts";
+import {
+	createNodeCrewInitTemplateSourceAdapter,
+	resolveNodeTemplateSourceDescriptor,
+} from "../../infra/crew-init-template-source.ts";
+import { crewInitHelp } from "../../domain/index.ts";
 import { errorResult } from "../errors.ts";
 import type { CrewInitCliOptions } from "../arguments.ts";
 import type { CliOutcome } from "../output.ts";
@@ -19,15 +22,10 @@ export async function runCrewInitCommand(options: CrewInitCliOptions, cwd: strin
 			...(options.from === undefined ? {} : { sourceAdapter: createNodeCrewInitTemplateSourceAdapter() }),
 		});
 		const source =
-			options.from === undefined
-				? undefined
-				: (() => {
-						const descriptor = classifyTemplateSource(options.from);
-						return descriptor.kind === "git" && options.ref !== undefined
-							? { ...descriptor, ref: options.ref }
-							: descriptor;
-					})();
-		const result = await flow.run(project, source === undefined ? { cwd } : { from: source, cwd });
+			options.from === undefined ? undefined : await resolveNodeTemplateSourceDescriptor(options.from, cwd);
+		const sourceWithRef =
+			source?.kind === "git" && options.ref !== undefined ? { ...source, ref: options.ref } : source;
+		const result = await flow.run(project, sourceWithRef === undefined ? { cwd } : { from: sourceWithRef, cwd });
 		if (result.ok === false) {
 			return {
 				kind: "result",

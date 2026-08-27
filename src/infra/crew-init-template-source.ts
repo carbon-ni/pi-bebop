@@ -16,7 +16,12 @@ import { promises as nodeFs } from "node:fs";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { classifyTemplateSource, type TemplateEntries, type TemplateSourceDescriptor } from "../domain/index.ts";
+import {
+	classifyTemplateSource,
+	describeTemplateSource,
+	type TemplateEntries,
+	type TemplateSourceDescriptor,
+} from "../domain/index.ts";
 
 export const TEMPLATE_MAX_DEPTH = 3;
 export const TEMPLATE_MAX_FILES = 64;
@@ -161,6 +166,17 @@ export async function resolveTemplateSourceDescriptor(
 	return existsAsDirectory ? { kind: "local", location: raw } : syntactic;
 }
 
+/** Production resolver; stat failures are treated as a non-existent directory. */
+export async function resolveNodeTemplateSourceDescriptor(raw: string, cwd: string): Promise<TemplateSourceDescriptor> {
+	return resolveTemplateSourceDescriptor(raw, cwd, async (absolute) => {
+		try {
+			return (await nodeFs.stat(absolute)).isDirectory();
+		} catch {
+			return false;
+		}
+	});
+}
+
 // ============================================================================
 // Git adapter
 // ============================================================================
@@ -183,6 +199,10 @@ export interface GitSourceDeps {
 
 function gitFailure(code: string, message: string): { ok: false; code: string; message: string } {
 	return { ok: false, code, message };
+}
+
+function safeGitLocation(location: string): string {
+	return describeTemplateSource({ kind: "git", location }).location;
 }
 
 function classifyCloneFailure(location: string, output: string): { ok: false; code: string; message: string } {
@@ -211,7 +231,7 @@ export function createGitTemplateSourceAdapter(deps: GitSourceDeps): TemplateSou
 	return {
 		async read(descriptor) {
 			if (descriptor.kind !== "git") throw new Error("git adapter requires a git descriptor");
-			const location = descriptor.location;
+			const location = safeGitLocation(descriptor.location);
 			let dir: string;
 			try {
 				dir = await deps.mkdtemp();
@@ -264,7 +284,11 @@ export function createGitTemplateSourceAdapter(deps: GitSourceDeps): TemplateSou
 
 				const tree = await readTemplateEntries(dir, deps.fs);
 				if (!tree.ok) return tree;
-				return { ok: true, entries: tree.entries, descriptor: { ...descriptor, resolvedCommit: commit } };
+				return {
+					ok: true,
+					entries: tree.entries,
+					descriptor: { ...descriptor, location, resolvedCommit: commit },
+				};
 			} finally {
 				await deps.rm(dir);
 			}
@@ -282,7 +306,15 @@ export function createNodeCrewInitTemplateSourceAdapter(): TemplateSourceAdapter
 	const git = createGitTemplateSourceAdapter({
 		runner: async (args) => {
 			try {
-				const result = await promisify(execFile)("git", [...args], { encoding: "utf8" });
+				const result = await promisify(execFile)("git", [...args], {
+					encoding: "utf8",
+					env: {
+						GIT_CONFIG_GLOBAL: "/dev/null",
+						GIT_CONFIG_NOSYSTEM: "1",
+						GIT_TERMINAL_PROMPT: "0",
+						PATH: process.env.PATH ?? "/usr/bin:/bin",
+					},
+				});
 				return { status: 0, stdout: result.stdout, stderr: result.stderr };
 			} catch (error) {
 				if (errnoCode(error) === "ENOENT") throw error;

@@ -34,7 +34,7 @@ test("crew init creates a fresh canonical scaffold with created status", async (
 
 test("crew init --from adopts a local template and redacts absolute provenance", async () => {
 	const target = await mkdtemp(path.join(tmpdir(), "bebop-init-target-"));
-	const source = await mkdtemp(path.join(tmpdir(), "bebop-init-template-"));
+	const source = path.join(target, "vendored", "team.git");
 	try {
 		await mkdir(path.join(source, "instructions"), { recursive: true });
 		await writeFile(
@@ -53,14 +53,14 @@ test("crew init --from adopts a local template and redacts absolute provenance",
 		);
 		await writeFile(path.join(source, "instructions/captain.md"), "# Captain\n");
 		const outcome = await runCrewInitCommand(
-			{ command: "crew-init", project: target, from: source, format: "json" },
+			{ command: "crew-init", project: target, from: "vendored/team.git", format: "json" },
 			target,
 		);
 		assert.equal(outcome.kind, "result");
 		if (outcome.kind !== "result") return;
 		assert.equal(outcome.result.ok, true);
 		const data = outcome.result.data as { source?: { type: string; location: string } };
-		assert.deepEqual(data.source, { type: "local", location: path.relative(target, source) });
+		assert.deepEqual(data.source, { type: "local", location: "vendored/team.git" });
 		assert.ok(!path.isAbsolute(data.source?.location ?? ""));
 		assert.equal(await readFileText(path.join(target, ".pi/bebop/instructions/captain.md")), "# Captain\n");
 	} finally {

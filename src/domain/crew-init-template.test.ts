@@ -236,6 +236,10 @@ test("describeTemplateSource serializes local and git provenance", () => {
 		location: "https://x/t.git",
 		resolvedRef: "abc123",
 	});
+	assert.deepEqual(describeTemplateSource({ kind: "git", location: "https://user:secret@x/t.git" }), {
+		type: "git",
+		location: "https://x/t.git",
+	});
 });
 
 // ---------------------------------------------------------------------------

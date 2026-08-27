@@ -333,6 +333,20 @@ test("git adapter classifies clone failures distinctly without leaking stderr (G
 	}
 });
 
+test("git adapter strips URL userinfo from clone arguments and provenance", async () => {
+	const { runner, calls } = gitRunner((args) =>
+		args.includes("rev-parse") ? { status: 0, stdout: "a".repeat(40) } : { status: 0 },
+	);
+	const fs = fakeFs({ "/tmp/fake-clone/crew.json": validManifest });
+	const result = await createGitTemplateSourceAdapter(fakeGitDeps(runner, fs).deps).read(
+		{ kind: "git", location: "https://user:secret@host/t.git" },
+		{ cwd: "/cwd" },
+	);
+	assert.equal(result.ok, true);
+	assert.equal(calls[0]?.[3], "https://host/t.git");
+	assert.ok(!JSON.stringify(result).includes("secret"));
+});
+
 test("git adapter reports unknown refs and checkout failures with stable codes (G3)", async () => {
 	const refNotFound = gitRunner((args) =>
 		args.includes("checkout")
