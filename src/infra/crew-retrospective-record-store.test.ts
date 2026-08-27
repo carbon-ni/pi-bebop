@@ -146,6 +146,32 @@ describe("crew retrospective record store", () => {
 		});
 	});
 
+	it("concurrent conflicting freeze never replaces the first writer (exclusive publication)", async () => {
+		await withStore(async (store) => {
+			const first = record("retro-record.retro-1.00000007");
+			const conflicting = record("retro-record.retro-1.00000007", { contentHash: "c".repeat(64) });
+			const results = await Promise.allSettled([store.freeze(first), store.freeze(conflicting)]);
+			const winnerHashes = results
+				.filter(
+					(r): r is PromiseFulfilledResult<{ record: CrewRetrospectiveRecord; alreadyFrozen?: boolean }> =>
+						r.status === "fulfilled",
+				)
+				.map((r) => r.value.record.contentHash);
+			// Exactly one publication wins; the loser is an explicit conflict error.
+			const firstWon = winnerHashes.includes(first.contentHash);
+			const conflictWon = winnerHashes.includes(conflicting.contentHash);
+			assert.ok(firstWon !== conflictWon, "exactly one publication wins");
+			const conflictRejections = results.filter(
+				(r) => r.status === "rejected" && /frozen with different bytes/.test(String(r.reason)),
+			);
+			assert.equal(conflictRejections.length, 1, "the losing writer gets an explicit conflict error");
+			// The persisted record is exactly the winner — never a mix or silent replacement.
+			const shown = await store.show(first.id);
+			assert.ok([first.contentHash, conflicting.contentHash].includes(shown.contentHash));
+			assert.equal(shown.contentHash, winnerHashes[0]);
+		});
+	});
+
 	it("leftover partial-write temp files are ignored by listing", async () => {
 		await withStore(async (store, { recordsDir }) => {
 			const frozen = record("retro-record.retro-1.00000006");

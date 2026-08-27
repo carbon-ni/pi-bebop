@@ -107,13 +107,14 @@ export async function openTrustedCrewRetrospectiveRecordStore(options: {
 			const temp = `${target}.${process.pid}.${Date.now()}.${freezeTempSequence++}.tmp`;
 			await fs.writeFile(temp, bytes, { encoding: "utf8" });
 			try {
-				await fs.rename(temp, target);
+				// Exclusive publication: link(2) fails with EEXIST when the target already
+				// exists, so the first writer wins and later writers are forced through
+				// the byte-comparison replay path. rename(2) would silently replace a
+				// frozen record, breaking write-once under concurrency.
+				await fs.link(temp, target);
 			} catch (error) {
-				await fs.unlink(temp).catch(() => undefined);
 				const code = (error as NodeJS.ErrnoException).code;
-				// Another writer won the race (temp renamed away or target replaced):
-				// compare bytes and treat identical results as idempotent replay.
-				if (code === "ENOENT" || code === "ENOTEMPTY" || code === "EEXIST") {
+				if (code === "EEXIST") {
 					const existing = await fs.readFile(target, "utf8");
 					if (recordFileHash(existing) === recordFileHash(bytes)) {
 						return { record: JSON.parse(existing) as CrewRetrospectiveRecord, alreadyFrozen: true };
@@ -124,6 +125,8 @@ export async function openTrustedCrewRetrospectiveRecordStore(options: {
 					);
 				}
 				throw new CrewRetrospectiveRecordStoreError("write-failed", `failed to freeze record: ${record.id}`);
+			} finally {
+				await fs.unlink(temp).catch(() => undefined);
 			}
 			return { record };
 		},
