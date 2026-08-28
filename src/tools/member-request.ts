@@ -47,12 +47,16 @@ function success(text: string, details: unknown): ToolResult {
 }
 const REQUEST_ERROR_CODES = new Set([
 	"aborted",
+	"ambiguous-member",
 	"ambiguous-request",
 	"expired",
+	"invalid-payload",
 	"invalid-request",
 	"no-pending-member-requests",
+	"no-pending-request",
 	"not-joined",
 	"offline",
+	"response-expired",
 	"outcome-unknown",
 	"request-failed",
 	"self-send",
@@ -146,7 +150,8 @@ export function registerRespondToMemberRequestTool(pi: ExtensionAPI, state: Sock
 				return success("Response sent to the active Member request", { requestId: params.request_id });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "response-failed";
-				const code = message.split(":", 1)[0]!;
+				const rawCode = message.split(":", 1)[0]!;
+				const code = REQUEST_ERROR_CODES.has(rawCode) ? rawCode : "request-failed";
 				if (code === "no-pending-request")
 					return failure(code, "No pending Member request; use send_follow_up for ordinary information.");
 				if (code === "ambiguous-request") return failure(code, `${message}; provide request_id.`);
@@ -170,8 +175,8 @@ export function registerWaitForRequestOutcomeTool(
 			"Requester-side: yield the run and resume with the oldest terminal outbound Request outcome of a Member request you successfully sent: Response, offline, timeout(response-after-idle), or timeout(max-wait). The tool returns a deterministic 'yielded, waiting' result immediately; the terminal outcome arrives in a later turn as a crew-wait-resume message, never while this run stays busy. Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. It does not poll, monitor, or return unrelated Crew activity, and never proves completion, correctness, progress, or availability.",
 		parameters: emptyParameters,
 		async execute(_id, _params, signal) {
-			const flow = flowFor(state);
 			try {
+				const flow = flowFor(state);
 				if (!flow.hasPendingRequestOutcome())
 					return failure(
 						"no-pending-member-requests",
