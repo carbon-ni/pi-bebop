@@ -32,7 +32,7 @@ test("trusted message log append is replay-idempotent and rejects conflicts", as
 		await store.append(entry);
 		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
 		await assert.rejects(
-			() => store.append({ ...entry, outcome: "failed" }),
+			() => store.append({ ...entry, outcome: "failed", errorCode: "storage-failed" }),
 			(e) => e instanceof MessageLogStoreError && e.code === "id-conflict",
 		);
 	} finally {
