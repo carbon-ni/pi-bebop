@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createMessageLogStore, MessageLogStoreError } from "./message-log-store.ts";
+import { canonicalMessageLogEntryBytes } from "../domain/index.ts";
 
 const entry = {
 	version: 1,
@@ -29,7 +30,7 @@ test("trusted message log append is replay-idempotent and rejects conflicts", as
 		const store = createMessageLogStore({ root, isTrusted: () => true });
 		await store.append(entry);
 		await store.append(entry);
-		assert.deepEqual(await store.read(entry.id), new TextEncoder().encode(`${JSON.stringify(entry)}\n`));
+		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
 		await assert.rejects(
 			() => store.append({ ...entry, outcome: "failed" }),
 			(e) => e instanceof MessageLogStoreError && e.code === "id-conflict",
