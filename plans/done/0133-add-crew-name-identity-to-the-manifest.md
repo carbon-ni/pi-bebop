@@ -30,7 +30,11 @@ Receipts, the status footer, and intake messages identify the crew only by files
 - External-intake receipt: `ExternalIntakeAck.crewName?` derived only from the loaded target manifest; CLI named form `Persisted for <contact> (<role>) of <Crew> — inbox item <id>`; unnamed unchanged (domain/application/cli adapter).
 - Inbox handoff/display: recipient crew label derived from live trusted membership at handoff into typed `inbox.crewName` details; payload bytes and evidence id unchanged; renderer shows a bounded `Crew inbox: <name>` line only for valid typed details, fail-safe otherwise.
 
-Status stays `doing` until Kelly's exact-hash QA.
+## Accepted final evidence
+
+- Implementation: `f1d419b` (remaining display surfaces), `215119d` (shared trimmed/control-free UTF-8 label validator), `d17362f` (embedded unpaired-surrogate rejection), and `cd2a991` (terminal high/low surrogate rejection).
+- Verification: Kelly detached exact-commit QA PASS at `cd2a991`; focused suites `189/189`; fresh watcher generation 111 `@agent-final` PASS; full suite `1,430/1,430`; worktree clean.
+- QA report: `.tmp/reports/13-04-26/task-0133-cd2a991-final-qa.md`.
 
 ## Accepted partial evidence
 
