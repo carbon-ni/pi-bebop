@@ -6,6 +6,7 @@ import { readStdinMessage } from "../message-input.ts";
 import { deliverDirectMessage } from "./direct-send-adapter.ts";
 import { deliverCrewIntake } from "./crew-intake-adapter.ts";
 import { errorCode, errorResult } from "../errors.ts";
+import { ExternalIntakeError } from "../../application/external-intake.ts";
 
 /**
  * TASK-0063: `send` handler — owns message input, target routing after parser
@@ -33,6 +34,12 @@ function sendFailureReason(code: string): string {
 	return "the send operation could not be completed";
 }
 
+function intakeFailureReason(code: string): string {
+	if (code === "read-failed") return "the Crew Intake manifest could not be read";
+	if (code === "invalid-json") return "the Crew Intake manifest is not valid JSON";
+	return "the Crew Intake operation could not be completed";
+}
+
 export async function runSendCommand(
 	options: SendCliOptions,
 	context: CliContext,
@@ -52,9 +59,10 @@ export async function runSendCommand(
 	} catch (error) {
 		if (error instanceof UsageError) throw error;
 		const code = errorCode(error);
+		const reason = error instanceof ExternalIntakeError ? intakeFailureReason(code) : sendFailureReason(code);
 		return {
 			kind: "result",
-			result: errorResult(sendFailureReason(code), target, code, "pi-bebop send"),
+			result: errorResult(reason, target, code, "pi-bebop send"),
 			format: options.format,
 			full: options.full,
 		};
