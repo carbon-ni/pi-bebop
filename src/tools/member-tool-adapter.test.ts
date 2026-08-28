@@ -470,6 +470,7 @@ test("both intent tools expose actionable parity for typed and raw failures", as
 			assert.equal(result.details.error, result.details.actionableError.code, name);
 			assert.equal(result.content[0].text, result.details.actionableError.message, name);
 			assert.doesNotMatch(result.content[0].text, /private\.sock|quarantine-123|remote error at/i, name);
+			assert.doesNotMatch(JSON.stringify(result.details), /private\.sock|quarantine-123|remote error at/i, name);
 		}
 	}
 });
