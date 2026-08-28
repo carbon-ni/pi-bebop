@@ -48,6 +48,17 @@ test("presentActionableError uses UTF-8 bounds and never leaks controls", () => 
 	});
 	assert.ok(Buffer.byteLength(emoji.operation, "utf8") <= 96);
 	assert.equal(emoji.operation.endsWith("\uFFFD"), false);
+	const loneHigh = String.fromCharCode(0xd800);
+	const surrogateSafe = presentActionableError({
+		code: "offline",
+		operation: `ok${loneHigh}`,
+		reason: "unreachable",
+		recovery: ["retry"],
+		validChoices: [`choice${loneHigh}`],
+	});
+	assert.equal(surrogateSafe.operation, "Pi Bebop operation");
+	assert.equal(surrogateSafe.validChoices, undefined);
+	assert.equal(JSON.stringify(surrogateSafe).includes("\\ud800"), false);
 	assert.ok(actionableErrorUtf8Bytes(error) <= 4096);
 	assert.equal(/[\u0000-\u001f\u007f-\u009f]/.test(JSON.stringify(error)), false);
 	assert.equal(error.location?.value, undefined);
