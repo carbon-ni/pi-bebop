@@ -13,6 +13,7 @@ const MEMBERSHIP_TOOLS = [
 	"send_follow_up",
 	"redirect_member",
 	"send_to_inbox",
+	"send_to_crew",
 	"broadcast_to_crew",
 	"interrupt_member",
 	"get_member_status",

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
 import {
+	MAX_CREW_RETURN_ADDRESS_PATH_BYTES,
 	MAX_MESSAGE_CONTENT_BYTES,
 	MAX_MESSAGE_INSTRUCTIONS,
 	MAX_MESSAGE_INSTRUCTION_BYTES,
@@ -49,6 +50,41 @@ test("rejects ambiguous, malformed, empty, NUL, and extra payload fields", () =>
 		{ content: "x", replyTo: { sessionId: "   " } },
 		{ content: "x", replyTo: { sessionId: "s", sessionName: 2 } },
 		{ content: "x", extra: true },
+	];
+	for (const value of invalid) assert.equal(isMessagePayload(value), false, JSON.stringify(value));
+});
+
+test("accepts an optional bounded crew return address", () => {
+	const withAddress: MessagePayload = {
+		content: "Question for your crew",
+		origin: { kind: "crew", name: "Dave", role: "developer" },
+		crewReturnAddress: { manifestPath: "/projects/alpha/.pi/bebop/crew.json" },
+	};
+	assert.equal(Value.Check(MessagePayloadSchema, withAddress), true);
+	assert.equal(isMessagePayload(withAddress), true);
+	assert.equal(
+		isMessagePayload({
+			...withAddress,
+			crewReturnAddress: { manifestPath: "/projects/alpha/.pi/crew/crew.json", crewName: "Alpha Crew" },
+		}),
+		true,
+	);
+});
+
+test("rejects malformed crew return addresses", () => {
+	const invalid: unknown[] = [
+		{ content: "x", crewReturnAddress: {} },
+		{ content: "x", crewReturnAddress: { manifestPath: "" } },
+		{ content: "x", crewReturnAddress: { manifestPath: "relative/.pi/bebop/crew.json" } },
+		{ content: "x", crewReturnAddress: { manifestPath: "/proj/crew.json\u0000" } },
+		{
+			content: "x",
+			crewReturnAddress: { manifestPath: "/".concat("a".repeat(MAX_CREW_RETURN_ADDRESS_PATH_BYTES + 1)) },
+		},
+		{ content: "x", crewReturnAddress: { manifestPath: 1 } },
+		{ content: "x", crewReturnAddress: { manifestPath: "/p/crew.json", socketPath: "/p/sock" } },
+		{ content: "x", crewReturnAddress: { manifestPath: "/p/crew.json", crewName: " padded " } },
+		{ content: "x", crewReturnAddress: { manifestPath: "/p/crew.json", crewName: "" } },
 	];
 	for (const value of invalid) assert.equal(isMessagePayload(value), false, JSON.stringify(value));
 });

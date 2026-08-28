@@ -2,7 +2,9 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { parseCrewManifest, type CrewManifest } from "./crew-manifest.ts";
 import {
+	canonicalizeCrewManifestPath,
 	CrewIntakeError,
+	createCrewCorrespondencePayload,
 	createExternalIntakePayload,
 	isExternalIntakeAck,
 	resolveIntakeContact,
@@ -122,5 +124,64 @@ describe("ExternalIntakeAck contract", () => {
 		assert.equal(isExternalIntakeAck({ ok: true, itemId: "i", contact: "Mary", contactRole: "po" }), false);
 		assert.equal(isExternalIntakeAck({ ok: true, itemId: "i", persisted: true, contact: "Mary" }), false);
 		assert.equal(isExternalIntakeAck(null), false);
+	});
+});
+
+describe("createCrewCorrespondencePayload", () => {
+	const source = {
+		memberName: "Dave",
+		memberRole: "developer",
+		manifestPath: "/projects/alpha/.pi/bebop/crew.json",
+	};
+
+	test("builds a one-way payload with claimed crew origin and structured crew return address", () => {
+		const payload = createCrewCorrespondencePayload({
+			source: { ...source, crewName: "Alpha Crew" },
+			content: "Question for your crew",
+			instructions: ["Reply through send_to_crew"],
+		});
+		assert.deepEqual(payload.origin, { kind: "crew", name: "Dave", role: "developer" });
+		assert.deepEqual(payload.crewReturnAddress, {
+			manifestPath: "/projects/alpha/.pi/bebop/crew.json",
+			crewName: "Alpha Crew",
+		});
+		assert.deepEqual(payload.instructions, ["Reply through send_to_crew"]);
+		assert.equal("replyTo" in payload, false);
+	});
+
+	test("omits the crew label when the source manifest has no display name", () => {
+		const payload = createCrewCorrespondencePayload({ source, content: "hi" });
+		assert.deepEqual(payload.crewReturnAddress, { manifestPath: source.manifestPath });
+	});
+
+	test("rejects invalid content and invalid return addresses deterministically", () => {
+		for (const bad of [
+			{ content: " " },
+			{ content: "x", source: { ...source, manifestPath: "relative/crew.json" } },
+			{ content: "x", source: { ...source, memberName: "" } },
+			{ content: "x", source: { ...source, crewName: " padded " } },
+		] as const) {
+			assert.throws(
+				() => createCrewCorrespondencePayload({ source: bad.source ?? source, content: bad.content }),
+				/invalid/,
+			);
+		}
+	});
+});
+
+describe("canonicalizeCrewManifestPath", () => {
+	test("lexically canonicalizes absolute POSIX paths without filesystem IO", () => {
+		assert.equal(canonicalizeCrewManifestPath("/a/.pi/bebop/crew.json"), "/a/.pi/bebop/crew.json");
+		assert.equal(canonicalizeCrewManifestPath("/a//b/.pi/bebop/./crew.json"), "/a/b/.pi/bebop/crew.json");
+		assert.equal(canonicalizeCrewManifestPath("/a/x/../.pi/bebop/crew.json"), "/a/.pi/bebop/crew.json");
+		assert.equal(canonicalizeCrewManifestPath("/a/.pi/bebop/crew.json/"), "/a/.pi/bebop/crew.json");
+	});
+
+	test("returns null for relative, empty, NUL, and root-escaping paths", () => {
+		assert.equal(canonicalizeCrewManifestPath("a/.pi/bebop/crew.json"), null);
+		assert.equal(canonicalizeCrewManifestPath(""), null);
+		assert.equal(canonicalizeCrewManifestPath("/a\u0000/crew.json"), null);
+		assert.equal(canonicalizeCrewManifestPath("/../crew.json"), null);
+		assert.equal(canonicalizeCrewManifestPath("/a/../../crew.json"), null);
 	});
 });

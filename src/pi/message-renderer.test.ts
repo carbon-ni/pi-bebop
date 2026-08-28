@@ -150,3 +150,27 @@ test("crew entry renderers fall back to empty content for non-object data", () =
 	);
 	assert.ok(stringData);
 });
+
+test("inbound crew correspondence renders the claimed return address visibly and never a callback route", () => {
+	const message = {
+		customType: "bebop-session-message",
+		content: JSON.stringify({ type: "message-context", content: "Question for your crew" }),
+		details: {
+			messagePayload: {
+				content: "Question for your crew",
+				origin: { kind: "crew" as const, name: "Dave", role: "developer" },
+				replyTo: { sessionId: "hidden-session", sessionName: "Hidden" },
+				crewReturnAddress: {
+					manifestPath: "/projects/alpha/.pi/bebop/crew.json",
+					crewName: "Alpha Crew",
+				},
+			},
+		},
+	};
+	const { text, senderText } = getMessageDisplayModel(message, true);
+	assert.match(senderText ?? "", /from Dave \(developer\)/);
+	assert.match(text, /Claimed crew return address: \/projects\/alpha\/\.pi\/bebop\/crew\.json \(Alpha Crew\)/);
+	assert.match(text, /claimed attribution/);
+	assert.equal(text.includes("hidden-session"), false);
+	assert.equal(sessionMessageKind(message), "follow-up");
+});

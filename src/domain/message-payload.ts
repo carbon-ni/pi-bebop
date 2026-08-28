@@ -8,6 +8,8 @@ export const MAX_MESSAGE_INSTRUCTION_BYTES = 100_000;
 export const MAX_MESSAGE_PAYLOAD_BYTES = 1_000_000;
 export const MAX_MESSAGE_ORIGIN_FIELD_BYTES = 256;
 export const MAX_MESSAGE_REPLY_FIELD_BYTES = 256;
+/** Crew Return Address manifest-path bound: deterministic UTF-8 byte limit for a canonical absolute POSIX path. */
+export const MAX_CREW_RETURN_ADDRESS_PATH_BYTES = 1024;
 
 const NonEmptyText = Type.String({ minLength: 1 });
 export const CrewOriginSchema = Type.Object(
@@ -26,12 +28,22 @@ export const ReplyToSchema = Type.Object(
 	{ sessionId: NonEmptyText, sessionName: Type.Optional(NonEmptyText) },
 	{ additionalProperties: false },
 );
+/**
+ * TASK-0136: structured claimed Crew Return Address — the reply affordance for
+ * crew-to-crew correspondence. Bounded canonical absolute manifest path plus
+ * optional crew label; deliberately distinct from callback-only `replyTo`.
+ */
+export const CrewReturnAddressSchema = Type.Object(
+	{ manifestPath: NonEmptyText, crewName: Type.Optional(NonEmptyText) },
+	{ additionalProperties: false },
+);
 export const MessagePayloadSchema = Type.Object(
 	{
 		content: Type.String({ minLength: 1, maxLength: MAX_MESSAGE_CONTENT_BYTES }),
 		instructions: MessageInstructionsSchema,
 		origin: Type.Optional(MessageOriginSchema),
 		replyTo: Type.Optional(ReplyToSchema),
+		crewReturnAddress: Type.Optional(CrewReturnAddressSchema),
 	},
 	{ additionalProperties: false },
 );
@@ -40,6 +52,7 @@ export type CrewOrigin = Static<typeof CrewOriginSchema>;
 export type ExternalOrigin = Static<typeof ExternalOriginSchema>;
 export type MessageOrigin = Static<typeof MessageOriginSchema>;
 export type ReplyTo = Static<typeof ReplyToSchema>;
+export type CrewReturnAddress = Static<typeof CrewReturnAddressSchema>;
 export type MessagePayload = Static<typeof MessagePayloadSchema>;
 
 const utf8Bytes = (value: string): number => Buffer.byteLength(value, "utf8");
@@ -50,6 +63,12 @@ const invalidInstruction = (value: string): boolean =>
 	value.trim().length === 0 || value.includes("\0") || utf8Bytes(value) > MAX_MESSAGE_INSTRUCTION_BYTES;
 const invalidIdentity = (value: string, limit: number): boolean =>
 	value.trim().length === 0 || value !== value.trim() || value.includes("\0") || utf8Bytes(value) > limit;
+
+const invalidCrewManifestPath = (value: string): boolean =>
+	!value.startsWith("/") || value.includes("\0") || utf8Bytes(value) > MAX_CREW_RETURN_ADDRESS_PATH_BYTES;
+const invalidCrewReturnAddress = (address: CrewReturnAddress): boolean =>
+	invalidCrewManifestPath(address.manifestPath) ||
+	(address.crewName !== undefined && invalidIdentity(address.crewName, MAX_MESSAGE_ORIGIN_FIELD_BYTES));
 
 export function isMessagePayload(value: unknown): value is MessagePayload {
 	if (!Value.Check(MessagePayloadSchema, value) || typeof value !== "object" || value === null) return false;
@@ -68,5 +87,6 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
 		);
 		if (fields.some((field) => invalidIdentity(field, MAX_MESSAGE_REPLY_FIELD_BYTES))) return false;
 	}
+	if (payload.crewReturnAddress && invalidCrewReturnAddress(payload.crewReturnAddress)) return false;
 	return messagePayloadUtf8Bytes(payload) <= MAX_MESSAGE_PAYLOAD_BYTES;
 }

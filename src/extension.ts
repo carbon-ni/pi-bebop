@@ -14,6 +14,7 @@ import {
 	registerSendFollowUpTool,
 	registerRedirectMemberTool,
 	registerSendToInboxTool,
+	registerSendToCrewTool,
 	registerBroadcastToCrewTool,
 	registerInterruptMemberTool,
 	registerGetMemberStatusTool,
@@ -199,6 +200,7 @@ export default function (pi: ExtensionAPI) {
 	registerSendFollowUpTool(pi, state, memberMessageDependencies);
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);
 	registerSendToInboxTool(pi, state);
+	registerSendToCrewTool(pi, state);
 	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
 	registerInterruptMemberTool(pi, state);
 	registerGetMemberStatusTool(pi, state, createMemberStatusTransport());

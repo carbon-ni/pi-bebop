@@ -64,6 +64,61 @@ export function createExternalIntakePayload(input: ExternalIntakeMessageInput): 
 }
 
 /**
+ * TASK-0136: lexical canonicalization of an absolute POSIX manifest path —
+ * pure string hygiene with no filesystem IO. Collapses duplicate separators,
+ * resolves `.` and `..` segments, and trims trailing separators. Returns null
+ * for relative, empty, NUL-containing, or root-escaping values.
+ */
+export function canonicalizeCrewManifestPath(value: string): string | null {
+	if (!value.startsWith("/") || value.includes("\0")) return null;
+	const segments: string[] = [];
+	for (const segment of value.split("/")) {
+		if (segment === "" || segment === ".") continue;
+		if (segment === "..") {
+			if (segments.length === 0) return null;
+			segments.pop();
+			continue;
+		}
+		segments.push(segment);
+	}
+	return `/${segments.join("/")}`;
+}
+
+export interface CrewCorrespondenceSource {
+	readonly memberName: string;
+	readonly memberRole: string;
+	readonly manifestPath: string;
+	readonly crewName?: string;
+}
+
+export interface CrewCorrespondenceInput {
+	readonly source: CrewCorrespondenceSource;
+	readonly content: string;
+	readonly instructions?: readonly string[];
+}
+
+/**
+ * TASK-0136: builds one Crew Correspondence payload. The Member origin and the
+ * structured Crew Return Address are derived from the caller-supplied source
+ * identity (in production: active trusted Membership at execution time) and
+ * remain claimed attribution — never a callback route and never a promise of
+ * response. One-way: no `replyTo` is ever set.
+ */
+export function createCrewCorrespondencePayload(input: CrewCorrespondenceInput): MessagePayload {
+	const payload: MessagePayload = {
+		content: input.content,
+		origin: { kind: "crew", name: input.source.memberName, role: input.source.memberRole },
+		crewReturnAddress: {
+			manifestPath: input.source.manifestPath,
+			...(input.source.crewName === undefined ? {} : { crewName: input.source.crewName }),
+		},
+		...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
+	};
+	if (!isMessagePayload(payload)) throw new CrewIntakeError("invalid-payload", "invalid crew correspondence message");
+	return payload;
+}
+
+/**
  * One-way persisted acknowledgement. It proves durability only: no reply route
  * and no promised response. TASK-0041's CLI produces this after the item is
  * persisted to the contact's inbox.

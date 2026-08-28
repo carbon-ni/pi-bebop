@@ -122,9 +122,33 @@ export async function submitExternalIntake(
 	request: ExternalIntakeRequest,
 	dependencies: ExternalIntakeDependencies,
 ): Promise<ExternalIntakeAck> {
+	let payload;
+	try {
+		payload = createExternalIntakePayload({
+			label: request.label,
+			content: request.content,
+			instructions: request.instructions,
+		});
+	} catch {
+		throw new ExternalIntakeError("invalid-payload", "external intake message is invalid");
+	}
+	return await persistIntakePayload(payload, request.manifestPath, dependencies);
+}
+
+/**
+ * Shared intake persistence seam (TASK-0136): manifest load + error mapping,
+ * exact crew-contact resolution, durable Inbox enqueue, and the one-way
+ * persisted acknowledgement. Reused by external intake and crew
+ * correspondence; throws the stable ExternalIntakeError vocabulary.
+ */
+export async function persistIntakePayload(
+	payload: ReturnType<typeof createExternalIntakePayload>,
+	manifestPath: string,
+	dependencies: ExternalIntakeDependencies,
+): Promise<ExternalIntakeAck> {
 	let manifest: CrewManifest;
 	try {
-		manifest = await dependencies.loadManifest(request.manifestPath);
+		manifest = await dependencies.loadManifest(manifestPath);
 	} catch (error) {
 		throw mapManifestLoadError(error);
 	}
@@ -137,22 +161,11 @@ export async function submitExternalIntake(
 		);
 	const contact = resolution.contact;
 
-	let payload;
-	try {
-		payload = createExternalIntakePayload({
-			label: request.label,
-			content: request.content,
-			instructions: request.instructions,
-		});
-	} catch {
-		throw new ExternalIntakeError("invalid-payload", "external intake message is invalid");
-	}
-
-	const projectRoot = projectRootOf(request.manifestPath);
+	const projectRoot = projectRootOf(manifestPath);
 	let store: MemberInboxStore;
 	try {
 		store = await dependencies.openStore({
-			manifestPath: request.manifestPath,
+			manifestPath,
 			projectRoot,
 			member: { name: contact.name, role: contact.role, socketPath: contact.socketPath },
 		});

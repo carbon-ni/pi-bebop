@@ -79,3 +79,30 @@ test("TASK-0076: ordinary Follow-up model content is structurally no-correlated-
 	assert.equal(rendered.includes("report"), false);
 	assert.deepEqual(parseRenderedMessagePayload(rendered.split("\n").slice(1).join("\n")), payload);
 });
+
+test("crew correspondence round-trips the crew return address in canonical form and shows it as claimed", () => {
+	const payload = {
+		content: "Question for your crew",
+		instructions: ["Reply through send_to_crew"],
+		origin: { kind: "crew" as const, name: "Dave", role: "developer" },
+		crewReturnAddress: { manifestPath: "/projects/alpha/.pi/bebop/crew.json", crewName: "Alpha Crew" },
+	};
+	const rendered = renderMessagePayload(payload);
+	assert.deepEqual(parseRenderedMessagePayload(rendered), payload);
+	const display = renderMessagePayloadForDisplay(payload);
+	assert.match(display, /Claimed crew return address: \/projects\/alpha\/\.pi\/bebop\/crew\.json \(Alpha Crew\)/);
+	assert.match(display, /claimed/i);
+	assert.match(display, /Reply through send_to_crew/);
+});
+
+test("crew return address without a label renders without parentheses and stays content-only compatible", () => {
+	const payload = {
+		content: "plain",
+		crewReturnAddress: { manifestPath: "/projects/alpha/.pi/crew/crew.json" },
+	};
+	assert.match(renderMessagePayload(payload), /^\{"type":"message-context"/);
+	assert.match(
+		renderMessagePayloadForDisplay(payload),
+		/Claimed crew return address: \/projects\/alpha\/\.pi\/crew\/crew\.json/,
+	);
+});

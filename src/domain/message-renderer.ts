@@ -2,7 +2,12 @@ import { isMessagePayload, type MessagePayload } from "./message-payload.ts";
 
 /** Canonical model input. JSON escaping makes every field boundary unambiguous. */
 export function renderMessagePayload(payload: MessagePayload): string {
-	if (payload.origin === undefined && payload.instructions === undefined && payload.replyTo === undefined)
+	if (
+		payload.origin === undefined &&
+		payload.instructions === undefined &&
+		payload.replyTo === undefined &&
+		payload.crewReturnAddress === undefined
+	)
 		return payload.content;
 	return JSON.stringify({
 		type: "message-context",
@@ -10,6 +15,7 @@ export function renderMessagePayload(payload: MessagePayload): string {
 		...(payload.instructions === undefined ? {} : { instructions: payload.instructions }),
 		...(payload.origin === undefined ? {} : { origin: payload.origin }),
 		...(payload.replyTo === undefined ? {} : { replyTo: payload.replyTo }),
+		...(payload.crewReturnAddress === undefined ? {} : { crewReturnAddress: payload.crewReturnAddress }),
 	});
 }
 
@@ -23,7 +29,11 @@ export function parseRenderedMessagePayload(rendered: string): MessagePayload {
 	return payload;
 }
 
-/** UI-safe display text; callback routing is intentionally never displayed. */
+/**
+ * UI-safe display text; callback routing (`replyTo`) is intentionally never
+ * displayed. The Crew Return Address is the exception TASK-0136 requires: it is
+ * the reply affordance, so it is displayed — always labelled as claimed.
+ */
 export function renderMessagePayloadForDisplay(payload: MessagePayload): string {
 	const sections: string[] = [];
 	if (payload.origin) {
@@ -31,6 +41,12 @@ export function renderMessagePayloadForDisplay(payload: MessagePayload): string 
 			payload.origin.kind === "crew"
 				? `Claimed origin: from ${payload.origin.name} (${payload.origin.role})`
 				: `Claimed origin: from ${payload.origin.label}`,
+		);
+	}
+	if (payload.crewReturnAddress) {
+		const label = payload.crewReturnAddress.crewName ? ` (${payload.crewReturnAddress.crewName})` : "";
+		sections.push(
+			`Claimed crew return address: ${payload.crewReturnAddress.manifestPath}${label} — claimed attribution, never verified; reply only by an explicit send_to_crew invocation`,
 		);
 	}
 	if (payload.instructions)
