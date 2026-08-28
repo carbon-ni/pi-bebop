@@ -8,6 +8,7 @@ import {
 } from "../application/member-idle-wait-flow.ts";
 import { createMemberIdleWaitResult, formatMemberIdleWaitResult } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { actionableToolError, type ActionableToolResult } from "./actionable-tool-result.ts";
 
 const parameters = Type.Object(
 	{
@@ -47,12 +48,14 @@ export interface MemberIdleWaitToolTransport {
 	) => Promise<MemberIdleWaitTransportResult>;
 }
 
-function errorResult(target: string, code: string, message: string): ToolResult {
-	return {
-		content: [{ type: "text", text: `[${target}] ${message.slice(0, MAX_OUTPUT)}` }],
-		isError: true,
-		details: { error: code },
-	};
+function errorResult(target: string, code: string, _message: string): ActionableToolResult {
+	return actionableToolError({
+		code,
+		operation: "wait_for_member_idle",
+		reason: code === "offline" ? "the member endpoint is offline" : "the member idle wait was rejected",
+		recovery: ["verify crew membership and the target, then retry the tool."],
+		location: { kind: "member", name: "member", value: target },
+	});
 }
 
 export function registerWaitForMemberIdleTool(

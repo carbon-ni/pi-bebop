@@ -108,7 +108,11 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		const { tool } = setup(() => null, { probeEndpoint: async () => ((probed += 1), true) });
 		const result = await tool.execute("id", { member: "Bob" });
 		assert.equal(result.isError, true);
-		assert.equal((result.details as { error?: string }).error, "not-joined");
+		const details = result.details as { error: string; actionableError: { code: string; message: string } };
+		assert.equal(details.error, "not-joined");
+		assert.equal(details.actionableError.code, details.error);
+		assert.equal(result.content[0]?.text, details.actionableError.message);
+		assert.doesNotMatch(JSON.stringify(result.details), /Error:|stack|private\.sock/i);
 		assert.equal(probed, 0);
 	});
 
