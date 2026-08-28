@@ -20,7 +20,6 @@ const patterns = {
 	"tool-result": /\bisError\s*:\s*true\b/,
 	"pi-notify": /\b(?:ui\.)?notify\s*\([^\n;]*["']error["']\)|\bconsole\.error\s*\(/,
 };
-const presenterCall = /\b(?:presentActionableError|formatActionableError|renderActionableError)\s*\(/;
 
 async function filesFor(scope) {
 	const absolute = path.join(root, scope);
@@ -47,10 +46,8 @@ async function scan() {
 			const lines = source.split("\n");
 			for (let index = 0; index < lines.length; index++) {
 				const line = lines[index];
-				// Ignore comments before checking the presenter call. A marker in a
-				// comment or string must never authorize a direct render.
+				// Scan source code only; comments and strings cannot authorize an exemption.
 				const code = line.replace(/\/\/.*$/, "");
-				if (presenterCall.test(code) && !patterns[kind].test(code)) continue;
 				if (patterns[kind].test(code)) findings.push({ file, kind, line: index + 1 });
 			}
 		}
