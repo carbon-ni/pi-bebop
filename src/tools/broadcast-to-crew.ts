@@ -106,21 +106,16 @@ export function registerBroadcastToCrewTool(
 
 				const { persisted, alreadyPersisted, failed } = result.summary;
 				if (failed > 0) {
+					const partial = actionableToolError({
+						code: "broadcast-partial-failure",
+						operation: "broadcast_to_crew",
+						reason: "some recipient inboxes could not be persisted",
+						recovery: ["retry the broadcast; already-persisted recipients are deduplicated."],
+					});
 					return {
-						content: [
-							{
-								type: "text",
-								text: `Persisted for ${persisted} of ${result.summary.total} recipients (${failed} failed, ${alreadyPersisted} already persisted); retry is safe and will not duplicate.`,
-							},
-						],
-						isError: true,
+						...partial,
 						details: {
-							...actionableToolError({
-								code: "broadcast-partial-failure",
-								operation: "broadcast_to_crew",
-								reason: "some recipient inboxes could not be persisted",
-								recovery: ["retry the broadcast; already-persisted recipients are deduplicated."],
-							}).details,
+							...partial.details,
 							broadcastId: result.broadcastId,
 							...result.summary,
 							recipients,
