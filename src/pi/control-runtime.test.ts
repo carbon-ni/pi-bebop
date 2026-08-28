@@ -83,12 +83,9 @@ test("status derives stopped, online, and joined from server and crew state", ()
 	assert.equal(deriveIntrayStatus(false, false), "stopped");
 	assert.equal(deriveIntrayStatus(true, false), "online");
 	assert.equal(deriveIntrayStatus(true, true), "joined");
-	assert.equal(formatIntrayFooter("session-id", "joined"), "session-id joined");
-	assert.equal(
-		formatIntrayFooter("session-id", "joined", { name: "Mary", role: "po" }),
-		"session-id joined Mary (po)",
-	);
-	assert.equal(formatIntrayFooter("session-id", "online", { name: "Mary", role: "po" }), "session-id online");
+	assert.equal(formatIntrayFooter("joined"), "joined");
+	assert.equal(formatIntrayFooter("joined", { name: "Mary", role: "po" }), "joined Mary (po)");
+	assert.equal(formatIntrayFooter("online", { name: "Mary", role: "po" }), "online");
 });
 
 test("membership transitions refresh the footer online to joined to online", () => {
@@ -113,7 +110,7 @@ test("membership transitions refresh the footer online to joined to online", () 
 	refreshIntrayStatus(state);
 	state.membershipRuntime = { getMembership: () => null } as never;
 	refreshIntrayStatus(state);
-	assert.deepEqual(statuses, ["session online", "session joined Mary (po)", "session online"]);
+	assert.deepEqual(statuses, ["online", "joined Mary (po)", "online"]);
 });
 
 test("same-session role switch replaces the displayed identity immediately", () => {
@@ -137,7 +134,7 @@ test("same-session role switch replaces the displayed identity immediately", () 
 	refreshIntrayStatus(state);
 	member = { name: "Dave", role: "dev" };
 	refreshIntrayStatus(state);
-	assert.deepEqual(statuses, ["session joined Mary (po)", "session joined Dave (dev)"]);
+	assert.deepEqual(statuses, ["joined Mary (po)", "joined Dave (dev)"]);
 });
 
 test("status line exposes only member name and role, never roster or path data", () => {
@@ -161,7 +158,7 @@ test("status line exposes only member name and role, never roster or path data",
 		},
 	};
 	// Format level: exact output is name (role) only.
-	assert.equal(formatIntrayFooter("session-id", "joined", member), "session-id joined Mary (po)");
+	assert.equal(formatIntrayFooter("joined", member), "joined Mary (po)");
 	// Composition level: updateStatus receives the full membership snapshot yet
 	// the rendered status still contains only the identity fields.
 	const state = createSocketState();
@@ -179,7 +176,7 @@ test("status line exposes only member name and role, never roster or path data",
 	} as never;
 	state.membershipRuntime = { getMembership: () => membership } as never;
 	refreshIntrayStatus(state);
-	assert.deepEqual(statuses, ["session-id joined Mary (po)"]);
+	assert.deepEqual(statuses, ["joined Mary (po)"]);
 });
 
 test("stale Pi contexts never display identity and are swallowed", () => {
@@ -210,7 +207,7 @@ test("disableControlServer clears a joined identity immediately", async () => {
 	} as never;
 	refreshIntrayStatus(state);
 	await disableControlServer(state, state.context as never);
-	assert.deepEqual(statuses, ["session joined Mary (po)", undefined]);
+	assert.deepEqual(statuses, ["joined Mary (po)", undefined]);
 });
 
 test("RPC status reports online and joined without legacy fields", async () => {
