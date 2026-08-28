@@ -83,7 +83,7 @@ export interface SocketState {
 // Utilities
 // ============================================================================
 
-const STATUS_KEY = "intray";
+const STATUS_KEY = "pi-bebop";
 
 function getSessionAlias(ctx: ExtensionContext): string | null {
 	const sessionName = ctx.sessionManager.getSessionName();
