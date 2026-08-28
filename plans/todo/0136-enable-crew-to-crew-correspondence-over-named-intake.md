@@ -1,7 +1,7 @@
 ---
 id: TASK-0136
 title: Add a crew-to-crew send tool with return-address convention
-status: done
+status: doing
 depends_on: []
 priority: high
 tags: [crew, messaging, intake, tools, cross-project, tdd]
@@ -45,9 +45,9 @@ A joined Member of one Crew cannot ask another local-project Crew a question thr
 
 ## Evidence
 
-- Implementation: `49b3c14`, canonical-path hardening: `64b6a06`, symlink-escape hardening: `cedb6c7`.
-- Verification: Kelly detached exact-commit focused suites `65/65`; watcher generation 60 `make all` PASS; full suite baseline `1,419/1,419`.
-- QA report: `.tmp/reports/13-04-26/task-0136-cedb6c7-final-qa.md`.
+- Implementation: `49b3c14`, canonical-path hardening: `64b6a06`, symlink-escape hardening: `cedb6c7`, final regression coverage: `5448e35`.
+- Verification: Kelly detached exact-commit focused suites `65/65` at `5448e35`; all four symlink adversaries across `.pi/bebop` and `.pi/crew` returned `untrusted-path` with no foreign or local mutation. Watcher generation 64 `make all` PASS; full suite `1,419/1,419`.
+- QA report: `.tmp/reports/13-04-26/task-0136-5448e35-final-qa.md`.
 
 ## Non-goals
 
