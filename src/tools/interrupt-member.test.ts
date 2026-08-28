@@ -63,6 +63,9 @@ const membership = {
 
 describe("interrupt_member tool", () => {
 	test("normalizes remote error codes through the closed vocabulary", () => {
+		for (const code of ["already-pending", "abort-failed", "no-context", "handoff-failed", "outcome-unknown"]) {
+			assert.equal(normalizeInterruptErrorCode(code), code);
+		}
 		assert.equal(normalizeInterruptErrorCode("offline"), "offline");
 		assert.equal(normalizeInterruptErrorCode("password-secret"), "unexpected-failure");
 		assert.equal(normalizeInterruptErrorCode("remote-error: /tmp/private.sock"), "unexpected-failure");

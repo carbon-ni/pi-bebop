@@ -38,14 +38,19 @@ function resolveTarget(membership: MembershipLike, memberName: string): CrewMemb
 
 const REMOTE_ERROR_CODES = new Set([
 	"aborted",
+	"abort-failed",
+	"already-pending",
 	"ambiguous-member",
 	"invalid-ack",
 	"invalid-payload",
+	"handoff-failed",
+	"no-context",
 	"not-joined",
 	"offline",
 	"remote-rejected",
 	"self-send",
 	"timeout",
+	"outcome-unknown",
 	"unknown-member",
 ]);
 
