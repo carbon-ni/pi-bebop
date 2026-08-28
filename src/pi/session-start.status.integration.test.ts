@@ -54,15 +54,22 @@ function createHarness(sessionId: string, branch: unknown[]): StatusHarness {
 	};
 }
 
-function createPi(activeTools: string[]): { getFlag: () => boolean } & Record<string, unknown> {
+function createPi(
+	activeTools: string[],
+	getFlag: (name: string) => unknown = () => false,
+	sentMessages?: { count: number },
+): { getFlag: (name: string) => unknown } & Record<string, unknown> {
 	return {
-		getFlag: () => false,
+		getFlag,
 		getActiveTools: () => activeTools,
 		setActiveTools: (tools: string[]) => {
 			activeTools.length = 0;
 			activeTools.push(...tools);
 		},
 		appendEntry: () => undefined,
+		sendMessage: () => {
+			if (sentMessages) sentMessages.count++;
+		},
 	};
 }
 
@@ -93,6 +100,53 @@ const restoredMembership = {
 	},
 };
 
+async function captureSessionStartBoundary(
+	hasUI: boolean,
+	role: string,
+	trusted: boolean,
+): Promise<{
+	message: string;
+	notifications: string[];
+	errors: string[];
+	sends: number;
+}> {
+	const harness = createHarness(`boundary-${hasUI ? "ui" : "headless"}-${role.trim() || "empty"}`, []);
+	const notifications: string[] = [];
+	const errors: string[] = [];
+	const sends = { count: 0 };
+	const originalError = console.error;
+	console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+	const ctx = {
+		...(harness.state.context as object),
+		hasUI,
+		isProjectTrusted: () => {
+			if (!trusted) throw new Error("private/tmp/session-start-secret");
+			return true;
+		},
+		ui: {
+			notify: (message: string) => notifications.push(message),
+			setStatus: () => undefined,
+			theme: { fg: (_color: string, value: string) => value },
+		},
+	};
+	try {
+		await handleSessionStart(
+			createPi([], (name) => (name === "crew-role" ? role : false), sends) as never,
+			harness.state,
+			ctx as never,
+			createDeps(harness),
+		);
+		return {
+			message: hasUI ? (notifications.at(-1) ?? "") : (errors.at(-1) ?? ""),
+			notifications,
+			errors,
+			sends: sends.count,
+		};
+	} finally {
+		console.error = originalError;
+	}
+}
+
 const persistedEntry = {
 	type: "custom",
 	customType: MEMBERSHIP_ENTRY_TYPE,
@@ -108,6 +162,26 @@ test.after(async () => {
 	if (previousSessionId === undefined) delete process.env.PI_SESSION_ID;
 	else process.env.PI_SESSION_ID = previousSessionId;
 	await fs.rm(sandboxHome, { recursive: true, force: true });
+});
+
+test("session-start boundary keeps UI/headless known and unknown failures identical and turn-free", async () => {
+	const cases = [
+		{ role: "   ", trusted: true, code: "empty-role" },
+		{ role: "developer", trusted: false, code: "unexpected-failure" },
+	];
+	for (const item of cases) {
+		const ui = await captureSessionStartBoundary(true, item.role, item.trusted);
+		const headless = await captureSessionStartBoundary(false, item.role, item.trusted);
+		assert.equal(ui.message, headless.message);
+		assert.equal(ui.notifications.length, 1);
+		assert.equal(ui.errors.length, 0);
+		assert.equal(headless.notifications.length, 0);
+		assert.equal(headless.errors.length, 1);
+		assert.equal(ui.sends, 0);
+		assert.equal(headless.sends, 0);
+		assert.match(ui.message, new RegExp(`\\(code: ${item.code}\\)$`));
+		assert.doesNotMatch(ui.message, /private\/tmp|session-start-secret/);
+	}
 });
 
 test("startup restore refreshes the status line from online to the restored identity", async () => {

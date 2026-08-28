@@ -22,8 +22,32 @@ function context(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
 	} as ExtensionContext;
 }
 
-function piWithFlag(value: unknown): ExtensionAPI {
-	return { getFlag: () => value } as unknown as ExtensionAPI;
+function piWithFlag(value: unknown, sendMessages?: { count: number }): ExtensionAPI {
+	return {
+		getFlag: () => value,
+		sendMessage: () => {
+			if (sendMessages) sendMessages.count++;
+		},
+	} as unknown as ExtensionAPI;
+}
+
+async function captureStartupBoundary(
+	hasUI: boolean,
+	resolver: (ctx: ExtensionContext, pi: ExtensionAPI) => Promise<boolean>,
+) {
+	const notices: string[] = [];
+	const errors: string[] = [];
+	const sends = { count: 0 };
+	const originalError = console.error;
+	console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+	try {
+		const ctx = context({ hasUI, ui: { notify: (message: string) => notices.push(message) } });
+		const pi = piWithFlag("developer", sends);
+		await resolver(ctx, pi);
+		return { message: hasUI ? (notices.at(-1) ?? "") : (errors.at(-1) ?? ""), notices, errors, sends };
+	} finally {
+		console.error = originalError;
+	}
 }
 
 test("startup role resolver selects configured socket without guessing filenames", async () => {
@@ -205,6 +229,48 @@ test("startup role selection preserves known codes and bounded role choices", as
 			validChoices: ["Mary", "Kelly"],
 		},
 	);
+});
+
+test("startup role boundary keeps UI/headless known and unknown failures identical and turn-free", async () => {
+	const runtime = {
+		join: async () => {
+			throw new Error("must not join");
+		},
+		leave: async () => ({ ok: true, left: false }),
+		getMembership: () => null,
+	} as unknown as MembershipRuntime;
+	const cases = [
+		{
+			expectedCode: "unknown-role",
+			resolver: async () => ({
+				ok: false as const,
+				code: "unknown-role" as const,
+				role: "developer",
+				availableRoles: ["Mary"],
+			}),
+		},
+		{
+			expectedCode: "unexpected-failure",
+			resolver: async () => {
+				throw new Error("private/tmp/startup-secret");
+			},
+		},
+	];
+	for (const item of cases) {
+		const invoke = (ctx: ExtensionContext, pi: ExtensionAPI) =>
+			maybeHandleStartupRoleJoin(ctx, pi, { role: "crew-role" }, runtime, "/tmp/global.sock", item.resolver);
+		const ui = await captureStartupBoundary(true, invoke);
+		const headless = await captureStartupBoundary(false, invoke);
+		assert.equal(ui.message, headless.message);
+		assert.equal(ui.notices.length, 1);
+		assert.equal(ui.errors.length, 0);
+		assert.equal(headless.notices.length, 0);
+		assert.equal(headless.errors.length, 1);
+		assert.equal(ui.sends.count, 0);
+		assert.equal(headless.sends.count, 0);
+		assert.match(ui.message, new RegExp(`\\(code: ${item.expectedCode}\\)$`));
+		assert.doesNotMatch(ui.message, /private\/tmp|startup-secret/);
+	}
 });
 
 test("startup socket paths normalize leading @ and startup cwd", () => {

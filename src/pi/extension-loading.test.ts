@@ -67,7 +67,8 @@ async function createLifecycleHarness(options: {
 	const notifications: string[] = [];
 	const entries: string[] = [];
 	const sentMessages: unknown[] = [];
-	const activeTools = ["read", ...MEMBERSHIP_TOOLS];
+	const registeredTools = [...MEMBERSHIP_TOOLS];
+	const activeTools = ["read", ...registeredTools];
 	const activeToolCalls: string[][] = [];
 	const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
 	const pi = {
@@ -76,7 +77,7 @@ async function createLifecycleHarness(options: {
 		registerEntryRenderer() {},
 		registerTool() {},
 		registerCommand() {},
-		getAllTools: () => activeTools.map((name) => ({ name })),
+		getAllTools: () => registeredTools.map((name) => ({ name })),
 		getActiveTools: () => [...activeTools],
 		setActiveTools: (names: string[]) => {
 			activeTools.splice(0, activeTools.length, ...names);
@@ -160,11 +161,16 @@ async function runPresenceFailure(
 	}
 }
 
-async function runReleaseFailure(
-	hasUI: boolean,
-): Promise<{ message: string; harness: LifecycleHarness; socketExists: boolean; reportCount: number }> {
+async function runReleaseFailure(hasUI: boolean): Promise<{
+	message: string;
+	harness: LifecycleHarness;
+	socketExists: boolean;
+	reportCount: number;
+	shutdownToolCalls: number;
+}> {
 	const harness = await createLifecycleHarness({ hasUI, failPresence: false });
 	await harness.handlers.get("session_start")?.({}, harness.context);
+	const startupToolCalls = harness.activeToolCalls.length;
 	// Ignore the normal startup presence announcement; the failure path itself
 	// must not send a model message or trigger a custom turn.
 	harness.sentMessages.splice(0);
@@ -184,6 +190,7 @@ async function runReleaseFailure(
 			harness,
 			socketExists,
 			reportCount: hasUI ? harness.notifications.length : errors.length,
+			shutdownToolCalls: harness.activeToolCalls.length - startupToolCalls,
 		};
 	} finally {
 		console.error = originalError;
@@ -222,6 +229,7 @@ test("session_shutdown reports release failure once and still cleans server and 
 	for (const result of [ui, headless]) {
 		assert.equal(result.socketExists, false);
 		assert.equal(result.harness.activeTools.includes("send_follow_up"), false);
+		assert.equal(result.shutdownToolCalls, 1);
 		assert.equal(result.harness.activeToolCalls.filter((names) => !names.includes("send_follow_up")).length, 1);
 		assert.equal(result.harness.sentMessages.length, 0);
 		assert.equal(result.harness.entries.includes("bebop-session-message"), false);
