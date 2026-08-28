@@ -47,8 +47,11 @@ async function scan() {
 			const lines = source.split("\n");
 			for (let index = 0; index < lines.length; index++) {
 				const line = lines[index];
-				if (presenterCall.test(line)) continue;
-				if (patterns[kind].test(line)) findings.push({ file, kind, line: index + 1 });
+				// Ignore comments before checking the presenter call. A marker in a
+				// comment or string must never authorize a direct render.
+				const code = line.replace(/\/\/.*$/, "");
+				if (presenterCall.test(code) && !patterns[kind].test(code)) continue;
+				if (patterns[kind].test(code)) findings.push({ file, kind, line: index + 1 });
 			}
 		}
 	}
