@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import extension from "../extension.ts";
+const sandboxHome = await mkdtemp(path.join(os.tmpdir(), "bebop-extension-home-"));
+const previousHome = process.env.HOME;
+process.env.HOME = sandboxHome;
+const { default: extension } = await import("../extension.ts");
 
 const MEMBERSHIP_TOOLS = [
 	"send_member_request",
@@ -21,6 +24,209 @@ const MEMBERSHIP_TOOLS = [
 	"leave_crew_post",
 	"read_crew_board",
 ];
+
+test.after(async () => {
+	if (previousHome === undefined) delete process.env.HOME;
+	else process.env.HOME = previousHome;
+	await rm(sandboxHome, { recursive: true, force: true });
+});
+
+type LifecycleHarness = {
+	readonly root: string;
+	readonly sessionId: string;
+	readonly socketPath: string;
+	readonly context: unknown;
+	readonly handlers: Map<string, (event: unknown, ctx: unknown) => unknown>;
+	readonly notifications: string[];
+	readonly entries: string[];
+	readonly activeTools: string[];
+	readonly activeToolCalls: string[][];
+	readonly sentMessages: unknown[];
+	readonly clearPresenceFailure: () => void;
+};
+
+async function createLifecycleHarness(options: {
+	hasUI: boolean;
+	failPresence: boolean;
+	presenceNotifications?: boolean;
+}): Promise<LifecycleHarness> {
+	const root = await mkdtemp(path.join(os.tmpdir(), "bebop-lifecycle-"));
+	const sessionId = path.basename(root);
+	const socketPath = path.join(root, ".pi", "bebop", "sockets", "dev.sock");
+	await mkdir(path.dirname(socketPath), { recursive: true });
+	await writeFile(
+		path.join(root, ".pi", "bebop", "crew.json"),
+		JSON.stringify({
+			version: 1,
+			members: [{ name: "Dev", role: "developer", socket: "sockets/dev.sock" }],
+			presence: { notifications: options.presenceNotifications ?? true },
+		}),
+	);
+	let failPresence = false;
+	let cleanupSafe = false;
+	const notifications: string[] = [];
+	const entries: string[] = [];
+	const sentMessages: unknown[] = [];
+	const activeTools = ["read", ...MEMBERSHIP_TOOLS];
+	const activeToolCalls: string[][] = [];
+	const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+	const pi = {
+		registerFlag() {},
+		registerMessageRenderer() {},
+		registerEntryRenderer() {},
+		registerTool() {},
+		registerCommand() {},
+		getAllTools: () => activeTools.map((name) => ({ name })),
+		getActiveTools: () => [...activeTools],
+		setActiveTools: (names: string[]) => {
+			activeTools.splice(0, activeTools.length, ...names);
+			activeToolCalls.push([...names]);
+		},
+		getFlag: (name: string) => (name === "crew-socket" ? socketPath : false),
+		setSessionName: (name: string) => {
+			if (!cleanupSafe && options.failPresence && name) failPresence = true;
+		},
+		appendEntry: (entryType: string) => {
+			entries.push(entryType);
+			if (entryType === "intray-session-name" && options.failPresence) failPresence = true;
+		},
+		sendMessage: (message: unknown) => sentMessages.push(message),
+		on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => handlers.set(event, handler),
+	};
+	const context = {
+		cwd: root,
+		hasUI: options.hasUI,
+		ui: {
+			notify: (message: string, level?: string) => {
+				if (level === "error") notifications.push(message);
+			},
+			setStatus() {},
+			theme: { fg: (_color: string, value: string) => value },
+		},
+		isProjectTrusted: () => true,
+		sessionManager: {
+			getSessionId: () => {
+				if (failPresence && !cleanupSafe) {
+					failPresence = false;
+					throw new Error("private/tmp/presence-secret");
+				}
+				return sessionId;
+			},
+			getSessionName: () => undefined,
+			getBranch: () => [],
+			getEntries: () => [],
+		},
+	};
+	extension(pi as never);
+	return {
+		root,
+		sessionId,
+		socketPath,
+		context,
+		handlers,
+		notifications,
+		entries,
+		activeTools,
+		activeToolCalls,
+		sentMessages,
+		clearPresenceFailure: () => {
+			failPresence = false;
+			cleanupSafe = true;
+		},
+	};
+}
+
+async function runPresenceFailure(
+	hasUI: boolean,
+): Promise<{ message: string; harness: LifecycleHarness; reportCount: number }> {
+	const harness = await createLifecycleHarness({ hasUI, failPresence: true });
+	const errors: string[] = [];
+	const originalError = console.error;
+	console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+	try {
+		await harness.handlers.get("session_start")?.({}, harness.context);
+		const result = {
+			message: hasUI ? (harness.notifications.at(-1) ?? "") : (errors.at(-1) ?? ""),
+			harness,
+			reportCount: hasUI ? harness.notifications.length : errors.length,
+		};
+		harness.clearPresenceFailure();
+		return result;
+	} finally {
+		console.error = originalError;
+		harness.clearPresenceFailure();
+		await harness.handlers.get("session_shutdown")?.({}, harness.context);
+		await rm(harness.root, { recursive: true, force: true });
+	}
+}
+
+async function runReleaseFailure(
+	hasUI: boolean,
+): Promise<{ message: string; harness: LifecycleHarness; socketExists: boolean; reportCount: number }> {
+	const harness = await createLifecycleHarness({ hasUI, failPresence: false });
+	await harness.handlers.get("session_start")?.({}, harness.context);
+	// Ignore the normal startup presence announcement; the failure path itself
+	// must not send a model message or trigger a custom turn.
+	harness.sentMessages.splice(0);
+	await writeFile(`${harness.socketPath}.claim`, "held");
+	const errors: string[] = [];
+	const originalError = console.error;
+	console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+	try {
+		await harness.handlers.get("session_shutdown")?.({}, harness.context);
+		const socket = path.join(sandboxHome, ".pi", "intray", `${harness.sessionId}.sock`);
+		const socketExists = await access(socket).then(
+			() => true,
+			() => false,
+		);
+		return {
+			message: hasUI ? (harness.notifications.at(-1) ?? "") : (errors.at(-1) ?? ""),
+			harness,
+			socketExists,
+			reportCount: hasUI ? harness.notifications.length : errors.length,
+		};
+	} finally {
+		console.error = originalError;
+		await rm(harness.root, { recursive: true, force: true });
+	}
+}
+
+test("public lifecycle failures have one byte-identical UI/headless report and no model turn", async () => {
+	const ui = await runPresenceFailure(true);
+	const headless = await runPresenceFailure(false);
+	assert.equal(ui.message, headless.message);
+	assert.equal(ui.reportCount, 1);
+	assert.equal(headless.reportCount, 1);
+	assert.match(ui.message, /^Crew extension lifecycle failed:/);
+	assert.match(ui.message, /Next:/);
+	assert.match(ui.message, /\(code: unexpected-failure\)$/);
+	assert.equal(ui.harness.notifications.length, 1);
+	assert.equal(headless.harness.notifications.length, 0);
+	for (const result of [ui, headless]) {
+		assert.equal(result.harness.sentMessages.length, 0);
+		assert.equal(result.harness.entries.includes("bebop-session-message"), false);
+		assert.equal(result.harness.activeTools.includes("send_follow_up"), false);
+	}
+});
+
+test("session_shutdown reports release failure once and still cleans server and tools", async () => {
+	const ui = await runReleaseFailure(true);
+	const headless = await runReleaseFailure(false);
+	assert.equal(ui.message, headless.message);
+	assert.equal(ui.reportCount, 1);
+	assert.equal(headless.reportCount, 1);
+	assert.match(ui.message, /^Crew extension lifecycle failed:/);
+	assert.match(ui.message, /\(code: unexpected-failure\)$/);
+	assert.equal(ui.harness.notifications.length, 1);
+	assert.equal(headless.harness.notifications.length, 0);
+	for (const result of [ui, headless]) {
+		assert.equal(result.socketExists, false);
+		assert.equal(result.harness.activeTools.includes("send_follow_up"), false);
+		assert.equal(result.harness.activeToolCalls.filter((names) => !names.includes("send_follow_up")).length, 1);
+		assert.equal(result.harness.sentMessages.length, 0);
+		assert.equal(result.harness.entries.includes("bebop-session-message"), false);
+	}
+});
 
 test("role rejection preflight leaves control server untouched for invalid, empty, missing, ambiguous, and resolver failure", async () => {
 	const cases: Array<{ name: string; role: string; setup?: (root: string) => Promise<void> }> = [
