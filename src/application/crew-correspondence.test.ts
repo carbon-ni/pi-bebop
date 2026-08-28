@@ -437,22 +437,53 @@ describe("crew correspondence target symlink escape (P1 regression)", () => {
 				),
 				"untrusted-path",
 			);
-			const foreignInboxExists = await fs.stat(path.join(foreignRoot, ".pi/bebop/inbox")).then(
-				() => true,
-				() => false,
+			await assertForeignLayoutUntouched(foreignRoot, foreignManifestPath);
+
+			// Kelly's exact QA scenario (report 13-04-26): local .pi/crew symlinked
+			// to a FOREIGN .pi/crew layout must reject before IO with no foreign writes.
+			const foreignCrewRoot = path.join(root, "foreign-crew");
+			const foreignCrewManifest = path.join(foreignCrewRoot, ".pi/crew/crew.json");
+			await writeManifestFixture(foreignCrewManifest, {
+				version: 1,
+				members: [{ name: "Ghost", role: "dev", socket: "sockets/ghost.sock" }],
+				intake: { contact: "Ghost" },
+			});
+			const gammaRoot = path.join(root, "gamma");
+			await fs.mkdir(path.join(gammaRoot, ".pi"), { recursive: true });
+			await fs.symlink(path.join(foreignCrewRoot, ".pi/crew"), path.join(gammaRoot, ".pi/crew"), "dir");
+			await rejectsCode(
+				sendCrewCorrespondence(
+					{
+						membership: {
+							member: { name: "Dave", role: "developer" },
+							manifestPath: path.join(root, "alpha/.pi/bebop/crew.json"),
+							manifest: { members: [] },
+						},
+						targetManifestPath: path.join(gammaRoot, ".pi/crew/crew.json"),
+						message: "escape attempt",
+						now: 99,
+					},
+					harnessDeps,
+				),
+				"untrusted-path",
 			);
-			assert.equal(foreignInboxExists, false, "foreign inbox must not exist after rejection");
-			assert.equal(
-				await fs.readFile(foreignManifestPath, "utf8"),
-				JSON.stringify({
-					version: 1,
-					members: [{ name: "Ghost", role: "dev", socket: "sockets/ghost.sock" }],
-					intake: { contact: "Ghost" },
-				}),
-				"foreign manifest untouched",
-			);
+			await assertForeignLayoutUntouched(foreignCrewRoot, foreignCrewManifest);
 		} finally {
 			await fs.rm(root, { recursive: true, force: true });
 		}
 	});
 });
+
+async function assertForeignLayoutUntouched(foreignRoot: string, foreignManifestPath: string): Promise<void> {
+	for (const layout of ["bebop", "crew"]) {
+		const foreignInboxExists = await fs.stat(path.join(foreignRoot, `.pi/${layout}/inbox`)).then(
+			() => true,
+			() => false,
+		);
+		assert.equal(foreignInboxExists, false, `foreign ${layout} inbox must not exist after rejection`);
+	}
+	const raw = JSON.parse(await fs.readFile(foreignManifestPath, "utf8")) as {
+		members?: Array<{ name?: string }>;
+	};
+	assert.equal(raw.members?.[0]?.name, "Ghost", "foreign manifest untouched");
+}
