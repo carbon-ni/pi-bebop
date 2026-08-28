@@ -16,6 +16,47 @@ const REQUIRED = [
 	"semanticFingerprint",
 ] as const;
 
+const SURFACES = new Set([
+	"follow-up",
+	"redirect",
+	"member-request",
+	"member-response",
+	"member-inbox",
+	"crew-broadcast",
+	"interrupt",
+	"crew-intake",
+]);
+const STAGES = new Set([
+	"delivery",
+	"persistence",
+	"handoff",
+	"request-terminal",
+	"broadcast-summary",
+	"recovery",
+	"abort",
+]);
+const OUTCOMES = new Set([
+	"direct",
+	"queued",
+	"redirected",
+	"offline",
+	"persisted",
+	"already-persisted",
+	"offered",
+	"handoff-recorded",
+	"response-recorded",
+	"timeout-max-wait",
+	"timeout-response-after-idle",
+	"cancelled",
+	"pending",
+	"already-pending",
+	"abort-requested",
+	"no-active-context",
+	"complete",
+	"partial",
+	"no-recipients",
+	"failed",
+]);
 const CANONICAL_KEYS = [
 	...REQUIRED,
 	"actorKind",
@@ -104,7 +145,15 @@ function nestedFields(entry: MessageLogEntry): void {
 }
 export function validateMessageLogEntry(entry: MessageLogEntry): void {
 	requiredFields(entry);
-	if (entry.version !== 1 || entry.kind !== "message-event") throw new Error("invalid-message-log-schema");
+	if (
+		entry.version !== 1 ||
+		entry.kind !== "message-event" ||
+		!SURFACES.has(String(entry.surface)) ||
+		!STAGES.has(String(entry.stage)) ||
+		!OUTCOMES.has(String(entry.outcome)) ||
+		(entry.outcome === "failed" ? typeof entry.errorCode !== "string" : entry.errorCode !== null)
+	)
+		throw new Error("invalid-message-log-schema");
 	closedFields(entry);
 	scalarFields(entry);
 	nestedFields(entry);
