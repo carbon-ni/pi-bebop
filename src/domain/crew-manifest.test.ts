@@ -28,6 +28,8 @@ describe("crew manifest", () => {
 			"c1\u0085name",
 			"🚩".repeat(65),
 			`lone${String.fromCharCode(0xd800)}surrogate`,
+			`terminal${String.fromCharCode(0xd800)}`,
+			`terminal${String.fromCharCode(0xdc00)}`,
 		])
 			assert.throws(
 				() => parseCrewManifest({ ...base, name }),
