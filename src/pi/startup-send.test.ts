@@ -8,6 +8,7 @@ import {
 	maybeHandleStartupSocketJoin,
 	normalizeStartupSocketPath,
 	resolveStartupCrewRole,
+	startupRoleSelectionDescriptor,
 } from "./startup-send.ts";
 
 function context(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
@@ -152,9 +153,57 @@ test("startup role join reports actionable invalid intake configuration", async 
 	assert.equal(joins, 0);
 	assert.equal(notices.length, 1);
 	assert.match(notices[0]!, /^Crew startup send failed:/);
-	assert.match(notices[0]!, /intake\.contact rejected value 'Ghost'/);
-	assert.match(notices[0]!, /Next: verify the target and startup flags, then retry\./);
-	assert.match(notices[0]!, /\(code: startup-send-failed\)$/);
+	assert.doesNotMatch(notices[0]!, /Ghost|manifest path|private\/tmp/);
+	assert.match(notices[0]!, /Next: verify startup configuration and retry/);
+	assert.match(notices[0]!, /\(code: unexpected-failure\)$/);
+});
+
+test("startup role selection preserves known codes and bounded role choices", async () => {
+	const notices: string[] = [];
+	let joins = 0;
+	const runtime = {
+		join: async () => {
+			joins += 1;
+			return { ok: true, idempotent: false, membership: undefined };
+		},
+		leave: async () => ({ ok: true, left: false }),
+		getMembership: () => null,
+	} as unknown as MembershipRuntime;
+	const handled = await maybeHandleStartupRoleJoin(
+		context({ ui: { notify: (message: string) => notices.push(message) } }),
+		piWithFlag("product"),
+		{ role: "crew-role" },
+		runtime,
+		"/tmp/global.sock",
+		async () => ({
+			ok: false,
+			code: "unknown-role",
+			role: "product",
+			availableRoles: ["Mary", "Kelly"],
+		}),
+	);
+	assert.equal(handled, false);
+	assert.equal(joins, 0);
+	assert.equal(notices.length, 1);
+	assert.match(notices[0]!, /^Crew startup role join failed:/);
+	assert.match(notices[0]!, /\(code: unknown-role\)$/);
+	assert.match(notices[0]!, /Location: --crew-role="product"/);
+	assert.deepEqual(
+		startupRoleSelectionDescriptor({
+			ok: false,
+			code: "unknown-role",
+			role: "product",
+			availableRoles: ["Mary", "Kelly"],
+		}),
+		{
+			code: "unknown-role",
+			operation: "Crew startup role join",
+			reason: "the configured role is not present in the Crew manifest",
+			recovery: ["choose one of the listed exact roles, then retry."],
+			location: { kind: "flag", name: "--crew-role", value: "product" },
+			validChoices: ["Mary", "Kelly"],
+		},
+	);
 });
 
 test("startup socket paths normalize leading @ and startup cwd", () => {
@@ -317,8 +366,9 @@ test("untrusted or failed startup selection is explicit and does not create memb
 	);
 	assert.equal(untrusted, false);
 	assert.equal(joins, 0);
+	const failureNotices: string[] = [];
 	const failed = await maybeHandleStartupSocketJoin(
-		context(),
+		context({ ui: { notify: (message: string) => failureNotices.push(message) } }),
 		piWithFlag(".pi/bebop/sockets/dev.sock"),
 		{ socket: "crew-socket" },
 		runtime,
@@ -326,4 +376,7 @@ test("untrusted or failed startup selection is explicit and does not create memb
 	);
 	assert.equal(failed, false);
 	assert.equal(joins, 1);
+	assert.equal(failureNotices.length, 1);
+	assert.doesNotMatch(failureNotices[0]!, /occupied endpoint|private\/tmp/);
+	assert.match(failureNotices[0]!, /\(code: unexpected-failure\)$/);
 });

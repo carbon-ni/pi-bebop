@@ -64,7 +64,6 @@ import {
 	maybeHandleStartupRoleJoin,
 	maybeHandleStartupSocketJoin,
 	resolveStartupCrewRole,
-	startupRoleSelectionError,
 	type StartupRoleSelection,
 } from "./pi/startup-send.ts";
 import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
@@ -81,11 +80,11 @@ const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
 const CREW_ROLE_FLAG = "crew-role";
 
-function reportLifecycleFailure(context: ExtensionContext | null, reason: string): void {
+function reportLifecycleFailure(context: ExtensionContext | null): void {
 	const message = presentActionableError({
-		code: "lifecycle-failed",
+		code: "unexpected-failure",
 		operation: "Crew extension lifecycle",
-		reason,
+		reason: "the lifecycle operation could not be completed",
 		recovery: ["retry the Crew operation; if it repeats, inspect Crew state and report the code."],
 	}).message;
 	if (context?.hasUI) {
@@ -312,7 +311,7 @@ export default function (pi: ExtensionAPI) {
 		onObserverChanged: (observer) => {
 			state.presenceObserver = observer;
 		},
-		reportFailure: (error) => reportLifecycleFailure(state.context, `presence refresh failed: ${String(error)}`),
+		reportFailure: () => reportLifecycleFailure(state.context),
 	});
 	const stopPresence = async () => {
 		await presenceComposition.stop();
@@ -405,7 +404,7 @@ export default function (pi: ExtensionAPI) {
 				deactivateMembershipTool(pi);
 				await disableControlServer(state, context, pi);
 			},
-			reportFailure: (message) => reportLifecycleFailure(context, message),
+			reportFailure: () => reportLifecycleFailure(context),
 		});
 		state.context = null;
 		state.socketPath = null;

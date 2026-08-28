@@ -12,9 +12,10 @@ import {
 	isSafeSessionId,
 	normalizeMode,
 	normalizeWaitUntil,
+	presentActionableError,
+	type ActionableErrorDescriptor,
 	type RpcSendCommand,
 	type WaitUntil,
-	presentActionableError,
 } from "../domain/index.ts";
 
 export type StartupControlSendFlags = {
@@ -175,6 +176,57 @@ export function normalizeStartupSocketPath(rawPath: string, cwd: string): string
 	return path.resolve(cwd, withoutPrefix);
 }
 
+export function startupRoleSelectionDescriptor(
+	selection: Extract<StartupRoleSelection, { ok: false }>,
+): ActionableErrorDescriptor {
+	const location = { kind: "flag" as const, name: "--crew-role", value: selection.role };
+	if (selection.code === "untrusted-project")
+		return {
+			code: selection.code,
+			operation: "Crew startup role join",
+			reason: "the project is not trusted",
+			recovery: ["trust the project, then retry the Crew role join."],
+		};
+	if (selection.code === "empty-role")
+		return {
+			code: selection.code,
+			operation: "Crew startup role join",
+			reason: "the configured role is empty",
+			recovery: ["provide a non-empty --crew-role value, then retry."],
+			location,
+		};
+	if (selection.code === "unknown-role")
+		return {
+			code: selection.code,
+			operation: "Crew startup role join",
+			reason: "the configured role is not present in the Crew manifest",
+			recovery: ["choose one of the listed exact roles, then retry."],
+			location,
+			validChoices: selection.availableRoles,
+		};
+	if (selection.code === "ambiguous-role")
+		return {
+			code: selection.code,
+			operation: "Crew startup role join",
+			reason: "the configured role matches multiple Members",
+			recovery: ["use --crew-socket to select an explicit endpoint, then retry."],
+			location,
+		};
+	if (selection.code === "missing-manifest")
+		return {
+			code: selection.code,
+			operation: "Crew startup role join",
+			reason: "no supported Crew manifest was found beneath the project",
+			recovery: ["create or select a supported Crew manifest, then retry."],
+		};
+	return {
+		code: selection.code,
+		operation: "Crew startup role join",
+		reason: "both supported Crew manifests were found",
+		recovery: ["remove one manifest or use --crew-socket to select an explicit endpoint."],
+	};
+}
+
 export function startupRoleSelectionError(selection: Extract<StartupRoleSelection, { ok: false }>): string {
 	let detail = `role '${selection.role}'`;
 	if (selection.code === "unknown-role") {
@@ -198,15 +250,20 @@ function reportStartupControlSend(
 	ctx: ExtensionContext,
 	message: string,
 	level: "info" | "warning" | "error" = "info",
+	descriptor?: ActionableErrorDescriptor,
 ): void {
 	const rendered =
 		level === "error"
-			? presentActionableError({
-					code: "startup-send-failed",
-					operation: "Crew startup send",
-					reason: message,
-					recovery: ["verify the target and startup flags, then retry."],
-				}).message
+			? presentActionableError(
+					descriptor ?? {
+						code: "unexpected-failure",
+						operation: "Crew startup send",
+						reason: "the startup operation could not be completed",
+						recovery: [
+							"verify startup configuration and retry; if it repeats, report the operation and code.",
+						],
+					},
+				).message
 			: message;
 	if (ctx.hasUI) {
 		ctx.ui.notify(rendered, level);
@@ -239,7 +296,12 @@ export async function maybeHandleStartupSocketJoin(
 	}
 	const { socketPath, manifestPath } = selection;
 	if (!ctx.isProjectTrusted()) {
-		reportStartupControlSend(ctx, "Crew startup join failed: project is not trusted", "error");
+		reportStartupControlSend(ctx, "Crew startup join failed", "error", {
+			code: "untrusted-project",
+			operation: "Crew startup join",
+			reason: "the project is not trusted",
+			recovery: ["trust the project, then retry the Crew join."],
+		});
 		return false;
 	}
 	if (!membershipRuntime || !globalSocketPath) {
@@ -253,7 +315,7 @@ export async function maybeHandleStartupSocketJoin(
 		globalSocketPath,
 	});
 	if ("error" in result) {
-		reportStartupControlSend(ctx, `Crew startup join failed: ${result.error.message}`, "error");
+		reportStartupControlSend(ctx, "Crew startup join failed", "error");
 		return false;
 	}
 	reportStartupControlSend(
@@ -274,7 +336,12 @@ export async function maybeHandleStartupRoleJoin(
 	const rawRole = getStringFlag(pi, flags.role);
 	if (!rawRole) return false;
 	if (!ctx.isProjectTrusted()) {
-		reportStartupControlSend(ctx, "Crew startup role join failed: project is not trusted", "error");
+		reportStartupControlSend(
+			ctx,
+			"Crew startup role join failed",
+			"error",
+			startupRoleSelectionDescriptor({ ok: false, code: "untrusted-project", role: rawRole }),
+		);
 		return false;
 	}
 	if (!membershipRuntime || !globalSocketPath) {
@@ -295,8 +362,9 @@ export async function maybeHandleStartupRoleJoin(
 	if ("code" in selection) {
 		reportStartupControlSend(
 			ctx,
-			`Crew startup role join failed: ${startupRoleSelectionError(selection)}`,
+			"Crew startup role join failed",
 			"error",
+			startupRoleSelectionDescriptor(selection),
 		);
 		return false;
 	}
@@ -306,7 +374,7 @@ export async function maybeHandleStartupRoleJoin(
 		globalSocketPath,
 	});
 	if ("error" in result) {
-		reportStartupControlSend(ctx, `Crew startup role join failed: ${result.error.message}`, "error");
+		reportStartupControlSend(ctx, "Crew startup role join failed", "error");
 		return false;
 	}
 	reportStartupControlSend(

@@ -157,10 +157,10 @@ test("failed startup restore reports the failure and never displays identity", a
 		assert.deepEqual(harness.statuses, ["online"]);
 		assert.equal(harness.announcements.length, 0);
 		const failure = harness.notifications.at(-1) ?? "";
-		assert.match(failure, /^Crew startup failed:/);
-		assert.match(failure, /endpoint is occupied/);
+		assert.match(failure, /^Crew Membership restore failed:/);
+		assert.doesNotMatch(failure, /endpoint is occupied/);
 		assert.match(failure, /Next:/);
-		assert.match(failure, /\(code: startup-failed\)$/);
+		assert.match(failure, /\(code: unexpected-failure\)$/);
 	} finally {
 		await disableControlServer(harness.state, harness.state.context as never);
 	}

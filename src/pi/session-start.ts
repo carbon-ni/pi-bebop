@@ -14,11 +14,11 @@ import {
 	maybeHandleStartupRoleJoin,
 	maybeHandleStartupSocketJoin,
 	resolveStartupCrewRole,
-	startupRoleSelectionError,
+	startupRoleSelectionDescriptor,
 	type StartupRoleSelection,
 } from "./startup-send.ts";
 import { ownershipFromMembership } from "./inbox-bridge-runtime.ts";
-import { presentActionableError } from "../domain/index.ts";
+import { presentActionableError, type ActionableErrorDescriptor } from "../domain/index.ts";
 import type { createSocketState } from "./control-runtime.ts";
 import { createInboxBridgeController } from "./inbox-bridge-runtime.ts";
 
@@ -83,13 +83,8 @@ type StartupSelection = {
 	readonly startupRoleSelection?: StartupRoleSelection;
 };
 
-function reportStartupError(ctx: ExtensionContext, reason: string): void {
-	const message = presentActionableError({
-		code: "startup-failed",
-		operation: "Crew startup",
-		reason,
-		recovery: ["check startup flags, project trust, and Crew configuration, then retry."],
-	}).message;
+function reportStartupError(ctx: ExtensionContext, descriptor: ActionableErrorDescriptor): void {
+	const message = presentActionableError(descriptor).message;
 	if (ctx.hasUI) ctx.ui.notify(message, "error");
 	else console.error(message);
 }
@@ -101,32 +96,42 @@ async function prepareStartupSelection(pi: ExtensionAPI, ctx: ExtensionContext):
 	const startupRole = typeof rawCrewRole === "string" && rawCrewRole.trim().length > 0;
 	if (rawCrewRole !== undefined && rawCrewRole !== false && (!startupRole || typeof rawCrewRole !== "string")) {
 		reconcileMembershipTools(pi, false);
-		reportStartupError(ctx, "Invalid --crew-role: role must be non-empty");
+		reportStartupError(ctx, {
+			code: "empty-role",
+			operation: "Crew startup role join",
+			reason: "the configured role is empty",
+			recovery: ["provide a non-empty --crew-role value, then retry."],
+			location: { kind: "flag", name: "--crew-role" },
+		});
 		return undefined;
 	}
 	if (startupSocket && startupRole) {
 		reconcileMembershipTools(pi, false);
-		reportStartupError(ctx, "Choose exactly one of --crew-role or --crew-socket");
+		reportStartupError(ctx, {
+			code: "conflicting-startup-flags",
+			operation: "Crew startup",
+			reason: "--crew-role and --crew-socket cannot be used together",
+			recovery: ["choose exactly one startup selection flag, then retry."],
+		});
 		return undefined;
 	}
 	let startupRoleSelection: StartupRoleSelection | undefined;
 	if (startupRole) {
 		try {
 			startupRoleSelection = await resolveStartupCrewRole(String(rawCrewRole), ctx.cwd, ctx.isProjectTrusted());
-		} catch (error) {
+		} catch {
 			reconcileMembershipTools(pi, false);
-			reportStartupError(
-				ctx,
-				`Crew startup role join failed: ${error instanceof Error ? error.message : "manifest read failed"}`,
-			);
+			reportStartupError(ctx, {
+				code: "unexpected-failure",
+				operation: "Crew startup role join",
+				reason: "the startup role selection could not be completed",
+				recovery: ["verify Crew configuration and retry; if it repeats, report the operation and code."],
+			});
 			return undefined;
 		}
 		if (startupRoleSelection && "code" in startupRoleSelection) {
 			reconcileMembershipTools(pi, false);
-			reportStartupError(
-				ctx,
-				`Crew startup role join failed: ${startupRoleSelectionError(startupRoleSelection)}`,
-			);
+			reportStartupError(ctx, startupRoleSelectionDescriptor(startupRoleSelection));
 			return undefined;
 		}
 	}
@@ -228,7 +233,13 @@ async function restoreMembership(
 				void recoverInterrupts();
 			}
 		},
-		reportFailure: (message) => reportStartupError(ctx, `Crew membership restore failed: ${message}`),
+		reportFailure: () =>
+			reportStartupError(ctx, {
+				code: "unexpected-failure",
+				operation: "Crew Membership restore",
+				reason: "persisted Crew Membership could not be restored",
+				recovery: ["verify the persisted Crew state and retry; if it repeats, report the operation and code."],
+			}),
 	});
 	if (!state.membershipRuntime?.getMembership()) {
 		await syncSessionName(null);

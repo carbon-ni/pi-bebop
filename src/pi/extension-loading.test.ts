@@ -89,9 +89,11 @@ test("role rejection preflight leaves control server untouched for invalid, empt
 			} as never;
 			await sessionStart?.({}, ctx);
 			assert.equal(sessionManagerAccesses, 0, item.name);
-			assert.match(notifications.at(-1) ?? "", /^Crew startup failed:/, item.name);
-			assert.match(notifications.at(-1) ?? "", /Next:/, item.name);
-			assert.match(notifications.at(-1) ?? "", /\(code: startup-failed\)$/, item.name);
+			const failure = notifications.at(-1) ?? "";
+			assert.match(failure, /^Crew startup/, item.name);
+			assert.match(failure, /Next:/, item.name);
+			assert.match(failure, /\(code: [a-z-]+\)$/, item.name);
+			assert.doesNotMatch(failure, /private\/tmp|token=|invalid JSON/i, item.name);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
