@@ -107,30 +107,37 @@ function operationFields(entry: MessageLogEntry): void {
 	)
 		throw new Error("invalid-message-log-operation");
 }
-function textFields(value: any, maxBytes: number): boolean {
-	if (!value || typeof value !== "object") return false;
-	const keys = [
-		"state",
-		"reason",
-		"text",
-		"normalizedUtf8Bytes",
-		"retainedUtf8Bytes",
-		"omittedUtf8Bytes",
-		"truncated",
-		"escapedMarkerCount",
-		"redactions",
-	];
-	return (
-		keys.every((key) => key in value) &&
-		((value.state === "captured" &&
+const TEXT_KEYS = [
+	"state",
+	"reason",
+	"text",
+	"normalizedUtf8Bytes",
+	"retainedUtf8Bytes",
+	"omittedUtf8Bytes",
+	"truncated",
+	"escapedMarkerCount",
+	"redactions",
+];
+function textShape(value: any): boolean {
+	return value && typeof value === "object" && TEXT_KEYS.every((key) => key in value);
+}
+function textState(value: any, maxBytes: number): boolean {
+	if (value.state === "captured")
+		return (
 			value.reason === null &&
 			typeof value.text === "string" &&
-			new TextEncoder().encode(value.text).byteLength <= maxBytes) ||
-			(value.state === "unavailable" &&
-				value.reason !== null &&
-				value.text === null &&
-				value.retainedUtf8Bytes === 0 &&
-				value.truncated === false)) &&
+			new TextEncoder().encode(value.text).byteLength <= maxBytes
+		);
+	return (
+		value.state === "unavailable" &&
+		value.reason !== null &&
+		value.text === null &&
+		value.retainedUtf8Bytes === 0 &&
+		value.truncated === false
+	);
+}
+function textCounts(value: any): boolean {
+	return (
 		Number.isSafeInteger(value.normalizedUtf8Bytes) &&
 		Number.isSafeInteger(value.retainedUtf8Bytes) &&
 		Number.isSafeInteger(value.omittedUtf8Bytes) &&
@@ -139,32 +146,38 @@ function textFields(value: any, maxBytes: number): boolean {
 		Array.isArray(value.redactions)
 	);
 }
+function textFields(value: any, maxBytes: number): boolean {
+	return textShape(value) && textState(value, maxBytes) && textCounts(value);
+}
+function payloadShape(payload: any): boolean {
+	return (
+		payload &&
+		typeof payload === "object" &&
+		!Object.keys(payload).some(
+			(key) => !["state", "reason", "content", "instructions", "instructionCount"].includes(key),
+		) &&
+		["represented", "unavailable"].includes(payload.state) &&
+		Array.isArray(payload.instructions) &&
+		payload.instructions.length <= 32
+	);
+}
+function payloadTexts(payload: any): boolean {
+	return payload.state === "represented"
+		? textFields(payload.content, 4096) && payload.instructions.every((item: any) => textFields(item, 1024))
+		: payload.reason !== null &&
+				textFields(payload.content, 4096) &&
+				payload.instructions.every((item: any) => textFields(item, 1024));
+}
+function payloadCount(payload: any): boolean {
+	return payload.state === "represented"
+		? Number.isSafeInteger(payload.instructionCount) && payload.instructionCount === payload.instructions.length
+		: payload.instructionCount === null ||
+				(Number.isSafeInteger(payload.instructionCount) &&
+					payload.instructionCount === payload.instructions.length);
+}
 function payloadFields(entry: MessageLogEntry): void {
 	const payload = entry.payload as any;
-	if (
-		!payload ||
-		typeof payload !== "object" ||
-		Object.keys(payload).some(
-			(key) => !["state", "reason", "content", "instructions", "instructionCount"].includes(key),
-		) ||
-		!["represented", "unavailable"].includes(payload.state) ||
-		!Array.isArray(payload.instructions) ||
-		payload.instructions.length > 32 ||
-		(payload.state === "represented" &&
-			(!textFields(payload.content, 4096) ||
-				payload.instructions.some((item: any) => !textFields(item, 1024)))) ||
-		(payload.state === "unavailable" &&
-			(payload.reason === null ||
-				!textFields(payload.content, 4096) ||
-				payload.instructions.some((item: any) => !textFields(item, 1024)) ||
-				(payload.instructionCount !== null && !Number.isSafeInteger(payload.instructionCount)))) ||
-		(payload.state === "represented" &&
-			(!Number.isSafeInteger(payload.instructionCount) ||
-				payload.instructionCount !== payload.instructions.length)) ||
-		(payload.state === "unavailable" &&
-			payload.instructionCount !== null &&
-			payload.instructionCount !== payload.instructions.length)
-	)
+	if (!payloadShape(payload) || !payloadTexts(payload) || !payloadCount(payload))
 		throw new Error("invalid-message-log-payload");
 }
 function captureFields(entry: MessageLogEntry): void {
