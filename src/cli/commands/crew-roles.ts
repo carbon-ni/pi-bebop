@@ -6,7 +6,7 @@ import { CrewManifestReadError, readTrustedCrewManifest } from "../../infra/crew
 import { getTrustedCrewManifestPaths } from "../../infra/crew-layout.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
 import { parseFlagTokens } from "../flags.ts";
-import { errorResult } from "../errors.ts";
+import { actionableErrorResult, errorResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome, CliResult } from "../output.ts";
 
@@ -121,13 +121,21 @@ export const defaultCrewRolesDependencies: CrewRolesDependencies = {
 	readManifest: (manifestPath, projectRoot) => readTrustedCrewManifest(manifestPath, projectRoot, () => true),
 };
 
-function mapManifestError(error: unknown, manifestPath: string): CliResult {
-	if (error instanceof CrewManifestReadError)
-		return errorResult(error.message, manifestPath, error.code, "pi-bebop crew roles");
-	if (error instanceof CrewManifestError)
-		return errorResult(error.message, manifestPath, error.code, "pi-bebop crew roles");
-	const message = error instanceof Error ? error.message : "Crew manifest read failed";
-	return errorResult(message, manifestPath, "operational", "pi-bebop crew roles");
+function mapManifestError(error: unknown, _manifestPath: string): CliResult {
+	const known = error instanceof CrewManifestReadError || error instanceof CrewManifestError;
+	const code = known ? error.code : "unexpected-failure";
+	return actionableErrorResult({
+		code,
+		operation: "pi-bebop crew roles",
+		reason:
+			known && error instanceof CrewManifestReadError
+				? "the configured Crew manifest could not be read"
+				: known
+					? "the configured Crew manifest is invalid"
+					: "an unexpected failure occurred",
+		recovery: ["verify the project Crew manifest and retry pi-bebop crew roles."],
+		location: { kind: "config-field", name: "Crew manifest" },
+	});
 }
 
 export async function runCrewRolesCommand(

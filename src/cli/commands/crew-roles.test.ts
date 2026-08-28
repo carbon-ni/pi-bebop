@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { decode } from "@toon-format/toon";
 import { PassThrough } from "node:stream";
 import { CrewManifestReadError } from "../../infra/crew-manifest-store.ts";
 import { CrewManifestError, type CrewManifest } from "../../domain/index.ts";
 import { UsageError } from "../arguments.ts";
 import type { CliContext } from "../context.ts";
+import { renderCliResult } from "../output.ts";
 import {
 	buildCrewRolesCommand,
 	crewRolesHelp,
@@ -218,6 +220,25 @@ test("crew roles handler maps trusted-manifest read failures through stable code
 	}
 });
 
+test("crew roles read failures use closed safe descriptors across formats", async () => {
+	const error = new CrewManifestReadError("read-failed", "read failed at /var/folders/qa/private.sock");
+	for (const format of ["text", "json", "toon"] as const) {
+		const outcome = await runCrewRolesCommand(
+			{ command: "crew-roles", format, full: false },
+			context(),
+			deps({ readManifest: async () => Promise.reject(error) }),
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind !== "result") continue;
+		const rendered = renderCliResult(outcome.result, format, false);
+		assert.equal(rendered.includes("private.sock"), false);
+		assert.equal(rendered.includes("read failed at"), false);
+		if (format === "json") assert.equal(JSON.parse(rendered).error.code, "read-failed");
+		if (format === "toon")
+			assert.equal((decode(rendered) as { error: { code: string } }).error.code, "read-failed");
+	}
+});
+
 test("crew roles handler maps manifest parse errors (unsupported version, empty members) through their codes", async () => {
 	for (const error of [
 		new CrewManifestError("invalid-version", "unsupported manifest version: 999"),
@@ -235,7 +256,7 @@ test("crew roles handler maps manifest parse errors (unsupported version, empty 
 	}
 });
 
-test("crew roles handler maps unknown errors to operational", async () => {
+test("crew roles handler maps unknown errors to unexpected-failure", async () => {
 	const outcome = await runCrewRolesCommand(
 		{ command: "crew-roles", format: "json", full: false },
 		context(),
@@ -244,7 +265,7 @@ test("crew roles handler maps unknown errors to operational", async () => {
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, false);
-	assert.equal(outcome.result.error?.code, "operational");
+	assert.equal(outcome.result.error?.code, "unexpected-failure");
 });
 
 test("crew roles handler --help returns deterministic local help with zero IO", async () => {
