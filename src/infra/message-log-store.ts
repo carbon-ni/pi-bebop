@@ -47,6 +47,8 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 				throw new MessageLogStoreError("lock-conflict", "message log is busy");
 			}
 			try {
+				if (!/^entry-[0-9a-f]{64}$/.test(String(entry.id)))
+					throw new MessageLogStoreError("invalid-entry", "message log entry id is invalid");
 				const target = fileFor(String(entry.id));
 				try {
 					const existing = await io.readFile(target);
@@ -67,10 +69,13 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 		async read(id: string): Promise<Uint8Array | null> {
 			if (!options.isTrusted())
 				throw new MessageLogStoreError("untrusted-project", "message log requires a trusted project");
+			if (!/^entry-[0-9a-f]{64}$/.test(id))
+				throw new MessageLogStoreError("invalid-entry", "message log entry id is invalid");
 			try {
 				return new Uint8Array(await io.readFile(fileFor(id)));
-			} catch {
-				return null;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+				throw new MessageLogStoreError("write-failed", "message log read failed");
 			}
 		},
 	};
