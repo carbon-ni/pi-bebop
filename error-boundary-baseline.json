@@ -78,11 +78,6 @@
 			"count": 1
 		},
 		{
-			"file": "src/tools/get-member-status.ts",
-			"kind": "tool-result",
-			"count": 1
-		},
-		{
 			"file": "src/tools/interrupt-member.ts",
 			"kind": "tool-result",
 			"count": 1
