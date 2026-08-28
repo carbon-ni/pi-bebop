@@ -4,9 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { MessagePayload } from "../domain/index.ts";
+import { SESSION_MESSAGE_TYPE, type MessagePayload } from "../domain/index.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { createInboxBridgeController, ownershipFromMembership } from "../pi/inbox-bridge-runtime.ts";
 import { registerSendToCrewTool } from "./send-to-crew.ts";
 
 type RegisteredTool = {
@@ -42,6 +43,24 @@ function registerTool(membership: unknown): RegisteredTool {
 	registerSendToCrewTool(pi, state);
 	assert.ok(tool, "send_to_crew must be registered");
 	return tool;
+}
+
+function recipientBridge(membership: any) {
+	const entries: unknown[] = [];
+	const sent: Array<{ message: Record<string, unknown>; options?: Record<string, unknown> }> = [];
+	const pi = {
+		sendMessage(message: Record<string, unknown>, options?: Record<string, unknown>) {
+			sent.push({ message, options });
+		},
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const state = {
+		context: { sessionManager: { getEntries: () => entries }, isProjectTrusted: () => true },
+		membershipRuntime: { getMembership: () => membership },
+	} as unknown as SocketState;
+	const bridge = createInboxBridgeController(pi, state);
+	bridge.establish(ownershipFromMembership(membership));
+	return { bridge, sent };
 }
 
 async function writeManifest(
@@ -128,20 +147,7 @@ test("TASK-0137: two offline Crews exchange one-way correspondence through the p
 			"target remains offline",
 		);
 
-		const inbound = await inboxItem(betaRoot, scenario.targetLayout, betaContact);
-		assert.ok(inbound, "offline target contact receives durable Inbox item");
-		assert.deepEqual(inbound.payload, {
-			content: "Can Beta review this?",
-			origin: { kind: "crew", name: "Dave", role: "developer" },
-			crewReturnAddress: {
-				manifestPath: alphaManifest,
-				...(scenario.sourceName === undefined ? {} : { crewName: scenario.sourceName }),
-			},
-		} satisfies MessagePayload);
-		assert.equal("replyTo" in inbound.payload, false);
-		assert.doesNotMatch(JSON.stringify(inbound.payload), /socket|session|alias/i);
-
-		const reply = registerTool({
+		const betaMembership = {
 			member: betaContact,
 			socketPath: betaContact.socketPath,
 			manifestPath: betaManifest,
@@ -150,9 +156,35 @@ test("TASK-0137: two offline Crews exchange one-way correspondence through the p
 				...(scenario.targetName === undefined ? {} : { name: scenario.targetName }),
 				members: [],
 			},
+		};
+		const recipient = recipientBridge(betaMembership);
+		const handoff = await recipient.bridge.attemptOffer();
+		assert.equal(handoff.offered, true, "offline target contact receives a handoff on its next bridge trigger");
+		assert.equal(recipient.sent.length, 1);
+		assert.deepEqual(recipient.sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
+		const handedOff = recipient.sent[0]!.message;
+		assert.equal(handedOff.customType, SESSION_MESSAGE_TYPE);
+		assert.deepEqual(handedOff.details, {
+			messagePayload: {
+				content: "Can Beta review this?",
+				origin: { kind: "crew", name: "Dave", role: "developer" },
+				crewReturnAddress: {
+					manifestPath: alphaManifest,
+					...(scenario.sourceName === undefined ? {} : { crewName: scenario.sourceName }),
+				},
+			},
+			inbox: {
+				itemId: handoff.itemId,
+				...(scenario.targetName === undefined ? {} : { crewName: scenario.targetName }),
+			},
 		});
+		const payload = (handedOff.details as { messagePayload: MessagePayload }).messagePayload;
+		assert.equal("replyTo" in payload, false);
+		assert.doesNotMatch(JSON.stringify(payload), /socket|session|alias/i);
+
+		const reply = registerTool(betaMembership);
 		const replyResult = await reply.execute("reply", {
-			manifestPath: (inbound.payload as MessagePayload).crewReturnAddress!.manifestPath,
+			manifestPath: payload.crewReturnAddress!.manifestPath,
 			message: "Beta can review it.",
 		});
 		assert.equal(replyResult.isError, undefined);
