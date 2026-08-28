@@ -36,7 +36,25 @@ function resolveTarget(membership: MembershipLike, memberName: string): CrewMemb
 	return target;
 }
 
+const REMOTE_ERROR_CODES = new Set([
+	"aborted",
+	"ambiguous-member",
+	"invalid-ack",
+	"invalid-payload",
+	"not-joined",
+	"offline",
+	"remote-rejected",
+	"self-send",
+	"timeout",
+	"unknown-member",
+]);
+
+export function normalizeInterruptErrorCode(code: string | undefined): string {
+	return code && REMOTE_ERROR_CODES.has(code) ? code : "unexpected-failure";
+}
+
 function errorResult(target: string, code: string, _message: string): ActionableToolResult {
+	code = normalizeInterruptErrorCode(code);
 	const reason =
 		code === "ambiguous-member"
 			? "Ambiguous member target"

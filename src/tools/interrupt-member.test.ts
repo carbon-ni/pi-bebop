@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerInterruptMemberTool } from "./interrupt-member.ts";
+import { normalizeInterruptErrorCode, registerInterruptMemberTool } from "./interrupt-member.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
 type RegisteredTool = {
@@ -62,6 +62,11 @@ const membership = {
 };
 
 describe("interrupt_member tool", () => {
+	test("normalizes remote error codes through the closed vocabulary", () => {
+		assert.equal(normalizeInterruptErrorCode("offline"), "offline");
+		assert.equal(normalizeInterruptErrorCode("password-secret"), "unexpected-failure");
+		assert.equal(normalizeInterruptErrorCode("remote-error: /tmp/private.sock"), "unexpected-failure");
+	});
 	test("registers with only member, message, and instructions plus an honest description", () => {
 		const tool = setup(membership);
 		assert.equal(tool.name, "interrupt_member");
