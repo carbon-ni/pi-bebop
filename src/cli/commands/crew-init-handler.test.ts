@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { decode } from "@toon-format/toon";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -148,7 +149,29 @@ test("crew init operational failure reports a stable operational code", async ()
 		if (outcome.kind !== "result") return;
 		assert.equal(outcome.result.ok, false);
 		assert.equal(outcome.result.status, "error");
-		assert.equal(outcome.result.error?.code, "operational");
+		assert.equal(outcome.result.error?.code, "unexpected-failure");
+		assert.equal(outcome.result.target, "");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("crew init unknown filesystem failures are safe in text, JSON, and TOON", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-init-handler-"));
+	try {
+		const file = path.join(dir, "not-a-directory");
+		await writeFile(file, "x");
+		for (const format of ["text", "json", "toon"] as const) {
+			const outcome = await runCrewInitCommand({ command: "crew-init", format }, file);
+			assert.equal(outcome.kind, "result");
+			if (outcome.kind !== "result") continue;
+			const rendered = renderCliResult(outcome.result, format, false);
+			assert.equal(rendered.includes("ENOTDIR"), false);
+			assert.equal(rendered.includes("not-a-directory"), false);
+			assert.equal(rendered.includes("bebop-init-handler-"), false);
+			if (format === "json") assert.equal(JSON.parse(rendered).target, "");
+			if (format === "toon") assert.equal((decode(rendered) as { target: string }).target, "");
+		}
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

@@ -88,7 +88,12 @@ function truncate(value: string, max: number): string {
 }
 
 function forbiddenLocator(value: string): boolean {
-	return value.includes("..") || /(^|\/)(?:tmp|private\/tmp)(?:\/|$)/i.test(value) || /\.sock(?:et)?$/i.test(value);
+	return (
+		value.includes("..") ||
+		/(^|\/)(?:tmp|private\/tmp)(?:\/|$)/i.test(value) ||
+		/(?:^|\/)private\/var\/folders\/|(?:^|\/)var\/folders\//i.test(value) ||
+		/\.sock(?:et)?$/i.test(value)
+	);
 }
 
 function buildLocation(location?: ActionableLocation): ActionableLocation | undefined {

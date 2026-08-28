@@ -99,7 +99,10 @@ export function errorResult(
 	code: string,
 	operation = "pi-bebop operation",
 ): CliResult {
-	const reason = code === "unexpected-failure" ? "an unexpected failure occurred" : message;
-	const result = actionableErrorResult(descriptor(code, operation, reason, target));
+	const unknownCode = code === "unexpected-failure" || code === "operational";
+	const reason = unknownCode ? "an unexpected failure occurred" : message;
+	const result = actionableErrorResult(
+		descriptor(unknownCode ? "unexpected-failure" : code, operation, reason, target),
+	);
 	return result;
 }
