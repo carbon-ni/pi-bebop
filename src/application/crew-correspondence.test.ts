@@ -12,6 +12,7 @@ import {
 	sendCrewCorrespondence,
 	type CrewCorrespondenceDependencies,
 } from "./crew-correspondence.ts";
+import { createCallerConsentManifestLoader } from "../infra/crew-intake-reader.ts";
 
 const manifest: CrewManifest = parseCrewManifest(
 	{
@@ -390,7 +391,68 @@ describe("crew correspondence over two real layouts with contacts offline", () =
 	});
 });
 
+async function writeManifestFixture(manifestPath: string, input: unknown): Promise<void> {
+	await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+	await fs.writeFile(manifestPath, JSON.stringify(input), "utf8");
+}
+
 function projectRootOf(manifestPath: string): string {
 	const normalized = manifestPath.split(/[\\/]/);
 	return normalized.slice(0, -3).join("/") || "/";
 }
+
+describe("crew correspondence target symlink escape (P1 regression)", () => {
+	test("symlinked target layout to a foreign project rejects before IO and leaves the foreign layout untouched", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-correspondence-escape-"));
+		try {
+			const foreignRoot = path.join(root, "foreign");
+			const foreignManifestPath = path.join(foreignRoot, ".pi/bebop/crew.json");
+			await writeManifestFixture(foreignManifestPath, {
+				version: 1,
+				members: [{ name: "Ghost", role: "dev", socket: "sockets/ghost.sock" }],
+				intake: { contact: "Ghost" },
+			});
+			const betaRoot = path.join(root, "beta");
+			await fs.mkdir(path.join(betaRoot, ".pi"), { recursive: true });
+			await fs.symlink(path.join(foreignRoot, ".pi/bebop"), path.join(betaRoot, ".pi/crew"), "dir");
+
+			const harnessDeps: CrewCorrespondenceDependencies = {
+				loadManifest: createCallerConsentManifestLoader(),
+				openStore: (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
+				now: () => 99,
+			};
+			await rejectsCode(
+				sendCrewCorrespondence(
+					{
+						membership: {
+							member: { name: "Dave", role: "developer" },
+							manifestPath: path.join(root, "alpha/.pi/bebop/crew.json"),
+							manifest: { members: [] },
+						},
+						targetManifestPath: path.join(betaRoot, ".pi/crew/crew.json"),
+						message: "escape attempt",
+						now: 99,
+					},
+					harnessDeps,
+				),
+				"untrusted-path",
+			);
+			const foreignInboxExists = await fs.stat(path.join(foreignRoot, ".pi/bebop/inbox")).then(
+				() => true,
+				() => false,
+			);
+			assert.equal(foreignInboxExists, false, "foreign inbox must not exist after rejection");
+			assert.equal(
+				await fs.readFile(foreignManifestPath, "utf8"),
+				JSON.stringify({
+					version: 1,
+					members: [{ name: "Ghost", role: "dev", socket: "sockets/ghost.sock" }],
+					intake: { contact: "Ghost" },
+				}),
+				"foreign manifest untouched",
+			);
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
+});
