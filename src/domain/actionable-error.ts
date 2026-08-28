@@ -87,10 +87,15 @@ function truncate(value: string, max: number): string {
 	return result + "…";
 }
 
+function forbiddenLocator(value: string): boolean {
+	return value.includes("..") || /(^|\/)(?:tmp|private\/tmp)(?:\/|$)/i.test(value) || /\.sock(?:et)?$/i.test(value);
+}
+
 function buildLocation(location?: ActionableLocation): ActionableLocation | undefined {
 	const name = location && safeStructured(location.name, 96);
 	if (!location || !name) return undefined;
-	const value = location.value === undefined ? undefined : safeStructured(location.value, 384);
+	const candidate = location.value === undefined ? undefined : safeStructured(location.value, 384);
+	const value = candidate && !forbiddenLocator(candidate) ? candidate : undefined;
 	return { kind: location.kind, name, ...(value === undefined ? {} : { value }) };
 }
 

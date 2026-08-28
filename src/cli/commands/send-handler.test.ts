@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import { runSendCommand, type SendHandlerAdapters } from "./send-handler.ts";
 import { UsageError, type SendCliOptions } from "../arguments.ts";
 import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
+import { writeOutcome, type CliOutcome } from "../output.ts";
 import { buildSendCommand, readSendLeafOptions, sendHelp } from "./send.ts";
 
 function sendOptions(overrides: Partial<SendCliOptions> = {}): SendCliOptions {
@@ -144,8 +144,33 @@ test("operational failures map to stable codes with the delivery target", async 
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, false);
-	assert.equal(outcome.result.target, "/offline.sock");
+	assert.equal(outcome.result.target, "");
 	assert.equal(outcome.result.error?.code, "offline");
+	assert.equal(outcome.result.error?.location?.value, undefined);
+});
+
+test("unknown send failures use unexpected-failure and hide dependency details", async () => {
+	const outcome = await runSendCommand(
+		sendOptions({ socketPath: "/tmp/peer.sock", message: "hello" }),
+		context(),
+		fakeAdapters({
+			deliverDirect: async () => {
+				throw new Error("dependency failed at /tmp/quarantine-123");
+			},
+		}),
+	);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind !== "result") return;
+	assert.equal(outcome.result.error?.code, "unexpected-failure");
+	assert.equal(outcome.result.target, "");
+	assert.equal(outcome.result.error?.location?.value, undefined);
+	assert.equal(outcome.result.error?.message.includes("quarantine-123"), false);
+	const output = new PassThrough();
+	const chunks: Buffer[] = [];
+	output.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+	writeOutcome(output, outcome);
+	assert.equal(Buffer.concat(chunks).toString().includes("peer.sock"), false);
+	assert.equal(Buffer.concat(chunks).toString().includes("quarantine-123"), false);
 });
 
 test("--crew routes to the durable intake adapter, never the direct RPC adapter", async () => {

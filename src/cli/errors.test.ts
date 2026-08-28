@@ -12,7 +12,7 @@ test("errorCode maps system errors to stable CLI codes", () => {
 	assert.equal(errorCode(Object.assign(new Error("missing"), { code: "ENOENT" })), "offline");
 	assert.equal(errorCode(new Error("connection timeout")), "timeout");
 	assert.equal(errorCode(Object.assign(new Error("Operation aborted"), { name: "AbortError" })), "aborted");
-	assert.equal(errorCode(new Error("unknown failure")), "offline");
+	assert.equal(errorCode(new Error("unknown failure")), "unexpected-failure");
 });
 
 test("errorCode honors application error codes before fallbacks", () => {
@@ -76,4 +76,13 @@ test("usageResult and errorResult produce actionable shapes without stack leaks"
 	assert.equal(operational.error?.operation, "pi-bebop operation");
 	assert.equal(operational.error?.location?.value, "/x");
 	assert.match(operational.error?.message ?? "", /Next:/);
+	const unknown = errorResult(
+		"dependency failed at /tmp/quarantine-123",
+		"/tmp/peer.sock",
+		"unexpected-failure",
+		"pi-bebop send",
+	);
+	assert.equal(unknown.target, "");
+	assert.equal(unknown.error?.location?.value, undefined);
+	assert.equal(unknown.error?.message.includes("quarantine-123"), false);
 });

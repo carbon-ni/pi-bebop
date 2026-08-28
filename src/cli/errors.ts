@@ -25,7 +25,7 @@ export function errorCode(error: unknown): string {
 	if (systemCode === "EACCES" || systemCode === "EPERM") return "permission-denied";
 	if (systemCode === "ENOENT") return "offline";
 	if (error instanceof Error && /JSON|malformed|parse/i.test(error.message)) return "malformed-response";
-	return "offline";
+	return "unexpected-failure";
 }
 
 /**
@@ -99,6 +99,7 @@ export function errorResult(
 	code: string,
 	operation = "pi-bebop operation",
 ): CliResult {
-	const result = actionableErrorResult(descriptor(code, operation, message, target));
+	const reason = code === "unexpected-failure" ? "an unexpected failure occurred" : message;
+	const result = actionableErrorResult(descriptor(code, operation, reason, target));
 	return result;
 }

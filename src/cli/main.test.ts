@@ -377,14 +377,14 @@ test("renders stdin read failures in the selected structured format", async () =
 	assert.equal(await pending, 1);
 	assert.deepEqual(JSON.parse(text), {
 		ok: false,
-		target: "/offline.sock",
+		target: "",
 		status: "error",
 		error: {
-			code: "offline",
+			code: "unexpected-failure",
 			operation: "pi-bebop send",
 			message:
-				'pi-bebop send failed: stdin closed. Location: target="/offline.sock". Next: run the command with --help, correct the input, and retry. (code: offline)',
-			location: { kind: "argument", name: "target", value: "/offline.sock" },
+				"pi-bebop send failed: an unexpected failure occurred. Location: target. Next: run the command with --help, correct the input, and retry. (code: unexpected-failure)",
+			location: { kind: "argument", name: "target" },
 			recovery: ["run the command with --help, correct the input, and retry."],
 		},
 	});
