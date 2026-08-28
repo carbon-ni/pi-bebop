@@ -93,12 +93,16 @@ describe("get_member_status tool", () => {
 		assert.match(tool.description, /never starts|does not start|no turn|without triggering/);
 	});
 
-	test("unjoined execution resolves to a not-joined error before any probe", async () => {
+	test("unjoined execution resolves to an actionable not-joined error before any probe", async () => {
 		let probed = 0;
 		const tool = setup(() => null, { probeEndpoint: async () => ((probed += 1), true) });
 		const result = await tool.execute("id", { member: "Bob" });
 		assert.equal(result.isError, true);
-		assert.equal((result.details as { error?: string }).error, "not-joined");
+		const details = result.details as { error?: string; actionableError?: { code: string; message: string } };
+		assert.equal(details.error, "not-joined");
+		assert.equal(details.actionableError?.code, details.error);
+		assert.equal(result.content[0]?.text, details.actionableError?.message);
+		assert.doesNotMatch(result.content[0]?.text ?? "", /stack|Error:/i);
 		assert.equal(probed, 0);
 	});
 
@@ -148,6 +152,20 @@ describe("get_member_status tool", () => {
 		assert.equal((ambiguous.details as { error?: string }).error, "ambiguous-member");
 		const self = await setup(membership).execute("id", { member: "Tony" });
 		assert.equal((self.details as { error?: string }).error, "self-query");
+	});
+
+	test("raw status failures use actionable parity without exposing exception text", async () => {
+		const result = await setup(membership, {
+			requestStatus: async () => {
+				throw new Error("dependency failed at /tmp/quarantine-123");
+			},
+		}).execute("id", { member: "Bob" });
+		const details = result.details as { error?: string; actionableError?: { code: string; message: string } };
+		assert.equal(result.isError, true);
+		assert.equal(details.error, "transport-error");
+		assert.equal(details.actionableError?.code, details.error);
+		assert.equal(result.content[0]?.text, details.actionableError?.message);
+		assert.doesNotMatch(JSON.stringify(result), /quarantine-123|dependency failed/i);
 	});
 
 	test("malformed online peer output and peer rejection map to deterministic errors", async () => {
