@@ -336,6 +336,18 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		assert.equal((malformedResult.details as { error?: string }).error, "malformed-response");
 	});
 
+	test("runtime unknown transport code is genericized in content and details", async () => {
+		const { tool } = setup(membership, {
+			requestIdleWait: async () => ({ ok: false, code: "password-secret" as never }),
+		});
+		const result = await tool.execute("id", { member: "Bob" });
+		const details = result.details as { error: string; actionableError: { code: string; message: string } };
+		assert.equal(details.error, "unexpected-failure");
+		assert.equal(details.actionableError.code, "unexpected-failure");
+		assert.equal(result.content[0]?.text, details.actionableError.message);
+		assert.doesNotMatch(JSON.stringify(result), /password-secret/i);
+	});
+
 	test("timeout_seconds is validated (out of range rejected deterministically before IO)", async () => {
 		const { tool } = setup(membership);
 		const low = await tool.execute("id", { member: "Bob", timeout_seconds: 59 });
