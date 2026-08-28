@@ -1,7 +1,7 @@
 ---
 id: TASK-0136
 title: Add a crew-to-crew send tool with return-address convention
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, messaging, intake, tools, cross-project, tdd]
