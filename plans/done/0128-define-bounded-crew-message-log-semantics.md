@@ -1,7 +1,7 @@
 ---
 id: TASK-0128
 title: Define bounded Crew Message Log semantics
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, messaging, evidence, product, privacy, retention, ubiquitous-language]
