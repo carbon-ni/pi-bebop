@@ -49,8 +49,20 @@ const REDACTIONS: readonly [RegExp, string][] = [
 	[/\bAKIA[A-Z0-9]{16}\b/g, "[REDACTED:credential]"],
 ];
 
+function hasUnpairedSurrogate(value: string): boolean {
+	for (let index = 0; index < value.length; index++) {
+		const code = value.charCodeAt(index);
+		if (code >= 0xd800 && code <= 0xdbff) {
+			const next = value.charCodeAt(index + 1);
+			if (next < 0xdc00 || next > 0xdfff) return true;
+			index++;
+		} else if (code >= 0xdc00 && code <= 0xdfff) return true;
+	}
+	return false;
+}
+
 function safe(value: string, max: number): string | undefined {
-	if (typeof value !== "string" || MARKER.test(value)) return undefined;
+	if (typeof value !== "string" || MARKER.test(value) || hasUnpairedSurrogate(value)) return undefined;
 	let result = value.normalize("NFC").replace(/\r\n?/g, "\n");
 	for (const [pattern, replacement] of REDACTIONS) result = result.replace(pattern, replacement);
 	if (result.includes("\n") || CONTROL.test(result) || result.includes("\uFFFD")) return undefined;
@@ -78,11 +90,8 @@ function truncate(value: string, max: number): string {
 function buildLocation(location?: ActionableLocation): ActionableLocation | undefined {
 	const name = location && safeStructured(location.name, 96);
 	if (!location || !name) return undefined;
-	return {
-		kind: location.kind,
-		name,
-		...(location.value === undefined ? {} : { value: safeStructured(location.value, 384) }),
-	};
+	const value = location.value === undefined ? undefined : safeStructured(location.value, 384);
+	return { kind: location.kind, name, ...(value === undefined ? {} : { value }) };
 }
 
 function buildChoices(source: readonly string[] = []): { choices: string[]; omitted: number } {
@@ -90,11 +99,61 @@ function buildChoices(source: readonly string[] = []): { choices: string[]; omit
 	let omitted = 0;
 	for (const choice of source) {
 		const retained = safeStructured(choice, 256);
-		const overflow = retained && Buffer.byteLength([...choices, retained].join(""), "utf8") > 1024;
-		if (!retained || choices.includes(retained) || choices.length >= 32 || overflow) omitted++;
+		const bytes = retained ? Buffer.byteLength([...choices, retained].join(""), "utf8") : 0;
+		if (!retained || choices.includes(retained) || choices.length >= 32 || bytes > 1024) omitted++;
 		else choices.push(retained);
 	}
 	return { choices, omitted };
+}
+
+function messageFor(
+	result: Pick<ActionableError, "operation" | "code" | "recovery" | "location">,
+	reason: string,
+): string {
+	const locator = result.location?.value
+		? ` Location: ${result.location.name}="${truncate(result.location.value, 192)}".`
+		: result.location
+			? ` Location: ${result.location.name}.`
+			: "";
+	return truncate(
+		`${result.operation} failed: ${reason}.${locator} Next: ${result.recovery[0]} (code: ${result.code})`,
+		1024,
+	);
+}
+
+export function actionableErrorUtf8Bytes(error: ActionableError): number {
+	return Buffer.byteLength(JSON.stringify(error), "utf8");
+}
+
+function fitResult(result: ActionableError, reason: string): ActionableError {
+	const refresh = (): void => {
+		result.message = messageFor(result, reason);
+	};
+	refresh();
+	while (actionableErrorUtf8Bytes(result) > 4096 && result.validChoices?.length) {
+		result.validChoices.pop();
+		result.omittedChoiceCount = (result.omittedChoiceCount ?? 0) + 1;
+		result.validChoicesTruncated = true;
+	}
+	if (actionableErrorUtf8Bytes(result) > 4096 && result.location?.value) {
+		delete result.location.value;
+		refresh();
+	}
+	if (actionableErrorUtf8Bytes(result) > 4096 && result.recovery.length > 1) {
+		result.recovery = [result.recovery[0]];
+		refresh();
+	}
+	if (actionableErrorUtf8Bytes(result) > 4096) {
+		delete result.location;
+		delete result.validChoices;
+		delete result.validChoicesTruncated;
+		delete result.omittedChoiceCount;
+		refresh();
+	}
+	if (actionableErrorUtf8Bytes(result) > 4096) {
+		result.message = messageFor({ ...result, operation: "Pi Bebop operation" }, "an unexpected failure occurred");
+	}
+	return result;
 }
 
 export function presentActionableError(descriptor: ActionableErrorDescriptor): ActionableError {
@@ -108,34 +167,16 @@ export function presentActionableError(descriptor: ActionableErrorDescriptor): A
 	const boundedRecovery = recovery.length ? recovery : ["retry once; if it repeats, report the operation and code."];
 	const location = buildLocation(descriptor.location);
 	const { choices, omitted } = buildChoices(descriptor.validChoices);
-	const locator = location?.value
-		? ` Location: ${location.name}="${truncate(location.value, 192)}".`
-		: location
-			? ` Location: ${location.name}.`
-			: "";
-	const message = truncate(
-		`${operation} failed: ${reason}.${locator} Next: ${boundedRecovery[0]} (code: ${code})`,
-		1024,
+	return fitResult(
+		{
+			code,
+			operation,
+			message: "",
+			...(location ? { location } : {}),
+			recovery: boundedRecovery,
+			...(choices.length ? { validChoices: choices } : {}),
+			...(omitted ? { validChoicesTruncated: true, omittedChoiceCount: omitted } : {}),
+		},
+		reason,
 	);
-	const result: ActionableError = {
-		code,
-		operation,
-		message,
-		...(location ? { location } : {}),
-		recovery: boundedRecovery,
-		...(choices.length ? { validChoices: choices } : {}),
-		...(omitted ? { validChoicesTruncated: true, omittedChoiceCount: omitted } : {}),
-	};
-	while (Buffer.byteLength(JSON.stringify(result), "utf8") > 4096 && result.validChoices?.length) {
-		result.validChoices.pop();
-		result.omittedChoiceCount = (result.omittedChoiceCount ?? 0) + 1;
-		result.validChoicesTruncated = true;
-	}
-	if (Buffer.byteLength(JSON.stringify(result), "utf8") > 4096 && result.location?.value) {
-		delete result.location.value;
-	}
-	if (Buffer.byteLength(JSON.stringify(result), "utf8") > 4096) {
-		result.recovery = [result.recovery[0]];
-	}
-	return result;
 }
