@@ -94,11 +94,13 @@ test("request mapper preserves stable outcomes and rejects unknown codes", () =>
 
 test("flow acquisition failures use actionable envelope", async () => {
 	const { tools, state, pi, yieldRuntime } = setup();
+	state.memberRequestFlow = undefined;
 	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, true);
 	assert.equal(result.content[0]?.text, result.details.actionableError.message);
 	assert.equal(result.details.error, result.details.actionableError.code);
+	assert.doesNotMatch(JSON.stringify(result.details), /Crew coordination is not initialized|Error:/i);
 });
 
 test("TASK-0076: empty wait fails with no-pending-member-requests and self-correcting recovery guidance", async () => {
