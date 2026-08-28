@@ -56,6 +56,18 @@ const persistingStore = () =>
 		}),
 	}) as never;
 
+function assertActionable(
+	result: { isError?: boolean; content: Array<{ text: string }>; details: unknown },
+	code: string,
+) {
+	const details = result.details as { error?: string; actionableError?: { code: string; message: string } };
+	assert.equal(result.isError, true);
+	assert.equal(details.error, code);
+	assert.equal(details.actionableError?.code, code);
+	assert.equal(result.content[0]?.text, details.actionableError?.message);
+	assert.doesNotMatch(JSON.stringify(result.details), /member inbox is full|capacity|private\.sock|ENOENT/i);
+}
+
 describe("send_to_inbox tool", () => {
 	test("schema is closed and exposes no task/git/workflow/priority fields", () => {
 		const tool = setup(membership);
@@ -92,10 +104,10 @@ describe("send_to_inbox tool", () => {
 			hintTransport: null,
 		};
 		const unjoined = await setup(null, deps).execute("c", { member: "Bob", message: "x" });
-		assert.deepEqual(unjoined.details, { error: "not-joined" });
+		assertActionable(unjoined, "not-joined");
 
 		const unknown = await setup(membership, deps).execute("c", { member: "Ghost", message: "x" });
-		assert.deepEqual(unknown.details, { error: "unknown-member" });
+		assertActionable(unknown, "unknown-member");
 
 		const selfMembership = {
 			...membership,
@@ -114,13 +126,13 @@ describe("send_to_inbox tool", () => {
 		};
 		const self = await setup(selfMembership, deps).execute("c", { member: "Tony", message: "x" });
 		assert.equal(self.isError, true);
-		assert.deepEqual(self.details, { error: "self-send" });
+		assertActionable(self, "self-send");
 
 		const untrusted = await setup(membership, { ...deps, isProjectTrusted: () => false }).execute("c", {
 			member: "Bob",
 			message: "x",
 		});
-		assert.deepEqual(untrusted.details, { error: "untrusted-project" });
+		assertActionable(untrusted, "untrusted-project");
 
 		const full = await setup(membership, {
 			...deps,
@@ -128,7 +140,7 @@ describe("send_to_inbox tool", () => {
 				throw new MemberInboxStoreError("capacity-exceeded", "member inbox is full: 64/64 items");
 			}) as never,
 		}).execute("c", { member: "Bob", message: "x" });
-		assert.deepEqual(full.details, { error: "inbox-full" });
+		assertActionable(full, "inbox-full");
 	});
 
 	test("membership is read at execute time, not registration time", async () => {

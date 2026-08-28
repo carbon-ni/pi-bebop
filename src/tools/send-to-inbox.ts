@@ -10,6 +10,7 @@ import {
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { actionableToolError, type ActionableToolResult } from "./actionable-tool-result.ts";
 
 const parameters = Type.Object(
 	{
@@ -19,8 +20,6 @@ const parameters = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-const MAX_OUTPUT = 500;
-
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean; details: unknown };
 
 export interface SendToInboxDependencies {
@@ -98,10 +97,12 @@ export function registerSendToInboxTool(
 	});
 }
 
-function errorResult(target: string, code: string, message: string): ToolResult {
-	return {
-		content: [{ type: "text", text: `[${target}] ${message.slice(0, MAX_OUTPUT)}` }],
-		isError: true,
-		details: { error: code },
-	};
+function errorResult(target: string, code: string, _message: string): ActionableToolResult {
+	return actionableToolError({
+		code,
+		operation: "send_to_inbox",
+		reason: code === "not-joined" ? "Not joined to a crew" : "the inbox message could not be persisted",
+		recovery: ["verify crew membership and the target, then retry the tool."],
+		location: { kind: "member", name: "member", value: target },
+	});
 }
