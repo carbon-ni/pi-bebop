@@ -59,8 +59,10 @@ function operationFields(entry: MessageLogEntry): void {
 	if (
 		!operation ||
 		typeof operation !== "object" ||
+		Object.keys(operation).some((key) => !["id", "lifecycleSequence"].includes(key)) ||
 		typeof operation.id !== "string" ||
-		!Number.isSafeInteger(operation.lifecycleSequence)
+		!Number.isSafeInteger(operation.lifecycleSequence) ||
+		operation.lifecycleSequence < 1
 	)
 		throw new Error("invalid-message-log-operation");
 }
@@ -69,9 +71,14 @@ function payloadFields(entry: MessageLogEntry): void {
 	if (
 		!payload ||
 		typeof payload !== "object" ||
+		Object.keys(payload).some(
+			(key) => !["state", "reason", "content", "instructions", "instructionCount"].includes(key),
+		) ||
 		!["represented", "unavailable"].includes(payload.state) ||
 		!Array.isArray(payload.instructions) ||
-		!Number.isSafeInteger(payload.instructionCount)
+		payload.instructions.length > 32 ||
+		!Number.isSafeInteger(payload.instructionCount) ||
+		payload.instructionCount !== payload.instructions.length
 	)
 		throw new Error("invalid-message-log-payload");
 }
