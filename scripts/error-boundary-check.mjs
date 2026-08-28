@@ -1,9 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const root = path.resolve(process.cwd());
-const baselinePath = path.join(root, "error-boundary-baseline.json");
 const args = process.argv.slice(2);
+const rootArg = args.indexOf("--root");
+const root = path.resolve(rootArg !== -1 ? args[rootArg + 1] : process.cwd());
+const baselinePath = path.join(root, "error-boundary-baseline.json");
 const mode = args.includes("--init-baseline") ? "init" : args.includes("--update-baseline") ? "update" : "check";
 
 const scopes = [
