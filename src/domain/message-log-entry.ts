@@ -181,31 +181,25 @@ function redactionsValid(value: any): boolean {
 		)
 	);
 }
-function textCounts(value: any): boolean {
+function textAccounting(value: any): boolean {
 	return (
-		value.state === "unavailable" ||
-		(Number.isSafeInteger(value.normalizedUtf8Bytes) &&
-			Number.isSafeInteger(value.retainedUtf8Bytes) &&
-			Number.isSafeInteger(value.omittedUtf8Bytes) &&
-			typeof value.truncated === "boolean" &&
-			Number.isSafeInteger(value.escapedMarkerCount) &&
-			redactionsValid(value) &&
-			value.normalizedUtf8Bytes >= 0 &&
-			value.retainedUtf8Bytes >= 0 &&
-			value.omittedUtf8Bytes >= 0 &&
-			value.retainedUtf8Bytes + value.omittedUtf8Bytes === value.normalizedUtf8Bytes &&
-			value.retainedUtf8Bytes === new TextEncoder().encode(value.text).byteLength &&
-			value.escapedMarkerCount >= 0 &&
-			value.truncated === value.omittedUtf8Bytes > 0 &&
-			Array.isArray(value.redactions) &&
-			value.redactions.every(
-				(item: any) =>
-					item &&
-					(item.kind === "secret" || item.kind === "credential") &&
-					Number.isSafeInteger(item.occurrences) &&
-					item.occurrences > 0,
-			))
+		Number.isSafeInteger(value.normalizedUtf8Bytes) &&
+		Number.isSafeInteger(value.retainedUtf8Bytes) &&
+		Number.isSafeInteger(value.omittedUtf8Bytes) &&
+		value.normalizedUtf8Bytes >= 0 &&
+		value.retainedUtf8Bytes >= 0 &&
+		value.omittedUtf8Bytes >= 0 &&
+		value.retainedUtf8Bytes + value.omittedUtf8Bytes === value.normalizedUtf8Bytes &&
+		value.retainedUtf8Bytes === new TextEncoder().encode(value.text).byteLength &&
+		typeof value.truncated === "boolean" &&
+		value.truncated === value.omittedUtf8Bytes > 0 &&
+		Number.isSafeInteger(value.escapedMarkerCount) &&
+		value.escapedMarkerCount >= 0 &&
+		redactionsValid(value)
 	);
+}
+function textCounts(value: any): boolean {
+	return value.state === "unavailable" || (textAccounting(value) && Array.isArray(value.redactions));
 }
 function textFields(value: any, maxBytes: number, allowUnavailable = true): boolean {
 	return textShape(value) && (capturedText(value, maxBytes) || (allowUnavailable && unavailableText(value)));
