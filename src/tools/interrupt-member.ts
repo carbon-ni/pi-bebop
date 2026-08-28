@@ -7,6 +7,7 @@ import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { isInterruptResult, isMessagePayload, type MessagePayload } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 import type { CrewMember } from "../domain/index.ts";
+import { actionableToolError, type ActionableToolResult } from "./actionable-tool-result.ts";
 
 const parameters = Type.Object(
 	{
@@ -16,10 +17,6 @@ const parameters = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-const MAX_OUTPUT = 500;
-
-type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean; details: unknown };
-
 interface MembershipLike {
 	member: CrewMember;
 	socketPath: string;
@@ -39,12 +36,30 @@ function resolveTarget(membership: MembershipLike, memberName: string): CrewMemb
 	return target;
 }
 
-function errorResult(target: string, code: string, message: string): ToolResult {
-	return {
-		content: [{ type: "text", text: `[${target}] ${message.slice(0, MAX_OUTPUT)}` }],
-		isError: true,
-		details: { error: code },
-	};
+function errorResult(target: string, code: string, _message: string): ActionableToolResult {
+	const reason =
+		code === "ambiguous-member"
+			? "Ambiguous member target"
+			: code === "unknown-member"
+				? "Unknown member target"
+				: code === "self-send"
+					? "the target is yourself"
+					: code === "not-joined"
+						? "Not joined to a crew"
+						: code === "invalid-payload"
+							? "the interrupt payload is invalid"
+							: code === "invalid-ack"
+								? "the member returned an invalid interrupt acknowledgement"
+								: code === "offline"
+									? "the member endpoint is offline"
+									: "the interrupt operation was rejected";
+	return actionableToolError({
+		code,
+		operation: "interrupt_member",
+		reason,
+		recovery: ["verify crew membership and the target, then retry the tool."],
+		location: { kind: "member", name: "member", value: target },
+	});
 }
 
 export function registerInterruptMemberTool(pi: ExtensionAPI, state: SocketState): void {

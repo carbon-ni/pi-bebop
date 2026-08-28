@@ -76,23 +76,29 @@ describe("interrupt_member tool", () => {
 		const tool = setup(() => null);
 		const result = await tool.execute("id", { member: "Bob", message: "stop" });
 		assert.equal(result.isError, true);
-		const details = result.details as { error?: string };
+		const details = result.details as { error?: string; actionableError?: { code: string; message: string } };
 		assert.equal(details.error, "not-joined");
+		assert.equal(details.actionableError?.code, details.error);
+		assert.equal(result.content[0]?.text, details.actionableError?.message);
 	});
 
 	test("unknown member resolves to an error", async () => {
 		const tool = setup(membership);
 		const result = await tool.execute("id", { member: "nobody", message: "stop" });
 		assert.equal(result.isError, true);
-		const details = result.details as { error?: string };
+		const details = result.details as { error?: string; actionableError?: { code: string; message: string } };
 		assert.equal(details.error, "unknown-member");
+		assert.equal(details.actionableError?.code, details.error);
+		assert.equal(result.content[0]?.text, details.actionableError?.message);
 	});
 
 	test("self-interrupt is rejected", async () => {
 		const tool = setup(membership);
 		const result = await tool.execute("id", { member: "Tony", message: "stop" });
 		assert.equal(result.isError, true);
-		const details = result.details as { error?: string };
+		const details = result.details as { error?: string; actionableError?: { code: string; message: string } };
 		assert.equal(details.error, "self-send");
+		assert.equal(details.actionableError?.code, details.error);
+		assert.equal(result.content[0]?.text, details.actionableError?.message);
 	});
 });
