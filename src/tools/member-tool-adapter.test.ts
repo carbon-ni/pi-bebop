@@ -6,7 +6,11 @@ import { parseCrewManifest } from "../domain/index.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
 import type { RpcClientOptions } from "../infra/rpc-client.ts";
 import { createSocketState } from "../pi/control-runtime.ts";
-import { createMemberMessageCoordinator, sendMemberMessage } from "../application/member-message.ts";
+import {
+	createMemberMessageCoordinator,
+	MemberMessageError,
+	sendMemberMessage,
+} from "../application/member-message.ts";
 import { registerSendFollowUpTool } from "./send-follow-up.ts";
 import { registerRedirectMemberTool } from "./redirect-member.ts";
 
@@ -447,6 +451,27 @@ test("rejects response waiting and preserves membership target errors without RP
 	assert.equal(notJoined.isError, true);
 	assert.match(notJoined.content[0].text, /Not joined/);
 	assert.equal(calls, 0);
+});
+
+test("both intent tools expose actionable parity for typed and raw failures", async () => {
+	for (const name of ["send_follow_up", "redirect_member"] as const) {
+		for (const failure of [
+			new MemberMessageError("remote-rejected", "remote error at /var/folders/qa/private.sock"),
+			new Error("dependency failed at /tmp/quarantine-123"),
+		]) {
+			const tools = setup(async () => {
+				throw failure;
+			});
+			const result = await tools
+				.get(name)!
+				.execute("call", { member: "qa", message: "x" }, undefined, undefined, undefined);
+			assert.equal(result.isError, true, name);
+			assert.equal(typeof result.details.actionableError, "object", name);
+			assert.equal(result.details.error, result.details.actionableError.code, name);
+			assert.equal(result.content[0].text, result.details.actionableError.message, name);
+			assert.doesNotMatch(result.content[0].text, /private\.sock|quarantine-123|remote error at/i, name);
+		}
+	}
 });
 
 test("forwards abort and reports offline endpoints", async () => {
