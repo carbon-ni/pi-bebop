@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createMessageLogStore, MessageLogStoreError } from "./message-log-store.ts";
 
@@ -38,6 +38,31 @@ test("trusted message log append is replay-idempotent and rejects conflicts", as
 		await rm(root, { recursive: true, force: true });
 	}
 });
+test("lock contention is bounded and cleanup permits the next append", async () => {
+	const root = await mkdtemp(`${tmpdir()}/message-log-lock-`);
+	try {
+		await mkdir(`${root}/message-log`, { recursive: true });
+		await writeFile(`${root}/message-log/.lock`, "foreign");
+		let clock = 0;
+		const store = createMessageLogStore({
+			root,
+			isTrusted: () => true,
+			now: () => clock,
+			sleep: async () => {
+				clock += 500;
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(e) => e instanceof MessageLogStoreError && e.code === "lock-conflict",
+		);
+		await rm(`${root}/message-log/.lock`);
+		await store.append(entry);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("untrusted message log fails before IO", async () => {
 	const store = createMessageLogStore({ root: "/tmp/never-message-log", isTrusted: () => false });
 	await assert.rejects(
