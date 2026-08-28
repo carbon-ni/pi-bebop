@@ -248,6 +248,7 @@ const fullPayload = (content: string): MessagePayload => ({
 	content,
 	instructions: ["instruction-one", "instruction-two"],
 	origin: { kind: "crew", name: "Mary", role: "lead" },
+	replyTo: { sessionId: "callback-session-0089", sessionName: "Callback Route" },
 });
 
 function textBlocks(context: Context): Array<{ role: string; text: string }> {
@@ -297,7 +298,14 @@ test("TASK-0089: accepted Follow-up is consumed in the next provider context bef
 	assert.ok(wakeBlock.text.includes("follow-up"));
 	const renderedPayload = wakeBlock.text.slice(wakeBlock.text.indexOf("\n") + 1);
 	assert.deepEqual(parseRenderedMessagePayload(renderedPayload), fullPayload(WAKE_CONTENT_1));
-	for (const field of ["instruction-one", "instruction-two", '"name":"Mary"', '"role":"lead"']) {
+	for (const field of [
+		"instruction-one",
+		"instruction-two",
+		'"name":"Mary"',
+		'"role":"lead"',
+		'"sessionId":"callback-session-0089"',
+		'"sessionName":"Callback Route"',
+	]) {
 		assert.equal(wakeBlock.text.split(field).length - 1, 1, `${field} must cross the provider boundary once`);
 	}
 
