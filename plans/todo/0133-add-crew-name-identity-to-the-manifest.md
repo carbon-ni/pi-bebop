@@ -1,7 +1,7 @@
 ---
 id: TASK-0133
 title: Add crew name as a display label in the manifest
-status: todo
+status: doing
 depends_on: []
 priority: normal
 tags: [crew, identity, manifest, ubiquitous-language]
