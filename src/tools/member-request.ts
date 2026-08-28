@@ -65,8 +65,12 @@ const REQUEST_ERROR_CODES = new Set([
 	"wait-failed",
 ]);
 
+export function normalizeMemberRequestErrorCode(code: string | undefined): string {
+	return code && REQUEST_ERROR_CODES.has(code) ? code : "request-failed";
+}
+
 function failure(code: string, _message: string): ActionableToolResult {
-	const safeCode = REQUEST_ERROR_CODES.has(code) ? code : "request-failed";
+	const safeCode = normalizeMemberRequestErrorCode(code);
 	return actionableToolError({
 		code: safeCode,
 		operation: "member_request",
@@ -151,7 +155,7 @@ export function registerRespondToMemberRequestTool(pi: ExtensionAPI, state: Sock
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "response-failed";
 				const rawCode = message.split(":", 1)[0]!;
-				const code = REQUEST_ERROR_CODES.has(rawCode) ? rawCode : "request-failed";
+				const code = normalizeMemberRequestErrorCode(rawCode);
 				if (code === "no-pending-request")
 					return failure(code, "No pending Member request; use send_follow_up for ordinary information.");
 				if (code === "ambiguous-request") return failure(code, `${message}; provide request_id.`);

@@ -9,6 +9,7 @@ import {
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
 	registerWaitForRequestOutcomeTool,
+	normalizeMemberRequestErrorCode,
 } from "./member-request.ts";
 
 type Tool = { name: string; description: string; execute: (...args: any[]) => Promise<any> };
@@ -83,6 +84,21 @@ test("TASK-0076: request tools make Requester/Responder roles structurally expli
 	assert.match(wait, /requester-side/i);
 	assert.match(wait, /only after you sent a Member request/i);
 	assert.match(wait, /never handles inbound/i);
+});
+
+test("request mapper preserves stable outcomes and rejects unknown codes", () => {
+	for (const code of ["no-pending-request", "response-expired", "ambiguous-member", "invalid-payload"])
+		assert.equal(normalizeMemberRequestErrorCode(code), code);
+	assert.equal(normalizeMemberRequestErrorCode("password-secret"), "request-failed");
+});
+
+test("flow acquisition failures use actionable envelope", async () => {
+	const { tools, state, pi, yieldRuntime } = setup();
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
+	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(result.isError, true);
+	assert.equal(result.content[0]?.text, result.details.actionableError.message);
+	assert.equal(result.details.error, result.details.actionableError.code);
 });
 
 test("TASK-0076: empty wait fails with no-pending-member-requests and self-correcting recovery guidance", async () => {
