@@ -3,6 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { readCrewBoard, leaveCrewPost, type CrewBoardStoreDependencies } from "../application/crew-board.ts";
 import { openTrustedCrewBoardStore } from "../infra/crew-board-store.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { actionableToolError } from "./actionable-tool-result.ts";
 
 const kinds = Type.Union([
 	Type.Literal("tip"),
@@ -53,10 +54,22 @@ function defaultDependencies(state: SocketState): CrewBoardStoreDependencies {
 		openStore: (options) => openTrustedCrewBoardStore(options),
 	};
 }
+const BOARD_ERROR_CODES = new Set([
+	"not-joined",
+	"untrusted-project",
+	"unsupported-layout",
+	"stale-membership",
+	"invalid-request",
+]);
 function errorResult(error: unknown): ToolResult {
-	const code = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : "board-failed";
-	const message = error instanceof Error ? error.message : "Crew Board operation failed";
-	return { content: [{ type: "text", text: message.slice(0, 500) }], isError: true, details: { error: code } };
+	const rawCode = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : undefined;
+	const code = rawCode && BOARD_ERROR_CODES.has(rawCode) ? rawCode : "board-failed";
+	return actionableToolError({
+		code,
+		operation: "crew_board",
+		reason: "the Crew Board operation was rejected",
+		recovery: ["verify project trust and crew membership, then retry."],
+	});
 }
 
 export function registerLeaveCrewPostTool(
