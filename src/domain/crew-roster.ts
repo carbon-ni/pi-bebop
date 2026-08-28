@@ -3,8 +3,12 @@ import type { CrewMember } from "./crew-manifest.ts";
 export type CrewMemberAvailability = "current" | "online" | "offline";
 export type CrewRosterRow = { readonly member: CrewMember; readonly status: CrewMemberAvailability };
 
-export function formatCrewRoster(manifestPath: string, rows: readonly CrewRosterRow[]): string {
-	const lines = [`Crew: ${manifestPath}`, `Members (${rows.length}):`];
+export function formatCrewRoster(manifestPath: string, rows: readonly CrewRosterRow[], crewName?: string): string {
+	const lines = [
+		`Crew: ${manifestPath}`,
+		...(crewName === undefined ? [] : [`Name: ${crewName}`]),
+		`Members (${rows.length}):`,
+	];
 	for (const { member, status } of rows) {
 		const description = member.description ? ` — ${member.description}` : "";
 		lines.push(`- ${member.name} (${member.role}) — ${status}${description} — ${member.socketPath}`);

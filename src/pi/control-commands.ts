@@ -65,7 +65,7 @@ function renderStatus(state: SocketState): string {
 	const membership = state.membershipRuntime?.getMembership();
 	const status = deriveIntrayStatus(Boolean(state.server), Boolean(membership));
 	const crew = membership
-		? `\nCrew: ${membership.manifestPath}\nMember: ${membership.member.name} (${membership.member.role})\nEndpoint: ${membership.socketPath}`
+		? `\nCrew: ${membership.manifestPath}${membership.manifest.name === undefined ? "" : `\nName: ${membership.manifest.name}`}\nMember: ${membership.member.name} (${membership.member.role})\nEndpoint: ${membership.socketPath}`
 		: "";
 	return `Crew ${status}${crew}`;
 }
@@ -202,7 +202,7 @@ export async function renderCrewRoster(
 			}
 		}),
 	);
-	return formatCrewRoster(membership.manifestPath, rows);
+	return formatCrewRoster(membership.manifestPath, rows, membership.manifest.name);
 }
 
 async function handleInboxAction(
