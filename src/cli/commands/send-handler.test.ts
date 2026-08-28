@@ -189,10 +189,29 @@ test("--crew known intake failures hide raw details in text, JSON, and TOON", as
 		if (outcome.kind !== "result") continue;
 		const rendered = renderCliResult(outcome.result, format, false);
 		assert.equal(outcome.result.error?.code, "read-failed");
+		assert.equal(outcome.result.error?.message.includes("Crew Intake manifest could not be read"), true);
 		assert.equal(outcome.result.target, "");
 		assert.equal(rendered.includes("private.sock"), false);
 		assert.equal(rendered.includes("failed at /var"), false);
 	}
+});
+
+test("unknown intake codes normalize to unexpected-failure without raw details", async () => {
+	const outcome = await runSendCommand(
+		sendOptions({ crewPath: "/tmp/private/crew.json", socketPath: undefined }),
+		context(),
+		fakeAdapters({
+			intake: async () => {
+				throw new ExternalIntakeError("invalid-manifest", "manifest contains secret=/tmp/private");
+			},
+		}),
+	);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind !== "result") return;
+	assert.equal(outcome.result.error?.code, "unexpected-failure");
+	assert.equal(outcome.result.target, "");
+	assert.equal(outcome.result.error?.message.includes("manifest contains"), false);
+	assert.equal(outcome.result.error?.message.includes("private"), false);
 });
 
 test("--crew routes to the durable intake adapter, never the direct RPC adapter", async () => {

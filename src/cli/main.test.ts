@@ -391,6 +391,60 @@ test("renders stdin read failures in the selected structured format", async () =
 	});
 });
 
+test("send --crew renders intake failures through one safe public result boundary", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-send-boundary-"));
+	try {
+		const manifest = path.join(dir, ".pi", "bebop", "crew.json");
+		await mkdir(path.dirname(manifest), { recursive: true });
+		await writeFile(manifest, "{ not valid json");
+		let stdout = "";
+		let stderr = "";
+		let writes = 0;
+		const output = new Writable({
+			write(chunk, _encoding, callback) {
+				writes++;
+				stdout += chunk.toString();
+				callback();
+			},
+		});
+		const originalStderrWrite = process.stderr.write;
+		process.stderr.write = ((chunk: string | Uint8Array) => {
+			stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			const code = await runCli(
+				["send", "--crew", manifest, "--message", "hello", "--format", "json"],
+				dir,
+				process.stdin,
+				output,
+			);
+			assert.equal(code, 1);
+		} finally {
+			process.stderr.write = originalStderrWrite;
+		}
+		assert.equal(stderr, "");
+		assert.equal(writes, 1);
+		const result = JSON.parse(stdout);
+		assert.deepEqual(result, {
+			ok: false,
+			target: "",
+			status: "error",
+			error: {
+				code: "invalid-json",
+				operation: "pi-bebop send",
+				message:
+					"pi-bebop send failed: the Crew Intake manifest is not valid JSON. Location: target. Next: run the command with --help, correct the input, and retry. (code: invalid-json)",
+				location: { kind: "argument", name: "target" },
+				recovery: ["run the command with --help, correct the input, and retry."],
+			},
+		});
+		assert.doesNotMatch(stdout, /bebop-cli-send-boundary-|crew\.json|not valid json/);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("rejects empty stdin before connecting", async () => {
 	const input = new PassThrough();
 	input.end();

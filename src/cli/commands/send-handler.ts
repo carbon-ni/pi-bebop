@@ -5,7 +5,7 @@ import { sendHelp } from "./send.ts";
 import { readStdinMessage } from "../message-input.ts";
 import { deliverDirectMessage } from "./direct-send-adapter.ts";
 import { deliverCrewIntake } from "./crew-intake-adapter.ts";
-import { errorCode, errorResult } from "../errors.ts";
+import { actionableErrorResult, errorCode, normalizeCliErrorCode } from "../errors.ts";
 import { ExternalIntakeError } from "../../application/external-intake.ts";
 
 /**
@@ -58,11 +58,22 @@ export async function runSendCommand(
 		return await adapters.deliverDirect(options, message!, context.signal);
 	} catch (error) {
 		if (error instanceof UsageError) throw error;
-		const code = errorCode(error);
-		const reason = error instanceof ExternalIntakeError ? intakeFailureReason(code) : sendFailureReason(code);
+		const code = normalizeCliErrorCode(errorCode(error));
+		const reason =
+			code === "unexpected-failure"
+				? "an unexpected failure occurred"
+				: error instanceof ExternalIntakeError
+					? intakeFailureReason(code)
+					: sendFailureReason(code);
 		return {
 			kind: "result",
-			result: errorResult(reason, target, code, "pi-bebop send"),
+			result: actionableErrorResult({
+				code,
+				operation: "pi-bebop send",
+				reason,
+				recovery: ["run the command with --help, correct the input, and retry."],
+				location: { kind: "argument", name: "target", value: target },
+			}),
 			format: options.format,
 			full: options.full,
 		};
