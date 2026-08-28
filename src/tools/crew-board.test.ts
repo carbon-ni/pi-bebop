@@ -126,7 +126,7 @@ test("registered Board tools sanitize all known and unknown store failures", asy
 		assert.equal(result.isError, true);
 		assert.equal(result.content[0].text, result.details.actionableError.message);
 		assert.equal(JSON.stringify(result.details).includes("private.sock"), false);
-		assert.match(result.content[0].text, /\/crew board/);
+		assert.match(result.content[0].text, /crew_board/);
 		assert.equal(result.details.error, code === "password-secret" ? "board-failed" : code);
 	}
 });

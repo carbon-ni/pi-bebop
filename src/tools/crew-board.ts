@@ -79,12 +79,12 @@ export function normalizeCrewBoardErrorCode(code: string | undefined): string {
 	return code && BOARD_ERROR_CODES.has(code) ? code : "board-failed";
 }
 
-function errorResult(error: unknown, operation: "/crew board" | "/crew post"): ToolResult {
+function errorResult(error: unknown): ToolResult {
 	const rawCode = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : undefined;
 	const code = normalizeCrewBoardErrorCode(rawCode);
 	return actionableToolError({
 		code,
-		operation,
+		operation: "crew_board",
 		reason: "the Crew Board operation was rejected",
 		recovery: ["verify project trust and crew membership, then retry."],
 	});
@@ -131,7 +131,7 @@ export function registerLeaveCrewPostTool(
 					},
 				};
 			} catch (error) {
-				return errorResult(error, "/crew post");
+				return errorResult(error);
 			}
 		},
 	});
@@ -157,7 +157,7 @@ export function registerReadCrewBoardTool(
 				);
 				return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 			} catch (error) {
-				return errorResult(error, "/crew board");
+				return errorResult(error);
 			}
 		},
 	});
