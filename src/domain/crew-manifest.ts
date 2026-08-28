@@ -164,6 +164,16 @@ function requireText(value: unknown, field: string): string {
 	return value;
 }
 
+function requireMemberName(value: unknown, field: string): string {
+	const name = requireText(value, field);
+	if (!isCrewDisplayName(name))
+		invalid(
+			`${field} must be a non-empty trimmed label without control characters, at most ${MAX_CREW_NAME_BYTES} UTF-8 bytes`,
+			"invalid-member",
+		);
+	return name;
+}
+
 function requireDescription(value: unknown, field: string): string {
 	if (typeof value !== "string") {
 		invalid(`${field} must be a non-empty string`, "invalid-member");
@@ -330,7 +340,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 	const members: CrewMember[] = [];
 	for (const [index, rawMember] of input.members.entries()) {
 		if (!isRecord(rawMember)) invalid(`members[${index}] must be an object`, "invalid-member");
-		const name = requireText(rawMember.name, `members[${index}].name`);
+		const name = requireMemberName(rawMember.name, `members[${index}].name`);
 		const role = requireText(rawMember.role, `members[${index}].role`);
 		const socket = requireText(rawMember.socket, `members[${index}].socket`);
 		const instructions = rawMember.instructions;

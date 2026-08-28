@@ -106,6 +106,14 @@ test("valid auto ownership restores only when the current display name matches",
 	assert.equal(mismatch.name, "Manual");
 });
 
+test("direct malformed membership injection cannot name the session", () => {
+	const h = host();
+	const controller = createSessionNameController(h.host);
+	assert.doesNotThrow(() => controller.syncMembership(membership("Mary\nInjected")));
+	assert.equal(h.name, undefined);
+	assert.deepEqual(h.setCalls, []);
+});
+
 test("session-name API failures do not claim ownership or fail membership flow", () => {
 	const entries: unknown[] = [];
 	const controller = createSessionNameController({

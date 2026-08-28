@@ -152,6 +152,47 @@ describe("crew manifest", () => {
 		const cases: unknown[] = [
 			{ version: 2, members: [] },
 			{ version: 1, members: [{ name: "", role: "developer", socket: "dev.sock" }] },
+			{ version: 1, members: [{ name: "Mary\nInjected", role: "developer", socket: "sockets/dev.sock" }] },
+			{ version: 1, members: [{ name: "tab\tname", role: "developer", socket: "sockets/dev.sock" }] },
+			{ version: 1, members: [{ name: "del\u007fname", role: "developer", socket: "sockets/dev.sock" }] },
+			{ version: 1, members: [{ name: "c1\u0085name", role: "developer", socket: "sockets/dev.sock" }] },
+			{
+				version: 1,
+				members: [{ name: `oversized${"x".repeat(257)}`, role: "developer", socket: "sockets/dev.sock" }],
+			},
+			{
+				version: 1,
+				members: [
+					{
+						name: `lone${String.fromCharCode(0xd800)}surrogate`,
+						role: "developer",
+						socket: "sockets/dev.sock",
+					},
+				],
+			},
+			{
+				version: 1,
+				members: [
+					{
+						name: `lone${String.fromCharCode(0xdc00)}surrogate`,
+						role: "developer",
+						socket: "sockets/dev.sock",
+					},
+				],
+			},
+			{
+				version: 1,
+				members: [
+					{ name: `terminal${String.fromCharCode(0xd800)}`, role: "developer", socket: "sockets/dev.sock" },
+				],
+			},
+			{
+				version: 1,
+				members: [
+					{ name: `terminal${String.fromCharCode(0xdc00)}`, role: "developer", socket: "sockets/dev.sock" },
+				],
+			},
+			{ version: 1, members: [{ name: " padded ", role: "developer", socket: "sockets/dev.sock" }] },
 			{ version: 1, members: [{ name: "dev", role: "", socket: "dev.sock" }] },
 			{ version: 1, members: [{ name: "dev", role: "developer", socket: "dev.sock", instructions: 3 }] },
 			{ version: 1, members: [{ name: "dev", role: "developer", socket: "dev.sock", instructions: "   \n" }] },

@@ -590,6 +590,43 @@ test("/crew join rejects unsupported and unconfigured endpoints without joining"
 	assert.equal(claims, 0);
 });
 
+test("/crew join rejects malformed Member names before naming or endpoint claim", async () => {
+	const setupState = setup();
+	let syncCalls = 0;
+	let claims = 0;
+	const manifestPath = "/root-B/.pi/bebop/crew.json";
+	const runtime = createMembershipRuntime({
+		loadManifest: async () =>
+			parseCrewManifest(
+				{ version: 1, members: [{ name: "Mary\nInjected", role: "developer", socket: "sockets/dev.sock" }] },
+				manifestPath,
+			),
+		claimEndpoint: async () => {
+			claims += 1;
+			return { idempotent: false };
+		},
+	});
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			membershipRuntime: runtime,
+			syncSessionName: () => {
+				syncCalls += 1;
+			},
+			ensureControlServer: async (_pi, state, ctx) => {
+				state.server = {} as never;
+				state.socketPath = "/tmp/global.sock";
+				state.context = ctx;
+			},
+		}),
+	);
+	await setupState.getCommand().handler("join /root-B/.pi/bebop/sockets/dev.sock", setupState.ctx);
+	assert.equal(claims, 0);
+	assert.equal(syncCalls, 0);
+	assert.match(setupState.notifications[0]!, /Crew join failed/);
+});
+
 test("/crew join reports trust and runtime failures without claiming", async () => {
 	const untrusted = setup();
 	let joins = 0;

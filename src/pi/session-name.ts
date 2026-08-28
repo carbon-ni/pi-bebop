@@ -1,6 +1,7 @@
 import type { Membership } from "../infra/membership-runtime.ts";
 import {
 	getLatestSessionNameState,
+	isCrewDisplayName,
 	observeSessionNameChange,
 	reconcileSessionName,
 	sessionNameStateToEntryData,
@@ -22,7 +23,8 @@ export interface SessionNameController {
 	isAutoOwned(): boolean;
 }
 
-function snapshot(membership: Membership): SessionNameMembership {
+function snapshot(membership: Membership): SessionNameMembership | null {
+	if (!isCrewDisplayName(membership.member.name)) return null;
 	return {
 		manifestPath: membership.manifestPath,
 		socketPath: membership.socketPath,
@@ -81,7 +83,8 @@ export function createSessionNameController(host: SessionNameHost): SessionNameC
 		},
 		syncMembership(membership) {
 			const previous = state;
-			const next = reconcileSessionName(state, membership ? snapshot(membership) : null, currentName());
+			const currentMembership = membership ? snapshot(membership) : null;
+			const next = reconcileSessionName(state, currentMembership, currentName());
 			if (!apply(next.action)) return;
 			state = next.state;
 			if (!equalState(previous, state)) persist();
