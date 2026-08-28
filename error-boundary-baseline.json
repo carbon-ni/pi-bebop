@@ -1,0 +1,101 @@
+{
+	"version": 1,
+	"exemptions": [],
+	"entries": [
+		{
+			"file": "src/cli/commands/durable-message.ts",
+			"kind": "cli-result",
+			"count": 10
+		},
+		{
+			"file": "src/cli/commands/member-idle-wait.ts",
+			"kind": "cli-result",
+			"count": 8
+		},
+		{
+			"file": "src/cli/commands/member-interrupt.ts",
+			"kind": "cli-result",
+			"count": 12
+		},
+		{
+			"file": "src/cli/commands/member-message.ts",
+			"kind": "cli-result",
+			"count": 13
+		},
+		{
+			"file": "src/cli/commands/member-status.ts",
+			"kind": "cli-result",
+			"count": 13
+		},
+		{
+			"file": "src/cli/errors.ts",
+			"kind": "cli-result",
+			"count": 2
+		},
+		{
+			"file": "src/cli/source-session.ts",
+			"kind": "cli-result",
+			"count": 4
+		},
+		{
+			"file": "src/extension.ts",
+			"kind": "pi-notify",
+			"count": 3
+		},
+		{
+			"file": "src/pi/control-commands.ts",
+			"kind": "pi-notify",
+			"count": 14
+		},
+		{
+			"file": "src/pi/session-start.ts",
+			"kind": "pi-notify",
+			"count": 2
+		},
+		{
+			"file": "src/pi/startup-send.ts",
+			"kind": "pi-notify",
+			"count": 1
+		},
+		{
+			"file": "src/tools/broadcast-to-crew.ts",
+			"kind": "tool-result",
+			"count": 3
+		},
+		{
+			"file": "src/tools/crew-board.ts",
+			"kind": "tool-result",
+			"count": 1
+		},
+		{
+			"file": "src/tools/get-member-status.ts",
+			"kind": "tool-result",
+			"count": 1
+		},
+		{
+			"file": "src/tools/interrupt-member.ts",
+			"kind": "tool-result",
+			"count": 1
+		},
+		{
+			"file": "src/tools/member-request.ts",
+			"kind": "tool-result",
+			"count": 1
+		},
+		{
+			"file": "src/tools/member-tool-adapter.ts",
+			"kind": "tool-result",
+			"count": 1
+		},
+		{
+			"file": "src/tools/send-to-inbox.ts",
+			"kind": "tool-result",
+			"count": 1
+		},
+		{
+			"file": "src/tools/wait-for-member-idle.ts",
+			"kind": "tool-result",
+			"count": 1
+		}
+	]
+}

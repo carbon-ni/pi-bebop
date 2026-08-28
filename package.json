@@ -137,6 +137,7 @@
 		"pretest": "npm run build",
 		"test": "node scripts/run-tests.mjs",
 		"verify:arch": "node scripts/arch-check.mjs",
+		"verify:error-boundary": "node scripts/error-boundary-check.mjs",
 		"test:coverage": "node --test --experimental-test-coverage --import tsx src/**/*.test.ts",
 		"test:coverage:cli": "node scripts/verify-cli-coverage.mjs",
 		"verify:cli-complexity": "node scripts/verify-cli-complexity.mjs",

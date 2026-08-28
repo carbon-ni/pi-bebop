@@ -1,6 +1,6 @@
-.PHONY: all build typecheck lint format-check test arch-check security-check package-verify hooks-install hooks-check hooks-uninstall
+.PHONY: all build typecheck lint format-check test arch-check error-boundary-check security-check package-verify hooks-install hooks-check hooks-uninstall
 
-all: format-check lint arch-check build test security-check
+all: format-check lint arch-check error-boundary-check build test security-check
 
 build:
 	npm run build
@@ -21,6 +21,9 @@ test:
 
 arch-check:
 	npm run verify:arch
+
+error-boundary-check:
+	npm run verify:error-boundary
 
 
 package-verify:
