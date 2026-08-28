@@ -259,7 +259,10 @@ function validateRetrospectiveFacilitator(
 }
 
 function optionalManifestName(input: Record<string, unknown>): string | undefined {
-	return input.name === undefined ? undefined : requireText(input.name, "name");
+	if (input.name === undefined) return undefined;
+	const name = requireText(input.name, "name");
+	if (new TextEncoder().encode(name).byteLength > 256) invalid("name must be at most 256 UTF-8 bytes");
+	return name;
 }
 
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
