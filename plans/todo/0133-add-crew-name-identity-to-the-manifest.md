@@ -22,3 +22,9 @@ Receipts, the status footer, and intake messages identify the crew only by files
 - Happy: named manifest surfaces label everywhere listed; unnamed manifest is byte-compatible with today.
 - Unhappy: invalid name rejected at load with clear error; no surface falls back to guessing.
 - Deterministic tests, both paths.
+
+## Accepted partial evidence
+
+- `732decd` adds deterministic named/unnamed coverage for `/crew members` and `/crew status`.
+- Kelly independently verified `732decd` from a clean detached worktree: `make all` passed all checks/audit and 1,381 tests. The recorded baseline caveat remains.
+- This accepts the gate repair and the two implemented display surfaces only. It does not close TASK-0133: status footer, intake receipts/messages, joined context, and their named/unnamed tests remain open.
