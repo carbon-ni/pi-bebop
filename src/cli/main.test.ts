@@ -462,23 +462,30 @@ test("send --socket runner maps an unreachable endpoint to one safe result", asy
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-send-offline-"));
 	try {
 		const socket = path.join(dir, "missing.sock");
+		const results = new Map<string, Awaited<ReturnType<typeof captureCliRun>>>();
 		for (const format of ["text", "json", "toon"] as const) {
-			const result = await captureCliRun(
-				["send", "--socket", socket, "--message", "hello", "--format", format, "--full"],
-				dir,
-			);
+			for (const full of [false, true]) {
+				const args = ["send", "--socket", socket, "--message", "hello", "--format", format];
+				if (full) args.push("--full");
+				results.set(`${format}-${full}`, await captureCliRun(args, dir));
+			}
+		}
+		for (const result of results.values()) {
 			assert.equal(result.code, 1);
 			assert.equal(result.stderr, "");
 			assert.equal(result.writes, 1);
 			assert.match(result.stdout, /\n$/);
 			assert.doesNotMatch(result.stdout, /bebop-cli-send-offline-|missing\.sock/);
-			if (format === "json") {
-				const json = JSON.parse(result.stdout);
-				assert.equal(json.error.code, "offline");
-				assert.equal(json.target, "");
-				assert.deepEqual(json.error.location, { kind: "argument", name: "target" });
-			}
 		}
+		const json = JSON.parse(results.get("json-false")!.stdout);
+		assert.deepEqual(JSON.parse(results.get("json-true")!.stdout), json);
+		assert.deepEqual(decode(results.get("toon-false")!.stdout), json);
+		assert.deepEqual(decode(results.get("toon-true")!.stdout), json);
+		assert.equal(results.get("text-false")!.stdout, `${json.error.message}\n`);
+		assert.equal(results.get("text-true")!.stdout, `${json.error.message}\n`);
+		assert.equal(json.error.code, "offline");
+		assert.equal(json.target, "");
+		assert.deepEqual(json.error.location, { kind: "argument", name: "target" });
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
