@@ -9,6 +9,7 @@ import {
 	normalizeStartupSocketPath,
 	resolveStartupCrewRole,
 	startupRoleSelectionDescriptor,
+	membershipJoinErrorDescriptor,
 } from "./startup-send.ts";
 
 function context(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
@@ -345,6 +346,91 @@ test("startup revalidates supported membership with the current global socket", 
 		true,
 	);
 	assert.deepEqual(globalSockets, ["/tmp/global-first.sock", "/tmp/global-second.sock"]);
+});
+
+test("startup role resolver failures stay generic and do not leak exception text", async () => {
+	const notices: string[] = [];
+	const handled = await maybeHandleStartupRoleJoin(
+		context({ ui: { notify: (message: string) => notices.push(message) } }),
+		piWithFlag("developer"),
+		{ role: "crew-role" },
+		{
+			join: async () => ({ ok: true, idempotent: false, membership: undefined }),
+			leave: async () => ({ ok: true, left: false }),
+			getMembership: () => null,
+		} as unknown as MembershipRuntime,
+		"/tmp/global.sock",
+		async () => {
+			throw new Error("private/tmp/resolver-secret");
+		},
+	);
+	assert.equal(handled, false);
+	assert.match(notices[0]!, /\(code: unexpected-failure\)$/);
+	assert.doesNotMatch(notices[0]!, /private\/tmp|resolver-secret/);
+});
+
+test("startup membership error mapping preserves known codes and genericizes unknown codes", () => {
+	for (const code of [
+		"manifest-load-failed",
+		"member-not-found",
+		"claim-failed",
+		"switch-release-failed",
+		"rollback-failed",
+	] as const) {
+		const descriptor = membershipJoinErrorDescriptor(code, "Crew startup join");
+		assert.equal(descriptor.code, code);
+		assert.doesNotMatch(descriptor.reason, /private\/tmp|secret|token/i);
+	}
+	assert.equal(membershipJoinErrorDescriptor("forged-code", "Crew startup join").code, "unexpected-failure");
+});
+
+test("public startup socket and role joins preserve claim-failed from the membership adapter", async () => {
+	const manifest = parseCrewManifest(
+		{ version: 1, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] },
+		"/project/.pi/bebop/crew.json",
+	);
+	const failingRuntime = (): MembershipRuntime =>
+		createMembershipRuntime({
+			loadManifest: async () => manifest,
+			claimEndpoint: async () => {
+				throw new Error("private/tmp/claim-secret");
+			},
+		});
+	for (const [label, handler] of [
+		[
+			"socket",
+			(runtime: MembershipRuntime, notices: string[]) =>
+				maybeHandleStartupSocketJoin(
+					context({ ui: { notify: (message: string) => notices.push(message) } }),
+					piWithFlag(".pi/bebop/sockets/dev.sock"),
+					{ socket: "crew-socket" },
+					runtime,
+					"/tmp/global.sock",
+				),
+		],
+		[
+			"role",
+			(runtime: MembershipRuntime, notices: string[]) =>
+				maybeHandleStartupRoleJoin(
+					context({ ui: { notify: (message: string) => notices.push(message) } }),
+					piWithFlag("developer"),
+					{ role: "crew-role" },
+					runtime,
+					"/tmp/global.sock",
+					async () => ({
+						ok: true,
+						manifestPath: "/project/.pi/bebop/crew.json",
+						socketPath: "/project/.pi/bebop/sockets/dev.sock",
+					}),
+				),
+		],
+	] as const) {
+		const notices: string[] = [];
+		assert.equal(await handler(failingRuntime(), notices), false, `${label} join should fail`);
+		assert.equal(notices.length, 1);
+		assert.match(notices[0]!, /\(code: claim-failed\)$/);
+		assert.doesNotMatch(notices[0]!, /private\/tmp|claim-secret/);
+	}
 });
 
 test("untrusted or failed startup selection is explicit and does not create membership", async () => {

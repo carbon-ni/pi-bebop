@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readTrustedCrewManifest, selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
-import type { MembershipRuntime } from "../infra/membership-runtime.ts";
+import type { MembershipRuntime, MembershipRuntimeErrorCode } from "../infra/membership-runtime.ts";
 import { getSocketPath } from "../infra/intray-paths.ts";
 import { isSocketAlive, resolveSessionIdFromAlias } from "../infra/control-store.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
@@ -227,23 +227,36 @@ export function startupRoleSelectionDescriptor(
 	};
 }
 
-export function startupRoleSelectionError(selection: Extract<StartupRoleSelection, { ok: false }>): string {
-	let detail = `role '${selection.role}'`;
-	if (selection.code === "unknown-role") {
-		const roles = selection.availableRoles ?? [];
-		detail += ` is unknown; available roles: [${roles.join(", ")}] (omittedRoleCount=${selection.omittedRoleCount ?? 0})`;
-	} else if (selection.code === "ambiguous-role") {
-		detail += " is ambiguous; use --crew-socket to select an explicit endpoint";
-	} else if (selection.code === "missing-manifest") {
-		detail = "no supported crew manifest found beneath the project";
-	} else if (selection.code === "ambiguous-manifest") {
-		detail = "both supported crew manifests exist; remove one or use --crew-socket";
-	} else if (selection.code === "empty-role") {
-		detail = "role must be non-empty";
-	} else if (selection.code === "untrusted-project") {
-		detail = "project is not trusted";
-	}
-	return detail;
+export function membershipJoinErrorDescriptor(code: string, operation: string): ActionableErrorDescriptor {
+	const descriptors: Partial<Record<MembershipRuntimeErrorCode, readonly [string, string]>> = {
+		"manifest-load-failed": [
+			"the Crew manifest could not be loaded",
+			"verify the Crew manifest and project trust, then retry.",
+		],
+		"member-not-found": [
+			"the selected socket is not configured for a Crew Member",
+			"select a socket configured in the Crew manifest, then retry.",
+		],
+		"claim-failed": [
+			"the selected Crew Member endpoint could not be claimed",
+			"verify the endpoint is available, then retry.",
+		],
+		"switch-release-failed": [
+			"the previous Crew Member endpoint could not be released",
+			"retry the Crew join after checking the current Membership state.",
+		],
+		"rollback-failed": [
+			"the new Crew Member endpoint could not be rolled back after switching failed",
+			"inspect Crew endpoint state before retrying the Membership switch.",
+		],
+	};
+	const descriptor = descriptors[code as MembershipRuntimeErrorCode];
+	return {
+		code: descriptor ? code : "unexpected-failure",
+		operation,
+		reason: descriptor?.[0] ?? "the Crew Membership operation could not be completed",
+		recovery: [descriptor?.[1] ?? "verify Crew state and retry; if it repeats, report the operation and code."],
+	};
 }
 
 function reportStartupControlSend(
@@ -315,7 +328,12 @@ export async function maybeHandleStartupSocketJoin(
 		globalSocketPath,
 	});
 	if ("error" in result) {
-		reportStartupControlSend(ctx, "Crew startup join failed", "error");
+		reportStartupControlSend(
+			ctx,
+			"Crew startup join failed",
+			"error",
+			membershipJoinErrorDescriptor(result.error.code, "Crew startup join"),
+		);
 		return false;
 	}
 	reportStartupControlSend(
@@ -351,12 +369,8 @@ export async function maybeHandleStartupRoleJoin(
 	let selection: StartupRoleSelection;
 	try {
 		selection = await resolver(rawRole, ctx.cwd, true);
-	} catch (error) {
-		reportStartupControlSend(
-			ctx,
-			`Crew startup role join failed: ${error instanceof Error ? error.message : "manifest read failed"}`,
-			"error",
-		);
+	} catch {
+		reportStartupControlSend(ctx, "Crew startup role join failed", "error");
 		return false;
 	}
 	if ("code" in selection) {
@@ -374,7 +388,12 @@ export async function maybeHandleStartupRoleJoin(
 		globalSocketPath,
 	});
 	if ("error" in result) {
-		reportStartupControlSend(ctx, "Crew startup role join failed", "error");
+		reportStartupControlSend(
+			ctx,
+			"Crew startup role join failed",
+			"error",
+			membershipJoinErrorDescriptor(result.error.code, "Crew startup role join"),
+		);
 		return false;
 	}
 	reportStartupControlSend(
