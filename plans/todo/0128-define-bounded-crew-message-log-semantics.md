@@ -1,7 +1,7 @@
 ---
 id: TASK-0128
 title: Define bounded Crew Message Log semantics
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, messaging, evidence, product, privacy, retention, ubiquitous-language]
@@ -17,6 +17,10 @@ Crew messaging is spread across transient delivery paths and durable queues, so 
 
 Define a **Crew Message Log**: one project-local, append-only, Crew-readable evidence source containing Bebop-owned messaging lifecycle facts and a bounded, deterministically redacted representation of visible message content. It supports later review; it is not another delivery queue, conversation, monitoring feed, or source of inferred Member preference.
 
+## Product contract
+
+Normative source: `docs/CREW-MESSAGE-LOG.md`.
+
 ## Starting boundaries
 
 - Visible Crew message content and ordered per-message instructions may be retained after deterministic credential/secret redaction and explicit byte limits. Hidden model reasoning is unavailable and never reconstructed.
@@ -30,17 +34,23 @@ Define a **Crew Message Log**: one project-local, append-only, Crew-readable evi
 
 ## Acceptance criteria
 
-- [ ] `UL.md` and a normative contract define Crew Message Log, Log Entry, Messaging Review, and their relationships to Message, Origin, Membership, Crew Board, and Crew Retrospective.
-- [ ] The contract freezes an allow-listed v1 surface/outcome vocabulary covering Follow-up, Redirect, Member Request/Response, Member Inbox/Handoff, Crew Broadcast, Interrupt, and Crew Intake; generic non-Crew Pi/session traffic is explicitly included or excluded.
-- [ ] One closed Log Entry schema separates stable event/operation IDs, injected UTC occurrence time, surface, mechanical outcome, authenticated application-side Member identities when available, claimed Origin, delivery intent, correlation links, and bounded visible payload representation.
-- [ ] Exact per-field and aggregate UTF-8 limits, normalization, control-character handling, credential/secret redaction, reserved-marker spoof handling, and deterministic overflow/truncation order are fixed.
-- [ ] Exact retention bounds are fixed by both age and total storage/event capacity, including deterministic oldest-first pruning, transparent omitted interval/count evidence, restart behavior, and no unlimited transcript mode.
-- [ ] Access semantics encode the temporal policy above: equal Current-Member access to all retained active-layout history, internal capture-only append, no capture-time ACL, no caller-authored Log Entry tool, no private/member-only entries, no Role tiers, and no read receipts or per-Member read state.
-- [ ] Capture failure semantics freeze epoch/checkpoint/close markers, the 256-range volatile ledger, range merge/overflow/stable-ID rules, crash/restart loss, later gap persistence, and mandatory per-frozen-roster coverage reporting without fabricating events.
-- [ ] Same operation observed by multiple endpoints/adapters has one canonical identity and deterministic idempotent replay/conflict behavior; event ordering does not depend on wall-clock arrival order alone.
-- [ ] Content is evidence, not truth or preference. The contract forbids productivity scoring, Member ranking, sentiment/intent inference, inferred agreement, inferred completion, or treating silence/non-use as dislike.
-- [ ] Adversarial acceptance matrix covers secrets, spoofed Origin, cross-project/cross-layout identity, duplicate/reordered events, clock changes, oversized Unicode, retention boundaries, unavailable storage, Membership loss, and concurrent writers.
-- [ ] Dave confirms implementation readiness and Kelly independently accepts the product/privacy contract before storage work begins.
+- [x] `UL.md` and a normative contract define Crew Message Log, Log Entry, Messaging Review, and their relationships to Message, Origin, Membership, Crew Board, and Crew Retrospective.
+- [x] The contract freezes an allow-listed v1 surface/outcome vocabulary covering Follow-up, Redirect, Member Request/Response, Member Inbox/Handoff, Crew Broadcast, Interrupt, and Crew Intake; generic non-Crew Pi/session traffic is explicitly included or excluded.
+- [x] One closed Log Entry schema separates stable event/operation IDs, injected UTC occurrence time, surface, mechanical outcome, authenticated application-side Member identities when available, claimed Origin, delivery intent, correlation links, and bounded visible payload representation.
+- [x] Exact per-field and aggregate UTF-8 limits, normalization, control-character handling, credential/secret redaction, reserved-marker spoof handling, and deterministic overflow/truncation order are fixed.
+- [x] Exact retention bounds are fixed by both age and total storage/event capacity, including deterministic oldest-first pruning, transparent omitted interval/count evidence, restart behavior, and no unlimited transcript mode.
+- [x] Access semantics encode the temporal policy above: equal Current-Member access to all retained active-layout history, internal capture-only append, no capture-time ACL, no caller-authored Log Entry tool, no private/member-only entries, no Role tiers, and no read receipts or per-Member read state.
+- [x] Capture failure semantics freeze epoch/checkpoint/close markers, the 256-range volatile ledger, range merge/overflow/stable-ID rules, crash/restart loss, later gap persistence, and mandatory per-frozen-roster coverage reporting without fabricating events.
+- [x] Same operation observed by multiple endpoints/adapters has one canonical identity and deterministic idempotent replay/conflict behavior; event ordering does not depend on wall-clock arrival order alone.
+- [x] Content is evidence, not truth or preference. The contract forbids productivity scoring, Member ranking, sentiment/intent inference, inferred agreement, inferred completion, or treating silence/non-use as dislike.
+- [x] Adversarial acceptance matrix covers secrets, spoofed Origin, cross-project/cross-layout identity, duplicate/reordered events, clock changes, oversized Unicode, retention boundaries, unavailable storage, Membership loss, and concurrent writers.
+- [x] Dave confirms implementation readiness and Kelly independently accepts the product/privacy contract before storage work begins.
+
+## Product evidence
+
+- Normative contract: `docs/CREW-MESSAGE-LOG.md`.
+- Canonical language: `UL.md` (`Crew Message Log`, `Log Entry`, `Messaging Review`).
+- Readiness/adversarial matrix: `.tmp/reports/28-08-26/task-0128-crew-message-log-contract-readiness.md`.
 
 ## Non-goals
 
