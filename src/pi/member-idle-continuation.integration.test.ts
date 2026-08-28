@@ -20,6 +20,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { createSocketState, handleCommand } from "./control-runtime.ts";
+import { parseRenderedMessagePayload, type MessagePayload } from "../domain/index.ts";
 import { registerWaitForMemberIdleTool, type MemberIdleWaitToolTransport } from "../tools/wait-for-member-idle.ts";
 
 /**
@@ -232,14 +233,22 @@ async function deliver(
 	pi: ExtensionAPI,
 	state: ReturnType<typeof createSocketState>,
 	id: string,
-	content: string,
+	payload: MessagePayload,
 	delivery: "follow_up" | "steer",
 ): Promise<void> {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
-	await handleCommand(pi, state, { type: "send", id, payload: { content }, delivery } as never, socket);
+	await handleCommand(pi, state, { type: "send", id, payload, delivery } as never, socket);
 	assert.match(writes.at(-1) ?? "", /"deliveryId":/, "wake delivery must be accepted");
 }
+
+const plainPayload = (content: string): MessagePayload => ({ content });
+
+const fullPayload = (content: string): MessagePayload => ({
+	content,
+	instructions: ["instruction-one", "instruction-two"],
+	origin: { kind: "crew", name: "Mary", role: "lead" },
+});
 
 function textBlocks(context: Context): Array<{ role: string; text: string }> {
 	const rendered: Array<{ role: string; text: string }> = [];
@@ -272,7 +281,7 @@ test("TASK-0089: accepted Follow-up is consumed in the next provider context bef
 
 	const promptDone = harness.session.prompt("wait for kelly");
 	await waitForArmedWake(harness.state);
-	await deliver(harness.pi, harness.state, "w1", WAKE_CONTENT_1, "follow_up");
+	await deliver(harness.pi, harness.state, "w1", fullPayload(WAKE_CONTENT_1), "follow_up");
 	await promptDone;
 
 	// Exactly two provider calls: the tool-call turn and the post-message turn.
@@ -283,7 +292,14 @@ test("TASK-0089: accepted Follow-up is consumed in the next provider context bef
 
 	// The waking message is present exactly once, rendered with its follow-up mode.
 	assert.equal(occurrences(second, WAKE_CONTENT_1), 1);
-	assert.ok(blocks.some(({ text }) => text.includes("WAKE-A") && text.includes("follow-up")));
+	const wakeBlock = blocks.find(({ text }) => text.includes(WAKE_CONTENT_1));
+	assert.ok(wakeBlock);
+	assert.ok(wakeBlock.text.includes("follow-up"));
+	const renderedPayload = wakeBlock.text.slice(wakeBlock.text.indexOf("\n") + 1);
+	assert.deepEqual(parseRenderedMessagePayload(renderedPayload), fullPayload(WAKE_CONTENT_1));
+	for (const field of ["instruction-one", "instruction-two", '"name":"Mary"', '"role":"lead"']) {
+		assert.equal(wakeBlock.text.split(field).length - 1, 1, `${field} must cross the provider boundary once`);
+	}
 
 	// Order: toolResult(message-received) then the waking message, with no
 	// assistant action between them — the message is the next consumed input.
@@ -328,7 +344,7 @@ test("TASK-0089: accepted Redirect keeps steer semantics and is consumed at its 
 
 	const promptDone = harness.session.prompt("wait for kelly");
 	await waitForArmedWake(harness.state);
-	await deliver(harness.pi, harness.state, "w2", WAKE_CONTENT_1, "steer");
+	await deliver(harness.pi, harness.state, "w2", plainPayload(WAKE_CONTENT_1), "steer");
 	await promptDone;
 
 	assert.equal(harness.contexts.length, 2, "redirect wake must not create a content-free continuation");
@@ -364,8 +380,8 @@ test("TASK-0089: a second accepted message stays FIFO-ordered and is never dropp
 
 	const promptDone = harness.session.prompt("wait for kelly");
 	await waitForArmedWake(harness.state);
-	await deliver(harness.pi, harness.state, "w3", WAKE_CONTENT_1, "follow_up");
-	await deliver(harness.pi, harness.state, "w4", WAKE_CONTENT_2, "follow_up");
+	await deliver(harness.pi, harness.state, "w3", plainPayload(WAKE_CONTENT_1), "follow_up");
+	await deliver(harness.pi, harness.state, "w4", plainPayload(WAKE_CONTENT_2), "follow_up");
 	await promptDone;
 
 	// Pi drains one queued Follow-up per turn: the terminating tool result
@@ -427,7 +443,7 @@ test("TASK-0089: mixed batch — non-terminating sibling tool call (characterize
 
 	const promptDone = harness.session.prompt("wait with a sibling");
 	await waitForArmedWake(harness.state);
-	await deliver(harness.pi, harness.state, "w5", WAKE_CONTENT_1, "follow_up");
+	await deliver(harness.pi, harness.state, "w5", plainPayload(WAKE_CONTENT_1), "follow_up");
 	await promptDone;
 	const second = harness.contexts[1]!;
 	const wakeCount = occurrences(second, WAKE_CONTENT_1);
