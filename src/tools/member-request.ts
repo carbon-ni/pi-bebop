@@ -6,6 +6,7 @@ import { RpcProtocolError } from "../infra/rpc-client.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 import type { YieldingWaitRuntime } from "../pi/wait-resume.ts";
+import { actionableToolError, type ActionableToolResult } from "./actionable-tool-result.ts";
 
 const requestParameters = Type.Object(
 	{
@@ -44,8 +45,33 @@ type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: bo
 function success(text: string, details: unknown): ToolResult {
 	return { content: [{ type: "text", text }], details };
 }
-function failure(code: string, message: string): ToolResult {
-	return { content: [{ type: "text", text: `${code}: ${message}` }], isError: true, details: { error: code } };
+const REQUEST_ERROR_CODES = new Set([
+	"aborted",
+	"ambiguous-request",
+	"expired",
+	"invalid-request",
+	"no-pending-member-requests",
+	"not-joined",
+	"offline",
+	"outcome-unknown",
+	"request-failed",
+	"self-send",
+	"timeout",
+	"unknown-member",
+	"wait-failed",
+]);
+
+function failure(code: string, _message: string): ActionableToolResult {
+	const safeCode = REQUEST_ERROR_CODES.has(code) ? code : "request-failed";
+	return actionableToolError({
+		code: safeCode,
+		operation: "member_request",
+		reason:
+			safeCode === "no-pending-member-requests"
+				? "no pending request; respond_to_member_request requires a new request"
+				: "the member request operation was rejected",
+		recovery: ["verify the request target and state, then retry the tool."],
+	});
 }
 function flowFor(state: SocketState): MemberRequestFlow {
 	if (!state.memberRequestFlow) throw new Error("Crew coordination is not initialized");

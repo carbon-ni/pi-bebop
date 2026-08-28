@@ -91,6 +91,10 @@ test("TASK-0076: empty wait fails with no-pending-member-requests and self-corre
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, true);
 	assert.equal(result.details.error, "no-pending-member-requests");
+	const actionable = result.details.actionableError as { code: string; message: string };
+	assert.equal(actionable.code, result.details.error);
+	assert.equal(result.content[0]?.text, actionable.message);
+	assert.doesNotMatch(JSON.stringify(result.details), /Error:|stack|private\.sock/i);
 	assert.match(String(result.content[0]?.text ?? ""), /respond_to_member_request|send a new|continue/);
 });
 
