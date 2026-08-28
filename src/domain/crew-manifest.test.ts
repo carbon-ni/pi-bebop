@@ -27,6 +27,7 @@ describe("crew manifest", () => {
 			"del\u007fname",
 			"c1\u0085name",
 			"🚩".repeat(65),
+			`lone${String.fromCharCode(0xd800)}surrogate`,
 		])
 			assert.throws(
 				() => parseCrewManifest({ ...base, name }),
