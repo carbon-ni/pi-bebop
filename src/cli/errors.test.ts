@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { errorCode, errorResult, requestedFormat, usageResult } from "./errors.ts";
+import { errorCode, actionableErrorResult, errorResult, requestedFormat, usageResult } from "./errors.ts";
+import { decode } from "@toon-format/toon";
+import { renderCliResult } from "./output.ts";
 import { ExternalIntakeError } from "../application/external-intake.ts";
 import { DirectMessageError } from "../application/direct-message.ts";
 
@@ -33,6 +35,33 @@ test("requestedFormat honors --format and --format=, last occurrence wins", () =
 	assert.equal(requestedFormat(["--format=text"]), "text");
 	assert.equal(requestedFormat(["--format", "json", "--format=text"]), "text");
 	assert.equal(requestedFormat(["--format", "json", "--wait", "later"]), "json");
+});
+
+test("actionable target compatibility field follows retained location in JSON and TOON", () => {
+	const unsafe = actionableErrorResult({
+		code: "unknown-member",
+		operation: "pi-bebop member status",
+		reason: "target is not configured",
+		recovery: ["run pi-bebop crew roles --format toon and retry."],
+		location: { kind: "argument", name: "member", value: "https://user:password@example.test" },
+	});
+	assert.equal(unsafe.target, "");
+	for (const format of ["json", "toon"] as const) {
+		const value =
+			format === "json"
+				? JSON.parse(renderCliResult(unsafe, format, false))
+				: decode(renderCliResult(unsafe, format, false));
+		assert.equal(value.target, "");
+		assert.equal(JSON.stringify(value).includes("password"), false);
+	}
+	const safe = actionableErrorResult({
+		code: "unknown-member",
+		operation: "pi-bebop member status",
+		reason: "target is not configured",
+		recovery: ["retry"],
+		location: { kind: "argument", name: "member", value: "Ghost" },
+	});
+	assert.equal(safe.target, "Ghost");
 });
 
 test("usageResult and errorResult produce actionable shapes without stack leaks", () => {

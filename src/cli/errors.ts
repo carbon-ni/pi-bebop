@@ -82,12 +82,13 @@ export function actionableUsageResult(descriptor: ActionableErrorDescriptor): Cl
 }
 
 /** Build an actionable operational result while preserving CLI exit-1 semantics. */
-export function actionableErrorResult(descriptor: ActionableErrorDescriptor, target = ""): CliResult {
+export function actionableErrorResult(descriptor: ActionableErrorDescriptor): CliResult {
+	const error = presentActionableError(descriptor);
 	return {
 		ok: false,
-		target: descriptor.location?.value ?? target,
+		target: error.location?.value ?? "",
 		status: "error",
-		error: presentActionableError(descriptor),
+		error,
 	};
 }
 
@@ -98,6 +99,6 @@ export function errorResult(
 	code: string,
 	operation = "pi-bebop operation",
 ): CliResult {
-	const result = actionableErrorResult(descriptor(code, operation, message, target), target);
+	const result = actionableErrorResult(descriptor(code, operation, message, target));
 	return result;
 }

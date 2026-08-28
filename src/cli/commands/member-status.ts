@@ -222,16 +222,13 @@ export async function runMemberStatusCommand(
 	if (isStatusFailure(outcome)) {
 		return {
 			kind: "result",
-			result: actionableErrorResult(
-				{
-					code: outcome.code,
-					operation: "pi-bebop member status",
-					reason: "the target status operation failed",
-					recovery: ["run pi-bebop crew roles --format toon and retry with an exact Member or Role."],
-					location: { kind: "argument", name: "member", value: target },
-				},
-				target,
-			),
+			result: actionableErrorResult({
+				code: outcome.code,
+				operation: "pi-bebop member status",
+				reason: "the target status operation failed",
+				recovery: ["run pi-bebop crew roles --format toon and retry with an exact Member or Role."],
+				location: { kind: "argument", name: "member", value: target },
+			}),
 			format: options.format,
 			full: false,
 		};
