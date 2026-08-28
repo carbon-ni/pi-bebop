@@ -130,20 +130,26 @@ function textState(value: any, maxBytes: number): boolean {
 		);
 	return (
 		value.state === "unavailable" &&
-		value.reason !== null &&
+		["invalid-payload", "invalid-unicode", "unsupported-control", "record-capacity"].includes(value.reason) &&
 		value.text === null &&
+		value.normalizedUtf8Bytes === null &&
+		value.omittedUtf8Bytes === null &&
 		value.retainedUtf8Bytes === 0 &&
-		value.truncated === false
+		value.truncated === false &&
+		value.escapedMarkerCount === 0 &&
+		Array.isArray(value.redactions) &&
+		value.redactions.length === 0
 	);
 }
 function textCounts(value: any): boolean {
 	return (
-		Number.isSafeInteger(value.normalizedUtf8Bytes) &&
-		Number.isSafeInteger(value.retainedUtf8Bytes) &&
-		Number.isSafeInteger(value.omittedUtf8Bytes) &&
-		typeof value.truncated === "boolean" &&
-		Number.isSafeInteger(value.escapedMarkerCount) &&
-		Array.isArray(value.redactions)
+		value.state === "unavailable" ||
+		(Number.isSafeInteger(value.normalizedUtf8Bytes) &&
+			Number.isSafeInteger(value.retainedUtf8Bytes) &&
+			Number.isSafeInteger(value.omittedUtf8Bytes) &&
+			typeof value.truncated === "boolean" &&
+			Number.isSafeInteger(value.escapedMarkerCount) &&
+			Array.isArray(value.redactions))
 	);
 }
 function textFields(value: any, maxBytes: number): boolean {
