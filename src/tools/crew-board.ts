@@ -75,9 +75,13 @@ const BOARD_ERROR_CODES = new Set([
 	"idempotency-conflict",
 	"link-target-invalid",
 ]);
+export function normalizeCrewBoardErrorCode(code: string | undefined): string {
+	return code && BOARD_ERROR_CODES.has(code) ? code : "board-failed";
+}
+
 function errorResult(error: unknown): ToolResult {
 	const rawCode = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : undefined;
-	const code = rawCode && BOARD_ERROR_CODES.has(rawCode) ? rawCode : "board-failed";
+	const code = normalizeCrewBoardErrorCode(rawCode);
 	return actionableToolError({
 		code,
 		operation: "crew_board",

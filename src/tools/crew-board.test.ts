@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Value } from "@sinclair/typebox/value";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerLeaveCrewPostTool, registerReadCrewBoardTool } from "./crew-board.ts";
+import { normalizeCrewBoardErrorCode, registerLeaveCrewPostTool, registerReadCrewBoardTool } from "./crew-board.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 import { parseCrewManifest } from "../domain/index.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
@@ -88,6 +88,12 @@ test("append tool adapts link and returns persisted-only acknowledgement", async
 	assert.doesNotMatch(result.content[0].text, /deliver|notify|read/);
 });
 
+test("Board mapper preserves known store outcomes and rejects raw codes", () => {
+	for (const code of ["untrusted-path", "invalid-read", "capacity-exceeded", "lock-conflict", "write-failed"])
+		assert.equal(normalizeCrewBoardErrorCode(code), code);
+	assert.equal(normalizeCrewBoardErrorCode("password-secret"), "board-failed");
+});
+
 test("read tool returns shared result and Membership loss rejects", async () => {
 	let reads = 0;
 	const current: { value: Membership | null } = { value: membership };
@@ -117,5 +123,8 @@ test("read tool returns shared result and Membership loss rejects", async () => 
 	const rejected = await tool.execute("r", {});
 	assert.equal(rejected.isError, true);
 	assert.equal(rejected.details.error, "stale-membership");
+	assert.equal(rejected.details.actionableError.code, rejected.details.error);
+	assert.equal(rejected.content[0].text, rejected.details.actionableError.message);
+	assert.doesNotMatch(JSON.stringify(rejected.details), /private\.sock|Error:|stack/i);
 	assert.equal(reads, 1);
 });
