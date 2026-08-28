@@ -36,6 +36,7 @@ import type { MemberInboxMessageDependencies } from "../application/member-inbox
 import type { BroadcastStoreDependencies } from "../application/crew-broadcast.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import { getCommandHandler } from "./command-handlers/registry.ts";
+import type { SessionNameController } from "./session-name.ts";
 
 // ============================================================================
 // Subscription Management
@@ -77,6 +78,8 @@ export interface SocketState {
 	/** Injectable source-to-target interrupt transport for deterministic recovery tests (TASK-0065). */
 	memberInterruptSend?: typeof sendRpcCommand;
 	memberInterruptResolveEndpoint?: typeof resolveMemberEndpoint;
+	/** Current session display-name ownership; auto Member names never publish a global alias. */
+	sessionNameController?: SessionNameController;
 }
 
 // ============================================================================
@@ -85,7 +88,8 @@ export interface SocketState {
 
 const STATUS_KEY = "pi-bebop";
 
-function getSessionAlias(ctx: ExtensionContext): string | null {
+export function getSessionAlias(ctx: ExtensionContext, state: SocketState): string | null {
+	if (state.sessionNameController?.isAutoOwned()) return null;
 	const sessionName = ctx.sessionManager.getSessionName();
 	const alias = sessionName ? sessionName.trim() : "";
 	if (!alias || !isSafeAlias(alias)) return null;
@@ -100,9 +104,13 @@ async function getBranchAlias(currentAliases: string[]): Promise<string | null> 
 	return createSequentialProjectBranchAlias(project, branch, await getAliasNames(), currentAlias);
 }
 
-async function getSessionAliases(ctx: ExtensionContext, currentAliases: string[]): Promise<string[]> {
-	const aliases = [getSessionAlias(ctx), await getBranchAlias(currentAliases)].filter((alias): alias is string =>
-		Boolean(alias),
+async function getSessionAliases(
+	ctx: ExtensionContext,
+	currentAliases: string[],
+	state: SocketState,
+): Promise<string[]> {
+	const aliases = [getSessionAlias(ctx, state), await getBranchAlias(currentAliases)].filter(
+		(alias): alias is string => Boolean(alias),
 	);
 	return Array.from(new Set(aliases));
 }
@@ -177,7 +185,7 @@ async function syncAlias(state: SocketState, ctx: ExtensionContext): Promise<voi
 	if (!state.server || !state.socketPath) return;
 
 	try {
-		const aliases = await getSessionAliases(ctx, state.aliases);
+		const aliases = await getSessionAliases(ctx, state.aliases, state);
 		if (aliases.length === state.aliases.length && aliases.every((alias, index) => alias === state.aliases[index]))
 			return;
 
@@ -322,6 +330,13 @@ export function refreshIntrayStatus(state: SocketState, ctx: ExtensionContext | 
 	updateStatus(ctx, state);
 }
 
+export async function refreshSessionAliases(
+	state: SocketState,
+	ctx: ExtensionContext | null = state.context,
+): Promise<void> {
+	if (ctx) await syncAlias(state, ctx);
+}
+
 export function formatIntrayFooter(
 	status: IntrayStatus,
 	member?: Pick<Membership["member"], "name" | "role">,
@@ -375,6 +390,7 @@ export function createSocketState(): SocketState {
 		idleWaitSubscriptions: [],
 		wakeGate: new AcceptedLocalMessageWakeGate(),
 		membershipRuntime: null,
+		sessionNameController: undefined,
 	};
 }
 

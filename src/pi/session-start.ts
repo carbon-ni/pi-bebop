@@ -5,6 +5,7 @@ import {
 	ensureControlServer,
 	reconcileMembershipTools,
 	refreshIntrayStatus,
+	refreshSessionAliases,
 	activateMembershipTool,
 } from "./control-runtime.ts";
 import { getLatestMembershipState } from "./membership-context.ts";
@@ -34,11 +35,14 @@ export async function handleSessionStart(
 		readonly refreshPresence: () => Promise<void>;
 		readonly persistMembership: (active: boolean, membership: any) => void;
 		readonly announceMembership: (message: string) => void;
+		readonly restoreSessionName?: (entries: readonly unknown[]) => void;
+		readonly syncSessionName?: (membership: any | null) => void | Promise<void>;
 	},
 ): Promise<void> {
 	const startup = await prepareStartupSelection(pi, ctx);
 	if (!startup) return;
 	const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
+	deps.restoreSessionName?.(branch);
 	const persisted = getLatestMembershipState(branch);
 	await prepareSessionServer(pi, state, ctx, persisted, startup);
 	if (startup.startupRole || startup.startupSocket) {
@@ -52,6 +56,7 @@ export async function handleSessionStart(
 			deps.refreshPresence,
 			deps.persistMembership,
 			deps.announceMembership,
+			deps.syncSessionName ?? (() => undefined),
 		);
 		return;
 	}
@@ -64,6 +69,7 @@ export async function handleSessionStart(
 		deps.recoverInterrupts,
 		deps.refreshPresence,
 		deps.announceMembership,
+		deps.syncSessionName ?? (() => undefined),
 	);
 }
 
@@ -150,6 +156,7 @@ async function handleStartupJoin(
 		membership: NonNullable<ExtensionState["membershipRuntime"]>["getMembership"] extends () => infer M ? M : never,
 	) => void,
 	announceMembership: (message: string) => void,
+	syncSessionName: (membership: any | null) => void | Promise<void>,
 ): Promise<void> {
 	const joined = startup.startupRole
 		? await maybeHandleStartupRoleJoin(
@@ -169,9 +176,11 @@ async function handleStartupJoin(
 			);
 	const membership = state.membershipRuntime.getMembership();
 	if (!joined || !membership) {
+		await syncSessionName(null);
 		reconcileMembershipTools(pi, false);
 		return;
 	}
+	await syncSessionName(membership);
 	activateMembershipTool(pi);
 	refreshIntrayStatus(state);
 	await refreshPresence();
@@ -191,6 +200,7 @@ async function restoreMembership(
 	recoverInterrupts: () => Promise<void>,
 	refreshPresence: () => void,
 	announceMembership: (message: string) => void,
+	syncSessionName: (membership: any | null) => void | Promise<void>,
 ): Promise<void> {
 	await restorePersistedMembership({
 		runtime: state.membershipRuntime,
@@ -205,6 +215,7 @@ async function restoreMembership(
 			announceMembership(message);
 			const membership = state.membershipRuntime?.getMembership();
 			if (membership) {
+				await syncSessionName(membership);
 				inboxBridge.establish(ownershipFromMembership(membership));
 				void inboxBridge.attemptOffer();
 				void recoverInterrupts();
@@ -212,5 +223,8 @@ async function restoreMembership(
 		},
 		reportFailure: (message) => reportStartupError(ctx, `Crew membership restore failed: ${message}`),
 	});
-	if (!state.membershipRuntime?.getMembership()) reconcileMembershipTools(pi, false);
+	if (!state.membershipRuntime?.getMembership()) {
+		await syncSessionName(null);
+		reconcileMembershipTools(pi, false);
+	}
 }

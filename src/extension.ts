@@ -41,6 +41,7 @@ import {
 	emitIdleSettled,
 	emitTurnEnd,
 	ensureControlServer,
+	refreshSessionAliases,
 	reconcileMembershipTools,
 	refreshIntrayStatus,
 	notifyAcceptedMessage,
@@ -74,6 +75,7 @@ import { WAIT_RESUME_MESSAGE_TYPE } from "./pi/wait-resume.ts";
 import { YieldingWaitRuntime } from "./pi/wait-resume.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
 import { handleSessionStart } from "./pi/session-start.ts";
+import { createSessionNameController } from "./pi/session-name.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
@@ -104,6 +106,16 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer("crew-board", renderCrewBoardEntry);
 
 	const state = createSocketState();
+	const sessionNameApi = pi as ExtensionAPI & {
+		setSessionName?: (name: string) => void;
+		getSessionName?: () => string | undefined;
+	};
+	const sessionNameController = createSessionNameController({
+		setSessionName: (name) => sessionNameApi.setSessionName?.(name),
+		getSessionName: () => sessionNameApi.getSessionName?.(),
+		appendEntry: (customType, data) => pi.appendEntry(customType, data),
+	});
+	state.sessionNameController = sessionNameController;
 	state.membershipRuntime = createMembershipRuntime({
 		loadManifest: async (manifestPath) => {
 			const context = state.context;
@@ -308,6 +320,10 @@ export default function (pi: ExtensionAPI) {
 			refreshStatus: () => refreshIntrayStatus(state),
 			refreshPresence,
 			stopPresence,
+			syncSessionName: async (membership) => {
+				sessionNameController.syncMembership(membership);
+				await refreshSessionAliases(state);
+			},
 			inboxBridge,
 			crewBoard: {
 				isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
@@ -337,7 +353,17 @@ export default function (pi: ExtensionAPI) {
 			refreshPresence,
 			persistMembership,
 			announceMembership,
+			restoreSessionName: (entries) => sessionNameController.restore(entries),
+			syncSessionName: async (membership) => {
+				sessionNameController.syncMembership(membership);
+				await refreshSessionAliases(state, ctx);
+			},
 		});
+	});
+
+	pi.on("session_info_changed", (event, ctx) => {
+		sessionNameController.observeChange(event.name);
+		void refreshSessionAliases(state, ctx);
 	});
 
 	pi.on("before_agent_start", async (event) => {
@@ -361,6 +387,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			cleanup: async () => {
 				await stopPresence();
+				sessionNameController.syncMembership(null);
 				deactivateMembershipTool(pi);
 				await disableControlServer(state, context, pi);
 			},

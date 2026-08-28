@@ -30,6 +30,7 @@ export type ControlCommandDeps = {
 	refreshStatus?: () => void;
 	refreshPresence?: () => void | Promise<void>;
 	stopPresence?: () => void | Promise<void>;
+	syncSessionName?: (membership: Membership | null) => void | Promise<void>;
 	activateAgreementRevision?: (
 		revisionId: string,
 		ctx: ExtensionContext,
@@ -364,6 +365,7 @@ export function registerSessionControlCommand(
 						notify(ctx, `Crew join failed: ${result.error.message}`, "error");
 						return;
 					}
+					await deps.syncSessionName?.(result.membership);
 					const joinedMessage = `Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`;
 					const joinedOutput = `${joinedMessage}\nCrew Board: use /crew board to inspect shared Posts and /crew post to add one. Posts are pull-only and are not delivered automatically.`;
 					deps.persistMembership?.(true, result.membership);
@@ -390,6 +392,7 @@ export function registerSessionControlCommand(
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
 							await deps.stopPresence?.();
+							await deps.syncSessionName?.(null);
 							deps.announceMembership?.("Crew membership released");
 							deps.inboxBridge?.invalidate();
 						}
@@ -414,12 +417,16 @@ export function registerSessionControlCommand(
 					await releaseMembershipBeforeCleanup({
 						hasMembership: Boolean(previousMembership),
 						leave: async () => membership!.leave(),
-						cleanup: () => deps.disableControlServer(state, ctx),
+						cleanup: async () => {
+							await deps.syncSessionName?.(null);
+							await deps.disableControlServer(state, ctx);
+						},
 						onReleased: async () => {
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
 							await deps.stopPresence?.();
+							await deps.syncSessionName?.(null);
 							deps.announceMembership?.("Crew membership released");
 							deps.inboxBridge?.invalidate();
 						},

@@ -1,7 +1,7 @@
 ---
 id: TASK-0127
 title: Name joined Pi sessions after their Current Member
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, membership, session-name, identity, alias, pi-api, lifecycle, tdd]
