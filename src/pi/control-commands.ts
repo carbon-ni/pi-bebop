@@ -114,11 +114,20 @@ function boardDependencies(
 	};
 }
 
-function boardErrorMessage(error: unknown): string {
-	const code = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : "board-failed";
+const BOARD_COMMAND_CODES = new Set([
+	"not-joined",
+	"untrusted-project",
+	"unsupported-layout",
+	"stale-membership",
+	"invalid-request",
+	"board-failed",
+]);
+function boardErrorMessage(error: unknown, action: string): string {
+	const rawCode = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : undefined;
+	const code = rawCode && BOARD_COMMAND_CODES.has(rawCode) ? rawCode : "board-failed";
 	return presentActionableError({
 		code,
-		operation: "crew_board",
+		operation: `crew_${action}`,
 		reason: "the Crew Board operation was rejected",
 		recovery: ["verify project trust and crew membership, then retry."],
 	}).message;
@@ -278,7 +287,7 @@ async function handleBoardAction(
 		);
 		pi.appendEntry("crew-board", { content: renderCrewBoard(result, parsedBoard.kinds) });
 	} catch (error) {
-		notify(ctx, `Crew Board ${action} failed: ${boardErrorMessage(error)}`, "error");
+		notify(ctx, boardErrorMessage(error, action), "error");
 	}
 }
 
