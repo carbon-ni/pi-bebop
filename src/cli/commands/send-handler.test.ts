@@ -3,8 +3,9 @@ import test from "node:test";
 import { PassThrough } from "node:stream";
 import { runSendCommand, type SendHandlerAdapters } from "./send-handler.ts";
 import { UsageError, type SendCliOptions } from "../arguments.ts";
+import { ExternalIntakeError } from "../../application/external-intake.ts";
 import type { CliContext } from "../context.ts";
-import { writeOutcome, type CliOutcome } from "../output.ts";
+import { renderCliResult, writeOutcome, type CliOutcome } from "../output.ts";
 import { buildSendCommand, readSendLeafOptions, sendHelp } from "./send.ts";
 
 function sendOptions(overrides: Partial<SendCliOptions> = {}): SendCliOptions {
@@ -171,6 +172,27 @@ test("unknown send failures use unexpected-failure and hide dependency details",
 	writeOutcome(output, outcome);
 	assert.equal(Buffer.concat(chunks).toString().includes("peer.sock"), false);
 	assert.equal(Buffer.concat(chunks).toString().includes("quarantine-123"), false);
+});
+
+test("--crew known intake failures hide raw details in text, JSON, and TOON", async () => {
+	for (const format of ["text", "json", "toon"] as const) {
+		const outcome = await runSendCommand(
+			sendOptions({ crewPath: "/var/folders/qa/private.sock", format, socketPath: undefined }),
+			context(),
+			fakeAdapters({
+				intake: async () => {
+					throw new ExternalIntakeError("read-failed", "failed at /var/folders/qa/private.sock");
+				},
+			}),
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind !== "result") continue;
+		const rendered = renderCliResult(outcome.result, format, false);
+		assert.equal(outcome.result.error?.code, "read-failed");
+		assert.equal(outcome.result.target, "");
+		assert.equal(rendered.includes("private.sock"), false);
+		assert.equal(rendered.includes("failed at /var"), false);
+	}
 });
 
 test("--crew routes to the durable intake adapter, never the direct RPC adapter", async () => {
