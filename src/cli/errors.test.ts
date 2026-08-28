@@ -1,10 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { errorCode, actionableErrorResult, errorResult, requestedFormat, usageResult } from "./errors.ts";
+import {
+	errorCode,
+	actionableErrorResult,
+	errorResult,
+	normalizeCliErrorCode,
+	requestedFormat,
+	usageResult,
+} from "./errors.ts";
 import { decode } from "@toon-format/toon";
 import { renderCliResult } from "./output.ts";
 import { ExternalIntakeError } from "../application/external-intake.ts";
 import { DirectMessageError } from "../application/direct-message.ts";
+
+test("normalizeCliErrorCode accepts only the shared closed vocabulary", () => {
+	assert.equal(normalizeCliErrorCode("offline"), "offline");
+	assert.equal(normalizeCliErrorCode("password-secret"), "unexpected-failure");
+	assert.equal(normalizeCliErrorCode("remote-error: /var/folders/qa/private.sock"), "unexpected-failure");
+});
 
 test("errorCode maps system errors to stable CLI codes", () => {
 	assert.equal(errorCode(Object.assign(new Error("denied"), { code: "EACCES" })), "permission-denied");

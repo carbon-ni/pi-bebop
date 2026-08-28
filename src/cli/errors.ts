@@ -106,6 +106,10 @@ function defaultFormatForCommand(args: readonly string[]): CliFormat {
 	return "text";
 }
 
+export function normalizeCliErrorCode(code: string | undefined): string {
+	return code && KNOWN_ERROR_CODES.has(code) ? code : "unexpected-failure";
+}
+
 function descriptor(code: string, operation: string, reason: string, target?: string): ActionableErrorDescriptor {
 	return {
 		code,
@@ -145,7 +149,7 @@ export function errorResult(
 	operation = "pi-bebop operation",
 ): CliResult {
 	const validCode = /^[a-z0-9][a-z0-9-]{0,63}$/.test(code);
-	const normalizedCode = validCode && KNOWN_ERROR_CODES.has(code) ? code : "unexpected-failure";
+	const normalizedCode = validCode ? normalizeCliErrorCode(code) : "unexpected-failure";
 	const unknownCode = normalizedCode === "unexpected-failure" || normalizedCode === "operational";
 	const reason = unknownCode ? "an unexpected failure occurred" : message;
 	const result = actionableErrorResult(

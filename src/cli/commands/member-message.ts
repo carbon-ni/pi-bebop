@@ -4,7 +4,7 @@ import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberMessageResult, MAX_MESSAGE_INSTRUCTIONS, type MemberMessageResult } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
 import { parseFlagTokens } from "../flags.ts";
-import { errorResult, usageResult } from "../errors.ts";
+import { errorResult, normalizeCliErrorCode, usageResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../source-session.ts";
@@ -256,27 +256,8 @@ function mapTransportError(error: unknown): { ok: false; code: string } {
 	return { ok: false, code: "transport-error" };
 }
 
-const REMOTE_CODES = new Set([
-	"unknown-member",
-	"ambiguous-member",
-	"self-send",
-	"not-joined",
-	"response-wait-requires-member-request",
-	"invalid-payload",
-	"remote-rejected",
-	"invalid-ack",
-	"outcome-unknown",
-	"malformed-response",
-	"offline",
-	"offline-session",
-	"timeout",
-	"aborted",
-	"transport-error",
-	"unknown-session",
-]);
-
 function safeRemoteCode(value: string | undefined): string {
-	return value && REMOTE_CODES.has(value) ? value : "remote-rejected";
+	return normalizeCliErrorCode(value);
 }
 
 async function deliverThroughSocket(
