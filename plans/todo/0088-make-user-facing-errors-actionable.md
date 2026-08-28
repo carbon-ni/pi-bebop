@@ -1,7 +1,7 @@
 ---
 id: TASK-0088
 title: Make user-facing errors actionable
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [errors, ux, cli, tools, configuration, tdd]
