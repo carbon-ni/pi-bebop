@@ -13,9 +13,14 @@ const entry = {
 	stage: "delivery",
 	outcome: "queued",
 	operation: { id: "op", lifecycleSequence: 1 },
-	payload: {},
+	payload: { state: "represented", instructions: [], instructionCount: 0 },
 	errorCode: null,
-	capture: {},
+	capture: {
+		endpointId: "endpoint-x",
+		epochId: "epoch-x",
+		attemptSequence: 1,
+		capturedAt: "2026-08-28T00:00:00.000Z",
+	},
 	semanticFingerprint: "x",
 };
 test("trusted message log append is replay-idempotent and rejects conflicts", async () => {
@@ -24,7 +29,7 @@ test("trusted message log append is replay-idempotent and rejects conflicts", as
 		const store = createMessageLogStore({ root, isTrusted: () => true });
 		await store.append(entry);
 		await store.append(entry);
-		assert.deepEqual(await store.read(entry.id), new TextEncoder().encode(JSON.stringify(entry)));
+		assert.deepEqual(await store.read(entry.id), new TextEncoder().encode(`${JSON.stringify(entry)}\n`));
 		await assert.rejects(
 			() => store.append({ ...entry, outcome: "failed" }),
 			(e) => e instanceof MessageLogStoreError && e.code === "id-conflict",

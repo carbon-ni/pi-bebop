@@ -12,11 +12,17 @@ test("message event canonical bytes require closed v1 envelope", () => {
 		stage: "delivery",
 		outcome: "queued",
 		operation: { id: "op-x", lifecycleSequence: 1 },
-		payload: {},
+		payload: { state: "represented", instructions: [], instructionCount: 0 },
 		errorCode: null,
-		capture: {},
+		capture: {
+			endpointId: "endpoint-x",
+			epochId: "epoch-x",
+			attemptSequence: 1,
+			capturedAt: "2026-08-28T00:00:00.000Z",
+		},
 		semanticFingerprint: "x",
 	};
 	assert.ok(canonicalMessageLogEntryBytes(entry).byteLength > 0);
+	assert.equal(canonicalMessageLogEntryBytes(entry).at(-1), 10);
 	assert.throws(() => canonicalMessageLogEntryBytes({ ...entry, secret: "raw" }), /unknown-message-log-field/);
 });
