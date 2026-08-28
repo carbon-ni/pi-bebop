@@ -107,6 +107,33 @@ function operationFields(entry: MessageLogEntry): void {
 	)
 		throw new Error("invalid-message-log-operation");
 }
+function textFields(value: any): boolean {
+	if (!value || typeof value !== "object") return false;
+	const keys = [
+		"state",
+		"reason",
+		"text",
+		"normalizedUtf8Bytes",
+		"retainedUtf8Bytes",
+		"omittedUtf8Bytes",
+		"truncated",
+		"escapedMarkerCount",
+		"redactions",
+	];
+	return (
+		keys.every((key) => key in value) &&
+		value.state === "captured" &&
+		value.reason === null &&
+		typeof value.text === "string" &&
+		new TextEncoder().encode(value.text).byteLength <= 4096 &&
+		Number.isSafeInteger(value.normalizedUtf8Bytes) &&
+		Number.isSafeInteger(value.retainedUtf8Bytes) &&
+		Number.isSafeInteger(value.omittedUtf8Bytes) &&
+		typeof value.truncated === "boolean" &&
+		Number.isSafeInteger(value.escapedMarkerCount) &&
+		Array.isArray(value.redactions)
+	);
+}
 function payloadFields(entry: MessageLogEntry): void {
 	const payload = entry.payload as any;
 	if (
@@ -118,6 +145,8 @@ function payloadFields(entry: MessageLogEntry): void {
 		!["represented", "unavailable"].includes(payload.state) ||
 		!Array.isArray(payload.instructions) ||
 		payload.instructions.length > 32 ||
+		(payload.state === "represented" &&
+			(!textFields(payload.content) || payload.instructions.some((item: any) => !textFields(item)))) ||
 		!Number.isSafeInteger(payload.instructionCount) ||
 		payload.instructionCount !== payload.instructions.length
 	)
