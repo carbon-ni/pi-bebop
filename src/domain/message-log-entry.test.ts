@@ -51,7 +51,7 @@ test("message event canonical bytes require closed v1 envelope", () => {
 	assert.throws(() => canonicalMessageLogEntryBytes({ ...entry, outcome: Number.NaN }), /invalid-message-log-schema/);
 	assert.throws(
 		() => canonicalMessageLogEntryBytes({ ...entry, payload: { ...entry.payload, content: undefined } }),
-		/invalid-message-log-value/,
+		/invalid-message-log-payload/,
 	);
 	assert.throws(
 		() => canonicalMessageLogEntryBytes({ ...entry, operation: { ...entry.operation, secret: true } }),
