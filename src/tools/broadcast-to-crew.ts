@@ -4,6 +4,7 @@ import { MessagePayloadSchema } from "../domain/index.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import { submitCrewBroadcast } from "../application/crew-broadcast.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { actionableToolError } from "./actionable-tool-result.ts";
 
 /**
  * broadcast_to_crew — durable, non-interrupting fan-out to every other member.
@@ -14,6 +15,12 @@ import type { SocketState } from "../pi/control-runtime.ts";
  * ever probed; every recipient gets an independent Inbox item replayed by the
  * normal TASK-0037 follow-up bridge. Never steers or redirects active work.
  */
+
+const BROADCAST_ERROR_CODES = new Set(["no-recipients", "not-configured-member", "unexpected-failure"]);
+
+function normalizeBroadcastErrorCode(code: string | undefined): string {
+	return code && BROADCAST_ERROR_CODES.has(code) ? code : "unexpected-failure";
+}
 
 const parameters = Type.Object(
 	{
@@ -68,11 +75,18 @@ export function registerBroadcastToCrewTool(
 						result.code === "no-recipients"
 							? "Nothing to broadcast: you are the only configured member"
 							: "Cannot broadcast: sender is not a configured member";
-					return {
-						content: [{ type: "text", text: message }],
-						isError: true,
-						details: { error: result.code, broadcastId: result.broadcastId },
-					};
+					return actionableToolError(
+						{
+							code: normalizeBroadcastErrorCode(result.code),
+							operation: "broadcast_to_crew",
+							reason:
+								result.code === "no-recipients"
+									? "there are no other crew recipients"
+									: "the sender is not a configured crew member",
+							recovery: ["verify crew membership and retry the tool."],
+						},
+						{ broadcastId: result.broadcastId },
+					);
 				}
 
 				const recipients = result.dispositions.map((disposition) => ({
@@ -109,10 +123,15 @@ export function registerBroadcastToCrewTool(
 					details: { broadcastId: result.broadcastId, ...result.summary, recipients },
 				};
 			} catch (error) {
-				const code =
-					error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : "error";
-				const message = error instanceof Error ? error.message : "Broadcast failed";
-				return { content: [{ type: "text", text: message }], isError: true, details: { error: code } };
+				const code = normalizeBroadcastErrorCode(
+					error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : undefined,
+				);
+				return actionableToolError({
+					code,
+					operation: "broadcast_to_crew",
+					reason: "the broadcast could not be persisted",
+					recovery: ["verify crew membership and retry the tool."],
+				});
 			}
 		},
 	});

@@ -93,6 +93,9 @@ describe("broadcast_to_crew tool", () => {
 		assert.equal(opened, false);
 		const details = result.details as { error?: string };
 		assert.ok(details.error);
+		assert.equal((details as any).actionableError.code, details.error);
+		assert.equal(result.content[0]?.text, (details as any).actionableError.message);
+		assert.doesNotMatch(JSON.stringify(result.details), /must not open store|Error:/i);
 	});
 
 	test("single-member crew returns no-recipients without storage IO", async () => {
@@ -108,5 +111,8 @@ describe("broadcast_to_crew tool", () => {
 		const result = await tool.execute("id", { message: "hi" });
 		assert.equal(result.isError, true);
 		assert.equal(opened, false, "no store should be opened for a single-member crew");
+		const details = result.details as { error: string; actionableError: { code: string; message: string } };
+		assert.equal(details.actionableError.code, details.error);
+		assert.equal(result.content[0]?.text, details.actionableError.message);
 	});
 });
