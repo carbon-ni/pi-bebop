@@ -181,7 +181,9 @@ function textCounts(value: any): boolean {
 			value.normalizedUtf8Bytes >= 0 &&
 			value.retainedUtf8Bytes >= 0 &&
 			value.omittedUtf8Bytes >= 0 &&
-			value.retainedUtf8Bytes + value.omittedUtf8Bytes === value.normalizedUtf8Bytes)
+			value.retainedUtf8Bytes + value.omittedUtf8Bytes === value.normalizedUtf8Bytes &&
+			value.escapedMarkerCount >= 0 &&
+			(!value.truncated || value.omittedUtf8Bytes > 0))
 	);
 }
 function textFields(value: any, maxBytes: number, allowUnavailable = true): boolean {
@@ -212,7 +214,7 @@ function payloadCount(payload: any): boolean {
 	return payload.state === "represented"
 		? Number.isSafeInteger(payload.instructionCount) && payload.instructionCount === payload.instructions.length
 		: payload.reason === "invalid-payload"
-			? payload.instructionCount === null
+			? payload.instructionCount === null && payload.instructions.length === 0
 			: payload.reason === "record-capacity" &&
 				Number.isSafeInteger(payload.instructionCount) &&
 				payload.instructionCount === payload.instructions.length;

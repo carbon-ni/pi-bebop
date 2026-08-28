@@ -61,4 +61,28 @@ test("message event canonical bytes require closed v1 envelope", () => {
 		() => canonicalMessageLogEntryBytes({ ...entry, payload: { ...entry.payload, instructionCount: 1 } }),
 		/invalid-message-log-payload/,
 	);
+	assert.throws(
+		() =>
+			canonicalMessageLogEntryBytes({
+				...entry,
+				payload: {
+					state: "unavailable",
+					reason: "invalid-payload",
+					content: {
+						state: "unavailable",
+						reason: "invalid-payload",
+						text: null,
+						normalizedUtf8Bytes: null,
+						retainedUtf8Bytes: 0,
+						omittedUtf8Bytes: null,
+						truncated: false,
+						escapedMarkerCount: 0,
+						redactions: [],
+					},
+					instructions: [{ state: "captured" }],
+					instructionCount: null,
+				},
+			}),
+		/invalid-message-log-payload/,
+	);
 });
