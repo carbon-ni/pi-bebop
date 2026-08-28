@@ -108,9 +108,10 @@ project socket paths.
 | `broadcast_to_crew`   | a shared team-wide constraint                           | durable per-recipient copy for every other member; idempotent retry                                                     |
 
 `wait_for_member_idle` blocks the current run until the target settles to mechanical idle, goes offline, the bounded timeout expires, or an accepted
-Bebop message releases the wait under its original delivery mode. A waking message is consumed immediately in the next model continuation;
-message-received never implies idle or completion. Call this coordination wait alone, not in a parallel tool batch, because its terminating
-result must be the only result in the batch. The bounded timeout is always the fallback.
+Bebop message releases the wait under its original delivery mode. For the supported solitary invocation, a waking message is consumed immediately
+in the next model continuation; `message-received` never implies idle or completion. Call this coordination wait alone, not in a parallel tool
+batch, because its terminating result must be the only result in the batch. Under Pi 0.84.x a mixed batch may run one tool-result continuation
+before consuming the unchanged waking message once on the following turn. The bounded timeout is always the fallback.
 `wait_for_request_outcome` yields the run and resumes in a later turn, so
 correlated Request outcome waits never deadlock.
 
