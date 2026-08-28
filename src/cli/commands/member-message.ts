@@ -267,6 +267,12 @@ const REMOTE_CODES = new Set([
 	"invalid-ack",
 	"outcome-unknown",
 	"malformed-response",
+	"offline",
+	"offline-session",
+	"timeout",
+	"aborted",
+	"transport-error",
+	"unknown-session",
 ]);
 
 function safeRemoteCode(value: string | undefined): string {
