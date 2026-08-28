@@ -1,7 +1,7 @@
 ---
 id: TASK-0089
 title: Consume inbound messages before continuing Member Idle Wait
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [member-idle, messaging, lifecycle, pi-api, regression, tdd]
@@ -93,14 +93,20 @@ immediate. Public guidance must keep the solitary/sequential precondition.
 - [x] A red test reproduces the bug through Pi's real tool/agent continuation loop, not a mocked `sendMessage` assertion. (RED validated 28-08: with `terminate` disabled, `member-idle-continuation.integration.test.ts` tests 1 and 3 fail with a content-free continuation; re-enabled they pass. Fake provider + real registered tool + real `handleCommand` send path + real Pi queue.)
 - [x] Accepted Follow-up resolves the wait once, cancels the remote subscription, and returns `message-received` with `terminate: true`. (Host test 1 + existing TASK-0081 suites.)
 - [x] The next model continuation contains the exact waking message; no intermediate provider call sees only the wait result. (Host test 1: exactly 2 provider calls; context 2 = [user, assistant toolCall, toolResult, waking message].)
-- [ ] The waking message is consumed exactly once and retains its full original payload, ordered instructions, claimed origin, and FIFO position at the real Pi-host/provider-context boundary. (Content, mode, once-only behavior, and FIFO are proved; Kelly requires the focused full-`MessagePayload` field/order assertion before closure.)
+- [x] The waking message is consumed exactly once and retains its full original payload, ordered instructions, claimed origin, and FIFO position at the real Pi-host/provider-context boundary. (Exact provider-context deep equality covers content, ordered instructions, Origin, replyTo, and crewReturnAddress; solitary Follow-up is consumed once before assistant action.)
 - [x] Redirect still preserves steer semantics and is consumed at its documented turn boundary. (Host test 2; characterized: steer is delivered before the next LLM call regardless of termination — Pi steer semantics, no dependency on `terminate`.)
 - [x] A second accepted message remains ordered behind the first and is not dropped by termination cleanup. (Host test 3: msg1 drives turn 2, msg2 drives turn 3 — Pi drains one queued Follow-up per turn; neither dropped.)
 - [x] Same-boundary message/idle arbitration and all listener, timer, signal, and socket cleanup behavior remain unchanged. (No production code changed; existing TASK-0080/0081 suites green.)
 - [x] Already-idle, became-idle, offline, timeout, abort, and error paths do not gain accidental terminating behavior. (`wait-for-member-idle.test.ts` asserts `terminate` falsy for offline/became-idle; mapping `terminate: outcome === "message-received"` unchanged.)
 - [x] Solitary/sequential invocation and Pi's all-results termination constraint are covered by tests and public tool guidance. Product explicitly accepts mixed-batch behavior as a characterized upstream constraint outside the supported immediate-consumption contract; this is not an unknown or a requirement for Bebop to mutate sibling results.
 - [x] `docs/MEMBER-IDLE-WAIT.md` and README describe immediate consumption without claiming task completion or response correlation. (The standalone doc file was removed by `538d2a9`; the contract lives in README "consumed immediately in the next model continuation" and the tool description "Call this coordination wait alone/sequentially, never in a parallel tool batch".)
-- [x] Focused tests, Bebop final gate, and unchanged-worktree freshness proof pass. (Focused 19/19 across continuation/wake/tool suites; watcher gen 306 `@agent-final` PASS: format-check, lint, arch-check, build, full suite; worktree clean of unintended production changes — `src/tools/wait-for-member-idle.ts` is byte-identical to HEAD.)
+- [x] Focused tests, Bebop final gate, and unchanged-worktree freshness proof pass. (Focused 46/46 at `e136d04`; watcher gen 206 `@agent-final` PASS; full suite 1,452/1,452; test-only diff and clean worktree.)
+
+## Evidence
+
+- Implementation: existing termination behavior; provider-boundary evidence added in `00b6c1a`, callback-route completion in `4f87cae`, and full-payload completion in `e136d04`.
+- Verification: Kelly detached exact-commit QA PASS at `e136d04`; focused regressions `46/46`; watcher generation 206 `@agent-final` PASS; full suite `1,452/1,452`.
+- QA report: `.tmp/reports/13-04-26/task-0089-e136d04-final-qa.md`.
 
 ## Accepted upstream Pi constraint (product decision, 28-08)
 
