@@ -82,7 +82,8 @@ Completion is boundary-based rather than a changing count of error strings. Ever
 
 - Pi startup/lifecycle slice: `f41735e`, `274f23e`, `c045ac0`, and `e85cc0e`/`b5b84fb` cover the six current direct-render findings in `session-start.ts`, `startup-send.ts`, and `extension.ts`.
 - Crew Init CLI slice: `b116eb1` removes raw catch interpolation and `9bc871f` proves real text/JSON/TOON/`--full` runner parity, stdout-only errors, safe redaction, and the guard ratchet.
-- Exact-hash QA: startup/lifecycle PASS at `b5b84fb` (focused `36/36`, watcher gen282, full `1,460/1,460`); Crew Init PASS at `9bc871f` (focused `62/62`, watcher gen294, full `1,461/1,461`). Reports: `.tmp/reports/13-04-26/task-0088-b5b84fb-final-qa.md`, `.tmp/reports/13-04-26/task-0088-9bc871f-final-qa.md`.
+- Send CLI slice: `a453c13` maps the handler boundary to safe actionable errors; `9c64db1` and `9f3f6e0` prove Intake and direct-socket public runner parity across text/JSON/TOON and default/`--full` modes.
+- Exact-hash QA: startup/lifecycle PASS at `b5b84fb` (focused `36/36`, watcher gen282, full `1,460/1,460`); Crew Init PASS at `9bc871f` (focused `62/62`, watcher gen294, full `1,461/1,461`); Send PASS at `9f3f6e0` (watcher gen307, full `1,463/1,463`). Reports: `.tmp/reports/13-04-26/task-0088-b5b84fb-final-qa.md`, `.tmp/reports/13-04-26/task-0088-9bc871f-final-qa.md`, `.tmp/reports/13-04-26/task-0088-9f3f6e0-final-qa.md`.
 - These bounded slices are accepted, but TASK-0088 remains `doing`: the remaining frozen CLI, registered-tool, `/crew`, and adapter inventory still requires separate implementation and verification.
 
 ## Product evidence
