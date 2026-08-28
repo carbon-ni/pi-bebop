@@ -145,3 +145,22 @@ test("enforces deterministic byte and aggregate limits", () => {
 	assert.equal(isMessagePayload(nearLimit), true);
 	assert.equal(isMessagePayload({ ...nearLimit, content: `${nearLimit.content}${"x".repeat(100)}` }), false);
 });
+
+test("crew return address manifest path must be canonical in the payload schema", () => {
+	const base = { content: "x" };
+	for (const nonCanonical of [
+		"//alpha/.pi/bebop/crew.json",
+		"/alpha/../.pi/bebop/crew.json",
+		"/alpha/.pi/bebop/./crew.json",
+		"/alpha/.pi/bebop/crew.json/",
+		"/alpha/.pi/bebop/crew.json\n",
+		"alpha/.pi/bebop/crew.json",
+	]) {
+		const payload = { ...base, crewReturnAddress: { manifestPath: nonCanonical } };
+		assert.equal(isMessagePayload(payload), false, nonCanonical);
+	}
+	assert.equal(
+		isMessagePayload({ ...base, crewReturnAddress: { manifestPath: "/alpha/.pi/bebop/crew.json" } }),
+		true,
+	);
+});

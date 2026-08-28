@@ -185,3 +185,28 @@ describe("canonicalizeCrewManifestPath", () => {
 		assert.equal(canonicalizeCrewManifestPath("/a/../../crew.json"), null);
 	});
 });
+
+describe("createCrewCorrespondencePayload canonical return address", () => {
+	const source = {
+		memberName: "Dave",
+		memberRole: "developer",
+		manifestPath: "/alpha/.pi/bebop/crew.json",
+	};
+
+	test("canonicalizes a valid but non-canonical source path", () => {
+		const payload = createCrewCorrespondencePayload({
+			source: { ...source, manifestPath: "/alpha//proj/../.pi/bebop/./crew.json" },
+			content: "hi",
+		});
+		assert.equal(payload.crewReturnAddress?.manifestPath, "/alpha/.pi/bebop/crew.json");
+	});
+
+	test("rejects source paths that cannot be canonicalized to an absolute path", () => {
+		for (const bad of ["alpha/.pi/bebop/crew.json", "/../crew.json", "/a\u0000/crew.json", ""]) {
+			assert.throws(
+				() => createCrewCorrespondencePayload({ source: { ...source, manifestPath: bad }, content: "hi" }),
+				/invalid/,
+			);
+		}
+	});
+});

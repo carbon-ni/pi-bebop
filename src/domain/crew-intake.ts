@@ -1,5 +1,7 @@
 import type { CrewManifest, CrewMember } from "./crew-manifest.ts";
-import { isMessagePayload, type MessagePayload } from "./message-payload.ts";
+import { canonicalizeCrewManifestPath, isMessagePayload, type MessagePayload } from "./message-payload.ts";
+
+export { canonicalizeCrewManifestPath };
 
 /**
  * Crew Intake domain contract (TASK-0040).
@@ -63,27 +65,6 @@ export function createExternalIntakePayload(input: ExternalIntakeMessageInput): 
 	return payload;
 }
 
-/**
- * TASK-0136: lexical canonicalization of an absolute POSIX manifest path —
- * pure string hygiene with no filesystem IO. Collapses duplicate separators,
- * resolves `.` and `..` segments, and trims trailing separators. Returns null
- * for relative, empty, NUL-containing, or root-escaping values.
- */
-export function canonicalizeCrewManifestPath(value: string): string | null {
-	if (!value.startsWith("/") || value.includes("\0")) return null;
-	const segments: string[] = [];
-	for (const segment of value.split("/")) {
-		if (segment === "" || segment === ".") continue;
-		if (segment === "..") {
-			if (segments.length === 0) return null;
-			segments.pop();
-			continue;
-		}
-		segments.push(segment);
-	}
-	return `/${segments.join("/")}`;
-}
-
 export interface CrewCorrespondenceSource {
 	readonly memberName: string;
 	readonly memberRole: string;
@@ -102,14 +83,20 @@ export interface CrewCorrespondenceInput {
  * structured Crew Return Address are derived from the caller-supplied source
  * identity (in production: active trusted Membership at execution time) and
  * remain claimed attribution — never a callback route and never a promise of
- * response. One-way: no `replyTo` is ever set.
+ * response. One-way: no `replyTo` is ever set. The stored return address is a
+ * canonical absolute manifest path: valid non-canonical spellings are
+ * canonicalized and uncanonicalizable values (relative, root-escaping, NUL or
+ * control characters) are rejected.
  */
 export function createCrewCorrespondencePayload(input: CrewCorrespondenceInput): MessagePayload {
+	const canonicalSourcePath = canonicalizeCrewManifestPath(input.source.manifestPath);
+	if (canonicalSourcePath === null)
+		throw new CrewIntakeError("invalid-payload", "invalid crew correspondence return address");
 	const payload: MessagePayload = {
 		content: input.content,
 		origin: { kind: "crew", name: input.source.memberName, role: input.source.memberRole },
 		crewReturnAddress: {
-			manifestPath: input.source.manifestPath,
+			manifestPath: canonicalSourcePath,
 			...(input.source.crewName === undefined ? {} : { crewName: input.source.crewName }),
 		},
 		...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),

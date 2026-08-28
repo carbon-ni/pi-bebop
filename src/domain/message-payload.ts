@@ -57,6 +57,28 @@ export type MessagePayload = Static<typeof MessagePayloadSchema>;
 
 const utf8Bytes = (value: string): number => Buffer.byteLength(value, "utf8");
 export const messagePayloadUtf8Bytes = (payload: MessagePayload): number => utf8Bytes(JSON.stringify(payload));
+
+/**
+ * TASK-0136: lexical canonicalization of an absolute POSIX manifest path —
+ * pure string hygiene with no filesystem IO. Collapses duplicate separators,
+ * resolves `.` and `..` segments, and trims trailing separators. Returns null
+ * for relative, empty, NUL/control-character, or root-escaping values. A
+ * value is canonical exactly when canonicalizeCrewManifestPath(value) === value.
+ */
+export function canonicalizeCrewManifestPath(value: string): string | null {
+	if (!value.startsWith("/") || value.includes("\0") || /[\u0001-\u001f\u007f]/.test(value)) return null;
+	const segments: string[] = [];
+	for (const segment of value.split("/")) {
+		if (segment === "" || segment === ".") continue;
+		if (segment === "..") {
+			if (segments.length === 0) return null;
+			segments.pop();
+			continue;
+		}
+		segments.push(segment);
+	}
+	return `/${segments.join("/")}`;
+}
 const invalidContent = (value: string): boolean =>
 	value.trim().length === 0 || value.includes("\0") || utf8Bytes(value) > MAX_MESSAGE_CONTENT_BYTES;
 const invalidInstruction = (value: string): boolean =>
@@ -65,7 +87,7 @@ const invalidIdentity = (value: string, limit: number): boolean =>
 	value.trim().length === 0 || value !== value.trim() || value.includes("\0") || utf8Bytes(value) > limit;
 
 const invalidCrewManifestPath = (value: string): boolean =>
-	!value.startsWith("/") || value.includes("\0") || utf8Bytes(value) > MAX_CREW_RETURN_ADDRESS_PATH_BYTES;
+	canonicalizeCrewManifestPath(value) !== value || utf8Bytes(value) > MAX_CREW_RETURN_ADDRESS_PATH_BYTES;
 const invalidCrewReturnAddress = (address: CrewReturnAddress): boolean =>
 	invalidCrewManifestPath(address.manifestPath) ||
 	(address.crewName !== undefined && invalidIdentity(address.crewName, MAX_MESSAGE_ORIGIN_FIELD_BYTES));

@@ -111,7 +111,7 @@ export async function sendCrewCorrespondence(
 			source: {
 				memberName: source.member.name,
 				memberRole: source.member.role,
-				manifestPath: sourcePath ?? source.manifestPath,
+				manifestPath: source.manifestPath,
 				crewName: source.manifest.name,
 			},
 			content: request.message,
