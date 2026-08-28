@@ -84,9 +84,12 @@ function payloadFields(entry: MessageLogEntry): void {
 }
 function captureFields(entry: MessageLogEntry): void {
 	const capture = entry.capture as any;
+	const keys = ["endpointId", "epochId", "attemptSequence", "capturedAt"];
 	if (
 		!capture ||
 		typeof capture !== "object" ||
+		Object.keys(capture).some((key) => !keys.includes(key)) ||
+		keys.some((key) => !(key in capture)) ||
 		typeof capture.endpointId !== "string" ||
 		typeof capture.epochId !== "string" ||
 		!Number.isSafeInteger(capture.attemptSequence) ||
