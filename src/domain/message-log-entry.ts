@@ -43,7 +43,7 @@ function closedFields(entry: MessageLogEntry): void {
 	if (Object.keys(entry).some((key) => !REQUIRED.includes(key as never) && !optional.has(key)))
 		throw new Error("unknown-message-log-field");
 }
-function nestedFields(entry: MessageLogEntry): void {
+function operationFields(entry: MessageLogEntry): void {
 	const operation = entry.operation as any;
 	if (
 		!operation ||
@@ -52,6 +52,8 @@ function nestedFields(entry: MessageLogEntry): void {
 		!Number.isSafeInteger(operation.lifecycleSequence)
 	)
 		throw new Error("invalid-message-log-operation");
+}
+function payloadFields(entry: MessageLogEntry): void {
 	const payload = entry.payload as any;
 	if (
 		!payload ||
@@ -61,6 +63,8 @@ function nestedFields(entry: MessageLogEntry): void {
 		!Number.isSafeInteger(payload.instructionCount)
 	)
 		throw new Error("invalid-message-log-payload");
+}
+function captureFields(entry: MessageLogEntry): void {
 	const capture = entry.capture as any;
 	if (
 		!capture ||
@@ -71,6 +75,11 @@ function nestedFields(entry: MessageLogEntry): void {
 		typeof capture.capturedAt !== "string"
 	)
 		throw new Error("invalid-message-log-capture");
+}
+function nestedFields(entry: MessageLogEntry): void {
+	operationFields(entry);
+	payloadFields(entry);
+	captureFields(entry);
 }
 export function validateMessageLogEntry(entry: MessageLogEntry): void {
 	requiredFields(entry);
