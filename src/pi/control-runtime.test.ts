@@ -79,6 +79,21 @@ test("reconcile removes Pi-auto-activated membership tools on fresh load and res
 	assert.deepEqual(active, ["read", "bash", "edit", "write", ...MEMBERSHIP_TOOLS]);
 });
 
+test("enabled refresh clears footer when server is stopped", () => {
+	const state = createSocketState();
+	const statuses: Array<string | undefined> = [];
+	state.context = {
+		hasUI: true,
+		ui: {
+			setStatus: (_key: string, value?: string) => statuses.push(value),
+			theme: { fg: (_c: string, value: string) => value },
+		},
+	} as never;
+	state.membershipRuntime = { getMembership: () => null } as never;
+	refreshIntrayStatus(state);
+	assert.deepEqual(statuses, [undefined]);
+});
+
 test("status derives stopped, online, and joined from server and crew state", () => {
 	assert.equal(deriveIntrayStatus(false, false), "stopped");
 	assert.equal(deriveIntrayStatus(true, false), "online");

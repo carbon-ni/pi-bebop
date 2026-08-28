@@ -335,6 +335,10 @@ function updateStatus(ctx: ExtensionContext | null, state: SocketState, enabled 
 		}
 		const membership = state.membershipRuntime?.getMembership();
 		const status = deriveIntrayStatus(Boolean(state.server), Boolean(membership));
+		if (status === "stopped") {
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+			return;
+		}
 		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", formatIntrayFooter(status, membership?.member)));
 	} catch (error) {
 		if (!isStaleContextError(error)) throw error;
