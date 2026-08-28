@@ -27,47 +27,56 @@ const CANONICAL_KEYS = [
 	"summary",
 ];
 
-export function validateMessageLogEntry(entry: MessageLogEntry): void {
+function requiredFields(entry: MessageLogEntry): void {
 	for (const key of REQUIRED) if (!(key in entry)) throw new Error(`missing-message-log-field:${key}`);
-	if (entry.version !== 1 || entry.kind !== "message-event") throw new Error("invalid-message-log-schema");
+}
+function closedFields(entry: MessageLogEntry): void {
+	const optional = new Set([
+		"actorKind",
+		"sourceMember",
+		"targetMember",
+		"claimedOrigin",
+		"deliveryIntent",
+		"correlations",
+		"summary",
+	]);
+	if (Object.keys(entry).some((key) => !REQUIRED.includes(key as never) && !optional.has(key)))
+		throw new Error("unknown-message-log-field");
+}
+function nestedFields(entry: MessageLogEntry): void {
+	const operation = entry.operation as any;
 	if (
-		!entry.operation ||
-		typeof entry.operation !== "object" ||
-		typeof (entry.operation as any).id !== "string" ||
-		!Number.isSafeInteger((entry.operation as any).lifecycleSequence)
+		!operation ||
+		typeof operation !== "object" ||
+		typeof operation.id !== "string" ||
+		!Number.isSafeInteger(operation.lifecycleSequence)
 	)
 		throw new Error("invalid-message-log-operation");
+	const payload = entry.payload as any;
 	if (
-		!entry.payload ||
-		typeof entry.payload !== "object" ||
-		!["represented", "unavailable"].includes((entry.payload as any).state) ||
-		!Array.isArray((entry.payload as any).instructions) ||
-		!Number.isSafeInteger((entry.payload as any).instructionCount)
+		!payload ||
+		typeof payload !== "object" ||
+		!["represented", "unavailable"].includes(payload.state) ||
+		!Array.isArray(payload.instructions) ||
+		!Number.isSafeInteger(payload.instructionCount)
 	)
 		throw new Error("invalid-message-log-payload");
+	const capture = entry.capture as any;
 	if (
-		!entry.capture ||
-		typeof entry.capture !== "object" ||
-		typeof (entry.capture as any).endpointId !== "string" ||
-		typeof (entry.capture as any).epochId !== "string" ||
-		!Number.isSafeInteger((entry.capture as any).attemptSequence) ||
-		typeof (entry.capture as any).capturedAt !== "string"
+		!capture ||
+		typeof capture !== "object" ||
+		typeof capture.endpointId !== "string" ||
+		typeof capture.epochId !== "string" ||
+		!Number.isSafeInteger(capture.attemptSequence) ||
+		typeof capture.capturedAt !== "string"
 	)
 		throw new Error("invalid-message-log-capture");
-	if (
-		Object.keys(entry).some(
-			(key) =>
-				!REQUIRED.includes(key as never) &&
-				key !== "actorKind" &&
-				key !== "sourceMember" &&
-				key !== "targetMember" &&
-				key !== "claimedOrigin" &&
-				key !== "deliveryIntent" &&
-				key !== "correlations" &&
-				key !== "summary",
-		)
-	)
-		throw new Error("unknown-message-log-field");
+}
+export function validateMessageLogEntry(entry: MessageLogEntry): void {
+	requiredFields(entry);
+	if (entry.version !== 1 || entry.kind !== "message-event") throw new Error("invalid-message-log-schema");
+	closedFields(entry);
+	nestedFields(entry);
 }
 
 export function canonicalMessageLogEntryBytes(entry: MessageLogEntry): Uint8Array {
