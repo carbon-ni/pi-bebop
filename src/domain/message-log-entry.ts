@@ -49,10 +49,7 @@ function scalarFields(entry: MessageLogEntry): void {
 		!/^op-[0-9a-f]{64}$/.test(String((entry.operation as any)?.id))
 	)
 		throw new Error("invalid-message-log-id");
-	if (
-		typeof entry.occurredAt !== "string" ||
-		!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(entry.occurredAt)
-	)
+	if (typeof entry.occurredAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(entry.occurredAt))
 		throw new Error("invalid-message-log-timestamp");
 	if (typeof entry.semanticFingerprint !== "string" || !/^[0-9a-f]{64}$/.test(entry.semanticFingerprint))
 		throw new Error("invalid-message-log-fingerprint");
