@@ -1,7 +1,7 @@
 ---
 id: TASK-0137
 title: Verify and document crew-to-crew correspondence
-status: todo
+status: doing
 depends_on: [TASK-0136]
 priority: normal
 tags: [crew, messaging, intake, verification, documentation, cross-project]

@@ -104,8 +104,31 @@ project socket paths.
 | `send_follow_up`      | ordinary information                                    | accepted delivery only; no correlated Response expected                                                                 |
 | `redirect_member`     | change what a member is doing next                      | steered before the target's next model step; never aborts                                                               |
 | `send_to_inbox`       | the peer may be offline                                 | persisted durably; read later as a normal follow-up                                                                     |
+| `send_to_crew`        | exchange one durable letter with another local Crew     | persisted for its configured contact only; no delivery, read, acknowledgement, or answer is implied                     |
 | `interrupt_member`    | work is stuck, harmful, or based on invalid assumptions | best-effort abort plus recovery guidance; never rolls back side effects                                                 |
 | `broadcast_to_crew`   | a shared team-wide constraint                           | durable per-recipient copy for every other member; idempotent retry                                                     |
+
+### Crew Correspondence
+
+`send_to_crew` sends one **Crew Correspondence** to another local Crew only by
+its absolute `.pi/bebop/crew.json` or `.pi/crew/crew.json` path. The caller must
+be joined: Bebop derives the claimed Member Origin and **Crew Return Address**
+from that Membership. It persists the letter for the target's configured Intake
+contact, even when that contact is offline; persisted means neither delivered,
+read, acknowledged, nor answered. The receiver may send a separate one-way
+reply by explicitly calling `send_to_crew` with the claimed Crew Return Address:
+
+```text
+Alpha: send_to_crew({ manifestPath: "/projects/beta/.pi/crew/crew.json", message: "Can you review this?" })
+Beta:  send_to_crew({ manifestPath: "/projects/alpha/.pi/bebop/crew.json", message: "Yes." })
+```
+
+Correspondence is same-machine, claimed attribution rather than authentication,
+and an old return path may be stale. It has no discovery, short-name addressing,
+live route, automatic reply/Response, thread, receipt, encryption, or
+cross-machine transport. Do not use `pi-bebop send --crew` as a correspondence
+reply: that CLI path is external and unverified, so it never derives Crew Origin
+or a Crew Return Address.
 
 `wait_for_member_idle` blocks the current run until the target settles to mechanical idle, goes offline, the bounded timeout expires, or an accepted
 Bebop message releases the wait under its original delivery mode. For the supported solitary invocation, a waking message is consumed immediately
