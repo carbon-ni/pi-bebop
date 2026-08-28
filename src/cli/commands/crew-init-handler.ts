@@ -5,7 +5,7 @@ import {
 	resolveNodeTemplateSourceDescriptor,
 } from "../../infra/crew-init-template-source.ts";
 import { crewInitHelp } from "../../domain/index.ts";
-import { errorResult } from "../errors.ts";
+import { actionableErrorResult, errorResult } from "../errors.ts";
 import type { CrewInitCliOptions } from "../arguments.ts";
 import type { CliOutcome } from "../output.ts";
 
@@ -29,7 +29,13 @@ export async function runCrewInitCommand(options: CrewInitCliOptions, cwd: strin
 		if (result.ok === false) {
 			return {
 				kind: "result",
-				result: errorResult(result.error.message, project, result.error.code, "pi-bebop crew init"),
+				result: actionableErrorResult({
+					code: result.error.code,
+					operation: "pi-bebop crew init",
+					reason: "the Crew scaffold could not be prepared",
+					recovery: ["verify the project path and permissions, then retry pi-bebop crew init."],
+					location: { kind: "project-path", name: "project", value: project },
+				}),
 				format: options.format,
 				full: false,
 			};
