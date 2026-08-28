@@ -107,9 +107,19 @@ export function validateMessageLogEntry(entry: MessageLogEntry): void {
 	nestedFields(entry);
 }
 
+function canonicalJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	if (value && typeof value === "object")
+		return `{${Object.keys(value as object)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`)
+			.join(",")}}`;
+	return JSON.stringify(value);
+}
+
 export function canonicalMessageLogEntryBytes(entry: MessageLogEntry): Uint8Array {
 	validateMessageLogEntry(entry);
 	const ordered: Record<string, unknown> = {};
 	for (const key of CANONICAL_KEYS) if (key in entry) ordered[key] = entry[key];
-	return new TextEncoder().encode(`${JSON.stringify(ordered)}\n`);
+	return new TextEncoder().encode(`${canonicalJson(ordered)}\n`);
 }
