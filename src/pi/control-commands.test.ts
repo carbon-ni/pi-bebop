@@ -61,6 +61,52 @@ test("crew command completions expose only the consolidated command surface", as
 	]);
 });
 
+test("/crew board and post errors use one public actionable prefix and redact unknown codes", async () => {
+	for (const action of ["board", "post"] as const) {
+		const setupState = setup();
+		const manifestPath = "/project/.pi/bebop/crew.json";
+		const manifest = parseCrewManifest(
+			{ version: 1, members: [{ name: "Mary", role: "po", socket: "sockets/mary.sock" }] },
+			manifestPath,
+		);
+		setupState.state.membershipRuntime = {
+			getMembership: () => ({
+				manifestPath,
+				socketPath: manifest.members[0]!.socketPath,
+				globalSocketPath: "/tmp/global.sock",
+				member: manifest.members[0]!,
+				manifest,
+			}),
+		} as never;
+		registerSessionControlCommand(
+			setupState.pi,
+			setupState.state,
+			baseDeps({
+				crewBoard: {
+					isProjectTrusted: () => true,
+					getCurrentMembership: () => setupState.state.membershipRuntime!.getMembership(),
+					openStore: async () => ({
+						read: async () => {
+							throw Object.assign(new Error("password-secret /tmp/private.sock"), {
+								code: "password-secret",
+							});
+						},
+						append: async () => {
+							throw Object.assign(new Error("password-secret /tmp/private.sock"), {
+								code: "password-secret",
+							});
+						},
+					}),
+				} as never,
+			}),
+		);
+		await setupState.getCommand().handler(action === "post" ? "post hello" : "board", setupState.ctx);
+		assert.equal(setupState.notifications.length, 1);
+		assert.match(setupState.notifications[0]!, new RegExp(`^/crew ${action} failed:`));
+		assert.doesNotMatch(setupState.notifications[0]!, /password-secret|private\.sock/);
+	}
+});
+
 test("/crew board and post delegate to shared operations with TUI-only output", async () => {
 	const setupState = setup();
 	const manifestPath = "/project/.pi/bebop/crew.json";
