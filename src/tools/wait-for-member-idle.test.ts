@@ -92,6 +92,17 @@ const membership = {
 
 describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 	test("normalizes unknown transport codes safely", () => {
+		for (const code of [
+			"untrusted",
+			"unknown-member",
+			"ambiguous-member",
+			"self-wait",
+			"not-a-member",
+			"remote-rejected",
+			"capacity-exceeded",
+		]) {
+			assert.equal(normalizeIdleErrorCode(code), code);
+		}
 		assert.equal(normalizeIdleErrorCode("offline"), "offline");
 		assert.equal(normalizeIdleErrorCode("password-secret"), "unexpected-failure");
 	});

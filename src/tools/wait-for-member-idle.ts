@@ -50,14 +50,20 @@ export interface MemberIdleWaitToolTransport {
 
 const IDLE_ERROR_CODES = new Set([
 	"aborted",
-	"offline",
-	"timeout",
-	"transport-error",
-	"wait-in-progress",
-	"invalid-request",
+	"ambiguous-member",
+	"capacity-exceeded",
 	"invalid-timeout",
 	"malformed-response",
+	"not-a-member",
 	"not-joined",
+	"offline",
+	"remote-rejected",
+	"self-wait",
+	"timeout",
+	"transport-error",
+	"untrusted",
+	"unknown-member",
+	"wait-in-progress",
 	"unexpected-failure",
 ]);
 
