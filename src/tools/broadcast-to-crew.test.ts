@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerBroadcastToCrewTool } from "./broadcast-to-crew.ts";
+import { createBroadcastPartialError, registerBroadcastToCrewTool } from "./broadcast-to-crew.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
 type RegisteredTool = {
@@ -69,6 +69,19 @@ const membership = {
 };
 
 describe("broadcast_to_crew tool", () => {
+	test("partial failure uses canonical envelope and keeps summary structured", () => {
+		const result = createBroadcastPartialError({
+			broadcastId: "b-1",
+			total: 2,
+			persisted: 1,
+			failed: 1,
+			recipients: [{ member: "Bob", error: "raw /tmp/private.sock" }],
+		});
+		assert.equal(result.content[0]?.text, result.details.actionableError.message);
+		assert.equal(result.details.error, "broadcast-partial-failure");
+		assert.equal(result.details.broadcastId, "b-1");
+		assert.equal(JSON.stringify(result.details.actionableError).includes("private.sock"), false);
+	});
 	test("registers with only message and instructions and a teaching description", () => {
 		const tool = setup(membership);
 		assert.equal(tool.name, "broadcast_to_crew");

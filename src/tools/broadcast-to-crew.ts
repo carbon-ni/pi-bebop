@@ -16,6 +16,18 @@ import { actionableToolError } from "./actionable-tool-result.ts";
  * normal TASK-0037 follow-up bridge. Never steers or redirects active work.
  */
 
+export function createBroadcastPartialError(details: Record<string, unknown>) {
+	return actionableToolError(
+		{
+			code: "broadcast-partial-failure",
+			operation: "broadcast_to_crew",
+			reason: "some recipient inboxes could not be persisted",
+			recovery: ["retry the broadcast; already-persisted recipients are deduplicated."],
+		},
+		details,
+	);
+}
+
 const BROADCAST_ERROR_CODES = new Set([
 	"invalid-request",
 	"no-recipients",
@@ -106,20 +118,14 @@ export function registerBroadcastToCrewTool(
 
 				const { persisted, alreadyPersisted, failed } = result.summary;
 				if (failed > 0) {
-					const partial = actionableToolError({
-						code: "broadcast-partial-failure",
-						operation: "broadcast_to_crew",
-						reason: "some recipient inboxes could not be persisted",
-						recovery: ["retry the broadcast; already-persisted recipients are deduplicated."],
+					const partial = createBroadcastPartialError({
+						broadcastId: result.broadcastId,
+						...result.summary,
+						recipients,
 					});
 					return {
 						...partial,
-						details: {
-							...partial.details,
-							broadcastId: result.broadcastId,
-							...result.summary,
-							recipients,
-						},
+						details: partial.details,
 					};
 				}
 
