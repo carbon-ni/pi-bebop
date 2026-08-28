@@ -94,6 +94,28 @@ test("Board mapper preserves known store outcomes and rejects raw codes", () => 
 	assert.equal(normalizeCrewBoardErrorCode("password-secret"), "board-failed");
 });
 
+test("registered Board tools sanitize known and unknown store failures", async () => {
+	for (const thrown of [
+		Object.assign(new Error("capacity raw /tmp/private.sock"), { code: "capacity-exceeded" }),
+		Object.assign(new Error("secret raw /tmp/private.sock"), { code: "password-secret" }),
+	]) {
+		const tool = setup(registerReadCrewBoardTool, {
+			isProjectTrusted: () => true,
+			openStore: async () => ({
+				read: async () => {
+					throw thrown;
+				},
+				append: async () => ({}),
+			}),
+		});
+		const result = await tool.execute("r", {});
+		assert.equal(result.isError, true);
+		assert.equal(result.content[0].text, result.details.actionableError.message);
+		assert.equal(JSON.stringify(result.details).includes("private.sock"), false);
+		assert.equal(result.details.error, thrown.code === "capacity-exceeded" ? "capacity-exceeded" : "board-failed");
+	}
+});
+
 test("read tool returns shared result and Membership loss rejects", async () => {
 	let reads = 0;
 	const current: { value: Membership | null } = { value: membership };
