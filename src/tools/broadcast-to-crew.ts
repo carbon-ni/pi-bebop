@@ -16,11 +16,30 @@ import { actionableToolError } from "./actionable-tool-result.ts";
  * normal TASK-0037 follow-up bridge. Never steers or redirects active work.
  */
 
-export function createBroadcastPartialError(details: Record<string, unknown>) {
-	const safeDetails: Record<string, unknown> = {};
-	for (const key of ["broadcastId", "total", "persisted", "failed", "alreadyPersisted"]) {
-		if (key in details) safeDetails[key] = details[key];
-	}
+export interface BroadcastSummary {
+	readonly broadcastId?: string;
+	readonly total?: number;
+	readonly persisted?: number;
+	readonly failed?: number;
+	readonly alreadyPersisted?: number;
+}
+
+export function createBroadcastPartialError(summary: BroadcastSummary) {
+	const safeDetails: BroadcastSummary = {
+		...(typeof summary.broadcastId === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(summary.broadcastId)
+			? { broadcastId: summary.broadcastId }
+			: {}),
+		...(typeof summary.total === "number" && Number.isSafeInteger(summary.total) ? { total: summary.total } : {}),
+		...(typeof summary.persisted === "number" && Number.isSafeInteger(summary.persisted)
+			? { persisted: summary.persisted }
+			: {}),
+		...(typeof summary.failed === "number" && Number.isSafeInteger(summary.failed)
+			? { failed: summary.failed }
+			: {}),
+		...(typeof summary.alreadyPersisted === "number" && Number.isSafeInteger(summary.alreadyPersisted)
+			? { alreadyPersisted: summary.alreadyPersisted }
+			: {}),
+	};
 	return actionableToolError(
 		{
 			code: "broadcast-partial-failure",
@@ -28,7 +47,7 @@ export function createBroadcastPartialError(details: Record<string, unknown>) {
 			reason: "some recipient inboxes could not be persisted",
 			recovery: ["retry the broadcast; already-persisted recipients are deduplicated."],
 		},
-		safeDetails,
+		safeDetails as Record<string, unknown>,
 	);
 }
 
@@ -41,7 +60,7 @@ const BROADCAST_ERROR_CODES = new Set([
 	"unexpected-failure",
 ]);
 
-function normalizeBroadcastErrorCode(code: string | undefined): string {
+export function normalizeBroadcastErrorCode(code: string | undefined): string {
 	return code && BROADCAST_ERROR_CODES.has(code) ? code : "unexpected-failure";
 }
 
@@ -125,7 +144,6 @@ export function registerBroadcastToCrewTool(
 					const partial = createBroadcastPartialError({
 						broadcastId: result.broadcastId,
 						...result.summary,
-						recipients,
 					});
 					return {
 						...partial,

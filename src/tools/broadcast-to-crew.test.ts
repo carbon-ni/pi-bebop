@@ -1,7 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createBroadcastPartialError, registerBroadcastToCrewTool } from "./broadcast-to-crew.ts";
+import {
+	createBroadcastPartialError,
+	normalizeBroadcastErrorCode,
+	registerBroadcastToCrewTool,
+} from "./broadcast-to-crew.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
 type RegisteredTool = {
@@ -82,6 +86,12 @@ describe("broadcast_to_crew tool", () => {
 		assert.equal(result.details.broadcastId, "b-1");
 		assert.equal("recipients" in result.details, false);
 		assert.equal(JSON.stringify(result.details).includes("private.sock"), false);
+		const unsafe = createBroadcastPartialError({ broadcastId: "/tmp/private.sock" });
+		assert.equal(unsafe.details.broadcastId, undefined);
+		for (const code of ["not-joined", "unknown-sender", "invalid-request", "untrusted-project"]) {
+			assert.equal(normalizeBroadcastErrorCode(code), code);
+		}
+		assert.equal(normalizeBroadcastErrorCode("password-secret"), "unexpected-failure");
 	});
 	test("registers with only message and instructions and a teaching description", () => {
 		const tool = setup(membership);
