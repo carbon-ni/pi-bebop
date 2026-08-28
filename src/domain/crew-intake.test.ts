@@ -148,9 +148,10 @@ describe("ExternalIntakeAck crewName", () => {
 			contact: "Kelly",
 			contactRole: "qa",
 		};
-		for (const crewName of ["", " padded ", 1, null]) {
+		for (const crewName of ["", " padded ", 1, null, "x".repeat(257), "Alpha\nCrew", "🚩".repeat(65)]) {
 			assert.equal(isExternalIntakeAck({ ...base, crewName }), false, JSON.stringify(crewName));
 		}
+		assert.equal(isExternalIntakeAck({ ...base, crewName: "🚩".repeat(64) }), true);
 		assert.equal(isExternalIntakeAck({ ...base, crewName: "Beta Crew", response: "x" }), false);
 	});
 });

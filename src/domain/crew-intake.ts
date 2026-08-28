@@ -1,4 +1,4 @@
-import type { CrewManifest, CrewMember } from "./crew-manifest.ts";
+import { isCrewDisplayName, type CrewManifest, type CrewMember } from "./crew-manifest.ts";
 import { canonicalizeCrewManifestPath, isMessagePayload, type MessagePayload } from "./message-payload.ts";
 
 export { canonicalizeCrewManifestPath };
@@ -120,9 +120,7 @@ export interface ExternalIntakeAck {
 	readonly crewName?: string;
 }
 
-const validAckText = (value: string): boolean =>
-	value.trim().length > 0 && value === value.trim() && !value.includes("\0");
-const validAckCrewName = (value: unknown): boolean => typeof value === "string" && validAckText(value);
+const validAckCrewName = (value: unknown): boolean => typeof value === "string" && isCrewDisplayName(value);
 
 export function isExternalIntakeAck(value: unknown): value is ExternalIntakeAck {
 	if (typeof value !== "object" || value === null) return false;

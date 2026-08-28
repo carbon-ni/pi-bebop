@@ -119,6 +119,25 @@ function invalid(message: string, code: CrewManifestErrorCode = "invalid-manifes
 	throw new CrewManifestError(code, message);
 }
 
+export const MAX_CREW_NAME_BYTES = 256;
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/;
+
+/**
+ * TASK-0133: THE one shared Crew display-label validator. A label is a
+ * non-empty trimmed string without control/unpaired-surrogate characters,
+ * bounded to MAX_CREW_NAME_BYTES UTF-8 bytes. Reused by every surface that
+ * displays or acknowledges a Crew name (manifest boundary, intake ACK,
+ * inbox renderer) so bounds and safety cannot drift apart.
+ */
+export function isCrewDisplayName(value: string): boolean {
+	return (
+		value.length > 0 &&
+		value === value.trim() &&
+		!CONTROL_CHARACTER_PATTERN.test(value) &&
+		new TextEncoder().encode(value).byteLength <= MAX_CREW_NAME_BYTES
+	);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -261,7 +280,8 @@ function validateRetrospectiveFacilitator(
 function optionalManifestName(input: Record<string, unknown>): string | undefined {
 	if (input.name === undefined) return undefined;
 	const name = requireText(input.name, "name");
-	if (new TextEncoder().encode(name).byteLength > 256) invalid("name must be at most 256 UTF-8 bytes");
+	if (!isCrewDisplayName(name))
+		invalid("name must be a non-empty trimmed label without control characters, at most 256 UTF-8 bytes");
 	return name;
 }
 

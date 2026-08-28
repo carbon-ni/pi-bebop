@@ -16,11 +16,23 @@ describe("crew manifest", () => {
 		const base = { version: 1, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] };
 		assert.equal(parseCrewManifest({ ...base, name: "Acme Crew" }).name, "Acme Crew");
 		assert.equal(Object.hasOwn(parseCrewManifest(base), "name"), false);
-		for (const name of ["", "   ", "bad\0name", "x".repeat(257)])
+		for (const name of [
+			"",
+			"   ",
+			"bad\0name",
+			"x".repeat(257),
+			"Alpha\nCrew",
+			" padded ",
+			"tab\tname",
+			"del\u007fname",
+			"c1\u0085name",
+			"🚩".repeat(65),
+		])
 			assert.throws(
 				() => parseCrewManifest({ ...base, name }),
 				(error) => error instanceof CrewManifestError,
 			);
+		assert.equal(parseCrewManifest({ ...base, name: "🚩".repeat(64) }).name, "🚩".repeat(64));
 	});
 	test("accepts version 2 Current Crew Agreements file only under agreements", () => {
 		const result = parseCrewManifest(

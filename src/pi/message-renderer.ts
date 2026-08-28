@@ -2,6 +2,7 @@ import type { EntryRenderer, MessageRenderer } from "@earendil-works/pi-coding-a
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { TextContent } from "@earendil-works/pi-ai";
 import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { isCrewDisplayName } from "../domain/index.ts";
 import { isMessagePayload, renderMessagePayloadForDisplay, type MessagePayload } from "../domain/index.ts";
 
 const SENDER_INFO_PATTERN = /<sender_info>[\s\S]*?<\/sender_info>/g;
@@ -41,8 +42,9 @@ function claimedOrigin(payload: MessagePayload): string | null {
 
 /**
  * TASK-0133: recipient-derived Crew label for typed Inbox handoff details only.
- * Bounded, optional, and validated; malformed or untrusted metadata fails safe
- * (no label). Callback routes (`replyTo`) are never displayed.
+ * Validated by the one shared display-label validator (trimmed, control-free,
+ * UTF-8 ≤ 256 bytes); malformed or untrusted metadata fails safe (no label).
+ * Callback routes (`replyTo`) are never displayed.
  */
 export function inboxCrewLabel(message: unknown): string | null {
 	const details = (message as { details?: unknown }).details;
@@ -50,9 +52,7 @@ export function inboxCrewLabel(message: unknown): string | null {
 	const inbox = (details as { inbox?: unknown }).inbox;
 	if (typeof inbox !== "object" || inbox === null) return null;
 	const crewName = (inbox as { crewName?: unknown }).crewName;
-	if (typeof crewName !== "string") return null;
-	const trimmed = crewName.trim();
-	if (!trimmed || trimmed !== crewName || crewName.includes("\0") || crewName.length > 256) return null;
+	if (typeof crewName !== "string" || !isCrewDisplayName(crewName)) return null;
 	return crewName;
 }
 

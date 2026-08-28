@@ -191,7 +191,7 @@ test("typed inbox details show the recipient-derived crew label and fail safe on
 	assert.match(senderText ?? "", /from Dave \(developer\)/);
 	assert.match(text, /Crew inbox: Alpha Crew/);
 
-	for (const crewName of ["", " ", "x".repeat(300), 5, null]) {
+	for (const crewName of ["", " ", "x".repeat(257), "Alpha\nCrew", 5, null]) {
 		const malformed = {
 			...inboxMessage,
 			details: { ...inboxMessage.details, inbox: { itemId: "inbox-0-abc", crewName } },
@@ -205,4 +205,15 @@ test("typed inbox details show the recipient-derived crew label and fail safe on
 		details: { messagePayload: inboxMessage.details.messagePayload },
 	};
 	assert.doesNotMatch(getMessageDisplayModel(noInbox, true).text, /Crew inbox:/);
+	// UTF-8 bound, not UTF-16: 64 flags are exactly 256 UTF-8 bytes; 65 exceed it.
+	const exactBound = {
+		...inboxMessage,
+		details: { ...inboxMessage.details, inbox: { itemId: "i", crewName: "🚩".repeat(64) } },
+	};
+	assert.equal((getMessageDisplayModel(exactBound, true).text.match(/🚩/gu) ?? []).length, 64);
+	const overBound = {
+		...inboxMessage,
+		details: { ...inboxMessage.details, inbox: { itemId: "i", crewName: "🚩".repeat(65) } },
+	};
+	assert.doesNotMatch(getMessageDisplayModel(overBound, true).text, /Crew inbox:/);
 });
