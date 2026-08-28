@@ -48,7 +48,25 @@ export interface MemberIdleWaitToolTransport {
 	) => Promise<MemberIdleWaitTransportResult>;
 }
 
+const IDLE_ERROR_CODES = new Set([
+	"aborted",
+	"offline",
+	"timeout",
+	"transport-error",
+	"wait-in-progress",
+	"invalid-request",
+	"invalid-timeout",
+	"malformed-response",
+	"not-joined",
+	"unexpected-failure",
+]);
+
+export function normalizeIdleErrorCode(code: string | undefined): string {
+	return code && IDLE_ERROR_CODES.has(code) ? code : "unexpected-failure";
+}
+
 function errorResult(target: string, code: string, _message: string): ActionableToolResult {
+	code = normalizeIdleErrorCode(code);
 	return actionableToolError({
 		code,
 		operation: "wait_for_member_idle",

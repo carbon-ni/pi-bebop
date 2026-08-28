@@ -1,7 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerWaitForMemberIdleTool, type MemberIdleWaitToolTransport } from "./wait-for-member-idle.ts";
+import {
+	normalizeIdleErrorCode,
+	registerWaitForMemberIdleTool,
+	type MemberIdleWaitToolTransport,
+} from "./wait-for-member-idle.ts";
 import { createSocketState } from "../pi/control-runtime.ts";
 
 type RegisteredTool = {
@@ -87,6 +91,10 @@ const membership = {
 };
 
 describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
+	test("normalizes unknown transport codes safely", () => {
+		assert.equal(normalizeIdleErrorCode("offline"), "offline");
+		assert.equal(normalizeIdleErrorCode("password-secret"), "unexpected-failure");
+	});
 	test("registers with only member and optional bounded timeout_seconds and the exact public wording", () => {
 		const { tool } = setup(membership);
 		assert.equal(tool.name, "wait_for_member_idle");
