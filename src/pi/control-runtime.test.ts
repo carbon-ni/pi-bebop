@@ -116,6 +116,103 @@ test("membership transitions refresh the footer online to joined to online", () 
 	assert.deepEqual(statuses, ["session online", "session joined Mary (po)", "session online"]);
 });
 
+test("same-session role switch replaces the displayed identity immediately", () => {
+	const state = createSocketState();
+	const statuses: string[] = [];
+	state.server = {} as never;
+	state.context = {
+		hasUI: true,
+		sessionManager: { getSessionId: () => "session" },
+		ui: {
+			setStatus: (_key: string, value?: string) => {
+				if (value) statuses.push(value);
+			},
+			theme: { fg: (_color: string, value: string) => value },
+		},
+	} as never;
+	let member: { name: string; role: string } | null = { name: "Mary", role: "po" };
+	state.membershipRuntime = {
+		getMembership: () => (member ? { member } : null),
+	} as never;
+	refreshIntrayStatus(state);
+	member = { name: "Dave", role: "dev" };
+	refreshIntrayStatus(state);
+	assert.deepEqual(statuses, ["session joined Mary (po)", "session joined Dave (dev)"]);
+});
+
+test("status line exposes only member name and role, never roster or path data", () => {
+	const member = {
+		name: "Mary",
+		role: "po",
+		socket: "sockets/mary.sock",
+		socketPath: "/project/.pi/bebop/sockets/mary.sock",
+		description: "owns the product backlog",
+		instructions: "SECRET-ROLE-INSTRUCTIONS",
+	};
+	const membership = {
+		manifestPath: "/project/.pi/bebop/crew.json",
+		socketPath: "/project/.pi/bebop/sockets/mary.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member,
+		manifest: {
+			members: [member, { name: "Kelly", role: "qa", socketPath: "/project/.pi/bebop/sockets/kelly.sock" }],
+			intake: { contact: "Mony" },
+			commonInstructions: "SECRET-COMMON-INSTRUCTIONS",
+		},
+	};
+	// Format level: exact output is name (role) only.
+	assert.equal(formatIntrayFooter("session-id", "joined", member), "session-id joined Mary (po)");
+	// Composition level: updateStatus receives the full membership snapshot yet
+	// the rendered status still contains only the identity fields.
+	const state = createSocketState();
+	const statuses: string[] = [];
+	state.server = {} as never;
+	state.context = {
+		hasUI: true,
+		sessionManager: { getSessionId: () => "session-id" },
+		ui: {
+			setStatus: (_key: string, value?: string) => {
+				if (value) statuses.push(value);
+			},
+			theme: { fg: (_color: string, value: string) => value },
+		},
+	} as never;
+	state.membershipRuntime = { getMembership: () => membership } as never;
+	refreshIntrayStatus(state);
+	assert.deepEqual(statuses, ["session-id joined Mary (po)"]);
+});
+
+test("stale Pi contexts never display identity and are swallowed", () => {
+	const state = createSocketState();
+	state.server = {} as never;
+	state.membershipRuntime = {
+		getMembership: () => ({ member: { name: "Mary", role: "po" } }),
+	} as never;
+	state.context = createThrowingContext("This extension ctx is stale after session replacement or reload") as never;
+	assert.doesNotThrow(() => refreshIntrayStatus(state));
+});
+
+test("disableControlServer clears a joined identity immediately", async () => {
+	const state = createSocketState();
+	const statuses: Array<string | undefined> = [];
+	state.server = { close: (callback: () => void) => callback() } as never;
+	state.socketPath = null;
+	state.context = {
+		hasUI: true,
+		sessionManager: { getSessionId: () => "session" },
+		ui: {
+			setStatus: (_key: string, value?: string) => statuses.push(value),
+			theme: { fg: (_color: string, value: string) => value },
+		},
+	} as never;
+	state.membershipRuntime = {
+		getMembership: () => ({ member: { name: "Mary", role: "po" } }),
+	} as never;
+	refreshIntrayStatus(state);
+	await disableControlServer(state, state.context as never);
+	assert.deepEqual(statuses, ["session joined Mary (po)", undefined]);
+});
+
 test("RPC status reports online and joined without legacy fields", async () => {
 	const state = createSocketState();
 	state.server = {} as never;

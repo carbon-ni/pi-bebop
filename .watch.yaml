@@ -11,7 +11,9 @@ on:
         - .pi/**
         - node_modules/**
         - coverage/**
+        - .bebop-build.lock
         - .bebop-build.lock/**
+        - .bebop-build-*
         - .bebop-build-*/**
         - "**/*.log"
 
