@@ -1,5 +1,6 @@
 import { encode } from "@toon-format/toon";
 import type { CliFormat } from "./arguments.ts";
+import type { ActionableError } from "../domain/index.ts";
 
 export interface CliResult {
 	readonly ok: boolean;
@@ -7,7 +8,7 @@ export interface CliResult {
 	readonly status: string;
 	readonly response?: string;
 	readonly data?: unknown;
-	readonly error?: { code: string; message: string };
+	readonly error?: { code: string; message: string } | ActionableError;
 	readonly turnIndex?: number;
 }
 

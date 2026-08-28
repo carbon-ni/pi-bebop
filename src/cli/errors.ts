@@ -1,5 +1,6 @@
 import type { CliFormat } from "./arguments.ts";
 import type { CliResult } from "./output.ts";
+import { presentActionableError, type ActionableErrorDescriptor } from "../domain/index.ts";
 import { ExternalIntakeError } from "../application/external-intake.ts";
 import { DirectMessageError } from "../application/direct-message.ts";
 
@@ -67,6 +68,21 @@ export function usageResult(message: string, code = "usage"): CliResult {
 		target: "",
 		status: "usage",
 		error: { code, message },
+	};
+}
+
+/** Build an actionable usage result while preserving CLI exit-2 semantics. */
+export function actionableUsageResult(descriptor: ActionableErrorDescriptor): CliResult {
+	return { ok: false, target: "", status: "usage", error: presentActionableError(descriptor) };
+}
+
+/** Build an actionable operational result while preserving CLI exit-1 semantics. */
+export function actionableErrorResult(descriptor: ActionableErrorDescriptor, target = ""): CliResult {
+	return {
+		ok: false,
+		target: descriptor.location?.value ?? target,
+		status: "error",
+		error: presentActionableError(descriptor),
 	};
 }
 

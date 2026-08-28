@@ -358,6 +358,25 @@ test("member status run: operational failures exit 1 with stable codes", async (
 	}
 });
 
+test("member status run: operational errors use the shared actionable envelope", async () => {
+	const outcome = await runMemberStatusCommand(
+		{ command: "member-status", member: "Ghost", format: "json" },
+		context(),
+		deps({ sendStatus: async () => ({ ok: false, code: "unknown-member" }) }),
+	);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind !== "result") return;
+	assert.equal(outcome.result.error?.code, "unknown-member");
+	assert.equal(outcome.result.error?.operation, "pi-bebop member status");
+	assert.equal(outcome.result.error?.location?.value, "Ghost");
+	assert.match(outcome.result.error?.message ?? "", /Next:/);
+	const output = new PassThrough();
+	const chunks: Buffer[] = [];
+	output.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+	assert.equal(writeOutcome(output, outcome), 1);
+	assert.equal(JSON.parse(Buffer.concat(chunks).toString()).error.operation, "pi-bebop member status");
+});
+
 test("member status run: --help returns deterministic help text", async () => {
 	const outcome = await runMemberStatusCommand(
 		{ command: "member-status", member: "", format: "toon", help: true },

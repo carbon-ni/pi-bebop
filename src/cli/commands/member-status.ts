@@ -4,7 +4,7 @@ import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberStatusResult, formatMemberStatus, type MemberStatus } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
 import { parseFlagTokens } from "../flags.ts";
-import { errorResult, usageResult } from "../errors.ts";
+import { actionableErrorResult, actionableUsageResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../source-session.ts";
@@ -207,7 +207,13 @@ export async function runMemberStatusCommand(
 		// Source-selection input errors are usage-class (exit 2) with their stable code.
 		return {
 			kind: "result",
-			result: usageResult(source.message, source.code),
+			result: actionableUsageResult({
+				code: source.code,
+				operation: "pi-bebop member status",
+				reason: source.message,
+				recovery: ["run pi-bebop member status --help and retry with valid input."],
+				location: { kind: "command", name: "member status" },
+			}),
 			format: options.format,
 			full: false,
 		};
@@ -216,7 +222,16 @@ export async function runMemberStatusCommand(
 	if (isStatusFailure(outcome)) {
 		return {
 			kind: "result",
-			result: errorResult(`Member status failed: ${outcome.code}`, target, outcome.code),
+			result: actionableErrorResult(
+				{
+					code: outcome.code,
+					operation: "pi-bebop member status",
+					reason: "the target status operation failed",
+					recovery: ["run pi-bebop crew roles --format toon and retry with an exact Member or Role."],
+					location: { kind: "argument", name: "member", value: target },
+				},
+				target,
+			),
 			format: options.format,
 			full: false,
 		};

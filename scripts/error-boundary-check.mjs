@@ -48,7 +48,12 @@ async function scan() {
 				const line = lines[index];
 				// Scan source code only; comments and strings cannot authorize an exemption.
 				const code = line.replace(/\/\/.*$/, "");
-				if (patterns[kind].test(code)) findings.push({ file, kind, line: index + 1 });
+				const presenterBacked = lines
+					.slice(index, index + 8)
+					.some((candidate) =>
+						/\berror\s*:\s*presentActionableError\s*\(/.test(candidate.replace(/\/\/.*$/, "")),
+					);
+				if (patterns[kind].test(code) && !presenterBacked) findings.push({ file, kind, line: index + 1 });
 			}
 		}
 	}
