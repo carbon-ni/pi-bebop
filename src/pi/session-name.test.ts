@@ -106,6 +106,20 @@ test("valid auto ownership restores only when the current display name matches",
 	assert.equal(mismatch.name, "Manual");
 });
 
+test("session-name API failures do not claim ownership or fail membership flow", () => {
+	const entries: unknown[] = [];
+	const controller = createSessionNameController({
+		getSessionName: () => undefined,
+		setSessionName: () => {
+			throw new Error("stale Pi context");
+		},
+		appendEntry: (_type, data) => entries.push(data),
+	});
+	assert.doesNotThrow(() => controller.syncMembership(membership()));
+	assert.equal(controller.isAutoOwned(), false);
+	assert.deepEqual(entries, []);
+});
+
 test("auto-owned Member name is excluded from the global session alias", () => {
 	const state = createSocketState();
 	const ctx = { sessionManager: { getSessionName: () => "Mary" } } as never;

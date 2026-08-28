@@ -39,16 +39,30 @@ export function createSessionNameController(host: SessionNameHost): SessionNameC
 	let state: SessionNameState = { ownership: "inactive" };
 	const internalEvents: Array<string | undefined> = [];
 
-	const persist = () => host.appendEntry(SESSION_NAME_ENTRY_TYPE, sessionNameStateToEntryData(state));
-	const apply = (action: ReturnType<typeof reconcileSessionName>["action"]) => {
-		if (action.type === "none") return;
+	const persist = () => {
+		try {
+			host.appendEntry(SESSION_NAME_ENTRY_TYPE, sessionNameStateToEntryData(state));
+		} catch {
+			// Session metadata must never make a membership operation fail.
+		}
+	};
+	const currentName = (): string | undefined => {
+		try {
+			return host.getSessionName();
+		} catch {
+			return undefined;
+		}
+	};
+	const apply = (action: ReturnType<typeof reconcileSessionName>["action"]): boolean => {
+		if (action.type === "none") return true;
 		const name = action.type === "set" ? action.name : undefined;
 		internalEvents.push(name);
 		try {
 			host.setSessionName(name ?? "");
-		} catch (error) {
+			return true;
+		} catch {
 			internalEvents.pop();
-			throw error;
+			return false;
 		}
 	};
 
@@ -59,18 +73,18 @@ export function createSessionNameController(host: SessionNameHost): SessionNameC
 				state = { ownership: "inactive" };
 				return;
 			}
-			if (restored.ownership === "auto" && host.getSessionName() !== restored.sessionName) {
+			if (restored.ownership === "auto" && currentName() !== restored.sessionName) {
 				state = { ownership: "inactive" };
 				return;
 			}
 			state = restored;
 		},
 		syncMembership(membership) {
-			const next = reconcileSessionName(state, membership ? snapshot(membership) : null, host.getSessionName());
-			const changed = !equalState(state, next.state);
+			const previous = state;
+			const next = reconcileSessionName(state, membership ? snapshot(membership) : null, currentName());
+			if (!apply(next.action)) return;
 			state = next.state;
-			apply(next.action);
-			if (changed) persist();
+			if (!equalState(previous, state)) persist();
 		},
 		observeChange(name) {
 			if (internalEvents.length > 0 && Object.is(internalEvents[0], name)) {
