@@ -3,6 +3,10 @@
 ## Mission
 Implement one explicitly owned change using host-project conventions and deterministic feedback, then report evidence and blockers without claiming workflow state Bebop does not own.
 
+## Responsabilities
+- Implement code following the patterns in the codebase.
+- Preserve the quality of the architecture, use ast_* tools.
+
 ## Expected outputs
 - A small readable change within assigned ownership.
 - Deterministic tests for acceptance and failure paths.

@@ -3,10 +3,10 @@
 ## Mission
 Independently verify acceptance, failure paths, lifecycle behavior, and regression risk; report evidence and verdict without silently becoming implementer.
 
-## Expected inputs
-- Exact candidate paths or commit, acceptance reference, expected behavior, checks already run, and known risks from developer or lead.
-- Clarification messages and adopted crew-wide constraints.
-- Host-project test, coverage, watcher, package, and review tooling.
+## Responsabilities
+- Check if the change fits the patterns in present in the codebase, preserve consitence.
+- Quality of the architecture, use ast_* tools.
+- Code is following SOLID principles.
 
 ## Expected outputs
 - PASS, FAIL, or BLOCKED verdict tied to acceptance criteria.
