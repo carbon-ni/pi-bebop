@@ -15,11 +15,11 @@ const scopes = [
 	["src/extension.ts", "pi-notify"],
 ];
 const patterns = {
-	"cli-result": /\bok\s*:\s*false\b|\bCliResult\s*<[^>]*>\s*\{/,
+	"cli-result": /\bok\s*:\s*false\b|\bCliResult\s*<[^>]*>\s*\{|\b(?:errorResult|usageResult)\s*\(/,
 	"tool-result": /\bisError\s*:\s*true\b/,
 	"pi-notify": /\b(?:ui\.)?notify\s*\([^\n;]*["']error["']\)|\bconsole\.error\s*\(/,
 };
-const presenterMarkers = ["presentActionableError", "actionableError"];
+const presenterCall = /\b(?:presentActionableError|formatActionableError|renderActionableError)\s*\(/;
 
 async function filesFor(scope) {
 	const absolute = path.join(root, scope);
@@ -46,7 +46,7 @@ async function scan() {
 			const lines = source.split("\n");
 			for (let index = 0; index < lines.length; index++) {
 				const line = lines[index];
-				if (presenterMarkers.some((marker) => line.includes(marker))) continue;
+				if (presenterCall.test(line)) continue;
 				if (patterns[kind].test(line)) findings.push({ file, kind, line: index + 1 });
 			}
 		}
@@ -70,7 +70,33 @@ try {
 	console.error(`error-boundary-check: cannot read ${path.relative(root, baselinePath)}: ${error.message}`);
 	process.exit(1);
 }
-const current = grouped(await scan());
+const exemptions = baseline.exemptions ?? [];
+if (
+	!Array.isArray(exemptions) ||
+	exemptions.some(
+		(entry) =>
+			!entry ||
+			typeof entry !== "object" ||
+			typeof entry.file !== "string" ||
+			typeof entry.kind !== "string" ||
+			typeof entry.owner !== "string" ||
+			typeof entry.reason !== "string" ||
+			typeof entry.externalComponent !== "string",
+	)
+) {
+	console.error(
+		"error-boundary-check: malformed exemption; require file, kind, owner, reason, and externalComponent",
+	);
+	process.exit(1);
+}
+const exemptionKeys = new Set(exemptions.map((entry) => `${entry.file}\\0${entry.kind}`));
+const scanned = await scan();
+const scannedKeys = new Set(scanned.map((finding) => `${finding.file}\\0${finding.kind}`));
+if ([...exemptionKeys].some((key) => !scannedKeys.has(key))) {
+	console.error("error-boundary-check: exemption does not match a current direct-render finding");
+	process.exit(1);
+}
+const current = grouped(scanned.filter((finding) => !exemptionKeys.has(`${finding.file}\\0${finding.kind}`)));
 if (mode === "init") {
 	if (baseline.entries?.length) throw new Error("error-boundary-check: refusing to replace an existing baseline");
 	await writeFile(

@@ -3,32 +3,57 @@
 	"exemptions": [],
 	"entries": [
 		{
+			"file": "src/cli/commands/crew-init-handler.ts",
+			"kind": "cli-result",
+			"count": 2
+		},
+		{
+			"file": "src/cli/commands/crew-roles.ts",
+			"kind": "cli-result",
+			"count": 5
+		},
+		{
 			"file": "src/cli/commands/durable-message.ts",
-			"kind": "cli-result",
-			"count": 10
-		},
-		{
-			"file": "src/cli/commands/member-idle-wait.ts",
-			"kind": "cli-result",
-			"count": 8
-		},
-		{
-			"file": "src/cli/commands/member-interrupt.ts",
 			"kind": "cli-result",
 			"count": 12
 		},
 		{
+			"file": "src/cli/commands/member-idle-wait.ts",
+			"kind": "cli-result",
+			"count": 11
+		},
+		{
+			"file": "src/cli/commands/member-interrupt.ts",
+			"kind": "cli-result",
+			"count": 14
+		},
+		{
 			"file": "src/cli/commands/member-message.ts",
 			"kind": "cli-result",
-			"count": 13
+			"count": 15
 		},
 		{
 			"file": "src/cli/commands/member-status.ts",
 			"kind": "cli-result",
-			"count": 13
+			"count": 15
+		},
+		{
+			"file": "src/cli/commands/send-handler.ts",
+			"kind": "cli-result",
+			"count": 1
+		},
+		{
+			"file": "src/cli/commands/session-list.ts",
+			"kind": "cli-result",
+			"count": 1
 		},
 		{
 			"file": "src/cli/errors.ts",
+			"kind": "cli-result",
+			"count": 4
+		},
+		{
+			"file": "src/cli/run.ts",
 			"kind": "cli-result",
 			"count": 2
 		},
