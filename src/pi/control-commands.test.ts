@@ -319,6 +319,10 @@ test("/crew join and leave use membership runtime without stopping base server",
 	let refreshes = 0;
 	let presenceRefreshes = 0;
 	let currentMembership: MembershipRuntime["getMembership"] extends () => infer T ? T : never = null;
+	const unnamedManifest = parseCrewManifest(
+		{ version: 1, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] },
+		"/project/.pi/bebop/crew.json",
+	);
 	const runtime = {
 		join: async (request: unknown) => {
 			calls.push({ operation: "join", value: request });
@@ -332,6 +336,7 @@ test("/crew join and leave use membership runtime without stopping base server",
 					socket: "sockets/dev.sock",
 					socketPath: "/project/.pi/bebop/sockets/dev.sock",
 				},
+				manifest: unnamedManifest,
 			};
 			return { ok: true, membership: currentMembership, idempotent: false };
 		},
@@ -379,6 +384,7 @@ test("/crew join and leave use membership runtime without stopping base server",
 	await setupState.getCommand().handler("status", setupState.ctx);
 	assert.match((setupState.entries.at(-1)!.data as { content: string }).content, /Crew: .*crew\.json/);
 	assert.match((setupState.entries.at(-1)!.data as { content: string }).content, /Endpoint: .*dev\.sock/);
+	assert.doesNotMatch((setupState.entries.at(-1)!.data as { content: string }).content, /\nName:/);
 	await setupState.getCommand().handler("leave", setupState.ctx);
 	assert.deepEqual(
 		calls.map(({ operation }) => operation),
@@ -389,6 +395,38 @@ test("/crew join and leave use membership runtime without stopping base server",
 	assert.equal(announcements.length, 3);
 	assert.deepEqual(activation, ["activate", "activate", "deactivate"]);
 	assert.equal(refreshes, 3);
+});
+
+test("/crew status surfaces the crew name only when the manifest declares one", async () => {
+	for (const [name, expectedLine] of [
+		[undefined, null],
+		["Alpha Crew", "\nName: Alpha Crew"],
+	] as const) {
+		const state = setup();
+		const manifestPath = "/project/.pi/bebop/crew.json";
+		const manifest = parseCrewManifest(
+			{ version: 1, name, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] },
+			manifestPath,
+		);
+		state.state.membershipRuntime = {
+			getMembership: () => ({
+				manifestPath,
+				socketPath: manifest.members[0]!.socketPath,
+				globalSocketPath: "/tmp/global.sock",
+				member: manifest.members[0]!,
+				manifest,
+			}),
+		} as never;
+		registerSessionControlCommand(state.pi, state.state, baseDeps());
+		await state.getCommand().handler("status", state.ctx);
+		const content = (state.entries.at(-1)!.data as { content: string }).content;
+		assert.match(content, /Crew: .*crew\.json/);
+		if (expectedLine === null) {
+			assert.doesNotMatch(content, /\nName:/);
+		} else {
+			assert.ok(content.includes(expectedLine), `expected status to include ${expectedLine}: ${content}`);
+		}
+	}
 });
 
 test("/crew join accepts both layouts and rejects arbitrary siblings before runtime join", async () => {

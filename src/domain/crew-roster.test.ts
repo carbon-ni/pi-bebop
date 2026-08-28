@@ -66,3 +66,20 @@ test("roster keeps descriptions out of status and keeps status/endpoint tokens e
 	assert.match(rendered, /— \/project\/\.pi\/crew\/sockets\/dave\.sock$/);
 	assert.doesNotMatch(rendered, /current|offline/);
 });
+
+test("roster renders the crew name line only when a name is provided", () => {
+	const rows = [
+		{
+			member: { name: "Dave", role: "developer", socket: "sockets/dave.sock", socketPath: "/p/dave.sock" },
+			status: "current" as const,
+		},
+	];
+	assert.equal(
+		formatCrewRoster("/project/.pi/crew/crew.json", rows, "Alpha Crew"),
+		"Crew: /project/.pi/crew/crew.json\nName: Alpha Crew\nMembers (1):\n- Dave (developer) — current — /p/dave.sock",
+	);
+	assert.equal(
+		formatCrewRoster("/project/.pi/crew/crew.json", rows),
+		"Crew: /project/.pi/crew/crew.json\nMembers (1):\n- Dave (developer) — current — /p/dave.sock",
+	);
+});
