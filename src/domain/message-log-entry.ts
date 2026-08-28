@@ -119,7 +119,35 @@ const TEXT_KEYS = [
 	"redactions",
 ];
 function textShape(value: any): boolean {
-	return value && typeof value === "object" && TEXT_KEYS.every((key) => key in value);
+	return (
+		value &&
+		typeof value === "object" &&
+		Object.keys(value).every((key) => TEXT_KEYS.includes(key)) &&
+		TEXT_KEYS.every((key) => key in value)
+	);
+}
+function capturedText(value: any, maxBytes: number): boolean {
+	return (
+		value.state === "captured" &&
+		value.reason === null &&
+		typeof value.text === "string" &&
+		new TextEncoder().encode(value.text).byteLength <= maxBytes &&
+		textCounts(value)
+	);
+}
+function unavailableText(value: any): boolean {
+	return (
+		value.state === "unavailable" &&
+		["invalid-payload", "invalid-unicode", "unsupported-control", "record-capacity"].includes(value.reason) &&
+		value.text === null &&
+		value.normalizedUtf8Bytes === null &&
+		value.omittedUtf8Bytes === null &&
+		value.retainedUtf8Bytes === 0 &&
+		value.truncated === false &&
+		value.escapedMarkerCount === 0 &&
+		Array.isArray(value.redactions) &&
+		value.redactions.length === 0
+	);
 }
 function textState(value: any, maxBytes: number): boolean {
 	if (value.state === "captured")
@@ -152,8 +180,8 @@ function textCounts(value: any): boolean {
 			Array.isArray(value.redactions))
 	);
 }
-function textFields(value: any, maxBytes: number): boolean {
-	return textShape(value) && textState(value, maxBytes) && textCounts(value);
+function textFields(value: any, maxBytes: number, allowUnavailable = true): boolean {
+	return textShape(value) && (capturedText(value, maxBytes) || (allowUnavailable && unavailableText(value)));
 }
 function payloadShape(payload: any): boolean {
 	return (
@@ -169,10 +197,12 @@ function payloadShape(payload: any): boolean {
 }
 function payloadTexts(payload: any): boolean {
 	return payload.state === "represented"
-		? textFields(payload.content, 4096) && payload.instructions.every((item: any) => textFields(item, 1024))
-		: payload.reason !== null &&
-				textFields(payload.content, 4096) &&
-				payload.instructions.every((item: any) => textFields(item, 1024));
+		? payload.reason === null &&
+				textFields(payload.content, 4096, false) &&
+				payload.instructions.every((item: any) => textFields(item, 1024, false))
+		: ["invalid-payload", "record-capacity"].includes(payload.reason) &&
+				unavailableText(payload.content) &&
+				payload.instructions.every((item: any) => unavailableText(item));
 }
 function payloadCount(payload: any): boolean {
 	return payload.state === "represented"
