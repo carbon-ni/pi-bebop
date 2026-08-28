@@ -19,7 +19,7 @@ The Crew needs a bounded, Membership-scoped way to inspect and export messaging 
 - `/crew message-log` for bounded TUI inspection without a model turn;
 - one injected read-only source for Crew Retrospective evidence assembly.
 
-No public append surface is added: Log Entries come only from canonical runtime capture.
+Inspection cannot create Log Entries; they originate exclusively from TASK-0130 capture.
 
 ## Acceptance criteria
 
@@ -30,7 +30,8 @@ No public append surface is added: Log Entries come only from canonical runtime 
 - [ ] `read_crew_message_log` content/details are lossless for the selected bounded representation and never claim delivery, acknowledgement, response, completion, preference, or correctness beyond stored outcomes.
 - [ ] `/crew message-log` is TUI-only: it starts no provider/model turn, sends no message, changes no queue/read state, and gives actionable pagination/filter guidance.
 - [ ] Reads are pull-only. Join/startup/system prompt/Member context/notification surfaces never preload entries, counts, summaries, or cursors and never announce new Log Entries.
-- [ ] The Retrospective adapter fixes its roster/interval, requests one durable coverage checkpoint from each reachable frozen-roster endpoint, maps canonical entries to TASK-0112/TASK-0111 evidence with stable references/fingerprints, and reports retention, corruption, missing endpoint coverage, volatile-loss/unclean epochs, and unavailable ranges as gaps rather than absence of messaging.
+- [ ] The Retrospective adapter accepts the exact roster/interval plus immutable coverage snapshot ID/hash produced by TASK-0130, maps canonical entries to TASK-0112/TASK-0111 evidence with stable references/fingerprints, and reports retention, corruption, missing endpoint coverage, volatile-loss/unclean epochs, and unavailable ranges as gaps rather than absence of messaging.
+- [ ] The Retrospective adapter and both inspection surfaces receive only immutable coverage-snapshot and Log reader dependencies; their interfaces contain no endpoint, capture, lifecycle, retention, Inbox, or store-mutation capability. Missing/stale/mismatched snapshots reject or become explicit gaps without repair.
 - [ ] Source/target/Origin wording preserves Membership versus claimed attribution. Filters and output never rank Members or infer availability, productivity, intent, sentiment, preference, agreement, or completion.
 - [ ] README, architecture, UL, tool guidance, command help, package surface inventory, and actionable-error inventory are updated consistently.
 - [ ] Tests cover all filters, pagination boundaries, content opt-in, access loss, no-auto-load behavior, zero-side-effect command execution, large/Unicode/redacted records, retained gaps, both layouts, and real Retrospective collection.

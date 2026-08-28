@@ -29,7 +29,9 @@ Capture at shared domain/application seams, not separately in each CLI/tool/Pi a
 - [ ] Crash/restart tests prove volatile exact details may be lost but cannot become a false complete interval: next successful epoch plus prior durable markers yields an explicit unverified range, and an endpoint that never established durable coverage is reported unknown for the relevant review interval.
 - [ ] Unsupported/generic session traffic is excluded exactly as TASK-0128 specifies; absence is explicit rather than partially captured through incidental adapters.
 - [ ] Real-boundary integration proves accepted, failed, offline, timed-out, replayed, and partially unavailable paths across both Crew layouts and restart, including no dropped original message and no invented successful Log Entry.
-- [ ] Existing TASK-0112 coordination evidence can consume canonical persisted events through an injected finite read-only source without sending messages or mutating log/Inbox state.
+- [ ] One explicit pre-review `collectCrewMessageLogCoverage` application operation freezes roster/interval, uses injected endpoint checkpoint requests with one operation-wide bounded deadline, persists each success/unavailable/timeout as canonical coverage evidence, then freezes one immutable snapshot ID/hash. It is a capture/write operation invoked only by explicit review orchestration—not a log query—and never changes message delivery semantics.
+- [ ] Coverage retries use stable review/roster/interval/endpoint identities; duplicate success is idempotent, late/conflicting replies cannot replace the frozen snapshot, Membership/endpoint loss becomes an explicit gap, and restart resumes without duplicate checkpoint effects.
+- [ ] Existing TASK-0112 coordination evidence can consume canonical persisted events and the immutable coverage snapshot through an injected finite read-only source without sending messages, requesting checkpoints, or mutating log/Inbox state.
 - [ ] Focused and regression tests, package verification, architecture gate, and watcher final gate pass.
 
 ## Non-goals
