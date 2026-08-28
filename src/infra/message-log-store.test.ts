@@ -7,7 +7,7 @@ import { createMessageLogStore, MessageLogStoreError } from "./message-log-store
 const entry = {
 	version: 1,
 	kind: "message-event",
-	id: "entry-1",
+	id: "entry-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	occurredAt: "2026-08-28T00:00:00.000Z",
 	surface: "follow-up",
 	stage: "delivery",
