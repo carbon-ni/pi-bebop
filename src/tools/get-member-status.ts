@@ -8,6 +8,7 @@ import {
 } from "../application/member-status-flow.ts";
 import { formatMemberStatus, type MemberStatus } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { actionableToolError, type ActionableToolResult } from "./actionable-tool-result.ts";
 
 const parameters = Type.Object(
 	{
@@ -31,12 +32,15 @@ export interface MemberStatusToolTransport {
 	) => Promise<{ ok: true; status: MemberStatus } | { ok: false; code: MemberStatusFlowErrorCode }>;
 }
 
-function errorResult(target: string, code: string, message: string): ToolResult {
-	return {
-		content: [{ type: "text", text: `[${target}] ${message.slice(0, MAX_OUTPUT)}` }],
-		isError: true,
-		details: { error: code },
-	};
+function errorResult(target: string, code: string, _message: string): ActionableToolResult {
+	return actionableToolError({
+		code,
+		operation: "get_member_status",
+		reason:
+			code === "offline" ? "the member endpoint could not be reached" : "the member status query was rejected",
+		recovery: ["verify crew membership and the target, then retry the tool."],
+		location: { kind: "member", name: "member", value: target },
+	});
 }
 
 export function registerGetMemberStatusTool(
