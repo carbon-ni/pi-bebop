@@ -31,6 +31,11 @@ test("message event canonical bytes require closed v1 envelope", () => {
 	};
 	assert.deepEqual(canonicalMessageLogEntryBytes(entry), canonicalMessageLogEntryBytes(reordered));
 	assert.throws(() => canonicalMessageLogEntryBytes({ ...entry, secret: "raw" }), /unknown-message-log-field/);
+	assert.throws(() => canonicalMessageLogEntryBytes({ ...entry, outcome: Number.NaN }), /invalid-message-log-value/);
+	assert.throws(
+		() => canonicalMessageLogEntryBytes({ ...entry, payload: { ...entry.payload, content: undefined } }),
+		/invalid-message-log-value/,
+	);
 	assert.throws(
 		() => canonicalMessageLogEntryBytes({ ...entry, operation: { ...entry.operation, secret: true } }),
 		/invalid-message-log-operation/,

@@ -108,12 +108,17 @@ export function validateMessageLogEntry(entry: MessageLogEntry): void {
 }
 
 function canonicalJson(value: unknown): string {
+	if (value === undefined || typeof value === "function" || typeof value === "symbol")
+		throw new Error("invalid-message-log-value");
+	if (typeof value === "number" && !Number.isFinite(value)) throw new Error("invalid-message-log-value");
 	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-	if (value && typeof value === "object")
-		return `{${Object.keys(value as object)
-			.sort()
-			.map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`)
-			.join(",")}}`;
+	if (value && typeof value === "object") {
+		const encoder = new TextEncoder();
+		const keys = Object.keys(value as object).sort((a, b) =>
+			Buffer.compare(Buffer.from(encoder.encode(a)), Buffer.from(encoder.encode(b))),
+		);
+		return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(",")}}`;
+	}
 	return JSON.stringify(value);
 }
 
