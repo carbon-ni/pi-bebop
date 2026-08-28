@@ -1,23 +1,24 @@
 ---
 id: TASK-0133
-title: Add crew name identity to the manifest
+title: Add crew name as a display label in the manifest
 status: todo
 depends_on: []
-priority: high
-tags: []
+priority: normal
+tags: [crew, identity, manifest, ubiquitous-language]
 ---
 
-# Add crew name identity to the manifest
-
 ## Problem
-External senders address a filesystem path and intake.contact couples the crew's entry point to a person; the crew lacks a first-class, rotatable identity. Optional name (manifest v1, backward compatible) surfaced in /crew members, /crew status, and intake receipts; intake.contact stays as routing policy behind the name.
 
-## Context
-(Optional: approach, links, related tasks.)
+Receipts, the status footer, and intake messages identify the crew only by filesystem path or nothing at all; humans reading them get no memorable identity. The name is a LABEL, never an address: addressing stays manifest-path based (rotation and relocation are already handled by the manifest file itself).
 
-## Acceptance criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
+## Scope
 
-## Notes
+- Optional `name` in crew manifest v1, backward compatible; absent name keeps all current output.
+- Surfaces: `/crew members`, `/crew status`, status footer pairing, intake receipts.
+- `intake.contact` unchanged: routing policy behind the manifest.
 
+## Acceptance
+
+- Happy: named manifest surfaces label everywhere listed; unnamed manifest is byte-compatible with today.
+- Unhappy: invalid name rejected at load with clear error; no surface falls back to guessing.
+- Deterministic tests, both paths.
