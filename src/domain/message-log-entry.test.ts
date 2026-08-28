@@ -43,7 +43,7 @@ test("message event canonical bytes require closed v1 envelope", () => {
 	const reordered = {
 		...entry,
 		operation: { lifecycleSequence: 1, id: entry.operation.id },
-		payload: { instructionCount: 0, instructions: [], state: "represented" },
+		payload: { ...entry.payload, instructionCount: 0, instructions: [], state: "represented" },
 	};
 	assert.deepEqual(canonicalMessageLogEntryBytes(entry), canonicalMessageLogEntryBytes(reordered));
 	assert.throws(() => canonicalMessageLogEntryBytes({ ...entry, secret: "raw" }), /unknown-message-log-field/);
