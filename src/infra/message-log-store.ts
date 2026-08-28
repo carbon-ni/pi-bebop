@@ -21,7 +21,7 @@ export class MessageLogStoreError extends Error {
 export interface MessageLogStoreOptions {
 	readonly root: string;
 	readonly isTrusted: () => boolean;
-	readonly fs?: Pick<typeof fs, "mkdir" | "readFile" | "writeFile" | "rename" | "open">;
+	readonly fs?: Pick<typeof fs, "mkdir" | "readFile" | "writeFile" | "rename" | "open" | "unlink">;
 }
 
 export function createMessageLogStore(options: MessageLogStoreOptions) {
@@ -39,18 +39,30 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			}
 			const bytes = canonicalMessageLogEntryBytes(entry);
 			await io.mkdir(dir, { recursive: true });
-			const target = fileFor(String(entry.id));
+			const lock = path.join(dir, ".lock");
+			let handle: Awaited<ReturnType<typeof io.open>>;
 			try {
-				const existing = await io.readFile(target);
-				if (Buffer.compare(Buffer.from(existing), Buffer.from(bytes)) !== 0)
-					throw new MessageLogStoreError("id-conflict", "message log entry identity conflict");
-				return;
-			} catch (error) {
-				if (error instanceof MessageLogStoreError) throw error;
+				handle = await io.open(lock, "wx");
+			} catch {
+				throw new MessageLogStoreError("lock-conflict", "message log is busy");
 			}
-			const temp = `${target}.tmp-${process.pid}`;
-			await io.writeFile(temp, bytes, { flag: "wx" });
-			await io.rename(temp, target);
+			try {
+				const target = fileFor(String(entry.id));
+				try {
+					const existing = await io.readFile(target);
+					if (Buffer.compare(Buffer.from(existing), Buffer.from(bytes)) !== 0)
+						throw new MessageLogStoreError("id-conflict", "message log entry identity conflict");
+					return;
+				} catch (error) {
+					if (error instanceof MessageLogStoreError) throw error;
+				}
+				const temp = `${target}.tmp-${process.pid}`;
+				await io.writeFile(temp, bytes, { flag: "wx" });
+				await io.rename(temp, target);
+			} finally {
+				await handle.close();
+				await io.unlink(lock).catch(() => undefined);
+			}
 		},
 		async read(id: string): Promise<Uint8Array | null> {
 			if (!options.isTrusted())
