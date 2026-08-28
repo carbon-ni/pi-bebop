@@ -34,6 +34,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Request outcome**             | Oldest terminal outcome of one outbound Member request: Response, offline, timeout after idle, or timeout max-wait. Idle itself is NOT an outcome: the responder gets a short bounded post-idle grace to report. It is not progress, task state, or Crew activity.             | monitoring, status, completion proof                    |
 | **Request ID**                  | Opaque bounded identifier correlating one Member request with its Response; it is not a Delivery ID, task ID, proof of identity, or authority credential.                                                                                                                      | authentication, task ID, identity proof                 |
 | **Crew work**                   | Visible communication, tool results, and project artifacts produced in Crew scope; Crew-readable by default after credentials/secrets are redacted. Hidden model reasoning is unavailable.                                                                                     | Activity, productivity, private Member dossier          |
+| **Actionable Error**            | One bounded Pi Bebop-owned failure presentation with a stable code, named user operation, safe reason/location, and at least one concrete recovery or evidence-collection step; it never exposes arbitrary exception text or promises recovery.                                | raw exception, technical symptom, guessed fix           |
 | **Crew Board**                  | One durable project-local pull-based sequence of Crew Posts shared with identical read-and-append capability by every Current Member; it has no recipient, delivery, read receipt, private tier, or authority.                                                                 | chat, Inbox, Crew Broadcast, task board                 |
 | **Crew Post**                   | Immutable bounded attributed statement appended by a Current Member to the Crew Board, optionally labelled tip, kudos, feedback, warning, or note; the label grants no truth, rating, workflow, or authority meaning.                                                          | message, rating, instruction, task state                |
 | **Crew Agreement**              | One observable collaboration instruction shared by every Member of one Crew. It is not project guidance, Role instructions, Message instructions, task state, or permission.                                                                                                   | law, charter, policy permission                         |
@@ -112,6 +113,9 @@ crew-domain action.
 Crew manifest defines Crew
 Crew contains Members
 Pi session claims Membership as Current member
+Pi Bebop-owned user failure crosses a public boundary as one Actionable Error
+Actionable Error preserves domain code while presentation adds operation, safe location, and recovery
+Text, TOON, JSON, tool, and Pi TUI errors share the same safe Actionable Error semantics
 Member is reached through Member endpoint
 Current member sends Member message
 Live Member message is either Follow-up or Redirect
@@ -214,6 +218,9 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Wait-lock/deadlock recovery:** `wait-lock` cancels and releases only the observing agent caller's Crew Idle Gate. It never selects a Lead winner, cancels remote waits, interrupts, redirects, assigns work, or diagnoses partial hidden wait cycles.
 - **All/selected scope:** `all` means selection was omitted; `selected` means an explicit exact-name list, even when that list covers every other frozen Member. `coversAllOtherMembers` separately controls agent lock eligibility. Selected ready is always rendered as scoped.
 - **Agent gate/slash observation:** `wait_for_crew_idle` blocks the agent run, owns `crew-idle`, and terminates for an accepted message. `/crew member-idle` starts only while local Pi is idle, owns no marker, never consumes messages or triggers a model turn, and cancels only itself on local activity/lifecycle teardown.
+- **Actionable Error/domain error:** domain/application errors retain typed codes and details; Actionable Error is their bounded user-facing presentation. It must not turn domain logic into prose-only exceptions.
+- **Actionable Error/raw exception:** a raw dependency/Node/Pi error is not user-facing evidence. Map known structured fields; for unknown causes give the stable code and safe evidence to collect without interpolating stack, cause, paths, payload, or secret-bearing text.
+- **Safe location/absolute path:** prefer trusted project-relative or literal documented user-config paths. An arbitrary runtime-derived absolute path, socket, temp path, reply route, or expanded home path is not a safe location merely because it helps debugging.
 - **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or Response produced.
 - **Member request/Follow-up:** a Member request expects exactly one correlated Response; ordinary Follow-up has no implicit Response expectation.
 - **Request outcome/activity:** Request outcome wait returns only the oldest terminal outbound Member request outcome; it never monitors or returns unrelated Crew activity.
@@ -260,6 +267,7 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - `docs/CREW-IDLE-GATE.md`
 - `docs/CREW-AGREEMENTS.md`
 - `docs/CREW-BOARD.md`
+- `docs/ACTIONABLE-ERRORS.md`
 - `plans/todo/0103-define-crew-agreements-and-crew-retrospective-contract.md`
 - `plans/todo/0122-define-crew-board-and-crew-post-semantics.md`
 - `plans/todo/0120-define-selected-crew-idle-gate-and-dual-surfaces.md`

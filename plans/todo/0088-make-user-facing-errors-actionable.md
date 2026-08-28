@@ -31,25 +31,59 @@ An actionable error answers, when the information is known:
 3. **Why?** State rejected condition and value without exposing secrets.
 4. **What next?** Give one or more concrete corrective actions.
 
-## Plan
+## Product contract
 
-1. Inventory pi-bebop-owned messages that reach users and group them by error code or failure type.
-2. Define one reusable presentation contract while keeping domain errors structured and independent of UI wording.
-3. Add failing tests for representative errors from each user-facing surface.
-4. Rewrite vague messages with concise context and corrective action.
-5. Verify text, TOON, and JSON surfaces preserve stable machine-readable codes and details.
-6. Document the error contract for future commands and tools.
+Normative source: `docs/ACTIONABLE-ERRORS.md`.
+
+The v1 inventory is frozen at source commit `64bd150` and contains:
+
+- 12 standalone CLI registry leaves (11 explicit commands plus home), the shared usage/operational renderer, and the executable fallback;
+- 12 registered Pi agent tools;
+- one `/crew` family with nine top-level actions;
+- Pi session-start/startup-send adapters and extension lifecycle failure fallback;
+- every configuration/storage/transport error only where one of those public adapters renders it.
+
+Completion is boundary-based rather than a changing count of error strings. Every frozen public adapter must use the shared presenter or have a reviewed external-owner exemption. A source/AST guard makes later direct error rendering fail the gate.
+
+## Implementation plan
+
+1. Add red contract tests for the frozen inventory and direct-render guard.
+2. Implement one pure format-independent Actionable Error presentation constructor over closed safe descriptors; do not accept arbitrary `Error`.
+3. Map domain/application/infra codes at public adapters while retaining structured errors internally.
+4. Render the same semantic error through CLI text/TOON/JSON, tool content/details, and Pi TUI/headless fallback.
+5. Migrate the frozen CLI, tool, `/crew`, startup, and lifecycle boundaries in bounded slices with happy/unhappy tests.
+6. Run redaction/safe-location/unknown-error adversarial matrices and prove success bytes/exit/domain behavior unchanged.
 
 ## Acceptance criteria
 
-- [ ] Every pi-bebop-owned error exposed to a user identifies the failed operation and explains the failure in user-facing domain language.
-- [ ] Every error identifies where to fix the problem when location is known: command or flag, safe path, configuration field, member, or supplied input.
-- [ ] Every recoverable error gives at least one concrete next action; an unrecoverable or unknown failure says what evidence to collect instead of inventing a fix.
-- [ ] Errors with constrained valid inputs list deterministic valid choices when the list is bounded and safe.
-- [ ] Text remains concise; structured CLI/tool output retains stable error code plus actionable message and relevant safe details.
-- [ ] Errors never expose credentials, message reply routes, unsafe absolute paths, stack traces, or internal implementation names by default.
-- [ ] Tests cover representative startup, CLI, Pi command, tool, configuration, membership, filesystem, and transport failures.
-- [ ] Existing success output, failure exit status, and domain semantics remain unchanged unless separately specified.
+### Product definition
+
+- [x] `docs/ACTIONABLE-ERRORS.md` defines Actionable Error, a finite baseline inventory, inclusion/exclusion rules, future-growth guard, and authoritative surface counts/names.
+- [x] The contract fixes a closed shared model: stable code, public operation, canonical message, optional safe location, 1–3 recovery actions, and bounded valid choices/truncation metadata, with NFC/control/UTF-8 limits for every string.
+- [x] Text grammar and additive CLI JSON/TOON/tool envelopes are exact; fixed-order accounting, overflow priority, per-envelope limits, and `--full` error invariance preserve one semantic JSON/TOON object and current status/exit/compatibility fields.
+- [x] Safe-location, per-field omit/redact/fallback policy, forbidden sources, exact sensitive-pattern order/grammar, marker-spoof behavior, unknown-cause, and evidence-collection rules are explicit.
+- [x] `UL.md` defines Actionable Error and distinguishes it from domain errors, raw exceptions, and unsafe paths.
+
+### Runtime implementation
+
+- [ ] Every frozen Pi Bebop-owned user error uses the shared presentation or a reviewed external-owner exemption; a deterministic guard rejects a newly registered direct render.
+- [ ] Every presentation names the public failed operation, states a safe factual reason, includes a safe actionable location when known, and gives recovery/evidence guidance without promising success.
+- [ ] Known domain/application codes are preserved. Unknown causes use `unexpected-failure`, never fabricated `offline`, timeout, permission, malformed, or retryability semantics.
+- [ ] Constrained valid values preserve authoritative order and exact 0/1/32/33-entry bounds; unsafe/overflow choices are omitted with honest truncation metadata and discovery guidance.
+- [ ] CLI text/TOON/JSON have semantic parity; expected errors stay on stdout, exit `2` for usage and `1` for operational failure, and structured output retains safe `target`, code, operation, message, recovery, and details.
+- [ ] Every tool error retains `isError:true` and `details.error`, adds full `details.actionableError`, and makes tool content byte-identical to its canonical message.
+- [ ] Pi command/startup/lifecycle errors use the same sanitized message through TUI/headless fallback and never trigger a provider/model turn merely to explain a failure.
+- [ ] Errors never expose raw messages/instructions/prompts, credentials/secrets, reply routes, session IDs/aliases, sockets, operation IDs, cursors unless safely explicit, temp/lock/quarantine names, stacks/causes, dependency output, expanded home, unsafe absolute paths, or unbounded input.
+- [ ] Tests cover every frozen adapter family plus startup, configuration, Membership, filesystem, transport, timeout/abort, conflict/capacity, protocol/version, partial failure, and unknown cause using real public boundaries—not prose/keyword checks alone.
+- [ ] Existing success output, help, failure status/exit, domain semantics, delivery/persistence meaning, resource cleanup, and deterministic ordering remain unchanged except the specified additive error presentation.
+- [ ] Focused coverage, typecheck, formatting, lint, architecture/package checks, full hooks, and a fresh unchanged-worktree watcher gate pass.
+
+## Product evidence
+
+- Normative contract: `docs/ACTIONABLE-ERRORS.md`.
+- Canonical language: `UL.md` (`Actionable Error` and ambiguity boundaries).
+- Inventory/refinement report: `.tmp/reports/27-08-26/task-0088-actionable-error-product-contract.md`.
+- Baseline discovery: registry/tool/Pi boundary AST and literal scans at `64bd150`; implementation has not been claimed.
 
 ## Non-goals
 
