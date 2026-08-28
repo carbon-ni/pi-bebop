@@ -85,4 +85,7 @@ test("usageResult and errorResult produce actionable shapes without stack leaks"
 	assert.equal(unknown.target, "");
 	assert.equal(unknown.error?.location?.value, undefined);
 	assert.equal(unknown.error?.message.includes("quarantine-123"), false);
+	const unknownCode = errorResult("remote code password-secret", "", "password-secret", "pi-bebop member message");
+	assert.equal(unknownCode.error?.code, "unexpected-failure");
+	assert.equal(unknownCode.error?.message.includes("password-secret"), false);
 });

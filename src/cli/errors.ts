@@ -1,6 +1,51 @@
 import type { CliFormat } from "./arguments.ts";
 import type { CliResult } from "./output.ts";
 import { presentActionableError, type ActionableErrorDescriptor } from "../domain/index.ts";
+
+const KNOWN_ERROR_CODES = new Set([
+	"usage",
+	"aborted",
+	"timeout",
+	"offline",
+	"offline-session",
+	"unknown-session",
+	"transport-error",
+	"malformed-response",
+	"permission-denied",
+	"control-store-unavailable",
+	"read-failed",
+	"invalid-json",
+	"remote-rejected",
+	"invalid-ack",
+	"outcome-unknown",
+	"unknown-member",
+	"ambiguous-member",
+	"self-send",
+	"not-joined",
+	"untrusted",
+	"invalid-payload",
+	"missing-manifest",
+	"ambiguous-manifest",
+	"managed-file-differs",
+	"ambiguous-role",
+	"staging-failed",
+	"publish-failed",
+	"inbox-full",
+	"idempotency-conflict",
+	"no-recipients",
+	"partial",
+	"storage-failed",
+	"storage-unavailable",
+	"external-intake-disabled",
+	"untrusted-path",
+	"untrusted-project",
+	"invalid-session",
+	"missing-session",
+	"session-required",
+	"already-pending",
+	"no-pending-requests",
+	"invalid-item-id",
+]);
 import { ExternalIntakeError } from "../application/external-intake.ts";
 import { DirectMessageError } from "../application/direct-message.ts";
 
@@ -100,7 +145,7 @@ export function errorResult(
 	operation = "pi-bebop operation",
 ): CliResult {
 	const validCode = /^[a-z0-9][a-z0-9-]{0,63}$/.test(code);
-	const normalizedCode = validCode ? code : "unexpected-failure";
+	const normalizedCode = validCode && KNOWN_ERROR_CODES.has(code) ? code : "unexpected-failure";
 	const unknownCode = normalizedCode === "unexpected-failure" || normalizedCode === "operational";
 	const reason = unknownCode ? "an unexpected failure occurred" : message;
 	const result = actionableErrorResult(
