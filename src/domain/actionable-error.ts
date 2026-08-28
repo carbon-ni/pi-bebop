@@ -36,7 +36,7 @@ export interface ActionableErrorDescriptor {
 }
 
 const CODE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const MARKER = /\[REDACTED:(?:credential|secret)\]/;
 const REDACTIONS: readonly [RegExp, string][] = [
 	[
@@ -54,7 +54,12 @@ function safe(value: string, max: number): string | undefined {
 	let result = value.normalize("NFC").replace(/\r\n?/g, "\n");
 	for (const [pattern, replacement] of REDACTIONS) result = result.replace(pattern, replacement);
 	if (result.includes("\n") || CONTROL.test(result) || result.includes("\uFFFD")) return undefined;
-	return result.trim().slice(0, max);
+	return truncate(result.trim(), max);
+}
+
+function safeStructured(value: string, max: number): string | undefined {
+	const normalized = safe(value, max);
+	return normalized === value.normalize("NFC").trim() ? normalized : undefined;
 }
 
 function boundedCode(code: string): string {
@@ -71,16 +76,20 @@ function truncate(value: string, max: number): string {
 }
 
 function buildLocation(location?: ActionableLocation): ActionableLocation | undefined {
-	const name = location && safe(location.name, 96);
+	const name = location && safeStructured(location.name, 96);
 	if (!location || !name) return undefined;
-	return { kind: location.kind, name, ...(location.value === undefined ? {} : { value: safe(location.value, 384) }) };
+	return {
+		kind: location.kind,
+		name,
+		...(location.value === undefined ? {} : { value: safeStructured(location.value, 384) }),
+	};
 }
 
 function buildChoices(source: readonly string[] = []): { choices: string[]; omitted: number } {
 	const choices: string[] = [];
 	let omitted = 0;
 	for (const choice of source) {
-		const retained = safe(choice, 256);
+		const retained = safeStructured(choice, 256);
 		const overflow = retained && Buffer.byteLength([...choices, retained].join(""), "utf8") > 1024;
 		if (!retained || choices.includes(retained) || choices.length >= 32 || overflow) omitted++;
 		else choices.push(retained);
@@ -108,7 +117,7 @@ export function presentActionableError(descriptor: ActionableErrorDescriptor): A
 		`${operation} failed: ${reason}.${locator} Next: ${boundedRecovery[0]} (code: ${code})`,
 		1024,
 	);
-	return {
+	const result: ActionableError = {
 		code,
 		operation,
 		message,
@@ -117,4 +126,16 @@ export function presentActionableError(descriptor: ActionableErrorDescriptor): A
 		...(choices.length ? { validChoices: choices } : {}),
 		...(omitted ? { validChoicesTruncated: true, omittedChoiceCount: omitted } : {}),
 	};
+	while (Buffer.byteLength(JSON.stringify(result), "utf8") > 4096 && result.validChoices?.length) {
+		result.validChoices.pop();
+		result.omittedChoiceCount = (result.omittedChoiceCount ?? 0) + 1;
+		result.validChoicesTruncated = true;
+	}
+	if (Buffer.byteLength(JSON.stringify(result), "utf8") > 4096 && result.location?.value) {
+		delete result.location.value;
+	}
+	if (Buffer.byteLength(JSON.stringify(result), "utf8") > 4096) {
+		result.recovery = [result.recovery[0]];
+	}
+	return result;
 }
