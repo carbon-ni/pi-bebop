@@ -106,6 +106,104 @@ test("valid auto ownership restores only when the current display name matches",
 	assert.equal(mismatch.name, "Manual");
 });
 
+test("fake Pi lifecycle names rejoin/replacement and exact-match leave, stop, shutdown, and failed restore", () => {
+	const first = host();
+	const firstController = createSessionNameController(first.host);
+	firstController.syncMembership(membership("Mary"));
+	firstController.observeChange("Mary");
+	firstController.syncMembership(null); // leave/stop/shutdown release
+	firstController.observeChange(undefined);
+	firstController.syncMembership(membership("Kelly", "developer")); // rejoin/replacement
+	firstController.observeChange("Kelly");
+	assert.deepEqual(first.setCalls, ["Mary", "", "Kelly"]);
+	assert.equal(firstController.isAutoOwned(), true);
+	assert.equal(first.entries.length, 3);
+
+	const savedEntry = first.entries[0]!;
+	const resumed = host("Mary");
+	const resumedController = createSessionNameController(resumed.host);
+	resumedController.restore([{ type: "custom", customType: savedEntry.type, data: savedEntry.data }]);
+	resumedController.syncMembership(membership("Mary")); // reload/resume: no duplicate set
+	assert.deepEqual(resumed.setCalls, []);
+	assert.equal(resumedController.isAutoOwned(), true);
+
+	const fork = host();
+	const forkController = createSessionNameController(fork.host);
+	forkController.restore([{ type: "custom", customType: savedEntry.type, data: savedEntry.data }]);
+	forkController.syncMembership(membership("Mary")); // fork gets a new unnamed Pi session
+	assert.deepEqual(fork.setCalls, ["Mary"]);
+
+	const failedRestore = host("Mary");
+	const failedController = createSessionNameController(failedRestore.host);
+	failedController.restore([{ type: "custom", customType: savedEntry.type, data: savedEntry.data }]);
+	failedController.syncMembership(null); // failed restore cleanup clears only exact auto name
+	assert.deepEqual(failedRestore.setCalls, [""]);
+	assert.equal(failedRestore.name, undefined);
+
+	const fakePi = {
+		turnCalls: 0,
+		messageCalls: 0,
+		networkCalls: 0,
+		name: undefined as string | undefined,
+		setSessionName(name: string) {
+			fakePi.name = name || undefined;
+		},
+		sendMessage() {
+			fakePi.messageCalls += 1;
+		},
+		requestNetwork() {
+			fakePi.networkCalls += 1;
+		},
+		startTurn() {
+			fakePi.turnCalls += 1;
+		},
+	};
+	const noEffectController = createSessionNameController({
+		getSessionName: () => fakePi.name,
+		setSessionName: (name) => fakePi.setSessionName(name),
+		appendEntry: () => undefined,
+	});
+	noEffectController.syncMembership(membership("Mary"));
+	assert.equal(fakePi.turnCalls + fakePi.messageCalls + fakePi.networkCalls, 0);
+});
+
+test("fake Pi synchronous session_info_changed is reentrant-safe and metadata-only", () => {
+	const log: string[] = [];
+	let name: string | undefined;
+	let observe: (next: string | undefined) => void = () => undefined;
+	const fakePi = {
+		turnCalls: 0,
+		messageCalls: 0,
+		networkCalls: 0,
+		setSessionName(next: string) {
+			log.push(`set:${next}`);
+			name = next || undefined;
+			observe(name);
+		},
+		sendMessage() {
+			fakePi.messageCalls += 1;
+		},
+		requestNetwork() {
+			fakePi.networkCalls += 1;
+		},
+		startTurn() {
+			fakePi.turnCalls += 1;
+		},
+	};
+	const controller = createSessionNameController({
+		getSessionName: () => name,
+		setSessionName: (next) => fakePi.setSessionName(next),
+		appendEntry: (type) => log.push(`entry:${type}`),
+	});
+	observe = (next) => {
+		log.push(`session_info_changed:${next ?? ""}`);
+		controller.observeChange(next);
+	};
+	controller.syncMembership(membership("Mary"));
+	assert.deepEqual(log, ["set:Mary", "session_info_changed:Mary", "entry:intray-session-name"]);
+	assert.equal(fakePi.turnCalls + fakePi.messageCalls + fakePi.networkCalls, 0);
+});
+
 test("direct malformed membership injection cannot name the session", () => {
 	const h = host();
 	const controller = createSessionNameController(h.host);

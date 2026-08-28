@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as net from "node:net";
+import { execFileSync } from "node:child_process";
 
 import { createMembershipRuntime } from "../infra/membership-runtime.ts";
 import { claimMemberEndpoint } from "../infra/member-endpoint.ts";
@@ -15,6 +16,10 @@ import { createMemberMessageCoordinator } from "../application/member-message.ts
 import { registerSendFollowUpTool, registerRedirectMemberTool } from "../tools/index.ts";
 import { getLatestMembershipState, MEMBERSHIP_ENTRY_TYPE } from "./membership-context.ts";
 import { restorePersistedMembership, releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
+import { createSocketState, refreshSessionAliases } from "./control-runtime.ts";
+import { getAliasPath, getSocketPath } from "../infra/intray-paths.ts";
+import { ensureControlDir, removeAliasesForSocket, removeSocket } from "../infra/control-store.ts";
+import { createSessionNameController } from "./session-name.ts";
 
 async function socketServer(socketPath: string, messages: string[]): Promise<net.Server> {
 	return createRpcServer(socketPath, async (command, socket) => {
@@ -28,6 +33,30 @@ async function socketServer(socketPath: string, messages: string[]): Promise<net
 			data: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
 		});
 	});
+}
+
+const sessionMembership = (name: string, role = "qa") => ({
+	manifestPath: "/project/.pi/bebop/crew.json",
+	socketPath: `/project/.pi/bebop/sockets/${name.toLowerCase()}.sock`,
+	globalSocketPath: "/home/.pi/intray/session.sock",
+	member: { name, role, socketPath: `/project/.pi/bebop/sockets/${name.toLowerCase()}.sock` },
+	manifest: { members: [] },
+});
+
+function fakeSession(initial?: string) {
+	let name: string | undefined = initial;
+	return {
+		host: {
+			getSessionName: () => name,
+			setSessionName: (next: string) => {
+				name = next || undefined;
+			},
+			appendEntry: () => undefined,
+		},
+		get name() {
+			return name;
+		},
+	};
 }
 
 async function setupCrew() {
@@ -248,4 +277,100 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 		{ type: "send", payload: { content: "boundary probe" }, delivery: "immediate" },
 		{ timeout: 1000 },
 	);
+});
+
+test("two live project fixtures auto-name Mary without a global alias and keep project aliases stable", async () => {
+	await ensureControlDir();
+	const originalCwd = process.cwd();
+	const roots = await Promise.all(
+		["a", "b"].map(async (suffix) => {
+			const root = await fs.mkdtemp(path.join(os.tmpdir(), `task0127-project-${suffix}-`));
+			await fs.writeFile(path.join(root, "README"), suffix);
+			execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
+			execFileSync("git", ["config", "user.email", "task0127@example.test"], { cwd: root });
+			execFileSync("git", ["config", "user.name", "TASK-0127"], { cwd: root });
+			execFileSync("git", ["add", "README"], { cwd: root });
+			execFileSync("git", ["commit", "-q", "-m", "fixture"], { cwd: root });
+			return root;
+		}),
+	);
+	const states = ["task0127-project-a", "task0127-project-b"].map((id) => {
+		const state = createSocketState();
+		state.server = {} as never;
+		state.socketPath = getSocketPath(`${id}-${process.pid}`);
+		const session = fakeSession();
+		state.sessionNameController = createSessionNameController(session.host);
+		state.sessionNameController.syncMembership(sessionMembership("Mary"));
+		state.sessionNameController.observeChange("Mary");
+		return {
+			state,
+			ctx: {
+				sessionManager: { getSessionId: () => `${id}-${process.pid}`, getSessionName: () => session.name },
+			} as never,
+		};
+	});
+	try {
+		await fs.rm(getAliasPath("Mary"), { force: true });
+		for (let index = 0; index < roots.length; index += 1) {
+			process.chdir(roots[index]!);
+			await refreshSessionAliases(states[index]!.state, states[index]!.ctx);
+			assert.equal(states[index]!.state.aliases.length, 1);
+			assert.match(
+				states[index]!.state.aliases[0]!,
+				new RegExp(`^intra-${path.basename(roots[index]!)}-branch-main-1$`),
+			);
+		}
+		assert.equal(
+			await fs.lstat(getAliasPath("Mary")).then(
+				() => true,
+				() => false,
+			),
+			false,
+		);
+
+		const first = states[0]!;
+		first.state.sessionNameController!.syncMembership(null); // leave/stop/shutdown clears auto-owned display metadata
+		first.state.sessionNameController!.observeChange(undefined); // consume the internal clear event
+		process.chdir(roots[0]!);
+		await refreshSessionAliases(first.state, first.ctx);
+		assert.equal(
+			await fs.lstat(getAliasPath("Mary")).then(
+				() => true,
+				() => false,
+			),
+			false,
+		);
+		assert.match(first.state.aliases[0]!, new RegExp(`^intra-${path.basename(roots[0]!)}-branch-main-1$`));
+		first.state.sessionNameController!.syncMembership(sessionMembership("Kelly", "developer")); // rejoin/replacement
+		first.state.sessionNameController!.observeChange("Kelly");
+		await refreshSessionAliases(first.state, first.ctx);
+		assert.match(first.state.aliases[0]!, new RegExp(`^intra-${path.basename(roots[0]!)}-branch-main-1$`));
+		const stableAlias = first.state.aliases[0]!;
+		await removeAliasesForSocket(first.state.socketPath); // stop/shutdown removes every alias owned by this socket
+		assert.equal(
+			await fs.lstat(getAliasPath(stableAlias)).then(
+				() => true,
+				() => false,
+			),
+			false,
+		);
+
+		for (let index = 0; index < roots.length; index += 1) {
+			process.chdir(roots[index]!);
+			await refreshSessionAliases(states[index]!.state, states[index]!.ctx);
+			assert.match(
+				states[index]!.state.aliases[0]!,
+				new RegExp(`^intra-${path.basename(roots[index]!)}-branch-main-1$`),
+			);
+		}
+	} finally {
+		process.chdir(originalCwd);
+		await Promise.all(
+			states.map(({ state }) =>
+				removeAliasesForSocket(state.socketPath).then(() => removeSocket(state.socketPath)),
+			),
+		);
+		await Promise.all(roots.map((root) => fs.rm(root, { recursive: true, force: true })));
+		await fs.rm(getAliasPath("Mary"), { force: true });
+	}
 });
