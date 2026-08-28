@@ -57,9 +57,23 @@ function defaultDependencies(state: SocketState): CrewBoardStoreDependencies {
 const BOARD_ERROR_CODES = new Set([
 	"not-joined",
 	"untrusted-project",
+	"untrusted-path",
 	"unsupported-layout",
 	"stale-membership",
 	"invalid-request",
+	"invalid-member",
+	"invalid-append",
+	"invalid-read",
+	"invalid-cursor",
+	"cursor-filter-mismatch",
+	"capacity-exceeded",
+	"directory-capacity-exceeded",
+	"lock-conflict",
+	"read-failed",
+	"write-failed",
+	"quarantine-failed",
+	"idempotency-conflict",
+	"link-target-invalid",
 ]);
 function errorResult(error: unknown): ToolResult {
 	const rawCode = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : undefined;
