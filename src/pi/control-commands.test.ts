@@ -62,7 +62,12 @@ test("crew command completions expose only the consolidated command surface", as
 });
 
 test("/crew board and post errors use one public actionable prefix and redact unknown codes", async () => {
-	for (const action of ["board", "post"] as const) {
+	for (const [action, code] of [
+		["board", "read-failed"],
+		["post", "write-failed"],
+		["board", "password-secret"],
+		["post", "password-secret"],
+	] as const) {
 		const setupState = setup();
 		const manifestPath = "/project/.pi/bebop/crew.json";
 		const manifest = parseCrewManifest(
@@ -87,14 +92,10 @@ test("/crew board and post errors use one public actionable prefix and redact un
 					getCurrentMembership: () => setupState.state.membershipRuntime!.getMembership(),
 					openStore: async () => ({
 						read: async () => {
-							throw Object.assign(new Error("password-secret /tmp/private.sock"), {
-								code: "password-secret",
-							});
+							throw Object.assign(new Error(`${code} /tmp/private.sock`), { code });
 						},
 						append: async () => {
-							throw Object.assign(new Error("password-secret /tmp/private.sock"), {
-								code: "password-secret",
-							});
+							throw Object.assign(new Error(`${code} /tmp/private.sock`), { code });
 						},
 					}),
 				} as never,
@@ -103,7 +104,9 @@ test("/crew board and post errors use one public actionable prefix and redact un
 		await setupState.getCommand().handler(action === "post" ? "post hello" : "board", setupState.ctx);
 		assert.equal(setupState.notifications.length, 1);
 		assert.match(setupState.notifications[0]!, new RegExp(`^/crew ${action} failed:`));
-		assert.doesNotMatch(setupState.notifications[0]!, /password-secret|private\.sock/);
+		if (code === "password-secret")
+			assert.doesNotMatch(setupState.notifications[0]!, /password-secret|private\.sock/);
+		else assert.match(setupState.notifications[0]!, new RegExp(`code: ${code}`));
 	}
 });
 
