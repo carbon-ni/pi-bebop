@@ -6,6 +6,7 @@ import {
 	normalizeBoardKinds,
 	type SessionControlAction,
 	type CrewPostKind,
+	presentActionableError,
 } from "../domain/index.ts";
 import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
 import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
@@ -114,7 +115,13 @@ function boardDependencies(
 }
 
 function boardErrorMessage(error: unknown): string {
-	return error instanceof Error ? error.message.slice(0, 500) : "Crew Board operation failed";
+	const code = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : "board-failed";
+	return presentActionableError({
+		code,
+		operation: "crew_board",
+		reason: "the Crew Board operation was rejected",
+		recovery: ["verify project trust and crew membership, then retry."],
+	}).message;
 }
 
 type AgreementActivationHandler = NonNullable<ControlCommandDeps["activateAgreementRevision"]>;
