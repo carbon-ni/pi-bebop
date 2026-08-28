@@ -414,7 +414,8 @@ test("classifies every representative invalid acknowledgement, remote rejection,
 		.get("send_follow_up")!
 		.execute("call", { member: "qa", message: "x" }, new AbortController().signal, undefined, undefined);
 	assert.equal(offlineResult.details.error, "offline");
-	assert.match(offlineResult.content[0].text, /offline.*ENOENT/i);
+	assert.match(offlineResult.content[0].text, /offline.*target shutdown/i);
+	assert.doesNotMatch(offlineResult.content[0].text, /ENOENT/i);
 });
 
 test("rejects response waiting and preserves membership target errors without RPC", async () => {

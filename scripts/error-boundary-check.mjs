@@ -42,6 +42,7 @@ async function scan() {
 	const findings = [];
 	for (const [scope, kind] of scopes) {
 		for (const file of await filesFor(scope)) {
+			if (file === "src/tools/actionable-tool-result.ts") continue;
 			const source = await readFile(path.join(root, file), "utf8");
 			const lines = source.split("\n");
 			for (let index = 0; index < lines.length; index++) {

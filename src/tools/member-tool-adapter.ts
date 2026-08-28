@@ -8,6 +8,7 @@ import {
 	MemberMessageError,
 } from "../application/member-message.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { actionableToolError, type ActionableToolResult } from "./actionable-tool-result.ts";
 
 const parameters = Type.Object(
 	{
@@ -18,8 +19,6 @@ const parameters = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-const MAX_OUTPUT = 500;
-
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean; details: unknown };
 
 function resultText(target: string, outcome: { disposition: string }): ToolResult {
@@ -28,12 +27,35 @@ function resultText(target: string, outcome: { disposition: string }): ToolResul
 		details: outcome,
 	};
 }
-function errorText(target: string, code: string, message: string): ToolResult {
-	return {
-		content: [{ type: "text", text: `[${target}] ${message.slice(0, MAX_OUTPUT)}` }],
-		isError: true,
-		details: { error: code },
-	};
+function errorText(
+	target: string,
+	code: string,
+	_message: string,
+	operation: "send_follow_up" | "redirect_member",
+): ActionableToolResult {
+	const reason =
+		code === "ambiguous-member"
+			? "Ambiguous member target"
+			: code === "offline"
+				? "offline target shutdown"
+				: code === "response-wait-requires-member-request"
+					? "response unavailable without a member request"
+					: code === "self-send"
+						? "the target is yourself"
+						: code === "unknown-member"
+							? "Unknown member target"
+							: code === "not-joined"
+								? "Not joined to a crew"
+								: code === "unexpected-failure"
+									? "the member message operation could not be completed"
+									: "the member message operation was rejected";
+	return actionableToolError({
+		code,
+		operation,
+		reason,
+		recovery: ["verify crew membership and the target, then retry the tool."],
+		location: { kind: "member", name: "member", value: target },
+	});
 }
 
 export interface MemberToolAdapterDependencies extends MemberMessageDependencies {}
@@ -81,13 +103,14 @@ export function registerMemberIntentTool(
 				return resultText(`${outcome.target.name} (${outcome.target.role})`, outcome);
 			} catch (error) {
 				if (error instanceof MemberMessageError)
-					return errorText(target || "member", error.code, error.message);
+					return errorText(target || "member", error.code, error.message, name);
 				const message = error instanceof Error ? error.message : "Member endpoint offline";
 				const aborted = signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
 				return errorText(
 					target || "member",
 					aborted ? "aborted" : "offline",
 					aborted ? "Member request aborted" : `Member endpoint offline: ${message}`,
+					name,
 				);
 			}
 		},
