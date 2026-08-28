@@ -1,7 +1,7 @@
 ---
 id: TASK-0127
 title: Name joined Pi sessions after their Current Member
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, membership, session-name, identity, alias, pi-api, lifecycle, tdd]
@@ -37,18 +37,24 @@ The auto Member name is display metadata, never Membership/identity proof or Rol
 
 ## Acceptance criteria
 
-- [ ] Unnamed session gets exact Current Member `name` after successful join, restore, or rejoin; Role, description, socket filename, alias, and CLI input are never used.
-- [ ] Existing startup/manual/RPC/other-extension session name is byte-preserved and never replaced merely because Membership activates.
-- [ ] While auto-owned, same-session Member switch updates the exact name; Role-only change with same Member name is idempotent.
-- [ ] Manual `/name`/RPC/extension change after auto-naming relinquishes ownership immediately; later refresh, alias tick, Presence, or prompt construction cannot overwrite it.
-- [ ] Leave, removal, inactive state, stop, failed restore, and shutdown clear only a still-matching auto-owned name using Pi's empty-name contract; a manual name is never cleared.
-- [ ] Reload/resume/fork restores auto ownership only from a valid bounded typed session entry matching the current session-name and Membership snapshot; text equality alone never grants ownership.
-- [ ] Auto-owned name is excluded from the unscoped session-name alias. Collision-safe project/branch alias remains; two projects with the same Member name never steal/thrash one alias.
-- [ ] A later manual name keeps existing safe alias behavior; unsafe manual alias handling remains unchanged.
-- [ ] Naming and clearing append only bounded metadata, trigger no provider/model turn/message, perform no network IO, and never claim authentication, Presence, Activity, availability, or authority.
-- [ ] Invalid/oversized/control-bearing Member names remain rejected by manifest loading before naming; stale Pi context/name failures are bounded and cannot corrupt Membership or aliases.
-- [ ] Deterministic tests cover unnamed/named join, restore, rejoin, switch, manual override/clear, leave/stop/shutdown, failed restore, reload/resume/fork, duplicate project Member names, event reentrancy, and no-turn behavior.
-- [ ] Existing status-line, session alias, Membership, startup, and lifecycle tests remain green; focused/full watcher gates pass.
+- [x] Unnamed session gets exact Current Member `name` after successful join, restore, or rejoin; Role, description, socket filename, alias, and CLI input are never used.
+- [x] Existing startup/manual/RPC/other-extension session name is byte-preserved and never replaced merely because Membership activates.
+- [x] While auto-owned, same-session Member switch updates the exact name; Role-only change with same Member name is idempotent.
+- [x] Manual `/name`/RPC/extension change after auto-naming relinquishes ownership immediately; later refresh, alias tick, Presence, or prompt construction cannot overwrite it.
+- [x] Leave, removal, inactive state, stop, failed restore, and shutdown clear only a still-matching auto-owned name using Pi's empty-name contract; a manual name is never cleared.
+- [x] Reload/resume/fork restores auto ownership only from a valid bounded typed session entry matching the current session-name and Membership snapshot; text equality alone never grants ownership.
+- [x] Auto-owned name is excluded from the unscoped session-name alias. Collision-safe project/branch alias remains; two projects with the same Member name never steal/thrash one alias.
+- [x] A later manual name keeps existing safe alias behavior; unsafe manual alias handling remains unchanged.
+- [x] Naming and clearing append only bounded metadata, trigger no provider/model turn/message, perform no network IO, and never claim authentication, Presence, Activity, availability, or authority.
+- [x] Invalid/oversized/control-bearing Member names remain rejected by manifest loading before naming; stale Pi context/name failures are bounded and cannot corrupt Membership or aliases.
+- [x] Deterministic tests cover unnamed/named join, restore, rejoin, switch, manual override/clear, leave/stop/shutdown, failed restore, reload/resume/fork, duplicate project Member names, event reentrancy, and no-turn behavior.
+- [x] Existing status-line, session alias, Membership, startup, and lifecycle tests remain green; focused/full watcher gates pass.
+
+## Evidence
+
+- Implementation: `088f03a`; bounded API/host hardening: `77b5897`; manifest-boundary validation and direct snapshot defense: `d212183`; lifecycle/alias integration coverage: `8d73af9`.
+- Verification: Kelly detached exact-commit QA PASS at `8d73af9`; focused matrix `140/140`; fresh watcher generation 195 `@agent-final`/`make all` PASS; full suite `1,452/1,452`; worktree clean.
+- QA report: `.tmp/reports/13-04-26/task-0127-8d73af9-final-qa.md`.
 
 ## Non-goals
 
