@@ -375,7 +375,12 @@ export async function runDurableMessageCommand(
 	if (outcome.ok === false)
 		return {
 			kind: "result",
-			result: errorResult(`Durable message failed: ${outcome.code}`, options.member ?? "crew", outcome.code),
+			result: errorResult(
+				`Durable message failed: ${outcome.code}`,
+				options.member ?? "crew",
+				outcome.code,
+				"pi-bebop member message",
+			),
 			format: options.format,
 			full: false,
 		};

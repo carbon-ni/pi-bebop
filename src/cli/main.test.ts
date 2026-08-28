@@ -379,7 +379,14 @@ test("renders stdin read failures in the selected structured format", async () =
 		ok: false,
 		target: "/offline.sock",
 		status: "error",
-		error: { code: "offline", message: "stdin closed" },
+		error: {
+			code: "offline",
+			operation: "pi-bebop send",
+			message:
+				'pi-bebop send failed: stdin closed. Location: target="/offline.sock". Next: run the command with --help, correct the input, and retry. (code: offline)',
+			location: { kind: "argument", name: "target", value: "/offline.sock" },
+			recovery: ["run the command with --help, correct the input, and retry."],
+		},
 	});
 });
 

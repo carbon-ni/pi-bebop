@@ -265,7 +265,7 @@ test("usage error: --format=json and --format json both steer usage output", asy
 	const jsonSeparate = await usageOutput(["bogus", "--format", "json"]);
 	assert.match(jsonSeparate, /^\{"/, "separate --format json produces JSON");
 	const toon = await usageOutput(["bogus"]);
-	assert.match(toon, /^Invalid command/, "default usage output is human text");
+	assert.match(toon, /^pi-bebop command input failed: Invalid command/, "default usage output is human text");
 });
 
 async function usageOutput(args: string[]): Promise<string> {
@@ -315,7 +315,7 @@ test("gap: text format is concise plain text, never TOON/JSON keys", async () =>
 	const textUsage = await usageOutput(["bogus", "--format", "text"]);
 	assert.equal(
 		textUsage.trim(),
-		"Invalid command 'bogus'; valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast",
+		"pi-bebop command input failed: Invalid command 'bogus'; valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast. Next: run the command with --help, correct the input, and retry. (code: usage)",
 	);
 	assert.ok(!textUsage.includes("ok:") && !textUsage.includes('{"'), "text usage has no structured scaffolding");
 	// success text is a short human line

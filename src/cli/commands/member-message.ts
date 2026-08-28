@@ -340,7 +340,12 @@ export async function runMemberMessageCommand(
 		if (outcome.ok === false) {
 			return {
 				kind: "result",
-				result: errorResult(`Member delivery failed: ${outcome.code}`, target, outcome.code),
+				result: errorResult(
+					`Member delivery failed: ${outcome.code}`,
+					target,
+					outcome.code,
+					"pi-bebop member message",
+				),
 				format: options.format,
 				full: false,
 			};

@@ -47,7 +47,7 @@ export async function runSendCommand(
 		const messageText = error instanceof Error ? error.message : "Unknown operational failure";
 		return {
 			kind: "result",
-			result: errorResult(messageText, target, errorCode(error)),
+			result: errorResult(messageText, target, errorCode(error), "pi-bebop send"),
 			format: options.format,
 			full: options.full,
 		};

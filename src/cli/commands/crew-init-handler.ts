@@ -29,7 +29,7 @@ export async function runCrewInitCommand(options: CrewInitCliOptions, cwd: strin
 		if (result.ok === false) {
 			return {
 				kind: "result",
-				result: errorResult(result.error.message, project, result.error.code),
+				result: errorResult(result.error.message, project, result.error.code, "pi-bebop crew init"),
 				format: options.format,
 				full: false,
 			};
@@ -61,7 +61,7 @@ export async function runCrewInitCommand(options: CrewInitCliOptions, cwd: strin
 		const message = error instanceof Error ? error.message : "Crew init failed";
 		return {
 			kind: "result",
-			result: errorResult(message, project, "operational"),
+			result: errorResult(message, project, "operational", "pi-bebop crew init"),
 			format: options.format,
 			full: false,
 		};

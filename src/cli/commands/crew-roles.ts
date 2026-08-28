@@ -122,10 +122,12 @@ export const defaultCrewRolesDependencies: CrewRolesDependencies = {
 };
 
 function mapManifestError(error: unknown, manifestPath: string): CliResult {
-	if (error instanceof CrewManifestReadError) return errorResult(error.message, manifestPath, error.code);
-	if (error instanceof CrewManifestError) return errorResult(error.message, manifestPath, error.code);
+	if (error instanceof CrewManifestReadError)
+		return errorResult(error.message, manifestPath, error.code, "pi-bebop crew roles");
+	if (error instanceof CrewManifestError)
+		return errorResult(error.message, manifestPath, error.code, "pi-bebop crew roles");
 	const message = error instanceof Error ? error.message : "Crew manifest read failed";
-	return errorResult(message, manifestPath, "operational");
+	return errorResult(message, manifestPath, "operational", "pi-bebop crew roles");
 }
 
 export async function runCrewRolesCommand(
@@ -151,6 +153,7 @@ export async function runCrewRolesCommand(
 				"no supported crew manifest found beneath the project",
 				projectRoot,
 				"missing-manifest",
+				"pi-bebop crew roles",
 			),
 			format: options.format,
 			full: options.full,
@@ -163,6 +166,7 @@ export async function runCrewRolesCommand(
 				"both supported crew manifests exist (.pi/bebop and .pi/crew); remove one",
 				projectRoot,
 				"ambiguous-manifest",
+				"pi-bebop crew roles",
 			),
 			format: options.format,
 			full: options.full,

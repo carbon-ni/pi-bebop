@@ -61,14 +61,19 @@ function defaultFormatForCommand(args: readonly string[]): CliFormat {
 	return "text";
 }
 
+function descriptor(code: string, operation: string, reason: string, target?: string): ActionableErrorDescriptor {
+	return {
+		code,
+		operation,
+		reason,
+		recovery: ["run the command with --help, correct the input, and retry."],
+		...(target ? { location: { kind: "argument", name: "target", value: target } } : {}),
+	};
+}
+
 /** Exit-2 usage result shape (status: usage drives the exit code). */
 export function usageResult(message: string, code = "usage"): CliResult {
-	return {
-		ok: false,
-		target: "",
-		status: "usage",
-		error: { code, message },
-	};
+	return actionableUsageResult(descriptor(code, "pi-bebop command input", message));
 }
 
 /** Build an actionable usage result while preserving CLI exit-2 semantics. */
@@ -87,11 +92,12 @@ export function actionableErrorResult(descriptor: ActionableErrorDescriptor, tar
 }
 
 /** Operational failure result with a stable code and a human message. */
-export function errorResult(message: string, target: string, code: string): CliResult {
-	return {
-		ok: false,
-		target,
-		status: "error",
-		error: { code, message },
-	};
+export function errorResult(
+	message: string,
+	target: string,
+	code: string,
+	operation = "pi-bebop operation",
+): CliResult {
+	const result = actionableErrorResult(descriptor(code, operation, message, target), target);
+	return result;
 }

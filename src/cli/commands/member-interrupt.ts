@@ -160,7 +160,12 @@ export async function runMemberInterruptCommand(
 	if (outcome.ok === false)
 		return {
 			kind: "result",
-			result: errorResult(`Member interrupt failed: ${outcome.code}`, options.member, outcome.code),
+			result: errorResult(
+				`Member interrupt failed: ${outcome.code}`,
+				options.member,
+				outcome.code,
+				"pi-bebop member interrupt",
+			),
 			format: options.format,
 			full: false,
 		};

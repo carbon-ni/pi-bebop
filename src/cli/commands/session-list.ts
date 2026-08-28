@@ -138,7 +138,12 @@ export async function runSessionListCommand(
 	} catch {
 		return {
 			kind: "result",
-			result: errorResult(`Control store unavailable: ${dir}`, "", "control-store-unavailable"),
+			result: errorResult(
+				`Control store unavailable: ${dir}`,
+				"",
+				"control-store-unavailable",
+				"pi-bebop session list",
+			),
 			format: options.format,
 			full: false,
 		};

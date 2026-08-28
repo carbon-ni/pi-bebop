@@ -35,17 +35,16 @@ test("requestedFormat honors --format and --format=, last occurrence wins", () =
 	assert.equal(requestedFormat(["--format", "json", "--wait", "later"]), "json");
 });
 
-test("usageResult and errorResult produce stable shapes without stack leaks", () => {
-	assert.deepEqual(usageResult("boom"), {
-		ok: false,
-		target: "",
-		status: "usage",
-		error: { code: "usage", message: "boom" },
-	});
-	assert.deepEqual(errorResult("nope", "/x", "offline"), {
-		ok: false,
-		target: "/x",
-		status: "error",
-		error: { code: "offline", message: "nope" },
-	});
+test("usageResult and errorResult produce actionable shapes without stack leaks", () => {
+	const usage = usageResult("boom");
+	assert.equal(usage.status, "usage");
+	assert.equal(usage.error?.code, "usage");
+	assert.equal(usage.error?.operation, "pi-bebop command input");
+	assert.match(usage.error?.message ?? "", /Next:/);
+	const operational = errorResult("nope", "/x", "offline");
+	assert.equal(operational.status, "error");
+	assert.equal(operational.error?.code, "offline");
+	assert.equal(operational.error?.operation, "pi-bebop operation");
+	assert.equal(operational.error?.location?.value, "/x");
+	assert.match(operational.error?.message ?? "", /Next:/);
 });

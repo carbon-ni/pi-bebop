@@ -206,6 +206,7 @@ export async function runMemberIdleWaitCommand(
 				`Member idle wait failed: ${"code" in outcome ? outcome.code : "transport-error"}`,
 				options.member,
 				"code" in outcome ? outcome.code : "transport-error",
+				"pi-bebop member wait-idle",
 			),
 			format: options.format,
 			full: false,
@@ -213,7 +214,12 @@ export async function runMemberIdleWaitCommand(
 	if (!isMemberIdleWaitResult(outcome.result))
 		return {
 			kind: "result",
-			result: errorResult("Member idle wait failed: malformed-response", options.member, "malformed-response"),
+			result: errorResult(
+				"Member idle wait failed: malformed-response",
+				options.member,
+				"malformed-response",
+				"pi-bebop member wait-idle",
+			),
 			format: options.format,
 			full: false,
 		};
