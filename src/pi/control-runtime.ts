@@ -321,13 +321,9 @@ export function refreshIntrayStatus(state: SocketState, ctx: ExtensionContext | 
 	updateStatus(ctx, state);
 }
 
-export function formatIntrayFooter(
-	sessionId: string,
-	status: IntrayStatus,
-	member?: Pick<Membership["member"], "name" | "role">,
-): string {
+export function formatIntrayFooter(status: IntrayStatus, member?: Pick<Membership["member"], "name" | "role">): string {
 	const identity = status === "joined" && member ? ` ${member.name} (${member.role})` : "";
-	return `${sessionId} ${status}${identity}`;
+	return `${status}${identity}`;
 }
 
 function updateStatus(ctx: ExtensionContext | null, state: SocketState, enabled = true): void {
@@ -337,10 +333,9 @@ function updateStatus(ctx: ExtensionContext | null, state: SocketState, enabled 
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
-		const sessionId = ctx.sessionManager.getSessionId();
 		const membership = state.membershipRuntime?.getMembership();
 		const status = deriveIntrayStatus(Boolean(state.server), Boolean(membership));
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", formatIntrayFooter(sessionId, status, membership?.member)));
+		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", formatIntrayFooter(status, membership?.member)));
 	} catch (error) {
 		if (!isStaleContextError(error)) throw error;
 	}

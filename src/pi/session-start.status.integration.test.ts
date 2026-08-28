@@ -131,7 +131,7 @@ test("startup restore refreshes the status line from online to the restored iden
 			harness.state.context as never,
 			createDeps(harness),
 		);
-		assert.deepEqual(harness.statuses, ["restore-session online", "restore-session joined Mary (po)"]);
+		assert.deepEqual(harness.statuses, ["online", "joined Mary (po)"]);
 		assert.equal(harness.announcements.length, 1);
 	} finally {
 		await disableControlServer(harness.state, harness.state.context as never);
@@ -154,7 +154,7 @@ test("failed startup restore reports the failure and never displays identity", a
 		);
 		// The control server ensured the online status first; the failed join
 		// must leave it identity-free rather than guessing or caching one.
-		assert.deepEqual(harness.statuses, ["failed-restore-session online"]);
+		assert.deepEqual(harness.statuses, ["online"]);
 		assert.equal(harness.announcements.length, 0);
 		assert.match(harness.notifications.at(-1) ?? "", /endpoint is occupied/);
 	} finally {
