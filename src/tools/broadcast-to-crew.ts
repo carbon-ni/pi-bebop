@@ -16,7 +16,14 @@ import { actionableToolError } from "./actionable-tool-result.ts";
  * normal TASK-0037 follow-up bridge. Never steers or redirects active work.
  */
 
-const BROADCAST_ERROR_CODES = new Set(["no-recipients", "not-configured-member", "unexpected-failure"]);
+const BROADCAST_ERROR_CODES = new Set([
+	"invalid-request",
+	"no-recipients",
+	"not-joined",
+	"unknown-sender",
+	"untrusted-project",
+	"unexpected-failure",
+]);
 
 function normalizeBroadcastErrorCode(code: string | undefined): string {
 	return code && BROADCAST_ERROR_CODES.has(code) ? code : "unexpected-failure";
@@ -107,7 +114,17 @@ export function registerBroadcastToCrewTool(
 							},
 						],
 						isError: true,
-						details: { broadcastId: result.broadcastId, ...result.summary, recipients },
+						details: {
+							...actionableToolError({
+								code: "broadcast-partial-failure",
+								operation: "broadcast_to_crew",
+								reason: "some recipient inboxes could not be persisted",
+								recovery: ["retry the broadcast; already-persisted recipients are deduplicated."],
+							}).details,
+							broadcastId: result.broadcastId,
+							...result.summary,
+							recipients,
+						},
 					};
 				}
 
