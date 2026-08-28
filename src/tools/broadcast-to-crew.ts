@@ -17,6 +17,10 @@ import { actionableToolError } from "./actionable-tool-result.ts";
  */
 
 export function createBroadcastPartialError(details: Record<string, unknown>) {
+	const safeDetails: Record<string, unknown> = {};
+	for (const key of ["broadcastId", "total", "persisted", "failed", "alreadyPersisted"]) {
+		if (key in details) safeDetails[key] = details[key];
+	}
 	return actionableToolError(
 		{
 			code: "broadcast-partial-failure",
@@ -24,7 +28,7 @@ export function createBroadcastPartialError(details: Record<string, unknown>) {
 			reason: "some recipient inboxes could not be persisted",
 			recovery: ["retry the broadcast; already-persisted recipients are deduplicated."],
 		},
-		details,
+		safeDetails,
 	);
 }
 

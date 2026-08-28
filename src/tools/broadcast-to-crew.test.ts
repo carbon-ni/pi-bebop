@@ -80,7 +80,8 @@ describe("broadcast_to_crew tool", () => {
 		assert.equal(result.content[0]?.text, result.details.actionableError.message);
 		assert.equal(result.details.error, "broadcast-partial-failure");
 		assert.equal(result.details.broadcastId, "b-1");
-		assert.equal(JSON.stringify(result.details.actionableError).includes("private.sock"), false);
+		assert.equal("recipients" in result.details, false);
+		assert.equal(JSON.stringify(result.details).includes("private.sock"), false);
 	});
 	test("registers with only message and instructions and a teaching description", () => {
 		const tool = setup(membership);
