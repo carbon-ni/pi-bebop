@@ -46,6 +46,8 @@ export interface CrewAgreementsConfig {
 }
 
 export interface CrewManifest {
+	/** Optional crew display name; absent preserves legacy behavior. */
+	readonly name?: string;
 	readonly version: typeof CREW_MANIFEST_VERSION | typeof CREW_MANIFEST_V2;
 	readonly members: readonly CrewMember[];
 	readonly presence: CrewPresenceConfig;
@@ -262,6 +264,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
 	}
 	const version = input.version;
+	const name = input.name === undefined ? undefined : requireText(input.name, "name");
 	const commonInstructionsFile = validateCommonInstructionsFile(input.commonInstructionsFile, version, manifestPath);
 	const crewAgreements = validateCrewAgreements(input.crewAgreements, version, manifestPath);
 	if (!Array.isArray(input.members) || input.members.length === 0) {
@@ -383,6 +386,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 
 	validateRetrospectiveFacilitator(crewAgreements, names);
 	return {
+		...(name === undefined ? {} : { name }),
 		version,
 		members,
 		presence,
