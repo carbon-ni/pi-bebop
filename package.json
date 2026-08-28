@@ -95,6 +95,7 @@
 		"src/infra/crew-retrospective-record-store.ts",
 		"src/infra/crew-retrospective-schedule-store.ts",
 		"src/infra/crew-board-store.ts",
+		"src/infra/message-log-store.ts",
 		"src/infra/git-branch.ts",
 		"src/infra/intray-config.ts",
 		"src/infra/intray-paths.ts",
