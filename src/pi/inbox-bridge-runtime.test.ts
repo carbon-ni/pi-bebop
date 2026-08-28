@@ -8,7 +8,7 @@ import {
 	latestOfferingState,
 	ownershipFromMembership,
 } from "./inbox-bridge-runtime.ts";
-import { SESSION_MESSAGE_TYPE, type InboxItem } from "../domain/index.ts";
+import { SESSION_MESSAGE_TYPE, renderMessagePayload, type InboxItem } from "../domain/index.ts";
 import type { SocketState } from "./control-runtime.ts";
 
 const item = (sequence: number): InboxItem => ({
@@ -57,6 +57,7 @@ function setup(entries: Array<Record<string, unknown>> = [], initialPending: Inb
 			sessionManager: { getEntries: () => entries },
 			isProjectTrusted: () => true,
 		},
+		membershipRuntime: { getMembership: () => null },
 	} as unknown as SocketState;
 	const controller = createInboxBridgeController(pi, state, {
 		openStore: (async () => ({
@@ -172,6 +173,37 @@ describe("adapter controller wiring", () => {
 			inbox: { itemId: "inbox-0-abc" },
 		});
 		assert.deepEqual(harness.sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
+	});
+
+	test("offerItem derives the recipient crew label from live membership, never from the payload", async () => {
+		const harness = setup([], [item(0)]);
+		(harness.state as { membershipRuntime?: unknown }).membershipRuntime = {
+			getMembership: () => ({
+				...membershipFixture(),
+				manifest: { version: 1, name: "Alpha Crew", members: [], presence: { notifications: true } },
+			}),
+		};
+		harness.controller.establish(ownershipFromMembership(membershipFixture()));
+		await harness.controller.attemptOffer();
+		assert.deepEqual(harness.sent[0]!.message.details, {
+			messagePayload: { content: "message 0" },
+			inbox: { itemId: "inbox-0-abc", crewName: "Alpha Crew" },
+		});
+		// Payload bytes and evidence id are unchanged by the label.
+		assert.equal(harness.sent[0]!.message.content, renderMessagePayload({ content: "message 0" }));
+	});
+
+	test("offerItem without a crew name keeps the prior typed details byte-compatible", async () => {
+		const harness = setup([], [item(0)]);
+		(harness.state as { membershipRuntime?: unknown }).membershipRuntime = {
+			getMembership: () => membershipFixture(),
+		};
+		harness.controller.establish(ownershipFromMembership(membershipFixture()));
+		await harness.controller.attemptOffer();
+		assert.deepEqual(harness.sent[0]!.message.details, {
+			messagePayload: { content: "message 0" },
+			inbox: { itemId: "inbox-0-abc" },
+		});
 	});
 
 	test("evidence written by the session reconciles the item away on the next trigger", async () => {

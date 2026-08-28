@@ -23,6 +23,15 @@ Receipts, the status footer, and intake messages identify the crew only by files
 - Unhappy: invalid name rejected at load with clear error; no surface falls back to guessing.
 - Deterministic tests, both paths.
 
+## Implemented surfaces (this change)
+
+- Status footer: `formatIntrayFooter` optional crew name, named `joined <Crew> — <Member> (<Role>)`; unnamed/online/stopped byte-compatible (control-runtime + session-start integration).
+- Joined Membership context: one optional `Crew name:` line next to `Crew: <manifestPath>`; unnamed byte-compatible (membership-context).
+- External-intake receipt: `ExternalIntakeAck.crewName?` derived only from the loaded target manifest; CLI named form `Persisted for <contact> (<role>) of <Crew> — inbox item <id>`; unnamed unchanged (domain/application/cli adapter).
+- Inbox handoff/display: recipient crew label derived from live trusted membership at handoff into typed `inbox.crewName` details; payload bytes and evidence id unchanged; renderer shows a bounded `Crew inbox: <name>` line only for valid typed details, fail-safe otherwise.
+
+Status stays `doing` until Kelly's exact-hash QA.
+
 ## Accepted partial evidence
 
 - `732decd` adds deterministic named/unnamed coverage for `/crew members` and `/crew status`.

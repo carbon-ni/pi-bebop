@@ -162,6 +162,37 @@ test("failed startup restore reports the failure and never displays identity", a
 	}
 });
 
+test("startup restore pairs the footer with the crew name when the manifest has one", async () => {
+	const harness = createHarness("named-restore-session", [persistedEntry]);
+	const namedMembership = {
+		...restoredMembership,
+		manifest: { ...restoredMembership.manifest, name: "Alpha Crew" },
+	};
+	let membership: typeof namedMembership | null = null;
+	harness.state.membershipRuntime = {
+		join: async () => {
+			membership = namedMembership;
+			return { ok: true, membership: namedMembership, idempotent: false };
+		},
+		getMembership: () => membership,
+		leave: async () => {
+			membership = null;
+			return { ok: true, left: true };
+		},
+	} as never;
+	try {
+		await handleSessionStart(
+			createPi([]) as never,
+			harness.state,
+			harness.state.context as never,
+			createDeps(harness),
+		);
+		assert.deepEqual(harness.statuses, ["online", "joined Alpha Crew — Mary (po)"]);
+	} finally {
+		await disableControlServer(harness.state, harness.state.context as never);
+	}
+});
+
 test("unjoined startup sets no status line and no placeholder identity", async () => {
 	const harness = createHarness("plain-session", []);
 	harness.state.membershipRuntime = {

@@ -186,5 +186,6 @@ export async function persistIntakePayload(
 		persisted: true,
 		contact: contact.name,
 		contactRole: contact.role,
+		...(manifest.name === undefined ? {} : { crewName: manifest.name }),
 	};
 }

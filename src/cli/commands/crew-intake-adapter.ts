@@ -107,7 +107,7 @@ export async function deliverCrewIntake(
 			ok: true,
 			target: options.crewPath!,
 			status: "persisted",
-			response: `Persisted for ${ack.contact} (${ack.contactRole}) — inbox item ${ack.itemId}`,
+			response: `Persisted for ${ack.contact} (${ack.contactRole})${ack.crewName === undefined ? "" : ` of ${ack.crewName}`} — inbox item ${ack.itemId}`,
 			data: ack,
 		},
 		format: options.format,

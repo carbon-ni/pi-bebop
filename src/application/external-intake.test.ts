@@ -278,3 +278,33 @@ describe("error mapping fallbacks", () => {
 		);
 	});
 });
+
+describe("ExternalIntakeAck crew label derivation", () => {
+	test("target manifest name is the only source of the ack crew label", async () => {
+		const namedManifest: CrewManifest = {
+			...manifest,
+			name: "Beta Crew",
+		};
+		const named = makeDeps();
+		named.setManifest(namedManifest);
+		const ack = await submitExternalIntake(
+			{ manifestPath: "/project/.pi/bebop/crew.json", label: "external", content: "hi" },
+			named.deps,
+		);
+		assert.deepEqual(ack, {
+			ok: true,
+			itemId: "inbox-0-abc",
+			persisted: true,
+			contact: "Mary",
+			contactRole: "po",
+			crewName: "Beta Crew",
+		});
+
+		const unnamed = makeDeps();
+		const unnamedAck = await submitExternalIntake(
+			{ manifestPath: "/project/.pi/bebop/crew.json", label: "external", content: "hi" },
+			unnamed.deps,
+		);
+		assert.equal("crewName" in unnamedAck, false);
+	});
+});

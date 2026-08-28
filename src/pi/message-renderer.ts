@@ -39,6 +39,23 @@ function claimedOrigin(payload: MessagePayload): string | null {
 		: `from ${payload.origin.label}`;
 }
 
+/**
+ * TASK-0133: recipient-derived Crew label for typed Inbox handoff details only.
+ * Bounded, optional, and validated; malformed or untrusted metadata fails safe
+ * (no label). Callback routes (`replyTo`) are never displayed.
+ */
+export function inboxCrewLabel(message: unknown): string | null {
+	const details = (message as { details?: unknown }).details;
+	if (typeof details !== "object" || details === null) return null;
+	const inbox = (details as { inbox?: unknown }).inbox;
+	if (typeof inbox !== "object" || inbox === null) return null;
+	const crewName = (inbox as { crewName?: unknown }).crewName;
+	if (typeof crewName !== "string") return null;
+	const trimmed = crewName.trim();
+	if (!trimmed || trimmed !== crewName || crewName.includes("\0") || crewName.length > 256) return null;
+	return crewName;
+}
+
 export function parseSenderInfo(text: string): SenderInfo | null {
 	const match = text.match(/<sender_info>([\s\S]*?)<\/sender_info>/);
 	if (!match) return null;
@@ -88,6 +105,8 @@ export function getMessageDisplayModel(
 	const payload = payloadFromDetails(message);
 	const senderInfo = payload ? null : parseSenderInfo(rawContent);
 	let text = payload ? renderMessagePayloadForDisplay(payload) : stripMessageMetadata(rawContent);
+	const inboxLabel = inboxCrewLabel(message);
+	if (inboxLabel) text = `Crew inbox: ${inboxLabel}\n${text}`;
 	if (!text) text = "(no content)";
 	if (!expanded) {
 		const lines = text.split("\n");

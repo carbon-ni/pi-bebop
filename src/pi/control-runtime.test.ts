@@ -103,6 +103,16 @@ test("status derives stopped, online, and joined from server and crew state", ()
 	assert.equal(formatIntrayFooter("online", { name: "Mary", role: "po" }), "online");
 });
 
+test("footer pairs the optional crew name exactly without altering unnamed or non-joined forms", () => {
+	assert.equal(
+		formatIntrayFooter("joined", { name: "Mary", role: "po" }, "Alpha Crew"),
+		"joined Alpha Crew — Mary (po)",
+	);
+	assert.equal(formatIntrayFooter("joined", { name: "Mary", role: "po" }, undefined), "joined Mary (po)");
+	assert.equal(formatIntrayFooter("online", { name: "Mary", role: "po" }, "Alpha Crew"), "online");
+	assert.equal(formatIntrayFooter("stopped", { name: "Mary", role: "po" }, "Alpha Crew"), "stopped");
+});
+
 test("membership transitions refresh the footer online to joined to online", () => {
 	const state = createSocketState();
 	const statuses: string[] = [];
@@ -120,7 +130,7 @@ test("membership transitions refresh the footer online to joined to online", () 
 	state.membershipRuntime = { getMembership: () => null } as never;
 	refreshIntrayStatus(state);
 	state.membershipRuntime = {
-		getMembership: () => ({ member: { name: "Mary", role: "po" } }),
+		getMembership: () => ({ member: { name: "Mary", role: "po" }, manifest: {} }),
 	} as never;
 	refreshIntrayStatus(state);
 	state.membershipRuntime = { getMembership: () => null } as never;
@@ -144,7 +154,7 @@ test("same-session role switch replaces the displayed identity immediately", () 
 	} as never;
 	let member: { name: string; role: string } | null = { name: "Mary", role: "po" };
 	state.membershipRuntime = {
-		getMembership: () => (member ? { member } : null),
+		getMembership: () => (member ? { member, manifest: {} } : null),
 	} as never;
 	refreshIntrayStatus(state);
 	member = { name: "Dave", role: "dev" };
@@ -198,7 +208,7 @@ test("stale Pi contexts never display identity and are swallowed", () => {
 	const state = createSocketState();
 	state.server = {} as never;
 	state.membershipRuntime = {
-		getMembership: () => ({ member: { name: "Mary", role: "po" } }),
+		getMembership: () => ({ member: { name: "Mary", role: "po" }, manifest: {} }),
 	} as never;
 	state.context = createThrowingContext("This extension ctx is stale after session replacement or reload") as never;
 	assert.doesNotThrow(() => refreshIntrayStatus(state));
@@ -218,7 +228,7 @@ test("disableControlServer clears a joined identity immediately", async () => {
 		},
 	} as never;
 	state.membershipRuntime = {
-		getMembership: () => ({ member: { name: "Mary", role: "po" } }),
+		getMembership: () => ({ member: { name: "Mary", role: "po" }, manifest: {} }),
 	} as never;
 	refreshIntrayStatus(state);
 	await disableControlServer(state, state.context as never);

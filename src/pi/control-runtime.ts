@@ -322,8 +322,15 @@ export function refreshIntrayStatus(state: SocketState, ctx: ExtensionContext | 
 	updateStatus(ctx, state);
 }
 
-export function formatIntrayFooter(status: IntrayStatus, member?: Pick<Membership["member"], "name" | "role">): string {
-	const identity = status === "joined" && member ? ` ${member.name} (${member.role})` : "";
+export function formatIntrayFooter(
+	status: IntrayStatus,
+	member?: Pick<Membership["member"], "name" | "role">,
+	crewName?: string,
+): string {
+	const identity =
+		status === "joined" && member
+			? ` ${crewName === undefined ? "" : `${crewName} — `}${member.name} (${member.role})`
+			: "";
 	return `${status}${identity}`;
 }
 
@@ -340,7 +347,10 @@ function updateStatus(ctx: ExtensionContext | null, state: SocketState, enabled 
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", formatIntrayFooter(status, membership?.member)));
+		ctx.ui.setStatus(
+			STATUS_KEY,
+			ctx.ui.theme.fg("dim", formatIntrayFooter(status, membership?.member, membership?.manifest.name)),
+		);
 	} catch (error) {
 		if (!isStaleContextError(error)) throw error;
 	}

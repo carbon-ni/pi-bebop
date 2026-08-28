@@ -170,6 +170,28 @@ test("joined context lists manifest-order name (role): description, keeping othe
 	assert.match(rendered, /Role: developer/);
 });
 
+test("joined context includes the trusted crew name exactly once when configured", () => {
+	const named = parseCrewManifest(
+		{
+			version: 1,
+			name: "Alpha Crew",
+			members: [
+				{ name: "dev", role: "developer", socket: "sockets/dev.sock" },
+				{ name: "qa", role: "reviewer", socket: "sockets/qa.sock" },
+			],
+		},
+		manifestPath,
+	);
+	const rendered = formatMembershipContext({ ...membership, manifest: named });
+	assert.match(rendered, /Crew name: Alpha Crew\n/);
+	assert.equal(rendered.match(/Crew name:/g)?.length, 1);
+	assert.match(rendered, new RegExp(`Crew: ${manifestPath.replace(/\//g, "\\/")}`));
+});
+
+test("joined context without a crew name stays byte-compatible with the prior concise form", () => {
+	assert.doesNotMatch(formatMembershipContext(membership), /Crew name:/);
+});
+
 test("membership context without descriptions stays byte-compatible with prior concise form", () => {
 	const plain = formatMembershipContext(membership);
 	assert.match(

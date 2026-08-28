@@ -37,7 +37,7 @@ interface Membership {
 	manifest: { version: 1; members: CrewMember[]; presence: { notifications: boolean } };
 }
 
-async function makeCrew() {
+async function makeCrew(name?: string) {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "intray-inbox-lifecycle-"));
 	const layoutDir = path.join(root, ".pi", "bebop");
 	const sockets = path.join(layoutDir, "sockets");
@@ -47,12 +47,13 @@ async function makeCrew() {
 		{ name: "lead", role: "lead", socket: "sockets/lead.sock" },
 		{ name: "developer", role: "developer", socket: "sockets/developer.sock" },
 	];
-	await fs.writeFile(manifestPath, JSON.stringify({ version: 1, members }));
+	await fs.writeFile(manifestPath, JSON.stringify({ version: 1, ...(name ? { name } : {}), members }));
 	return {
 		root,
 		manifestPath,
 		sockets,
 		members,
+		name,
 		async cleanup() {
 			await fs.rm(root, { recursive: true, force: true });
 		},
@@ -69,6 +70,7 @@ function membershipFor(crew: Awaited<ReturnType<typeof makeCrew>>, memberName: s
 		member: memberWithPath,
 		manifest: {
 			version: 1,
+			...(crew.name ? { name: crew.name } : {}),
 			members: crew.members.map((entry) => ({
 				...entry,
 				socketPath: path.join(crew.sockets, `${entry.name}.sock`),
@@ -105,13 +107,14 @@ function session(crew: Awaited<ReturnType<typeof makeCrew>>, memberName: string)
 			entries.push({ type: "custom", customType, data });
 		},
 	} as unknown as ExtensionAPI;
+	const membership = membershipFor(crew, memberName);
 	const state = {
 		context: {
 			sessionManager: { getEntries: () => entries },
 			isProjectTrusted: () => true,
 		},
+		membershipRuntime: { getMembership: () => membership },
 	} as unknown as SocketState;
-	const membership = membershipFor(crew, memberName);
 	const bridge = createInboxBridgeController(pi, state);
 	return {
 		entries,
@@ -187,6 +190,24 @@ test("offline enqueue reaches a later-joining peer as one follow-up, then the it
 	const next = await recipient.bridge.attemptOffer();
 	assert.deepEqual(next, { offered: false, reason: "no-items" });
 	assert.equal(await (await storeFor(crew, "developer")).count(), 0);
+});
+
+test("named external intake persists offline and hands off with the trusted recipient crew label", async (t) => {
+	const crew = await makeCrew("Alpha Crew");
+	t.after(crew.cleanup);
+
+	await enqueueFor(crew, "lead", "developer", "Named crew handoff");
+	const recipient = session(crew, "developer");
+	recipient.bridge.establish(ownershipFromMembership(recipient.membership));
+	const outcome = await recipient.bridge.attemptOffer();
+	assert.equal(outcome.offered, true);
+	assert.deepEqual(recipient.sent[0]!.message.details, {
+		messagePayload: {
+			content: "Named crew handoff",
+			origin: { kind: "crew", name: "lead", role: "lead" },
+		},
+		inbox: { itemId: outcome.itemId, crewName: "Alpha Crew" },
+	});
 });
 
 test("a live follow-up accepted before the inbox handoff keeps FIFO position; inbox never redirects", async (t) => {

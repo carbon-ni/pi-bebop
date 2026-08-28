@@ -116,7 +116,13 @@ export interface ExternalIntakeAck {
 	readonly persisted: true;
 	readonly contact: string;
 	readonly contactRole: string;
+	/** TASK-0133: optional target Crew display label, derived only from the loaded target manifest. */
+	readonly crewName?: string;
 }
+
+const validAckText = (value: string): boolean =>
+	value.trim().length > 0 && value === value.trim() && !value.includes("\0");
+const validAckCrewName = (value: unknown): boolean => typeof value === "string" && validAckText(value);
 
 export function isExternalIntakeAck(value: unknown): value is ExternalIntakeAck {
 	if (typeof value !== "object" || value === null) return false;
@@ -130,6 +136,7 @@ export function isExternalIntakeAck(value: unknown): value is ExternalIntakeAck 
 		ack.contact.length > 0 &&
 		typeof ack.contactRole === "string" &&
 		ack.contactRole.length > 0 &&
+		(ack.crewName === undefined || validAckCrewName(ack.crewName)) &&
 		!("replyTo" in ack) &&
 		!("sessionId" in ack) &&
 		!("response" in ack)

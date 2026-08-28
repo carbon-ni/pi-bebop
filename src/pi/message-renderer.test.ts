@@ -174,3 +174,35 @@ test("inbound crew correspondence renders the claimed return address visibly and
 	assert.equal(text.includes("hidden-session"), false);
 	assert.equal(sessionMessageKind(message), "follow-up");
 });
+
+test("typed inbox details show the recipient-derived crew label and fail safe on malformed metadata", () => {
+	const inboxMessage = {
+		customType: "bebop-session-message",
+		content: JSON.stringify({ type: "message-context", content: "Queued note" }),
+		details: {
+			messagePayload: {
+				content: "Queued note",
+				origin: { kind: "crew" as const, name: "Dave", role: "developer" },
+			},
+			inbox: { itemId: "inbox-0-abc", crewName: "Alpha Crew" },
+		},
+	};
+	const { text, senderText } = getMessageDisplayModel(inboxMessage, true);
+	assert.match(senderText ?? "", /from Dave \(developer\)/);
+	assert.match(text, /Crew inbox: Alpha Crew/);
+
+	for (const crewName of ["", " ", "x".repeat(300), 5, null]) {
+		const malformed = {
+			...inboxMessage,
+			details: { ...inboxMessage.details, inbox: { itemId: "inbox-0-abc", crewName } },
+		};
+		const model = getMessageDisplayModel(malformed, true);
+		assert.doesNotMatch(model.text, /Crew inbox:/, `failed safe for ${JSON.stringify(crewName)}`);
+	}
+
+	const noInbox = {
+		...inboxMessage,
+		details: { messagePayload: inboxMessage.details.messagePayload },
+	};
+	assert.doesNotMatch(getMessageDisplayModel(noInbox, true).text, /Crew inbox:/);
+});

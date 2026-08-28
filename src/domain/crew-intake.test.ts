@@ -127,6 +127,34 @@ describe("ExternalIntakeAck contract", () => {
 	});
 });
 
+describe("ExternalIntakeAck crewName", () => {
+	test("accepts an optional bounded crew label alongside persisted-only fields", () => {
+		const base = {
+			ok: true,
+			itemId: "inbox-0-abc",
+			persisted: true as const,
+			contact: "Kelly",
+			contactRole: "qa",
+		};
+		assert.equal(isExternalIntakeAck(base), true);
+		assert.equal(isExternalIntakeAck({ ...base, crewName: "Beta Crew" }), true);
+	});
+
+	test("rejects invalid crew labels and reply routing fields", () => {
+		const base = {
+			ok: true,
+			itemId: "inbox-0-abc",
+			persisted: true as const,
+			contact: "Kelly",
+			contactRole: "qa",
+		};
+		for (const crewName of ["", " padded ", 1, null]) {
+			assert.equal(isExternalIntakeAck({ ...base, crewName }), false, JSON.stringify(crewName));
+		}
+		assert.equal(isExternalIntakeAck({ ...base, crewName: "Beta Crew", response: "x" }), false);
+	});
+});
+
 describe("createCrewCorrespondencePayload", () => {
 	const source = {
 		memberName: "Dave",

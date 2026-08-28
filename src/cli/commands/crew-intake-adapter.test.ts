@@ -73,3 +73,39 @@ test("manifest load failures propagate as typed intake errors", async () => {
 		code: "untrusted-path",
 	});
 });
+
+test("named crew receipt includes the derived crew label with persisted-only wording", async () => {
+	const deps: CrewIntakeDependencies = {
+		submit: async () => ({
+			ok: true,
+			itemId: "inbox-3",
+			persisted: true,
+			contact: "Kelly",
+			contactRole: "qa",
+			crewName: "Beta Crew",
+		}),
+	};
+	const outcome = await deliverCrewIntake(options(), "hi", context(), deps);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind !== "result") return;
+	assert.equal(outcome.result.response, "Persisted for Kelly (qa) of Beta Crew — inbox item inbox-3");
+	assert.deepEqual(outcome.result.data, {
+		ok: true,
+		itemId: "inbox-3",
+		persisted: true,
+		contact: "Kelly",
+		contactRole: "qa",
+		crewName: "Beta Crew",
+	});
+});
+
+test("unnamed crew receipt stays byte-compatible with the prior form", async () => {
+	const deps: CrewIntakeDependencies = {
+		submit: async () => ({ ok: true, itemId: "inbox-4", persisted: true, contact: "Mary", contactRole: "po" }),
+	};
+	const outcome = await deliverCrewIntake(options(), "hi", context(), deps);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind !== "result") return;
+	assert.equal(outcome.result.response, "Persisted for Mary (po) — inbox item inbox-4");
+	assert.equal("crewName" in (outcome.result.data as object), false);
+});
