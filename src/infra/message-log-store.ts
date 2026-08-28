@@ -22,6 +22,8 @@ export interface MessageLogStoreOptions {
 	readonly root: string;
 	readonly isTrusted: () => boolean;
 	readonly fs?: Pick<typeof fs, "mkdir" | "readFile" | "writeFile" | "rename" | "open" | "unlink">;
+	readonly now?: () => number;
+	readonly sleep?: (milliseconds: number) => Promise<void>;
 }
 
 export function createMessageLogStore(options: MessageLogStoreOptions) {
@@ -41,10 +43,19 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			await io.mkdir(dir, { recursive: true });
 			const lock = path.join(dir, ".lock");
 			let handle: Awaited<ReturnType<typeof io.open>>;
-			try {
-				handle = await io.open(lock, "wx");
-			} catch {
-				throw new MessageLogStoreError("lock-conflict", "message log is busy");
+			const now = options.now ?? Date.now;
+			const sleep =
+				options.sleep ??
+				((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+			const deadline = now() + 2000;
+			while (true) {
+				try {
+					handle = await io.open(lock, "wx");
+					break;
+				} catch {
+					if (now() >= deadline) throw new MessageLogStoreError("lock-conflict", "message log is busy");
+					await sleep(25);
+				}
 			}
 			try {
 				if (!/^entry-[0-9a-f]{64}$/.test(String(entry.id)))
