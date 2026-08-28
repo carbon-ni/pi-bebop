@@ -78,6 +78,12 @@ Completion is boundary-based rather than a changing count of error strings. Ever
 - [ ] Existing success output, help, failure status/exit, domain semantics, delivery/persistence meaning, resource cleanup, and deterministic ordering remain unchanged except the specified additive error presentation.
 - [ ] Focused coverage, typecheck, formatting, lint, architecture/package checks, full hooks, and a fresh unchanged-worktree watcher gate pass.
 
+## Accepted bounded slice evidence
+
+- Pi startup/lifecycle slice: `f41735e`, `274f23e`, `c045ac0`, and `e85cc0e`/`b5b84fb` cover the six current direct-render findings in `session-start.ts`, `startup-send.ts`, and `extension.ts`.
+- Exact-hash QA: PASS at `b5b84fb`; focused `36/36`; watcher generation 282 `@agent-final` PASS; full suite `1,460/1,460`; worktree clean. Report: `.tmp/reports/13-04-26/task-0088-b5b84fb-final-qa.md`.
+- This bounded slice is accepted, but TASK-0088 remains `doing`: the frozen CLI, registered-tool, `/crew`, and remaining adapter inventory still requires separate implementation and verification.
+
 ## Product evidence
 
 - Normative contract: `docs/ACTIONABLE-ERRORS.md`.
