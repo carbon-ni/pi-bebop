@@ -256,6 +256,23 @@ function mapTransportError(error: unknown): { ok: false; code: string } {
 	return { ok: false, code: "transport-error" };
 }
 
+const REMOTE_CODES = new Set([
+	"unknown-member",
+	"ambiguous-member",
+	"self-send",
+	"not-joined",
+	"response-wait-requires-member-request",
+	"invalid-payload",
+	"remote-rejected",
+	"invalid-ack",
+	"outcome-unknown",
+	"malformed-response",
+]);
+
+function safeRemoteCode(value: string | undefined): string {
+	return value && REMOTE_CODES.has(value) ? value : "remote-rejected";
+}
+
 async function deliverThroughSocket(
 	source: SourceResolution & { ok: true },
 	command: {
@@ -278,12 +295,12 @@ async function deliverThroughSocket(
 			},
 			{ timeout: 5000, signal },
 		);
-		if (!response.success) return { ok: false, code: response.error ?? "remote-rejected" };
+		if (!response.success) return { ok: false, code: safeRemoteCode(response.error) };
 		if (!isMemberMessageResult(response.data)) return { ok: false, code: "malformed-response" };
 		return { ok: true, result: response.data };
 	} catch (error) {
 		if (error instanceof RpcProtocolError && error.code === "remote-error") {
-			return { ok: false, code: error.message.replace(/^remote-error:\s*/, "") };
+			return { ok: false, code: safeRemoteCode(error.message.replace(/^remote-error:\s*/, "")) };
 		}
 		throw error;
 	}

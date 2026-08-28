@@ -252,6 +252,22 @@ test("member message run: operational failures exit 1 with stable codes", async 
 	}
 });
 
+test("member message remote error codes cannot carry raw paths", async () => {
+	for (const format of ["text", "json", "toon"] as const) {
+		const outcome = await runMemberMessageCommand(
+			options("follow_up", { format }),
+			context(),
+			deps({ deliverMessage: async () => ({ ok: false, code: "read-failed: /var/folders/qa/private.sock" }) }),
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind !== "result") continue;
+		const rendered = render(outcome).text;
+		assert.equal(rendered.includes("private.sock"), false);
+		assert.equal(rendered.includes("read-failed:"), false);
+		assert.equal(outcome.result.error?.code, "unexpected-failure");
+	}
+});
+
 test("member message run: explicit --session wins over the environment fallback", async () => {
 	let seen: { explicitSession?: string; environmentSession?: string } | undefined;
 	const dependencies = deps({

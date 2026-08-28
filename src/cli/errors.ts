@@ -99,10 +99,12 @@ export function errorResult(
 	code: string,
 	operation = "pi-bebop operation",
 ): CliResult {
-	const unknownCode = code === "unexpected-failure" || code === "operational";
+	const validCode = /^[a-z0-9][a-z0-9-]{0,63}$/.test(code);
+	const normalizedCode = validCode ? code : "unexpected-failure";
+	const unknownCode = normalizedCode === "unexpected-failure" || normalizedCode === "operational";
 	const reason = unknownCode ? "an unexpected failure occurred" : message;
 	const result = actionableErrorResult(
-		descriptor(unknownCode ? "unexpected-failure" : code, operation, reason, target),
+		descriptor(normalizedCode === "operational" ? "unexpected-failure" : normalizedCode, operation, reason, target),
 	);
 	return result;
 }
