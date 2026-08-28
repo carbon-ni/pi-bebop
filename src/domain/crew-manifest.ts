@@ -258,13 +258,17 @@ function validateRetrospectiveFacilitator(
 	);
 }
 
+function optionalManifestName(input: Record<string, unknown>): string | undefined {
+	return input.name === undefined ? undefined : requireText(input.name, "name");
+}
+
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
 	if (!isRecord(input)) invalid("manifest must be an object");
 	if (!isSupportedManifestVersion(input.version)) {
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
 	}
 	const version = input.version;
-	const name = input.name === undefined ? undefined : requireText(input.name, "name");
+	const name = optionalManifestName(input);
 	const commonInstructionsFile = validateCommonInstructionsFile(input.commonInstructionsFile, version, manifestPath);
 	const crewAgreements = validateCrewAgreements(input.crewAgreements, version, manifestPath);
 	if (!Array.isArray(input.members) || input.members.length === 0) {
