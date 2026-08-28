@@ -7,7 +7,7 @@ import { sendRpcCommand } from "../../infra/rpc-client.ts";
 import { isSafeAlias, isSafeSessionId } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
 import { parseFlagTokens } from "../flags.ts";
-import { errorResult } from "../errors.ts";
+import { actionableErrorResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
 
@@ -138,12 +138,12 @@ export async function runSessionListCommand(
 	} catch {
 		return {
 			kind: "result",
-			result: errorResult(
-				`Control store unavailable: ${dir}`,
-				"",
-				"control-store-unavailable",
-				"pi-bebop session list",
-			),
+			result: actionableErrorResult({
+				code: "control-store-unavailable",
+				operation: "pi-bebop session list",
+				reason: "the control session store could not be read",
+				recovery: ["verify the Pi Bebop session store and retry pi-bebop session list."],
+			}),
 			format: options.format,
 			full: false,
 		};

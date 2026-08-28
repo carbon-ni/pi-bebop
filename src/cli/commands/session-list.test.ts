@@ -164,13 +164,15 @@ test("session list run: unreadable control store is control-store-unavailable, e
 	const store: FakeStore = { entries: [], aliases: {}, probeAlive: () => false, statusOf: () => null };
 	const broken = deps(store);
 	broken.readDir = async () => {
-		throw new Error("ENOENT");
+		throw new Error("read failed at /var/folders/qa/private.sock");
 	};
 	const outcome = await runSessionListCommand({ command: "session-list", format: "json" }, context(), broken);
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.error?.code, "control-store-unavailable");
+	assert.equal(render(outcome).text.includes("private.sock"), false);
+	assert.equal(render(outcome).text.includes("var/folders"), false);
 	assert.equal(render(outcome).exit, 1);
 });
 

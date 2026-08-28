@@ -5,12 +5,12 @@
 		{
 			"file": "src/cli/commands/crew-init-handler.ts",
 			"kind": "cli-result",
-			"count": 2
+			"count": 1
 		},
 		{
 			"file": "src/cli/commands/crew-roles.ts",
 			"kind": "cli-result",
-			"count": 5
+			"count": 2
 		},
 		{
 			"file": "src/cli/commands/durable-message.ts",
@@ -35,7 +35,7 @@
 		{
 			"file": "src/cli/commands/member-status.ts",
 			"kind": "cli-result",
-			"count": 15
+			"count": 13
 		},
 		{
 			"file": "src/cli/commands/send-handler.ts",
@@ -43,14 +43,9 @@
 			"count": 1
 		},
 		{
-			"file": "src/cli/commands/session-list.ts",
-			"kind": "cli-result",
-			"count": 1
-		},
-		{
 			"file": "src/cli/errors.ts",
 			"kind": "cli-result",
-			"count": 4
+			"count": 2
 		},
 		{
 			"file": "src/cli/run.ts",
