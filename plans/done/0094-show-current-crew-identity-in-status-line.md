@@ -1,7 +1,7 @@
 ---
 id: TASK-0094
 title: Show current crew identity in status line
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, membership, status-line, ui, identity, regression, tdd]
