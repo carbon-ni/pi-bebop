@@ -12,6 +12,16 @@ import {
 } from "./index.ts";
 
 describe("crew manifest", () => {
+	test("optional crew name preserves valid, absent, and invalid contracts", () => {
+		const base = { version: 1, members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }] };
+		assert.equal(parseCrewManifest({ ...base, name: "Acme Crew" }).name, "Acme Crew");
+		assert.equal(Object.hasOwn(parseCrewManifest(base), "name"), false);
+		for (const name of ["", "   ", "bad\0name", "x".repeat(257)])
+			assert.throws(
+				() => parseCrewManifest({ ...base, name }),
+				(error) => error instanceof CrewManifestError,
+			);
+	});
 	test("accepts version 2 Current Crew Agreements file only under agreements", () => {
 		const result = parseCrewManifest(
 			{
