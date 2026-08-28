@@ -26,6 +26,13 @@ export const defaultSendHandlerAdapters: SendHandlerAdapters = {
 	intake: deliverCrewIntake,
 };
 
+function sendFailureReason(code: string): string {
+	if (code === "aborted") return "the send operation was aborted";
+	if (code === "timeout") return "the bounded send deadline elapsed";
+	if (code === "offline") return "the send endpoint could not be reached";
+	return "the send operation could not be completed";
+}
+
 export async function runSendCommand(
 	options: SendCliOptions,
 	context: CliContext,
@@ -44,10 +51,10 @@ export async function runSendCommand(
 		return await adapters.deliverDirect(options, message!, context.signal);
 	} catch (error) {
 		if (error instanceof UsageError) throw error;
-		const messageText = error instanceof Error ? error.message : "Unknown operational failure";
+		const code = errorCode(error);
 		return {
 			kind: "result",
-			result: errorResult(messageText, target, errorCode(error), "pi-bebop send"),
+			result: errorResult(sendFailureReason(code), target, code, "pi-bebop send"),
 			format: options.format,
 			full: options.full,
 		};

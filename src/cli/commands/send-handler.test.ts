@@ -127,7 +127,7 @@ test("cancellation maps to the aborted code and never leaks a stack", async () =
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.error?.code, "aborted");
-	assert.match(outcome.result.error?.message ?? "", /Operation aborted/);
+	assert.match(outcome.result.error?.message ?? "", /send operation was aborted/);
 	assert.match(outcome.result.error?.message ?? "", /Next:/);
 });
 
