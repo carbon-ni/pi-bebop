@@ -169,6 +169,18 @@ function textState(value: any, maxBytes: number): boolean {
 		value.redactions.length === 0
 	);
 }
+function redactionsValid(value: any): boolean {
+	return (
+		Array.isArray(value.redactions) &&
+		value.redactions.every(
+			(item: any) =>
+				item &&
+				(item.kind === "secret" || item.kind === "credential") &&
+				Number.isSafeInteger(item.occurrences) &&
+				item.occurrences > 0,
+		)
+	);
+}
 function textCounts(value: any): boolean {
 	return (
 		value.state === "unavailable" ||
@@ -177,7 +189,7 @@ function textCounts(value: any): boolean {
 			Number.isSafeInteger(value.omittedUtf8Bytes) &&
 			typeof value.truncated === "boolean" &&
 			Number.isSafeInteger(value.escapedMarkerCount) &&
-			Array.isArray(value.redactions) &&
+			redactionsValid(value) &&
 			value.normalizedUtf8Bytes >= 0 &&
 			value.retainedUtf8Bytes >= 0 &&
 			value.omittedUtf8Bytes >= 0 &&
