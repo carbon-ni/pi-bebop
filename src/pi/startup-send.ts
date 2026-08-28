@@ -14,6 +14,7 @@ import {
 	normalizeWaitUntil,
 	type RpcSendCommand,
 	type WaitUntil,
+	presentActionableError,
 } from "../domain/index.ts";
 
 export type StartupControlSendFlags = {
@@ -198,15 +199,24 @@ function reportStartupControlSend(
 	message: string,
 	level: "info" | "warning" | "error" = "info",
 ): void {
+	const rendered =
+		level === "error"
+			? presentActionableError({
+					code: "startup-send-failed",
+					operation: "Crew startup send",
+					reason: message,
+					recovery: ["verify the target and startup flags, then retry."],
+				}).message
+			: message;
 	if (ctx.hasUI) {
-		ctx.ui.notify(message, level);
+		ctx.ui.notify(rendered, level);
 		return;
 	}
 	if (level === "error") {
-		console.error(message);
+		console.error(rendered);
 		return;
 	}
-	console.log(message);
+	console.log(rendered);
 }
 
 export async function maybeHandleStartupSocketJoin(

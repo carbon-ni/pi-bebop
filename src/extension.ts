@@ -32,7 +32,7 @@ import { createMemberStatusTransport } from "./infra/member-status-transport.ts"
 import { sendMemberIdleWait, sendRpcCommand, sendMemberRequest } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
-import { type MemberIdleWaitCommand } from "./domain/index.ts";
+import { presentActionableError, type MemberIdleWaitCommand } from "./domain/index.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -80,6 +80,20 @@ import { createSessionNameController } from "./pi/session-name.ts";
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
 const CREW_ROLE_FLAG = "crew-role";
+
+function reportLifecycleFailure(context: ExtensionContext | null, reason: string): void {
+	const message = presentActionableError({
+		code: "lifecycle-failed",
+		operation: "Crew extension lifecycle",
+		reason,
+		recovery: ["retry the Crew operation; if it repeats, inspect Crew state and report the code."],
+	}).message;
+	if (context?.hasUI) {
+		context.ui.notify(message, "error");
+		return;
+	}
+	console.error(message);
+}
 
 /** Crew management with its own namespaced socket transport. */
 export default function (pi: ExtensionAPI) {
@@ -298,7 +312,7 @@ export default function (pi: ExtensionAPI) {
 		onObserverChanged: (observer) => {
 			state.presenceObserver = observer;
 		},
-		reportFailure: (error) => console.error(`Crew presence failed: ${String(error)}`),
+		reportFailure: (error) => reportLifecycleFailure(state.context, `presence refresh failed: ${String(error)}`),
 	});
 	const stopPresence = async () => {
 		await presenceComposition.stop();
@@ -391,10 +405,7 @@ export default function (pi: ExtensionAPI) {
 				deactivateMembershipTool(pi);
 				await disableControlServer(state, context, pi);
 			},
-			reportFailure: (message) => {
-				if (context?.hasUI) context.ui.notify(message, "error");
-				else console.error(message);
-			},
+			reportFailure: (message) => reportLifecycleFailure(context, message),
 		});
 		state.context = null;
 		state.socketPath = null;

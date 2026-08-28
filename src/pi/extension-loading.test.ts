@@ -55,6 +55,7 @@ test("role rejection preflight leaves control server untouched for invalid, empt
 		try {
 			await item.setup?.(root);
 			let sessionManagerAccesses = 0;
+			const notifications: string[] = [];
 			let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
 			const pi = {
 				registerFlag() {},
@@ -74,7 +75,7 @@ test("role rejection preflight leaves control server untouched for invalid, empt
 			const ctx = {
 				cwd: root,
 				hasUI: true,
-				ui: { notify() {} },
+				ui: { notify: (message: string) => notifications.push(message) },
 				isProjectTrusted: () => true,
 				sessionManager: new Proxy(
 					{},
@@ -88,6 +89,9 @@ test("role rejection preflight leaves control server untouched for invalid, empt
 			} as never;
 			await sessionStart?.({}, ctx);
 			assert.equal(sessionManagerAccesses, 0, item.name);
+			assert.match(notifications.at(-1) ?? "", /^Crew startup failed:/, item.name);
+			assert.match(notifications.at(-1) ?? "", /Next:/, item.name);
+			assert.match(notifications.at(-1) ?? "", /\(code: startup-failed\)$/, item.name);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

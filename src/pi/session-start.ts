@@ -18,6 +18,7 @@ import {
 	type StartupRoleSelection,
 } from "./startup-send.ts";
 import { ownershipFromMembership } from "./inbox-bridge-runtime.ts";
+import { presentActionableError } from "../domain/index.ts";
 import type { createSocketState } from "./control-runtime.ts";
 import { createInboxBridgeController } from "./inbox-bridge-runtime.ts";
 
@@ -82,7 +83,13 @@ type StartupSelection = {
 	readonly startupRoleSelection?: StartupRoleSelection;
 };
 
-function reportStartupError(ctx: ExtensionContext, message: string): void {
+function reportStartupError(ctx: ExtensionContext, reason: string): void {
+	const message = presentActionableError({
+		code: "startup-failed",
+		operation: "Crew startup",
+		reason,
+		recovery: ["check startup flags, project trust, and Crew configuration, then retry."],
+	}).message;
 	if (ctx.hasUI) ctx.ui.notify(message, "error");
 	else console.error(message);
 }

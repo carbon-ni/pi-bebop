@@ -156,7 +156,11 @@ test("failed startup restore reports the failure and never displays identity", a
 		// must leave it identity-free rather than guessing or caching one.
 		assert.deepEqual(harness.statuses, ["online"]);
 		assert.equal(harness.announcements.length, 0);
-		assert.match(harness.notifications.at(-1) ?? "", /endpoint is occupied/);
+		const failure = harness.notifications.at(-1) ?? "";
+		assert.match(failure, /^Crew startup failed:/);
+		assert.match(failure, /endpoint is occupied/);
+		assert.match(failure, /Next:/);
+		assert.match(failure, /\(code: startup-failed\)$/);
 	} finally {
 		await disableControlServer(harness.state, harness.state.context as never);
 	}

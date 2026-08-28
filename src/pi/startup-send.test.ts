@@ -150,9 +150,11 @@ test("startup role join reports actionable invalid intake configuration", async 
 	);
 	assert.equal(handled, false);
 	assert.equal(joins, 0);
-	assert.deepEqual(notices, [
-		"Crew startup role join failed: Crew configuration invalid: manifest path /project/.pi/bebop/crew.json; intake.contact rejected value 'Ghost'; valid exact member names in manifest order: [Mary, Tony]. Fixes: change intake.contact to one of those exact names, or add a member named 'Ghost'; remove intake to disable external intake.",
-	]);
+	assert.equal(notices.length, 1);
+	assert.match(notices[0]!, /^Crew startup send failed:/);
+	assert.match(notices[0]!, /intake\.contact rejected value 'Ghost'/);
+	assert.match(notices[0]!, /Next: verify the target and startup flags, then retry\./);
+	assert.match(notices[0]!, /\(code: startup-send-failed\)$/);
 });
 
 test("startup socket paths normalize leading @ and startup cwd", () => {
