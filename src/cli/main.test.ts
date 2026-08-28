@@ -6,12 +6,13 @@ import net from "node:net";
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { errorCode, isCliEntrypoint, runCli } from "./main.ts";
 import { rootCliHelp } from "./root-help.ts";
 import { createCliRegistry } from "./registry.ts";
 import { crewInitHelp } from "../domain/index.ts";
+import { renderCliResult } from "./output.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
 import { decode } from "@toon-format/toon";
@@ -1314,28 +1315,58 @@ test("crew init conflict leaves user content untouched and exits 1", async () =>
 	}
 });
 
-test("crew init runner emits one safe actionable result for an unknown filesystem failure", async () => {
+test("crew init runner preserves safe error parity across text, JSON, TOON, and full structured rendering", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-init-boundary-"));
 	try {
 		const project = path.join(dir, "not-a-directory");
 		await writeFile(project, "x");
-		const output = new PassThrough();
-		let text = "";
-		output.setEncoding("utf8");
-		output.on("data", (chunk) => {
-			text += chunk;
-		});
-		const code = await runCli(
-			["crew", "init", "--project", project, "--format", "json"],
-			dir,
-			process.stdin,
-			output,
-		);
-		assert.equal(code, 1);
-		const result = JSON.parse(text);
-		assert.equal(result.error.code, "unexpected-failure");
-		assert.equal(result.target, "");
-		assert.doesNotMatch(text, /ENOTDIR|not-a-directory|bebop-cli-init-boundary-/);
+		const run = async (format: "text" | "json" | "toon") => {
+			let stdout = "";
+			let stderr = "";
+			let writes = 0;
+			const output = new Writable({
+				write(chunk, _encoding, callback) {
+					writes++;
+					stdout += chunk.toString();
+					callback();
+				},
+			});
+			const originalStderrWrite = process.stderr.write;
+			process.stderr.write = ((chunk: string | Uint8Array) => {
+				stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+				return true;
+			}) as typeof process.stderr.write;
+			try {
+				const code = await runCli(
+					["crew", "init", "--project", project, "--format", format],
+					dir,
+					process.stdin,
+					output,
+				);
+				return { code, stdout, stderr, writes };
+			} finally {
+				process.stderr.write = originalStderrWrite;
+			}
+		};
+		const results = {
+			text: await run("text"),
+			json: await run("json"),
+			toon: await run("toon"),
+		};
+		for (const result of Object.values(results)) {
+			assert.equal(result.code, 1);
+			assert.equal(result.stderr, "");
+			assert.equal(result.writes, 1);
+			assert.doesNotMatch(result.stdout, /ENOTDIR|not-a-directory|bebop-cli-init-boundary-/);
+		}
+		const json = JSON.parse(results.json.stdout) as Record<string, any>;
+		const toon = decode(results.toon.stdout) as Record<string, any>;
+		assert.deepEqual(toon, json);
+		assert.equal(results.text.stdout, `${json.error.message}\n`);
+		assert.equal(json.target, "");
+		assert.deepEqual(json.error.location, { kind: "project-path", name: "project" });
+		assert.deepEqual(JSON.parse(renderCliResult(json as never, "json", true)), json);
+		assert.deepEqual(decode(renderCliResult(json as never, "toon", true)), json);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
