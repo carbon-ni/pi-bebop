@@ -249,6 +249,7 @@ const fullPayload = (content: string): MessagePayload => ({
 	instructions: ["instruction-one", "instruction-two"],
 	origin: { kind: "crew", name: "Mary", role: "lead" },
 	replyTo: { sessionId: "callback-session-0089", sessionName: "Callback Route" },
+	crewReturnAddress: { manifestPath: "/projects/callback/.pi/bebop/crew.json", crewName: "Callback Crew" },
 });
 
 function textBlocks(context: Context): Array<{ role: string; text: string }> {
@@ -305,6 +306,8 @@ test("TASK-0089: accepted Follow-up is consumed in the next provider context bef
 		'"role":"lead"',
 		'"sessionId":"callback-session-0089"',
 		'"sessionName":"Callback Route"',
+		'"manifestPath":"/projects/callback/.pi/bebop/crew.json"',
+		'"crewName":"Callback Crew"',
 	]) {
 		assert.equal(wakeBlock.text.split(field).length - 1, 1, `${field} must cross the provider boundary once`);
 	}
