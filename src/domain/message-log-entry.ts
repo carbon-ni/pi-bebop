@@ -177,7 +177,11 @@ function textCounts(value: any): boolean {
 			Number.isSafeInteger(value.omittedUtf8Bytes) &&
 			typeof value.truncated === "boolean" &&
 			Number.isSafeInteger(value.escapedMarkerCount) &&
-			Array.isArray(value.redactions))
+			Array.isArray(value.redactions) &&
+			value.normalizedUtf8Bytes >= 0 &&
+			value.retainedUtf8Bytes >= 0 &&
+			value.omittedUtf8Bytes >= 0 &&
+			value.retainedUtf8Bytes + value.omittedUtf8Bytes === value.normalizedUtf8Bytes)
 	);
 }
 function textFields(value: any, maxBytes: number, allowUnavailable = true): boolean {
@@ -207,9 +211,11 @@ function payloadTexts(payload: any): boolean {
 function payloadCount(payload: any): boolean {
 	return payload.state === "represented"
 		? Number.isSafeInteger(payload.instructionCount) && payload.instructionCount === payload.instructions.length
-		: payload.instructionCount === null ||
-				(Number.isSafeInteger(payload.instructionCount) &&
-					payload.instructionCount === payload.instructions.length);
+		: payload.reason === "invalid-payload"
+			? payload.instructionCount === null
+			: payload.reason === "record-capacity" &&
+				Number.isSafeInteger(payload.instructionCount) &&
+				payload.instructionCount === payload.instructions.length;
 }
 function payloadFields(entry: MessageLogEntry): void {
 	const payload = entry.payload as any;
