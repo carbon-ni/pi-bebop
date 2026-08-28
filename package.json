@@ -76,6 +76,8 @@
 		"src/domain/presence.ts",
 		"src/domain/protocol.ts",
 		"src/domain/response-policy.ts",
+		"src/domain/actionable-error.ts",
+		"src/domain/actionable-error-inventory.ts",
 		"src/domain/session-filter.ts",
 		"src/domain/session-id.ts",
 		"src/domain/session-messages.ts",

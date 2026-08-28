@@ -34,5 +34,7 @@ export * from "./member-report.ts";
 export * from "./retrospective-record.ts";
 export * from "./crew-retrospective.ts";
 export * from "./crew-retrospective-cadence.ts";
+export * from "./actionable-error-inventory.ts";
+export * from "./actionable-error.ts";
 export * from "./crew-board.ts";
 export * from "./crew-board-command.ts";
