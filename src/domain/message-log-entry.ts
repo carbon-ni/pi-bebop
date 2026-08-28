@@ -181,9 +181,7 @@ function textCounts(value: any): boolean {
 			value.normalizedUtf8Bytes >= 0 &&
 			value.retainedUtf8Bytes >= 0 &&
 			value.omittedUtf8Bytes >= 0 &&
-			value.retainedUtf8Bytes + value.omittedUtf8Bytes === value.normalizedUtf8Bytes &&
-			value.escapedMarkerCount >= 0 &&
-			(!value.truncated || value.omittedUtf8Bytes > 0))
+						value.retainedUtf8Bytes + value.omittedUtf8Bytes === value.normalizedUtf8Bytes && value.retainedUtf8Bytes === new TextEncoder().encode(value.text).byteLength && value.escapedMarkerCount >= 0 && value.truncated === (value.omittedUtf8Bytes > 0) && Array.isArray(value.redactions) && value.redactions.every((item: any) => item && (item.kind === "secret" || item.kind === "credential") && Number.isSafeInteger(item.occurrences) && item.occurrences > 0)
 	);
 }
 function textFields(value: any, maxBytes: number, allowUnavailable = true): boolean {
