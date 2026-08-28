@@ -43,6 +43,20 @@ function closedFields(entry: MessageLogEntry): void {
 	if (Object.keys(entry).some((key) => !REQUIRED.includes(key as never) && !optional.has(key)))
 		throw new Error("unknown-message-log-field");
 }
+function scalarFields(entry: MessageLogEntry): void {
+	if (
+		!/^entry-[0-9a-f]{64}$/.test(String(entry.id)) ||
+		!/^op-[0-9a-f]{64}$/.test(String((entry.operation as any)?.id))
+	)
+		throw new Error("invalid-message-log-id");
+	if (
+		typeof entry.occurredAt !== "string" ||
+		!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(entry.occurredAt)
+	)
+		throw new Error("invalid-message-log-timestamp");
+	if (typeof entry.semanticFingerprint !== "string" || !/^[0-9a-f]{64}$/.test(entry.semanticFingerprint))
+		throw new Error("invalid-message-log-fingerprint");
+}
 function operationFields(entry: MessageLogEntry): void {
 	const operation = entry.operation as any;
 	if (
@@ -85,6 +99,7 @@ export function validateMessageLogEntry(entry: MessageLogEntry): void {
 	requiredFields(entry);
 	if (entry.version !== 1 || entry.kind !== "message-event") throw new Error("invalid-message-log-schema");
 	closedFields(entry);
+	scalarFields(entry);
 	nestedFields(entry);
 }
 

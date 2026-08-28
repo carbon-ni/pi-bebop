@@ -12,16 +12,16 @@ const entry = {
 	surface: "follow-up",
 	stage: "delivery",
 	outcome: "queued",
-	operation: { id: "op", lifecycleSequence: 1 },
+	operation: { id: "op-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", lifecycleSequence: 1 },
 	payload: { state: "represented", instructions: [], instructionCount: 0 },
 	errorCode: null,
 	capture: {
-		endpointId: "endpoint-x",
-		epochId: "epoch-x",
+		endpointId: "endpoint-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		epochId: "epoch-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 		attemptSequence: 1,
 		capturedAt: "2026-08-28T00:00:00.000Z",
 	},
-	semanticFingerprint: "x",
+	semanticFingerprint: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 };
 test("trusted message log append is replay-idempotent and rejects conflicts", async () => {
 	const root = await mkdtemp(`${tmpdir()}/message-log-`);
