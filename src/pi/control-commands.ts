@@ -117,9 +117,23 @@ function boardDependencies(
 const BOARD_COMMAND_CODES = new Set([
 	"not-joined",
 	"untrusted-project",
+	"untrusted-path",
 	"unsupported-layout",
 	"stale-membership",
 	"invalid-request",
+	"invalid-member",
+	"invalid-append",
+	"invalid-read",
+	"invalid-cursor",
+	"cursor-filter-mismatch",
+	"capacity-exceeded",
+	"directory-capacity-exceeded",
+	"lock-conflict",
+	"read-failed",
+	"write-failed",
+	"quarantine-failed",
+	"idempotency-conflict",
+	"link-target-invalid",
 	"board-failed",
 ]);
 function boardErrorMessage(error: unknown, action: string): string {
@@ -127,7 +141,7 @@ function boardErrorMessage(error: unknown, action: string): string {
 	const code = rawCode && BOARD_COMMAND_CODES.has(rawCode) ? rawCode : "board-failed";
 	return presentActionableError({
 		code,
-		operation: `crew_${action}`,
+		operation: `/crew ${action}`,
 		reason: "the Crew Board operation was rejected",
 		recovery: ["verify project trust and crew membership, then retry."],
 	}).message;
