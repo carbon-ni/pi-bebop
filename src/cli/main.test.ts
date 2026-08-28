@@ -54,6 +54,38 @@ async function withEndpoint(
 	}
 }
 
+async function captureCliRun(
+	args: string[],
+	cwd: string,
+): Promise<{
+	code: number;
+	stdout: string;
+	stderr: string;
+	writes: number;
+}> {
+	let stdout = "";
+	let stderr = "";
+	let writes = 0;
+	const output = new Writable({
+		write(chunk, _encoding, callback) {
+			writes++;
+			stdout += chunk.toString();
+			callback();
+		},
+	});
+	const originalStderrWrite = process.stderr.write;
+	process.stderr.write = ((chunk: string | Uint8Array) => {
+		stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+		return true;
+	}) as typeof process.stderr.write;
+	try {
+		const code = await runCli(args, cwd, process.stdin, output);
+		return { code, stdout, stderr, writes };
+	} finally {
+		process.stderr.write = originalStderrWrite;
+	}
+}
+
 test("CLI entrypoint detection canonically matches the invoked executable to the packaged module", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-entrypoint-"));
 	try {
@@ -391,55 +423,62 @@ test("renders stdin read failures in the selected structured format", async () =
 	});
 });
 
-test("send --crew renders intake failures through one safe public result boundary", async () => {
+test("send --crew runner keeps text, JSON, TOON, and --full errors equivalent", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-send-boundary-"));
 	try {
 		const manifest = path.join(dir, ".pi", "bebop", "crew.json");
 		await mkdir(path.dirname(manifest), { recursive: true });
 		await writeFile(manifest, "{ not valid json");
-		let stdout = "";
-		let stderr = "";
-		let writes = 0;
-		const output = new Writable({
-			write(chunk, _encoding, callback) {
-				writes++;
-				stdout += chunk.toString();
-				callback();
-			},
-		});
-		const originalStderrWrite = process.stderr.write;
-		process.stderr.write = ((chunk: string | Uint8Array) => {
-			stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
-			return true;
-		}) as typeof process.stderr.write;
-		try {
-			const code = await runCli(
-				["send", "--crew", manifest, "--message", "hello", "--format", "json"],
-				dir,
-				process.stdin,
-				output,
-			);
-			assert.equal(code, 1);
-		} finally {
-			process.stderr.write = originalStderrWrite;
+		const results = new Map<string, Awaited<ReturnType<typeof captureCliRun>>>();
+		for (const format of ["text", "json", "toon"] as const) {
+			for (const full of [false, true]) {
+				const args = ["send", "--crew", manifest, "--message", "hello", "--format", format];
+				if (full) args.push("--full");
+				results.set(`${format}-${full}`, await captureCliRun(args, dir));
+			}
 		}
-		assert.equal(stderr, "");
-		assert.equal(writes, 1);
-		const result = JSON.parse(stdout);
-		assert.deepEqual(result, {
-			ok: false,
-			target: "",
-			status: "error",
-			error: {
-				code: "invalid-json",
-				operation: "pi-bebop send",
-				message:
-					"pi-bebop send failed: the Crew Intake manifest is not valid JSON. Location: target. Next: run the command with --help, correct the input, and retry. (code: invalid-json)",
-				location: { kind: "argument", name: "target" },
-				recovery: ["run the command with --help, correct the input, and retry."],
-			},
-		});
-		assert.doesNotMatch(stdout, /bebop-cli-send-boundary-|crew\.json|not valid json/);
+		for (const result of results.values()) {
+			assert.equal(result.code, 1);
+			assert.equal(result.stderr, "");
+			assert.equal(result.writes, 1);
+			assert.match(result.stdout, /\n$/);
+			assert.doesNotMatch(result.stdout, /bebop-cli-send-boundary-|crew\.json|not valid json/);
+		}
+		const json = JSON.parse(results.get("json-false")!.stdout);
+		assert.deepEqual(JSON.parse(results.get("json-true")!.stdout), json);
+		assert.deepEqual(decode(results.get("toon-false")!.stdout), json);
+		assert.deepEqual(decode(results.get("toon-true")!.stdout), json);
+		assert.equal(results.get("text-false")!.stdout, `${json.error.message}\n`);
+		assert.equal(results.get("text-true")!.stdout, `${json.error.message}\n`);
+		assert.deepEqual(json.error.location, { kind: "argument", name: "target" });
+		assert.equal(json.target, "");
+		assert.equal(json.error.code, "invalid-json");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("send --socket runner maps an unreachable endpoint to one safe result", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-send-offline-"));
+	try {
+		const socket = path.join(dir, "missing.sock");
+		for (const format of ["text", "json", "toon"] as const) {
+			const result = await captureCliRun(
+				["send", "--socket", socket, "--message", "hello", "--format", format, "--full"],
+				dir,
+			);
+			assert.equal(result.code, 1);
+			assert.equal(result.stderr, "");
+			assert.equal(result.writes, 1);
+			assert.match(result.stdout, /\n$/);
+			assert.doesNotMatch(result.stdout, /bebop-cli-send-offline-|missing\.sock/);
+			if (format === "json") {
+				const json = JSON.parse(result.stdout);
+				assert.equal(json.error.code, "offline");
+				assert.equal(json.target, "");
+				assert.deepEqual(json.error.location, { kind: "argument", name: "target" });
+			}
+		}
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
