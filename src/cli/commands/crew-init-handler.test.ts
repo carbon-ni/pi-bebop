@@ -150,6 +150,10 @@ test("crew init operational failure reports a stable operational code", async ()
 		assert.equal(outcome.result.ok, false);
 		assert.equal(outcome.result.status, "error");
 		assert.equal(outcome.result.error?.code, "unexpected-failure");
+		assert.equal(
+			outcome.result.error?.message,
+			"pi-bebop crew init failed: the Crew scaffold could not be prepared. Location: project. Next: verify the project path and permissions, then retry pi-bebop crew init. (code: unexpected-failure)",
+		);
 		assert.equal(outcome.result.target, "");
 	} finally {
 		await rm(dir, { recursive: true, force: true });

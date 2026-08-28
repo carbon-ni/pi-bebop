@@ -1314,6 +1314,33 @@ test("crew init conflict leaves user content untouched and exits 1", async () =>
 	}
 });
 
+test("crew init runner emits one safe actionable result for an unknown filesystem failure", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-init-boundary-"));
+	try {
+		const project = path.join(dir, "not-a-directory");
+		await writeFile(project, "x");
+		const output = new PassThrough();
+		let text = "";
+		output.setEncoding("utf8");
+		output.on("data", (chunk) => {
+			text += chunk;
+		});
+		const code = await runCli(
+			["crew", "init", "--project", project, "--format", "json"],
+			dir,
+			process.stdin,
+			output,
+		);
+		assert.equal(code, 1);
+		const result = JSON.parse(text);
+		assert.equal(result.error.code, "unexpected-failure");
+		assert.equal(result.target, "");
+		assert.doesNotMatch(text, /ENOTDIR|not-a-directory|bebop-cli-init-boundary-/);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("crew init does not create inbox, sockets links, processes, or Git state", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-init-"));
 	try {

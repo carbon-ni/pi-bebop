@@ -3,11 +3,6 @@
 	"exemptions": [],
 	"entries": [
 		{
-			"file": "src/cli/commands/crew-init-handler.ts",
-			"kind": "cli-result",
-			"count": 1
-		},
-		{
 			"file": "src/cli/commands/crew-roles.ts",
 			"kind": "cli-result",
 			"count": 2
