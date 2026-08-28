@@ -99,7 +99,8 @@ test("flow acquisition failures use actionable envelope", async () => {
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, true);
 	assert.equal(result.content[0]?.text, result.details.actionableError.message);
-	assert.equal(result.details.error, result.details.actionableError.code);
+	assert.equal(result.details.error, "wait-failed");
+	assert.equal(result.details.actionableError.code, "wait-failed");
 	assert.doesNotMatch(JSON.stringify(result.details), /Crew coordination is not initialized|Error:/i);
 });
 
