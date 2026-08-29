@@ -69,6 +69,7 @@
 		"src/domain/index.ts",
 		"src/domain/member-idle-wait.ts",
 		"src/domain/crew-idle-wait.ts",
+		"src/domain/crew-idle-capacity.ts",
 		"src/domain/member-inbox.ts",
 		"src/domain/member-interrupt.ts",
 		"src/domain/member-request.ts",

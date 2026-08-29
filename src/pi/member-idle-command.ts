@@ -47,6 +47,11 @@ async function runObservation(
 	members: readonly string[] | undefined,
 	ctx: ExtensionContext,
 ): Promise<void> {
+	const lease = state.crewIdleCapacity.acquire();
+	if (!lease) {
+		notify(ctx, "Another blocking idle wait is already active", "warning");
+		return;
+	}
 	const controller = new AbortController();
 	let cancelReason: string | undefined;
 	const owner = {
@@ -72,6 +77,7 @@ async function runObservation(
 		}
 		if (state.crewMemberIdleCommand === owner) state.crewMemberIdleCommand = undefined;
 		controller.abort();
+		lease.release();
 	}
 }
 

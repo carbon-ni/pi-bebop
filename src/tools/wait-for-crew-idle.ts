@@ -93,6 +93,8 @@ export function registerWaitForCrewIdleTool(
 					return errorResult("unexpected-failure", "Crew idle selection failed");
 				}
 			}
+			const lease = state.crewIdleCapacity.acquire();
+			if (!lease) return errorResult("wait-in-progress", "Only one blocking wait may be active locally");
 			const owned = new AbortController();
 			let cleaned = false;
 			let wakeListener: ((deliveryId: string) => void) | null = null;
@@ -102,6 +104,7 @@ export function registerWaitForCrewIdleTool(
 				if (wakeListener) state.wakeGate.release(wakeListener);
 				state.blockingWait.release();
 				owned.abort();
+				lease.release();
 			};
 			const wakeResult = new Promise<ToolResult>((resolve) => {
 				wakeListener = (deliveryId: string) => {
@@ -130,10 +133,14 @@ export function registerWaitForCrewIdleTool(
 				};
 			});
 			const armed = state.wakeGate.arm(wakeListener);
-			if (!armed.ok) return errorResult("wait-in-progress", "Only one blocking wait may be active locally");
+			if (!armed.ok) {
+				lease.release();
+				return errorResult("wait-in-progress", "Only one blocking wait may be active locally");
+			}
 			const marker = state.blockingWait.acquire("crew-idle");
 			if (!marker.ok) {
 				state.wakeGate.release(wakeListener);
+				lease.release();
 				return errorResult("wait-in-progress", "Only one blocking wait may be active locally");
 			}
 			if (signal?.aborted) {

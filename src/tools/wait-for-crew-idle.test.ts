@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AcceptedLocalMessageWakeGate, BlockingWaitSlot } from "../domain/index.ts";
+import { AcceptedLocalMessageWakeGate, BlockingWaitSlot, createCrewIdleCapacity } from "../domain/index.ts";
 import { registerWaitForCrewIdleTool } from "./wait-for-crew-idle.ts";
 
 function setup(busy = false) {
 	const registered: any[] = [];
+	const io = { status: 0, state: 0, wait: 0 };
 	const pi = { registerTool: (tool: unknown) => registered.push(tool) } as any;
 	const members = [
 		{ name: "Mony", role: "lead", socketPath: "/mony.sock" },
@@ -14,25 +15,34 @@ function setup(busy = false) {
 	const state: any = {
 		blockingWait: new BlockingWaitSlot({ now: () => "2026-08-29T10:00:00.000Z" }),
 		wakeGate: new AcceptedLocalMessageWakeGate(),
+		crewIdleCapacity: createCrewIdleCapacity(),
 		membershipRuntime: { getMembership: () => ({ member: members[0], manifest: { members } }) },
 		context: { isProjectTrusted: () => true },
 	};
 	registerWaitForCrewIdleTool(pi, state, {
-		requestStatus: async (member) => ({
-			ok: true,
-			status: {
-				member,
-				presence: "online",
-				activity: busy ? "busy" : "idle",
-				hasPendingMessages: false,
-				observedAt: "2026-08-29T10:00:00.000Z",
-			},
-		}),
-		requestWaitState: async (member) => ({ ok: true, snapshot: { member, wait: null } }),
-		requestMemberIdle: async () =>
-			busy ? new Promise<never>(() => undefined) : { ok: true, outcome: "became-idle" },
+		requestStatus: async (member) => {
+			io.status += 1;
+			return {
+				ok: true,
+				status: {
+					member,
+					presence: "online",
+					activity: busy ? "busy" : "idle",
+					hasPendingMessages: false,
+					observedAt: "2026-08-29T10:00:00.000Z",
+				},
+			};
+		},
+		requestWaitState: async (member) => {
+			io.state += 1;
+			return { ok: true, snapshot: { member, wait: null } };
+		},
+		requestMemberIdle: async () => {
+			io.wait += 1;
+			return busy ? new Promise<never>(() => undefined) : { ok: true, outcome: "became-idle" };
+		},
 	});
-	return { tool: registered[0], state };
+	return { tool: registered[0], state, io };
 }
 
 test("wait_for_crew_idle exposes only bounded optional selection and timeout", () => {
@@ -51,6 +61,18 @@ test("wait_for_crew_idle exposes frozen targets and observation caveat in model-
 	assert.match(text, /coversAllOtherMembers: false/);
 	assert.match(text, /observedAt: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
 	assert.match(text, /momentary distributed observation, not a whole-Crew atomic state/);
+});
+
+test("wait_for_crew_idle rejects behind an active slash capacity lease before IO", async () => {
+	const { tool, state, io } = setup();
+	const lease = state.crewIdleCapacity.acquire();
+	assert.ok(lease);
+	const result = await tool.execute("id", {});
+	assert.equal(result.isError, true);
+	assert.match(result.content[0].text, /wait-in-progress/);
+	assert.deepEqual(io, { status: 0, state: 0, wait: 0 });
+	assert.equal(state.blockingWait.activeMarker(), null);
+	lease.release();
 });
 
 test("wait_for_crew_idle releases the crew marker on normal completion", async () => {

@@ -11,6 +11,7 @@ import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
 import {
 	AcceptedLocalMessageWakeGate,
 	BlockingWaitSlot,
+	createCrewIdleCapacity,
 	createMemberIdleWaitResult,
 	getLastAssistantMessage,
 	QueuedFollowUpAcceptanceRegistry,
@@ -97,6 +98,7 @@ export interface SocketState {
 	memberInterruptResolveEndpoint?: typeof resolveMemberEndpoint;
 	/** Current session display-name ownership; auto Member names never publish a global alias. */
 	sessionNameController?: SessionNameController;
+	crewIdleCapacity: ReturnType<typeof createCrewIdleCapacity>;
 	/** Active human `/crew member-idle` observation, cancelled by local activity/lifecycle. */
 	crewMemberIdleCommand?: { readonly cancel: (reason: string) => void };
 }
@@ -402,7 +404,6 @@ function updateSessionEnv(ctx: ExtensionContext | null, enabled: boolean): void 
 export function cancelCrewMemberIdleCommand(state: SocketState, reason = "local-activity"): void {
 	state.crewMemberIdleCommand?.cancel(reason);
 }
-
 export function createSocketState(): SocketState {
 	return {
 		server: null,
@@ -415,6 +416,7 @@ export function createSocketState(): SocketState {
 		wakeGate: new AcceptedLocalMessageWakeGate(),
 		queuedFollowUps: new QueuedFollowUpAcceptanceRegistry({ now: () => Date.now() }),
 		blockingWait: new BlockingWaitSlot({ now: () => new Date().toISOString() }),
+		crewIdleCapacity: createCrewIdleCapacity(),
 		waitStateSubscriptions: [],
 		membershipRuntime: null,
 		sessionNameController: undefined,

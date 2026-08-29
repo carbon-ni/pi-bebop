@@ -82,13 +82,108 @@ function errorResult(target: string, code: string, _message: string): Actionable
 	});
 }
 
-function memberIdleCapacityError(state: SocketState, memberLabel: string): ActionableToolResult | null {
-	if (!state.crewMemberIdleCommand) return null;
-	return errorResult(
-		memberLabel || "member",
-		"wait-in-progress",
-		"Only one blocking idle wait may be active locally",
-	);
+async function runMemberIdleWaitTransport(
+	state: SocketState,
+	resolved: {
+		readonly target: { readonly name: string; readonly role: string; readonly socketPath: string };
+		readonly timeoutSeconds: number;
+	},
+	memberLabel: string,
+	now: () => string,
+	signal: AbortSignal | undefined,
+	transport: MemberIdleWaitToolTransport,
+): Promise<MemberIdleWaitTransportResult> {
+	const lease = state.crewIdleCapacity.acquire();
+	if (!lease) return { ok: false, code: "wait-in-progress" };
+	const owned = new AbortController();
+	const terminal = await new Promise<MemberIdleWaitTransportResult>((resolveTerminal) => {
+		let settled = false;
+		let cleanedUp = false;
+		const finish = (outcome: MemberIdleWaitTransportResult) => {
+			if (settled) return;
+			settled = true;
+			resolveTerminal(outcome);
+		};
+		// TASK-0117: idempotent cleanup runs on EVERY terminal path — including
+		// the accepted-message wake — so the marker and wake gate release
+		// deterministically even if transport abort resolution lags.
+		const cleanup = () => {
+			if (cleanedUp) return;
+			cleanedUp = true;
+			state.wakeGate.release(wakeListener);
+			state.blockingWait.release();
+			owned.abort();
+			lease.release();
+		};
+		const wakeListener = (deliveryId: string) => {
+			void deliveryId;
+			cleanup();
+			finish({
+				ok: true,
+				result: createMemberIdleWaitResult(
+					{ name: resolved.target.name, role: resolved.target.role },
+					{ outcome: "message-received" },
+					now(),
+				),
+			});
+		};
+		const armed = state.wakeGate.arm(wakeListener);
+		if (armed.ok === false) {
+			lease.release();
+			finish({ ok: false, code: "wait-in-progress" });
+			return;
+		}
+		const marker = state.blockingWait.acquire("member-idle");
+		if (marker.ok === false) {
+			state.wakeGate.release(wakeListener);
+			lease.release();
+			finish({ ok: false, code: "wait-in-progress" });
+			return;
+		}
+		if (signal) {
+			if (signal.aborted) {
+				cleanup();
+				finish({ ok: false, code: "aborted" });
+				return;
+			}
+			signal.addEventListener(
+				"abort",
+				() => {
+					cleanup();
+					finish({ ok: false, code: "aborted" });
+				},
+				{ once: true },
+			);
+		}
+		// Reachability probe runs only after private capacity, wake, and marker ownership.
+		void (async () => {
+			const alive = await transport.probeEndpoint(resolved.target.socketPath);
+			if (!alive) {
+				cleanup();
+				finish({
+					ok: true,
+					result: createMemberIdleWaitResult(
+						{ name: resolved.target.name, role: resolved.target.role },
+						{ outcome: "offline" },
+						now(),
+					),
+				});
+				return;
+			}
+			try {
+				const outcome = await transport.requestIdleWait(resolved.target.socketPath, memberLabel, {
+					timeoutSeconds: resolved.timeoutSeconds,
+					signal: owned.signal,
+				});
+				cleanup();
+				finish(outcome);
+			} catch {
+				cleanup();
+				finish({ ok: false, code: "transport-error" });
+			}
+		})();
+	});
+	return terminal;
 }
 
 export function registerWaitForMemberIdleTool(
@@ -114,104 +209,19 @@ export function registerWaitForMemberIdleTool(
 			};
 			const flow = createMemberIdleWaitFlow(surface);
 			try {
-				// TASK-0081: pure resolution (no IO), then acquire the single local
-				// slot synchronously BEFORE the reachability probe so a concurrent
-				// second wait fails `wait-in-progress` before any IO and never
-				// shares, replaces, or opens a subscription.
+				// Resolve before private capacity acquisition so invalid requests fail
+				// without consuming the shared slot or performing endpoint IO.
 				const resolved = flow.resolveMemberIdleWait({ member: memberLabel, timeoutSeconds });
 				const targetIdentity = { name: resolved.target.name, role: resolved.target.role };
 				const observedAt = () => new Date().toISOString();
-
-				const capacityError = memberIdleCapacityError(state, memberLabel);
-				if (capacityError) return capacityError;
-				const owned = new AbortController();
-				const terminal = await new Promise<MemberIdleWaitTransportResult>((resolveTerminal) => {
-					let settled = false;
-					let cleanedUp = false;
-					const finish = (outcome: MemberIdleWaitTransportResult) => {
-						if (settled) return;
-						settled = true;
-						resolveTerminal(outcome);
-					};
-					// TASK-0117: idempotent cleanup runs on EVERY terminal path — including
-					// the accepted-message wake — so the marker and wake gate release
-					// deterministically even if transport abort resolution lags.
-					const cleanup = () => {
-						if (cleanedUp) return;
-						cleanedUp = true;
-						state.wakeGate.release(wakeListener);
-						state.blockingWait.release();
-						owned.abort();
-					};
-					const wakeListener = (deliveryId: string) => {
-						void deliveryId;
-						cleanup();
-						finish({
-							ok: true,
-							result: createMemberIdleWaitResult(
-								targetIdentity,
-								{ outcome: "message-received" },
-								observedAt(),
-							),
-						});
-					};
-					const armed = state.wakeGate.arm(wakeListener);
-					if (armed.ok === false) {
-						finish({ ok: false, code: "wait-in-progress" });
-						return;
-					}
-					const marker = state.blockingWait.acquire("member-idle");
-					if (marker.ok === false) {
-						state.wakeGate.release(wakeListener);
-						finish({ ok: false, code: "wait-in-progress" });
-						return;
-					}
-					if (signal) {
-						if (signal.aborted) {
-							cleanup();
-							finish({ ok: false, code: "aborted" });
-							return;
-						}
-						signal.addEventListener(
-							"abort",
-							() => {
-								cleanup();
-								finish({ ok: false, code: "aborted" });
-							},
-							{ once: true },
-						);
-					}
-					// Reachability probe (IO) runs AFTER the slot is armed and the marker
-					// acquired; offline is a compact offline outcome. Then open the one-shot
-					// subscription with the owned controller so a winning local terminal
-					// (message/abort) cancels it.
-					void (async () => {
-						const alive = await surface.probeEndpoint(resolved.target.socketPath);
-						if (!alive) {
-							cleanup();
-							finish({
-								ok: true,
-								result: createMemberIdleWaitResult(
-									targetIdentity,
-									{ outcome: "offline" },
-									observedAt(),
-								),
-							});
-							return;
-						}
-						try {
-							const outcome = await surface.requestIdleWait(resolved.target.socketPath, memberLabel, {
-								timeoutSeconds: resolved.timeoutSeconds,
-								signal: owned.signal,
-							});
-							cleanup();
-							finish(outcome);
-						} catch {
-							cleanup();
-							finish({ ok: false, code: "transport-error" });
-						}
-					})();
-				});
+				const terminal = await runMemberIdleWaitTransport(
+					state,
+					resolved,
+					memberLabel,
+					observedAt,
+					signal,
+					transport,
+				);
 
 				// Map the transport terminal onto the domain outcome union. First
 				// terminal wins; every later callback only performed idempotent

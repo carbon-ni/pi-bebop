@@ -7,6 +7,7 @@ export * from "./message-payload.ts";
 export * from "./queued-follow-up-provenance.ts";
 export * from "./blocking-wait-state.ts";
 export * from "./crew-idle-wait.ts";
+export * from "./crew-idle-capacity.ts";
 export * from "./message-log-entry.ts";
 export * from "./message-renderer.ts";
 export * from "./session-messages.ts";
