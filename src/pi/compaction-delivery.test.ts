@@ -143,6 +143,53 @@ test("sendDurably uses the journal reservation for its envelope id", async () =>
 	adapter.compactionEnded(generation);
 });
 
+test("reconfigure waits for in-flight durable persistence before replacing the journal", async () => {
+	let release!: () => void;
+	const appendGate = new Promise<void>((resolve) => (release = resolve));
+	const makeJournal = (append: (envelope: any) => Promise<any>) => ({
+		filePath: "/tmp/compaction.json",
+		append,
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	});
+	const oldJournal = makeJournal(async (envelope) => {
+		await appendGate;
+		return {
+			version: 1 as const,
+			id: envelope.id,
+			sequence: 1,
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			envelope,
+		};
+	});
+	const newJournal = makeJournal(async (envelope) => ({
+		version: 1 as const,
+		id: envelope.id,
+		sequence: 1,
+		acceptedAt: 1,
+		bytes: envelope.bytes,
+		state: "pending" as const,
+		envelope,
+	}));
+	const adapter = createModelDeliveryAdapter(() => undefined);
+	await adapter.configureJournal(oldJournal);
+	const generation = adapter.compactionStarted();
+	const acceptance = adapter.sendDurably({ customType: "crew", content: "old" });
+	adapter.compactionEnded(generation);
+	const reconfigure = adapter.configureJournal(newJournal);
+	let replaced = false;
+	void reconfigure.then(() => (replaced = true));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(replaced, false);
+	release();
+	assert.deepEqual(await acceptance, { disposition: "deferred" });
+	await reconfigure;
+});
+
 test("deferred handoff waits for session evidence before marking delivered", async () => {
 	const calls: string[] = [];
 	let releaseEvidence!: () => void;

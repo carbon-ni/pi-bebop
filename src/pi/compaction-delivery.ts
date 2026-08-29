@@ -108,6 +108,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 	const failed = new Set<string>();
 	const deferredJournals = new Map<string, CompactionDeliveryJournal>();
 	const allocatedIds = new Set<string>();
+	const inFlightDeliveries = new Set<Promise<void>>();
 	let gate: CompactionDeliveryGate;
 	const decorateMessage = (message: unknown, id: string): unknown => {
 		if (typeof message !== "object" || message === null || Array.isArray(message)) return message;
@@ -121,6 +122,11 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			},
 		};
 	};
+	const consumeFailure = (id: string): boolean => {
+		if (!failed.has(id)) return false;
+		failed.delete(id);
+		return true;
+	};
 	const finish = (id: string, callback: "success" | "failure"): void => {
 		deferredIds.delete(id);
 		if (callback === "failure") failed.add(id);
@@ -130,45 +136,55 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		callbacks?.[callback]?.();
 		delivered.delete(id);
 	};
-	const deliver = async (entry: CompactionDeliveryEnvelope): Promise<void> => {
-		if (failed.has(entry.id)) {
-			failed.delete(entry.id);
-			return;
-		}
-		const deliveryJournal = deferredJournals.get(entry.id) ?? journal;
-		if (deliveryJournal && deferredIds.has(entry.id)) {
-			let handedOff = false;
-			try {
-				const requestId = requestIdForReplay(entry);
-				if (requestId && isLiveRequest && !(await isLiveRequest(requestId))) {
-					await journal.markDelivered(entry.id);
-					finish(entry.id, "failure");
-					return;
-				}
-				await (persisted.get(entry.id) ?? Promise.resolve());
-				await deliveryJournal.markHandingOff(entry.id);
-				send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
-				handedOff = true;
-				const evidenceSeen = waitForSessionEvidence ? await waitForSessionEvidence(entry.id) : true;
-				if (evidenceSeen) {
-					try {
-						await deliveryJournal.markDelivered(entry.id);
-					} catch {
-						// Keep the handing-off record for evidence-based reconciliation.
-					}
-				}
-				finish(entry.id, "success");
-			} catch {
-				finish(entry.id, handedOff ? "success" : "failure");
+	const deliverPersisted = async (
+		entry: CompactionDeliveryEnvelope,
+		deliveryJournal: CompactionDeliveryJournal,
+	): Promise<void> => {
+		let handedOff = false;
+		try {
+			const requestId = requestIdForReplay(entry);
+			if (requestId && isLiveRequest && !(await isLiveRequest(requestId))) {
+				await deliveryJournal.markDelivered(entry.id);
+				finish(entry.id, "failure");
+				return;
 			}
-			return;
+			await (persisted.get(entry.id) ?? Promise.resolve());
+			if (consumeFailure(entry.id)) return;
+			await deliveryJournal.markHandingOff(entry.id);
+			send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
+			handedOff = true;
+			const evidenceSeen = waitForSessionEvidence ? await waitForSessionEvidence(entry.id) : true;
+			if (evidenceSeen) {
+				try {
+					await deliveryJournal.markDelivered(entry.id);
+				} catch {
+					// Keep the handing-off record for evidence-based reconciliation.
+				}
+			}
+			finish(entry.id, "success");
+		} catch {
+			finish(entry.id, handedOff ? "success" : "failure");
 		}
+	};
+	const deliverEntry = async (entry: CompactionDeliveryEnvelope): Promise<void> => {
+		if (consumeFailure(entry.id)) return;
+		const deliveryJournal = deferredJournals.get(entry.id) ?? journal;
+		if (deliveryJournal && deferredIds.has(entry.id)) return deliverPersisted(entry, deliveryJournal);
 		try {
 			send(entry.message as never, entry.delivery as never);
 			finish(entry.id, "success");
 		} catch {
 			finish(entry.id, "failure");
 		}
+	};
+	const deliver = (entry: CompactionDeliveryEnvelope): Promise<void> => {
+		const task = deliverEntry(entry);
+		inFlightDeliveries.add(task);
+		void task.then(
+			() => inFlightDeliveries.delete(task),
+			() => inFlightDeliveries.delete(task),
+		);
+		return task;
 	};
 	gate = createCompactionDeliveryGate({
 		maxEntries: 64,
@@ -285,6 +301,8 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		) => {
 			if (nextJournal === journal) return;
 			journalGeneration += 1;
+			while (inFlightDeliveries.size > 0 || persisted.size > 0)
+				await Promise.all([...inFlightDeliveries, ...persisted.values()]);
 			if (nextJournal) {
 				await nextJournal.reconcile(hasSessionEvidence);
 				const pending = await nextJournal.listPending();
