@@ -33,6 +33,12 @@ export interface ModelDeliveryAdapter {
 		onDelivered?: () => void,
 		onFailed?: () => void,
 	) => CompactionDeliveryResult;
+	readonly sendDurably: (
+		message: unknown,
+		options?: Readonly<Record<string, unknown>>,
+		onDelivered?: () => void,
+		onFailed?: () => void,
+	) => Promise<CompactionDeliveryResult>;
 	readonly configureJournal: (
 		journal: CompactionDeliveryJournal | undefined,
 		hasSessionEvidence?: (deliveryId: string) => Promise<boolean> | boolean,
@@ -128,11 +134,34 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		schedule: (task) => setImmediate(task),
 		deliver,
 	});
+	const sendDurably = (
+		message: unknown,
+		options: Readonly<Record<string, unknown>> = {},
+		onDelivered?: () => void,
+		onFailed?: () => void,
+	): Promise<CompactionDeliveryResult> =>
+		new Promise((resolve) => {
+			let persisted = false;
+			const result = sendModel(
+				message,
+				options,
+				onDelivered,
+				onFailed,
+				() => {
+					persisted = true;
+					resolve({ disposition: "deferred" });
+				},
+				() => resolve({ disposition: "invalid" }),
+			);
+			if (result.disposition !== "deferred" || !journal || persisted) resolve(result);
+		});
 	const sendModel = (
 		message: unknown,
 		options: Readonly<Record<string, unknown>> = {},
 		onDelivered?: () => void,
 		onFailed?: () => void,
+		onPersisted?: () => void,
+		onPersistenceFailed?: () => void,
 	): CompactionDeliveryResult => {
 		const id = `delivery-${++nextId}`;
 		let bytes: number;
@@ -150,8 +179,11 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			persisted.set(
 				id,
 				journal.append(envelope, Date.now()).then(
-					() => undefined,
 					() => {
+						onPersisted?.();
+					},
+					() => {
+						onPersistenceFailed?.();
 						finish(id, "failure");
 					},
 				),
@@ -162,6 +194,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 	};
 	return {
 		send: sendModel,
+		sendDurably,
 		sendAndWait: (message, options = {}) =>
 			new Promise((resolve, reject) => {
 				const result = ((): CompactionDeliveryResult => {

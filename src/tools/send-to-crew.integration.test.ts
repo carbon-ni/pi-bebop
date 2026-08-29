@@ -57,6 +57,20 @@ function recipientBridge(membership: any) {
 	const state = {
 		context: { sessionManager: { getEntries: () => entries }, isProjectTrusted: () => true },
 		membershipRuntime: { getMembership: () => membership },
+		modelDelivery: {
+			send: (message: unknown, options: unknown) => {
+				pi.sendMessage(message as never, options as never);
+				return { disposition: "direct" };
+			},
+			sendDurably: async (message: unknown, options: unknown) => {
+				pi.sendMessage(message as never, options as never);
+				return { disposition: "direct" };
+			},
+			sendAndWait: async () => ({ disposition: "direct" }),
+			configureJournal: async () => undefined,
+			compactionStarted: () => 0,
+			compactionEnded: () => false,
+		},
 	} as unknown as SocketState;
 	const bridge = createInboxBridgeController(pi, state);
 	bridge.establish(ownershipFromMembership(membership));

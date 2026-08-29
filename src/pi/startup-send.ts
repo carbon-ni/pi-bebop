@@ -466,14 +466,7 @@ export async function maybeHandleStartupControlSend(
 				return;
 			}
 			if (ctx.hasUI) {
-				pi.sendMessage(
-					{
-						customType: "control-send",
-						content: `Startup response from ${target}:\n\n${lastMessage.content}`,
-						display: true,
-					},
-					{ triggerTurn: false },
-				);
+				ctx.ui.notify(`Startup response from ${target}:\n\n${lastMessage.content}`, "info");
 			} else {
 				console.log(lastMessage.content);
 			}

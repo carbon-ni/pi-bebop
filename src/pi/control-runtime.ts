@@ -43,8 +43,8 @@ import type { MemberInboxMessageDependencies } from "../application/member-inbox
 import type { BroadcastStoreDependencies } from "../application/crew-broadcast.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import { getCommandHandler } from "./command-handlers/registry.ts";
+import { createModelDeliveryAdapter } from "./compaction-delivery.ts";
 import type { SessionNameController } from "./session-name.ts";
-
 // ============================================================================
 // Subscription Management
 // ============================================================================
@@ -245,7 +245,8 @@ export async function handleCommand(
 		respond(false, command.type, undefined, "Session not ready");
 		return;
 	}
-
+	if (!state.modelDelivery)
+		state.modelDelivery = createModelDeliveryAdapter((message, options) => pi.sendMessage(message, options));
 	void syncAlias(state, ctx);
 	const handler = getCommandHandler(command.type);
 	if (!handler) {

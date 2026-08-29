@@ -11,6 +11,7 @@ import {
 } from "../application/inbox-bridge.ts";
 import { notifyAcceptedMessage, type SocketState } from "./control-runtime.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
+import { createModelDeliveryAdapter } from "./compaction-delivery.ts";
 
 export const INBOX_OFFERING_ENTRY_TYPE = "intray-inbox-offering";
 const MAX_INBOX_EVIDENCE_ID_BYTES = 128;
@@ -74,6 +75,8 @@ export function createInboxBridgeController(
 ): InboxBridgeController {
 	const isProjectTrusted = dependencies.isProjectTrusted ?? (() => state.context?.isProjectTrusted?.() === true);
 	const openStore = dependencies.openStore ?? openTrustedMemberInboxStore;
+	if (!state.modelDelivery)
+		state.modelDelivery = createModelDeliveryAdapter((message, options) => pi.sendMessage(message, options));
 
 	const entries = (): readonly unknown[] => state.context?.sessionManager.getEntries() ?? [];
 
@@ -111,14 +114,13 @@ export function createInboxBridgeController(
 					inbox: { itemId: entry.id, ...(crewName === undefined ? {} : { crewName }) },
 				},
 			};
-			const delivery = state.modelDelivery?.send(modelMessage, { triggerTurn: true, deliverAs: "followUp" }, () =>
-				notifyAcceptedMessage(state, `inbox-${entry.id}`),
+			if (!state.modelDelivery) return false;
+			const delivery = await state.modelDelivery.sendDurably(
+				modelMessage,
+				{ triggerTurn: true, deliverAs: "followUp" },
+				() => notifyAcceptedMessage(state, `inbox-${entry.id}`),
 			);
-			if (!state.modelDelivery) {
-				pi.sendMessage(modelMessage, { triggerTurn: true, deliverAs: "followUp" });
-				notifyAcceptedMessage(state, `inbox-${entry.id}`);
-			}
-			if (delivery?.disposition === "invalid" || delivery?.disposition === "capacity-exceeded") return false;
+			if (delivery.disposition === "invalid" || delivery.disposition === "capacity-exceeded") return false;
 			return true;
 		},
 		offeringState,

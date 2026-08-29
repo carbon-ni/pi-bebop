@@ -58,6 +58,20 @@ function setup(entries: Array<Record<string, unknown>> = [], initialPending: Inb
 			isProjectTrusted: () => true,
 		},
 		membershipRuntime: { getMembership: () => null },
+		modelDelivery: {
+			send: (message: unknown, options: unknown) => {
+				pi.sendMessage(message as never, options as never);
+				return { disposition: "direct" };
+			},
+			sendDurably: async (message: unknown, options: unknown) => {
+				pi.sendMessage(message as never, options as never);
+				return { disposition: "direct" };
+			},
+			sendAndWait: async () => ({ disposition: "direct" }),
+			configureJournal: async () => undefined,
+			compactionStarted: () => 0,
+			compactionEnded: () => false,
+		},
 	} as unknown as SocketState;
 	const controller = createInboxBridgeController(pi, state, {
 		openStore: (async () => ({
@@ -163,6 +177,7 @@ describe("adapter controller wiring", () => {
 		const harness = setup([], [item(0), item(1)]);
 		(harness.state as any).modelDelivery = {
 			send: () => ({ disposition: "deferred" }),
+			sendDurably: async () => ({ disposition: "deferred" }),
 		};
 		harness.controller.establish(ownershipFromMembership(membershipFixture()));
 		assert.deepEqual(await harness.controller.attemptOffer(), { offered: true, itemId: "inbox-0-abc" });

@@ -118,14 +118,18 @@ export async function handleMemberRequest(
 			flow.registry.failBeforeAcceptance(command.requestId);
 			context.respond(false, command.type, undefined, "delivery-failed");
 		};
-		const delivery = context.state.modelDelivery?.send(
+		if (!context.state.modelDelivery) {
+			flow.registry.failBeforeAcceptance(command.requestId);
+			context.respond(false, command.type, undefined, "delivery-failed");
+			return;
+		}
+		const delivery = await context.state.modelDelivery.sendDurably(
 			modelMessage,
 			{ triggerTurn: true },
 			acceptAfterHandoff,
 			failAfterHandoff,
 		);
-		if (!context.state.modelDelivery) context.pi.sendMessage(modelMessage, { triggerTurn: true });
-		disposition = delivery?.disposition ?? "direct";
+		disposition = delivery.disposition;
 		if (delivery?.disposition === "deferred") return;
 		if (isDeliveryFailure(delivery?.disposition)) {
 			flow.registry.failBeforeAcceptance(command.requestId);

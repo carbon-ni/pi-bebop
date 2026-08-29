@@ -45,11 +45,10 @@ export async function handleInterrupt(
 		isIdle: () => context.ctx.isIdle() && !context.contextIsCompacting(),
 		abort: () => context.ctx.abort(),
 		sendMessage: (message, options) => {
-			if (context.state.modelDelivery)
-				return context.state.modelDelivery
-					.sendAndWait(message, options as Readonly<Record<string, unknown>>)
-					.then(() => undefined);
-			void context.pi.sendMessage(message as never, options as never);
+			if (!context.state.modelDelivery) return Promise.reject(new Error("delivery-unavailable"));
+			return context.state.modelDelivery
+				.sendAndWait(message, options as Readonly<Record<string, unknown>>)
+				.then(() => undefined);
 		},
 		appendEntry: (customType, data) => context.pi.appendEntry(customType, data),
 		getEntries: () => context.ctx.sessionManager.getEntries() as readonly unknown[],

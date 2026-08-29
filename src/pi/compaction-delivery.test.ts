@@ -43,6 +43,41 @@ test("model delivery starts durable append before terminal drain", async () => {
 	);
 });
 
+test("sendDurably waits for journal append before acknowledging deferred acceptance", async () => {
+	let release!: () => void;
+	const appendGate = new Promise<void>((resolve) => (release = resolve));
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => {
+			await appendGate;
+			return {
+				version: 1 as const,
+				id: envelope.id,
+				sequence: 1,
+				acceptedAt: 1,
+				bytes: envelope.bytes,
+				state: "pending" as const,
+				envelope,
+			};
+		},
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter(() => undefined);
+	await adapter.configureJournal(journal);
+	const generation = adapter.compactionStarted();
+	const acknowledgement = adapter.sendDurably({ customType: "crew", content: "deferred" });
+	adapter.compactionEnded(generation);
+	let settled = false;
+	void acknowledgement.then(() => (settled = true));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(settled, false);
+	release();
+	assert.deepEqual(await acknowledgement, { disposition: "deferred" });
+});
+
 test("markDelivered failure keeps handoff successful for the caller", async () => {
 	const sent: unknown[] = [];
 	const journal = {

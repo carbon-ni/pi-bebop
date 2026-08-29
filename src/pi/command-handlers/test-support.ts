@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createSocketState } from "../control-runtime.ts";
 import type { RpcSocket } from "../../infra/rpc-server.ts";
 import type { RpcHandlerContext } from "./types.ts";
@@ -26,8 +26,26 @@ export function handlerContext(
 		hasPendingMessages: () => false,
 		sessionManager: { getBranch: () => [], getEntries: () => [], getLeafId: () => "root" },
 	} as never;
+	const pi = { sendMessage: () => undefined, appendEntry: () => undefined } as unknown as ExtensionAPI;
+	state.modelDelivery = {
+		send: (message, options) => {
+			pi.sendMessage(message as never, options as never);
+			return { disposition: "direct" };
+		},
+		sendDurably: async (message, options) => {
+			pi.sendMessage(message as never, options as never);
+			return { disposition: "direct" };
+		},
+		sendAndWait: async (message, options) => {
+			pi.sendMessage(message as never, options as never);
+			return { disposition: "direct" };
+		},
+		configureJournal: async () => undefined,
+		compactionStarted: () => 0,
+		compactionEnded: () => false,
+	} as never;
 	return {
-		pi: { sendMessage: () => undefined, appendEntry: () => undefined } as never,
+		pi,
 		state,
 		ctx: state.context as ExtensionContext,
 		socket: new EventEmitter() as never as RpcSocket,
