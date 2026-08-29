@@ -122,6 +122,54 @@ test("queued model content preserves bounded Unicode payload content verbatim", 
 	assert.equal(content.split("\n").length, 2, "label+guidance stays one line; payload stays one canonical line");
 });
 
+test("isDeliveryProvenance enforces the closed schema: no extra fields, delay grammar+bound, finite timestamps", () => {
+	const valid = {
+		deliveryId: "delivery-1",
+		acceptedAt: 1_000,
+		handoffAt: 2_000,
+		queueDelay: "14m",
+		disposition: "queued",
+	};
+	assert.ok(isDeliveryProvenance(valid));
+	// Valid compact grammar across units and bounds.
+	for (const delay of ["0s", "59s", "1m", "14m", "23h", "3d", "9999d"]) {
+		assert.ok(isDeliveryProvenance({ ...valid, queueDelay: delay }), delay);
+	}
+	// Extra fields are rejected despite additionalProperties:false declaration.
+	assert.equal(
+		isDeliveryProvenance({ ...valid, queueDelay: "socket=/tmp/leak", extra: "not-allowed" }),
+		false,
+		"Kelly probe: arbitrary delay text plus extra field must fail",
+	);
+	assert.equal(isDeliveryProvenance({ ...valid, extra: 1 }), false);
+	// Delay must be the exact compact formatter grammar, bounded, ASCII, control-free.
+	const malformed = [
+		"socket=/tmp/leak",
+		"14m extra",
+		"-5m",
+		"0.5s",
+		"",
+		"14M",
+		"１４m",
+		"99999d",
+		"14m\n",
+		"14m\u0000",
+	];
+	for (const delay of malformed) {
+		assert.equal(isDeliveryProvenance({ ...valid, queueDelay: delay }), false, JSON.stringify(delay));
+	}
+	// Timestamps must be finite epoch milliseconds (never NaN/±Infinity, never negative).
+	for (const patch of [
+		{ acceptedAt: Number.NaN },
+		{ handoffAt: Number.POSITIVE_INFINITY },
+		{ acceptedAt: Number.NEGATIVE_INFINITY },
+		{ acceptedAt: -1 },
+		{ handoffAt: -1 },
+	]) {
+		assert.equal(isDeliveryProvenance({ ...valid, ...patch }), false, JSON.stringify(patch));
+	}
+});
+
 test("delivery provenance schema is strict TypeBox with frozen semantics", () => {
 	assert.equal(
 		JSON.stringify(DeliveryProvenanceSchema.properties ? Object.keys(DeliveryProvenanceSchema.properties) : []),

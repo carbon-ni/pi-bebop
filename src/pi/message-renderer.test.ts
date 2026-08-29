@@ -80,6 +80,41 @@ test("queued follow-up label and hint expose the compact immutable delay consist
 	};
 	assert.equal(sessionMessageLabel(malformed), "[follow-up]");
 	assert.equal(sessionMessageHint(malformed), null);
+	// Arbitrary delay text or extra fields never reach the TUI label (QA probe).
+	const injected = {
+		customType: "bebop-session-message",
+		content: "old",
+		details: {
+			messagePayload: { content: "old" },
+			deliveryProvenance: {
+				deliveryId: "d",
+				acceptedAt: 1,
+				handoffAt: 2,
+				queueDelay: "socket=/tmp/leak",
+				disposition: "queued",
+				extra: "not-allowed",
+			},
+		},
+	};
+	assert.equal(sessionMessageLabel(injected), "[follow-up]");
+	assert.equal(sessionMessageHint(injected), null);
+	// Non-finite timestamps fail safe too.
+	const nanTimestamps = {
+		customType: "bebop-session-message",
+		content: "old",
+		details: {
+			messagePayload: { content: "old" },
+			deliveryProvenance: {
+				deliveryId: "d",
+				acceptedAt: Number.NaN,
+				handoffAt: 2,
+				queueDelay: "1m",
+				disposition: "queued",
+			},
+		},
+	};
+	assert.equal(sessionMessageLabel(nanTimestamps), "[follow-up]");
+	assert.equal(sessionMessageHint(nanTimestamps), null);
 });
 
 test("TASK-0076: inbound Member request is visibly distinguished from ordinary Follow-up in the UI", () => {
