@@ -81,6 +81,7 @@ import { handleSessionStart } from "./pi/session-start.ts";
 import { handleMessageEndQueuedFollowUp, queuedFollowUpMessageEndResult } from "./pi/queued-follow-up-handoff.ts";
 import { createSessionNameController } from "./pi/session-name.ts";
 import { reportActionableError } from "./pi/actionable-error-output.ts";
+import { createModelDeliveryAdapter } from "./pi/compaction-delivery.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
@@ -120,6 +121,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer("crew-board", renderCrewBoardEntry);
 
 	const state = createSocketState();
+	state.modelDelivery = createModelDeliveryAdapter((message, options) => pi.sendMessage(message, options));
 	const sessionNameApi = pi as ExtensionAPI & {
 		setSessionName?: (name: string) => void;
 		getSessionName?: () => string | undefined;
@@ -175,7 +177,7 @@ export default function (pi: ExtensionAPI) {
 		// rejects for the now-terminal request, so the reminder can never resolve
 		// or alter the Request outcome.
 		onFirstIdleReminder: (requestId, requester) => {
-			pi.sendMessage(
+			state.modelDelivery?.send(
 				{
 					customType: "bebop-session-message",
 					content: `The Member request ${requestId} from ${requester.name} (${requester.role}) is awaiting your Response. If you have the answer, reply now with respond_to_member_request; the requester waits only a short bounded grace before the request expires.`,
@@ -207,8 +209,8 @@ export default function (pi: ExtensionAPI) {
 				state,
 				`wait-resume-${String((message.details as { waitId?: string }).waitId ?? "")}`,
 			);
-			if (isIdle) pi.sendMessage(customMessage, { triggerTurn: true });
-			else pi.sendMessage(customMessage, { triggerTurn: true, deliverAs: message.deliverAs });
+			if (isIdle) state.modelDelivery?.send(customMessage, { triggerTurn: true });
+			else state.modelDelivery?.send(customMessage, { triggerTurn: true, deliverAs: message.deliverAs });
 		},
 		isRunIdle: () => state.context?.isIdle?.() === true,
 		// TASK-0080: shared events are fire-and-forget session entries with the
@@ -322,7 +324,7 @@ export default function (pi: ExtensionAPI) {
 				onEffects,
 			});
 		},
-		sendMessage: (message, options) => pi.sendMessage(message, options),
+		sendMessage: (message, options) => state.modelDelivery?.send(message, options),
 		onObserverChanged: (observer) => {
 			state.presenceObserver = observer;
 		},
@@ -454,12 +456,17 @@ export default function (pi: ExtensionAPI) {
 		yieldRuntime.markStarted();
 	});
 
-	// Manual/branch compaction can settle while the agent run flag is already
-	// idle; re-evaluate the same combined predicate on Pi's balanced lifecycle end.
-	// TASK-0069 is supplied by the upgraded Pi peer. Keep loading compatible
-	// with older peers: the event is additive and the handler is inert there.
-	const onCompactionEnd = (_event: unknown, ctx: ExtensionContext) => {
+	// Terminal compaction handlers run before Pi's internal cleanup. The gate
+	// schedules an injected post-event task and re-checks depth/generation there.
+	const compactionGenerations: number[] = [];
+	pi.on("session_before_compact", () => {
+		compactionGenerations.push(state.modelDelivery?.compactionStarted() ?? 0);
+	});
+	const onCompactionTerminal = (_event: unknown, ctx: ExtensionContext) => {
+		const generation = compactionGenerations.pop();
+		if (generation !== undefined) state.modelDelivery?.compactionEnded(generation);
 		emitIdleSettled(state, ctx);
 	};
-	pi.on("session_compaction_end" as never, onCompactionEnd as never);
+	pi.on("session_compact" as never, onCompactionTerminal as never);
+	pi.on("session_compact_failed" as never, onCompactionTerminal as never);
 }

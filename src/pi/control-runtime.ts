@@ -99,6 +99,7 @@ export interface SocketState {
 	/** Current session display-name ownership; auto Member names never publish a global alias. */
 	sessionNameController?: SessionNameController;
 	crewIdleCapacity: ReturnType<typeof createCrewIdleCapacity>;
+	modelDelivery?: import("./compaction-delivery.ts").ModelDeliveryAdapter;
 	/** Active human `/crew member-idle` observation, cancelled by local activity/lifecycle. */
 	crewMemberIdleCommand?: { readonly cancel: (reason: string) => void };
 }
@@ -493,8 +494,6 @@ export function emitIdleSettled(state: SocketState, ctx?: ExtensionContext): voi
 	for (const sub of subscriptions) {
 		try {
 			writeMemberIdleWaitEvent(sub.socket, { subscriptionId: sub.subscriptionId, result });
-		} catch {
-			/* Socket may be closed. */
-		}
+		} catch {}
 	}
 }
