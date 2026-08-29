@@ -174,6 +174,48 @@ test("/crew member-idle rejects local activity and malformed selection before wa
 	assert.match(setupState.notifications[0]!, /locally idle/);
 });
 
+test("/crew member-idle releases capacity when rendering or notification throws", async () => {
+	const setupState = setup();
+	setupState.state.membershipRuntime = {
+		getMembership: () => ({
+			member: { name: "Dave", role: "dev", socketPath: "/d" },
+			manifest: {
+				members: [
+					{ name: "Dave", role: "dev", socketPath: "/d" },
+					{ name: "Kelly", role: "qa", socketPath: "/k" },
+				],
+			},
+		}),
+	};
+	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	(setupState.ctx.ui as any).notify = () => {
+		throw new Error("notify failed");
+	};
+	(setupState.ctx.ui as any).setStatus = (_key: string, value: string | undefined) => {
+		if (value === undefined) throw new Error("renderer failed");
+	};
+	(setupState.pi as any).appendEntry = () => {
+		throw new Error("entry failed");
+	};
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewIdleWait: {
+				wait: async () => ({
+					scope: "all",
+					members: [{ name: "Kelly", role: "qa" }],
+					coversAllOtherMembers: true,
+					outcome: "offline",
+					observedAt: "2026-08-29T10:00:00.000Z",
+				}),
+			},
+		}),
+	);
+	await setupState.getCommand().handler("member-idle", setupState.ctx);
+	assert.equal(setupState.state.blockingWait.activeMarker(), null);
+});
+
 test("/crew member-idle cancels on local activity and clears status/capacity", async () => {
 	const setupState = setup();
 	setupState.state.membershipRuntime = {
@@ -206,6 +248,53 @@ test("/crew member-idle cancels on local activity and clears status/capacity", a
 	assert.equal(aborted, true);
 	assert.equal(setupState.state.blockingWait.activeMarker(), null);
 	assert.match(setupState.notifications.at(-1)!, /local-activity/);
+});
+
+test("/crew leave cancels a pending member-idle observation before releasing membership", async () => {
+	const setupState = setup();
+	const membership = {
+		member: { name: "Dave", role: "dev", socketPath: "/d" },
+		manifest: {
+			members: [
+				{ name: "Dave", role: "dev", socketPath: "/d" },
+				{ name: "Kelly", role: "qa", socketPath: "/k" },
+			],
+		},
+	};
+	let left = false;
+	const runtime = {
+		getMembership: () => membership,
+		leave: async () => {
+			left = true;
+			return { left: true as const };
+		},
+	};
+	setupState.state.membershipRuntime = runtime as never;
+	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	let aborted = false;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			membershipRuntime: runtime as never,
+			crewIdleWait: {
+				wait: ({ signal }) =>
+					new Promise((_, reject) =>
+						signal.addEventListener("abort", () => {
+							aborted = true;
+							reject(new Error("aborted"));
+						}),
+					),
+			},
+		}),
+	);
+	const pending = setupState.getCommand().handler("member-idle", setupState.ctx);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await setupState.getCommand().handler("leave", setupState.ctx);
+	await pending;
+	assert.equal(aborted, true);
+	assert.equal(left, true);
+	assert.equal(setupState.state.blockingWait.activeMarker(), null);
 });
 
 test("/crew board and post errors use one public actionable prefix and redact unknown codes", async () => {
