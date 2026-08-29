@@ -435,6 +435,7 @@ export const MemberMessageResultSchema = Type.Object(
 		),
 		deliveryId: Type.String({ minLength: 1 }),
 		disposition: Type.Union([Type.Literal("direct"), Type.Literal("queued"), Type.Literal("steered")]),
+		deferred: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );
@@ -662,7 +663,6 @@ export const TurnEndNotificationSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-
 export type RpcId = Static<typeof RpcIdSchema>;
 export type RpcRequest = Static<typeof RpcRequestSchema>;
 export type MessageSendRequest = Static<typeof MessageSendRequestSchema>;

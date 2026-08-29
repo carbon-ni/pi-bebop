@@ -62,6 +62,7 @@ export async function deliverMemberMessage(command: MemberMessageCommand, contex
 			member: { name: outcome.target.name, role: outcome.target.role },
 			deliveryId: outcome.deliveryId,
 			disposition: outcome.disposition,
+			...(outcome.deferred === true ? { deferred: true } : {}),
 		});
 	} catch (error) {
 		respondMemberMessageError(error, command, context);
