@@ -66,11 +66,6 @@
 			"file": "src/pi/startup-send.ts",
 			"kind": "pi-notify",
 			"count": 1
-		},
-		{
-			"file": "src/tools/broadcast-to-crew.ts",
-			"kind": "tool-result",
-			"count": 3
 		}
 	]
 }
