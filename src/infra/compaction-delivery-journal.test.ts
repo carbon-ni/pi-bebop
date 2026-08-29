@@ -94,10 +94,7 @@ test("journal writers in separate instances retain both records under the filesy
 	const first = await openTrustedCompactionDeliveryJournal(options);
 	const second = await openTrustedCompactionDeliveryJournal(options);
 	await Promise.all([first.append(envelope("a"), 1), second.append(envelope("b"), 2)]);
-	assert.deepEqual(
-		(await first.listPending()).map((record) => record.id).sort(),
-		["a", "b"],
-	);
+	assert.deepEqual((await first.listPending()).map((record) => record.id).sort(), ["a", "b"]);
 	await fs.rm(root, { recursive: true, force: true });
 });
 

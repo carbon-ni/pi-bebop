@@ -13,6 +13,11 @@ import {
 } from "../infra/compaction-delivery-journal.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
 
+function parseDeliveryNumber(id: string): number {
+	const match = /^delivery-(\\d+)$/.exec(id);
+	return match ? Number(match[1]) : 0;
+}
+
 function hasDeliveryId(value: unknown, deliveryId: string, seen = new Set<object>()): boolean {
 	if (typeof value !== "object" || value === null) return false;
 	if (seen.has(value)) return false;
@@ -232,8 +237,10 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			if (nextJournal) {
 				await nextJournal.reconcile(hasSessionEvidence);
 				const pending = await nextJournal.listPending();
+				const persistedNextId = nextJournal.nextSequence ? (await nextJournal.nextSequence()) - 1 : 0;
 				gate.resetPending();
 				journal = nextJournal;
+				nextId = Math.max(nextId, persistedNextId, ...pending.map((record) => parseDeliveryNumber(record.id)));
 				waitForSessionEvidence = nextWaitForSessionEvidence;
 				deferredIds.clear();
 				persisted.clear();

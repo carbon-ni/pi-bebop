@@ -212,6 +212,7 @@ function parseJournal(value: unknown): JournalFile {
 
 export interface CompactionDeliveryJournal {
 	readonly filePath: string;
+	readonly nextSequence?: () => Promise<number>;
 	readonly append: (envelope: CompactionDeliveryEnvelope, acceptedAt: number) => Promise<CompactionDeliveryRecord>;
 	readonly listPending: () => Promise<readonly CompactionDeliveryRecord[]>;
 	readonly markHandingOff: (id: string) => Promise<void>;
@@ -291,9 +292,13 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 				try {
 					releaseLock = await deps.acquireLock(filePath);
 				} catch (error) {
-					throw new CompactionDeliveryJournalError("storage-failed", "failed to acquire delivery journal lock", {
-						cause: error,
-					});
+					throw new CompactionDeliveryJournalError(
+						"storage-failed",
+						"failed to acquire delivery journal lock",
+						{
+							cause: error,
+						},
+					);
 				}
 			}
 			return await task();
@@ -308,6 +313,7 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 
 	return {
 		filePath,
+		nextSequence: async () => (await read()).nextSequence,
 		append: (envelope, acceptedAt) =>
 			transact(async () => {
 				const journal = await read();

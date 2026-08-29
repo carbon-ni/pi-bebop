@@ -254,6 +254,45 @@ test("model delivery injects its durable id into journal-backed messages", async
 	assert.equal((message.details as any).deliveryId, undefined);
 });
 
+test("model delivery resumes durable IDs after an adapter restart", async () => {
+	const ids: string[] = [];
+	let nextSequence = 1;
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		nextSequence: async () => nextSequence,
+		append: async (envelope: any) => {
+			ids.push(envelope.id);
+			nextSequence += 1;
+			return {
+				version: 1 as const,
+				id: envelope.id,
+				sequence: nextSequence - 1,
+				acceptedAt: 1,
+				bytes: envelope.bytes,
+				state: "pending" as const,
+				envelope,
+			};
+		},
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	const first = createModelDeliveryAdapter(() => undefined);
+	await first.configureJournal(journal);
+	const firstGeneration = first.compactionStarted();
+	first.send({ customType: "crew", content: "first" });
+	first.compactionEnded(firstGeneration);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	const second = createModelDeliveryAdapter(() => undefined);
+	await second.configureJournal(journal);
+	const secondGeneration = second.compactionStarted();
+	second.send({ customType: "crew", content: "second" });
+	second.compactionEnded(secondGeneration);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(ids, ["delivery-1", "delivery-2"]);
+});
+
 test("model delivery resolves sendAndWait only after deferred handoff", async () => {
 	const sent: unknown[] = [];
 	const adapter = createModelDeliveryAdapter((message, options) => sent.push({ message, options }));
