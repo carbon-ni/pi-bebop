@@ -51,6 +51,55 @@ test("crew idle flow returns initial ready for all idle and final ready after co
 	);
 });
 
+test("crew idle flow succeeds on normative round 32 without starting round 33", async () => {
+	const surface = surfaceFor({ Dave: "busy", Kelly: "busy" });
+	let statusRounds = 0;
+	let waits = 0;
+	surface.requestStatus = async (member) => {
+		if (member.name === "Dave") statusRounds += 1;
+		return { ok: true, status: status(member, statusRounds >= 32 ? "idle" : "busy") };
+	};
+	surface.requestMemberIdle = async () => {
+		waits += 1;
+		return { ok: true, outcome: "became-idle" as const };
+	};
+	const result = await createCrewIdleWaitFlow(surface).wait({});
+	assert.equal(result.outcome, "ready");
+	assert.equal(statusRounds, 32);
+	assert.equal(waits, 62);
+});
+
+test("crew idle flow returns unstable on normative round 32 when blockers remain", async () => {
+	const surface = surfaceFor({ Dave: "busy", Kelly: "busy" });
+	let statusRounds = 0;
+	let waits = 0;
+	surface.requestStatus = async (member) => {
+		if (member.name === "Dave") statusRounds += 1;
+		return { ok: true, status: status(member, "busy") };
+	};
+	surface.requestMemberIdle = async () => {
+		waits += 1;
+		return { ok: true, outcome: "became-idle" as const };
+	};
+	const result = await createCrewIdleWaitFlow(surface).wait({});
+	assert.equal(result.outcome, "unstable");
+	assert.equal(statusRounds, 32);
+	assert.equal(waits, 62);
+});
+
+test("absolute deadline wins over a wait that reaches the boundary", async () => {
+	const surface = surfaceFor({ Dave: "busy", Kelly: "idle" });
+	let now = 1_000;
+	surface.nowMs = () => now;
+	surface.requestMemberIdle = async () => {
+		now = 61_000;
+		return { ok: true, outcome: "became-idle" as const };
+	};
+	const result = await createCrewIdleWaitFlow(surface).wait({ timeout_seconds: 60 });
+	assert.equal(result.outcome, "timeout");
+	assert.equal(result.reason, "deadline");
+});
+
 test("crew idle flow returns offline and bounded unstable blockers without serial waits", async () => {
 	const surface = surfaceFor({ Dave: "busy", Kelly: "busy" });
 	let calls = 0;

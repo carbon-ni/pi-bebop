@@ -97,6 +97,8 @@ export interface SocketState {
 	memberInterruptResolveEndpoint?: typeof resolveMemberEndpoint;
 	/** Current session display-name ownership; auto Member names never publish a global alias. */
 	sessionNameController?: SessionNameController;
+	/** Active human `/crew member-idle` observation, cancelled by local activity/lifecycle. */
+	crewMemberIdleCommand?: { readonly cancel: (reason: string) => void };
 }
 
 // ============================================================================
@@ -395,6 +397,10 @@ function updateSessionEnv(ctx: ExtensionContext | null, enabled: boolean): void 
 	} catch (error) {
 		if (!isStaleContextError(error)) throw error;
 	}
+}
+
+export function cancelCrewMemberIdleCommand(state: SocketState, reason = "local-activity"): void {
+	state.crewMemberIdleCommand?.cancel(reason);
 }
 
 export function createSocketState(): SocketState {

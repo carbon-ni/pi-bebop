@@ -64,6 +64,14 @@ export type CrewIdleSelection = {
 	readonly targets: readonly CrewIdleMember[];
 	readonly coversAllOtherMembers: boolean;
 };
+export function parseCrewIdleMemberArgument(argument: string | undefined): readonly string[] | undefined {
+	if (argument === undefined || argument.trim() === "") return undefined;
+	const members = argument.split(",").map((member) => member.trim());
+	if (members.length > MAX_CREW_IDLE_WAIT_MEMBERS || members.some((member) => member.length === 0))
+		throw new CrewIdleWaitError("invalid-selection", "member-idle expects non-empty comma-separated Member names");
+	return members;
+}
+
 export type CrewIdleSelectionErrorCode =
 	| "invalid-selection"
 	| "empty-selection"
@@ -75,7 +83,7 @@ export type CrewIdleSelectionErrorCode =
 export class CrewIdleWaitError extends Error {
 	readonly code: CrewIdleSelectionErrorCode;
 
-	constructor(code: CrewIdleSelectionErrorCode, message = code) {
+	constructor(code: CrewIdleSelectionErrorCode, message: string = code) {
 		super(message);
 		this.name = "CrewIdleWaitError";
 		this.code = code;

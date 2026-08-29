@@ -9,18 +9,20 @@ export type SessionControlAction =
 	| "stop"
 	| "inbox"
 	| "agreements"
+	| "member-idle"
 	| "board"
 	| "post";
 
 export type ParsedSessionControlAction =
-	| { action: Exclude<SessionControlAction, "join" | "inbox" | "board" | "post"> }
+	| { action: Exclude<SessionControlAction, "join" | "inbox" | "board" | "post" | "member-idle"> }
+	| { action: "member-idle"; target?: string }
 	| { action: "board" | "post"; target: string }
 	| { action: "join"; target: string }
 	| { action: "inbox"; target: string }
 	| { action: "agreements"; target: string };
 
 const SESSION_CONTROL_USAGE =
-	"join <socket>|leave|members|status|board [options]|post [options] <message>|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume";
+	"join <socket>|leave|members|status|member-idle [name[,name...]]|board [options]|post [options] <message>|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume";
 const INBOX_USAGE = "status|cancel <id>|pause|resume";
 
 function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: string } {
@@ -78,6 +80,10 @@ function parseAgreements(parts: string[]): SessionControlParseResult {
 	return { action: "agreements", target: `activate ${parts[2]}` };
 }
 
+function parseMemberIdle(parts: string[]): SessionControlParseResult {
+	return { action: "member-idle", ...(parts.length > 1 ? { target: parts.slice(1).join(" ") } : {}) };
+}
+
 function parseInbox(parts: string[]): SessionControlParseResult {
 	const sub = parts[1];
 	if (sub === "status" || sub === "pause" || sub === "resume") {
@@ -104,6 +110,7 @@ export function parseSessionControlAction(args: string): SessionControlParseResu
 		return { action, target: args.trim().slice(action.length).trim() };
 	}
 	if (action === "agreements") return parseAgreements(parts);
+	if (action === "member-idle") return parseMemberIdle(parts);
 	if (action === "inbox") return parseInbox(parts);
 	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
 		if (parts.length > 1) return { error: `Too many arguments. Use /crew ${SESSION_CONTROL_USAGE}.` };

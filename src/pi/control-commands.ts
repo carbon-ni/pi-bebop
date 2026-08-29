@@ -11,12 +11,19 @@ import {
 import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
 import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import type { MembershipRuntime, Membership } from "../infra/membership-runtime.ts";
-import { deriveIntrayStatus, ensureControlServer, type SocketState } from "./control-runtime.ts";
+import {
+	cancelCrewMemberIdleCommand,
+	deriveIntrayStatus,
+	ensureControlServer,
+	type SocketState,
+} from "./control-runtime.ts";
 import { releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
 import { formatInboxStatus, type InboxBridgeController } from "../application/inbox-bridge.ts";
 import { ownershipFromMembership } from "./inbox-bridge-runtime.ts";
 import { leaveCrewPost, readCrewBoard, type CrewBoardStoreDependencies } from "../application/crew-board.ts";
-import type { BoardReadResult } from "../domain/index.ts";
+import { createMemberIdleCommandHandler } from "./member-idle-command.ts";
+import type { CrewIdleWaitInputWithCaller } from "../application/crew-idle-wait-flow.ts";
+import type { BoardReadResult, CrewIdleWaitResult } from "../domain/index.ts";
 
 export type ControlCommandDeps = {
 	ensureControlServer?: typeof ensureControlServer;
@@ -44,6 +51,9 @@ export type ControlCommandDeps = {
 	crewBoard?: CrewBoardStoreDependencies;
 	crewBoardOperationId?: (args: string) => string;
 	crewBoardNow?: () => number;
+	crewIdleWait?: {
+		readonly wait: (input: CrewIdleWaitInputWithCaller) => Promise<CrewIdleWaitResult>;
+	};
 };
 
 const ACTIONS: SessionControlAction[] = [
@@ -54,6 +64,7 @@ const ACTIONS: SessionControlAction[] = [
 	"stop",
 	"agreements",
 	"inbox",
+	"member-idle",
 	"board",
 	"post",
 ];
@@ -312,12 +323,26 @@ export function registerSessionControlCommand(
 	deps: ControlCommandDeps,
 	commandName = "crew",
 ): void {
+	const getCompletionMembership = () => deps.membershipRuntime ?? state.membershipRuntime;
+	const handleMemberIdleAction = createMemberIdleCommandHandler(pi, state, deps.crewIdleWait);
 	pi.registerCommand(commandName, {
 		description:
 			"Join and manage Crew; use /crew board to inspect shared Posts and /crew post to add one (pull-only).",
 
 		getArgumentCompletions: (prefix) => {
-			const matches = ACTIONS.filter((action) => action.startsWith(prefix.trim()));
+			const trimmed = prefix.trim();
+			if (trimmed.startsWith("member-idle ")) {
+				const tail = trimmed.slice("member-idle ".length);
+				const separator = tail.lastIndexOf(",");
+				const typed = (separator === -1 ? tail : tail.slice(separator + 1)).trimStart();
+				const prior = separator === -1 ? "member-idle " : `member-idle ${tail.slice(0, separator + 1)}`;
+				const members = getCompletionMembership()?.getMembership()?.manifest.members ?? [];
+				const matches = members.filter((member) => member.name.startsWith(typed));
+				return matches.length > 0
+					? matches.map((member) => ({ value: `${prior}${member.name}`, label: member.name }))
+					: null;
+			}
+			const matches = ACTIONS.filter((action) => action.startsWith(trimmed));
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
@@ -325,6 +350,11 @@ export function registerSessionControlCommand(
 			const parsed = parseSessionControlAction(args);
 			if (!parsed.action) {
 				notify(ctx, parsed.error ?? "Invalid crew action", "error");
+				return;
+			}
+
+			if (parsed.action === "member-idle") {
+				await handleMemberIdleAction(parsed.target, ctx);
 				return;
 			}
 
@@ -379,6 +409,7 @@ export function registerSessionControlCommand(
 					return;
 				}
 				case "leave": {
+					cancelCrewMemberIdleCommand(state, "membership-left");
 					if (!membership) {
 						notify(ctx, "Crew leave failed: membership runtime is unavailable", "error");
 						return;
@@ -413,6 +444,7 @@ export function registerSessionControlCommand(
 					await handleInboxAction(ctx, pi, deps, parsed.target);
 					return;
 				case "stop": {
+					cancelCrewMemberIdleCommand(state, "session-stopped");
 					const previousMembership = membership?.getMembership();
 					await releaseMembershipBeforeCleanup({
 						hasMembership: Boolean(previousMembership),

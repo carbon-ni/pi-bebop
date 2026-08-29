@@ -27,6 +27,7 @@ import {
 	registerReadCrewBoardTool,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
+import { createCrewIdleWaitFlow } from "./application/crew-idle-wait-flow.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
 import { createMemberStatusTransport } from "./infra/member-status-transport.ts";
@@ -47,6 +48,7 @@ import {
 	reconcileMembershipTools,
 	refreshIntrayStatus,
 	notifyAcceptedMessage,
+	cancelCrewMemberIdleCommand,
 } from "./pi/control-runtime.ts";
 import { getSocketPath } from "./infra/intray-paths.ts";
 import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
@@ -242,14 +244,19 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 	});
-	registerWaitForCrewIdleTool(
-		pi,
-		state,
-		createCrewIdleWaitTransport({
-			getCurrentMember: () => state.membershipRuntime?.getMembership()?.member ?? null,
-			status: memberStatusTransport,
-		}),
-	);
+	const crewIdleWaitTransport = createCrewIdleWaitTransport({
+		getCurrentMember: () => state.membershipRuntime?.getMembership()?.member ?? null,
+		status: memberStatusTransport,
+	});
+	const crewIdleWaitFlow = createCrewIdleWaitFlow({
+		getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+		isTrusted: () => state.context?.isProjectTrusted?.() === true,
+		now: () => new Date().toISOString(),
+		requestStatus: (member, signal) => crewIdleWaitTransport.requestStatus(member, signal),
+		requestWaitState: (member, options) => crewIdleWaitTransport.requestWaitState(member, options),
+		requestMemberIdle: (member, options) => crewIdleWaitTransport.requestMemberIdle(member, options),
+	});
+	registerWaitForCrewIdleTool(pi, state, crewIdleWaitTransport);
 	registerLeaveCrewPostTool(pi, state, {
 		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
 		getCurrentMembership: () => state.membershipRuntime?.getMembership() ?? null,
@@ -352,6 +359,7 @@ export default function (pi: ExtensionAPI) {
 				openStore: (options) => openTrustedCrewBoardStore(options),
 			},
 			crewBoardNow: () => Date.now(),
+			crewIdleWait: crewIdleWaitFlow,
 			activateAgreementRevision: async (revisionId, ctx) => {
 				const membership = state.membershipRuntime?.getMembership();
 				if (!membership) throw new Error("Crew is not joined");
@@ -394,6 +402,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+		cancelCrewMemberIdleCommand(state, "session-shutdown");
 		inboxBridge.invalidate();
 		const context = state.context;
 		// TASK-0080: shutdown cancels every parked wait (wait-cancelled per id,
@@ -441,6 +450,7 @@ export default function (pi: ExtensionAPI) {
 	// TASK-0080: a run started while resumes were queued -> those resumes
 	// entered model context (the OUTCOME TURN); emit wait-resume-started per id.
 	pi.on("agent_start", () => {
+		cancelCrewMemberIdleCommand(state, "local-activity");
 		yieldRuntime.markStarted();
 	});
 

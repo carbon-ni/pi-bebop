@@ -1,0 +1,86 @@
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { parseCrewIdleMemberArgument, type CrewIdleWaitResult } from "../domain/index.ts";
+import type { CrewIdleWaitInputWithCaller } from "../application/crew-idle-wait-flow.ts";
+import { contextIsCompacting, type SocketState } from "./control-runtime.ts";
+
+export type CrewIdleWaitOperation = {
+	readonly wait: (input: CrewIdleWaitInputWithCaller) => Promise<CrewIdleWaitResult>;
+};
+
+const MEMBER_IDLE_STATUS_KEY = "pi-bebop-member-idle";
+
+function renderResult(result: CrewIdleWaitResult): string {
+	const targets = result.members.map((member) => `${member.name} (${member.role})`).join(", ") || "none";
+	const blockers = result.blockers
+		?.map((item) => `${item.member.name} (${item.member.role}): ${item.status}`)
+		.join(", ");
+	return `Crew member-idle: ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}; targets=${targets}; coversAllOtherMembers=${result.coversAllOtherMembers}; observedAt=${result.observedAt}; caveat=momentary distributed observation, not a whole-Crew atomic state${blockers ? `; blockers=${blockers}` : ""}`;
+}
+
+function notify(ctx: ExtensionContext, message: string, level: "warning" | "error"): void {
+	if (ctx.hasUI) ctx.ui.notify(message, level);
+}
+
+function validateLocalState(target: string | undefined, ctx: ExtensionContext): readonly string[] | undefined | null {
+	try {
+		const members = parseCrewIdleMemberArgument(target);
+		if (!ctx.isIdle() || contextIsCompacting(ctx) || ctx.hasPendingMessages()) {
+			notify(
+				ctx,
+				"Crew member-idle requires a locally idle, non-compacting session with no pending messages",
+				"warning",
+			);
+			return null;
+		}
+		return members;
+	} catch (error) {
+		notify(ctx, error instanceof Error ? error.message : "Invalid member-idle selection", "error");
+		return null;
+	}
+}
+
+export function createMemberIdleCommandHandler(
+	pi: ExtensionAPI,
+	state: SocketState,
+	operation: CrewIdleWaitOperation | undefined,
+): (target: string | undefined, ctx: ExtensionContext) => Promise<void> {
+	return async (target, ctx) => {
+		const members = validateLocalState(target, ctx);
+		if (members === null) return;
+		if (!operation) {
+			notify(ctx, "Crew member-idle is unavailable", "error");
+			return;
+		}
+		const acquired = state.blockingWait.acquire("member-idle");
+		if (!acquired.ok) {
+			notify(ctx, "Another blocking idle wait is already active", "warning");
+			return;
+		}
+		const controller = new AbortController();
+		let cancelReason: string | undefined;
+		const owner = {
+			cancel: (reason: string) => {
+				if (controller.signal.aborted) return;
+				cancelReason = reason;
+				controller.abort();
+			},
+		};
+		state.crewMemberIdleCommand = owner;
+		try {
+			if (ctx.hasUI) ctx.ui.setStatus(MEMBER_IDLE_STATUS_KEY, "Crew member-idle: observing configured Members…");
+			const result = await operation.wait({
+				members: members ? [...members] : undefined,
+				signal: controller.signal,
+			});
+			pi.appendEntry("crew-member-idle", { content: renderResult(result) });
+		} catch (error) {
+			const reason = cancelReason ?? (error instanceof Error ? error.message : "observation failed");
+			notify(ctx, `Crew member-idle ended: ${reason}`, cancelReason ? "warning" : "error");
+		} finally {
+			if (ctx.hasUI) ctx.ui.setStatus(MEMBER_IDLE_STATUS_KEY, undefined);
+			if (state.crewMemberIdleCommand === owner) state.crewMemberIdleCommand = undefined;
+			state.blockingWait.release();
+			controller.abort();
+		}
+	};
+}

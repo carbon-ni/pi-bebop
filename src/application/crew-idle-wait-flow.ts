@@ -72,7 +72,7 @@ export type CrewIdleWaitInputWithCaller = CrewIdleWaitInput & {
 };
 
 const DEFAULT_TIMEOUT = 1800;
-const DEFAULT_ROUND_CAP = 3;
+const DEFAULT_ROUND_CAP = 32;
 
 function timeoutSeconds(value: number | undefined): number {
 	if (value === undefined) return DEFAULT_TIMEOUT;

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import { createSocketState } from "./control-runtime.ts";
+import { cancelCrewMemberIdleCommand, createSocketState } from "./control-runtime.ts";
 import { registerSessionControlCommand, type ControlCommandDeps } from "./control-commands.ts";
 import { createMembershipRuntime, type MembershipRuntime } from "../infra/membership-runtime.ts";
 import { parseCrewManifest } from "../domain/index.ts";
@@ -27,7 +27,10 @@ function setup() {
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		hasUI: true,
-		ui: { notify: (message: string) => notifications.push(message) },
+		ui: {
+			notify: (message: string) => notifications.push(message),
+			setStatus: () => undefined,
+		},
 		isProjectTrusted: () => true,
 		cwd: "/project",
 		sessionManager: { getSessionId: () => "local", getSessionName: () => "local-name" },
@@ -51,14 +54,114 @@ test("crew command completions expose only the consolidated command surface", as
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
 		({ value }) => value,
 	);
-	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "agreements", "inbox", "board", "post"]);
+	assert.deepEqual(values, [
+		"join",
+		"leave",
+		"members",
+		"status",
+		"stop",
+		"agreements",
+		"inbox",
+		"member-idle",
+		"board",
+		"post",
+	]);
 	assert.match((setupState.getCommand() as any).description, /manage Crew/i);
 	assert.match((setupState.getCommand() as any).description, /\/crew board/);
 	assert.match((setupState.getCommand() as any).description, /\/crew post/);
 	await setupState.getCommand().handler("list", setupState.ctx);
 	assert.deepEqual(setupState.notifications, [
-		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|board [options]|post [options] <message>|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume.",
+		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|member-idle [name[,name...]]|board [options]|post [options] <message>|stop|agreements activate <revision-id>|inbox status|cancel <id>|pause|resume.",
 	]);
+});
+
+test("/crew member-idle completes through the shared Crew Idle flow without model messages", async () => {
+	const setupState = setup();
+	const members = [
+		{ name: "Mony", role: "lead", socketPath: "/mony.sock" },
+		{ name: "Dave Smith", role: "dev", socketPath: "/dave.sock" },
+		{ name: "Kelly", role: "qa", socketPath: "/kelly.sock" },
+	];
+	setupState.state.membershipRuntime = { getMembership: () => ({ member: members[0], manifest: { members } }) };
+	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	let received: unknown;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewIdleWait: {
+				wait: async (input) => {
+					received = input.members;
+					return {
+						scope: "selected",
+						members: [{ name: "Dave Smith", role: "dev" }],
+						coversAllOtherMembers: false,
+						outcome: "ready",
+						observedAt: "2026-08-29T10:00:00.000Z",
+					};
+				},
+			},
+		}),
+	);
+	await setupState.getCommand().handler('member-idle "Dave Smith"', setupState.ctx);
+	assert.deepEqual(received, ["Dave Smith"]);
+	assert.equal(setupState.entries[0]!.customType, "crew-member-idle");
+	assert.match(String(setupState.entries[0]!.data?.content), /Dave Smith \(dev\)/);
+	assert.deepEqual(setupState.messages, []);
+	assert.equal(setupState.state.blockingWait.activeMarker(), null);
+});
+
+test("/crew member-idle rejects local activity and malformed selection before waiting", async () => {
+	const setupState = setup();
+	Object.assign(setupState.ctx, { isIdle: () => false, hasPendingMessages: () => false });
+	let calls = 0;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewIdleWait: {
+				wait: async () => {
+					calls += 1;
+					throw new Error("must not wait");
+				},
+			},
+		}),
+	);
+	await setupState.getCommand().handler("member-idle Dave,,Kelly", setupState.ctx);
+	assert.equal(calls, 0);
+	assert.match(setupState.notifications[0]!, /non-empty comma-separated/);
+	setupState.notifications.length = 0;
+	await setupState.getCommand().handler("member-idle Dave", setupState.ctx);
+	assert.equal(calls, 0);
+	assert.match(setupState.notifications[0]!, /locally idle/);
+});
+
+test("/crew member-idle cancels on local activity and clears status/capacity", async () => {
+	const setupState = setup();
+	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	let aborted = false;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewIdleWait: {
+				wait: ({ signal }) =>
+					new Promise((_, reject) => {
+						signal.addEventListener("abort", () => {
+							aborted = true;
+							reject(new Error("aborted"));
+						});
+					}),
+			},
+		}),
+	);
+	const pending = setupState.getCommand().handler("member-idle", setupState.ctx);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	cancelCrewMemberIdleCommand(setupState.state);
+	await pending;
+	assert.equal(aborted, true);
+	assert.equal(setupState.state.blockingWait.activeMarker(), null);
+	assert.match(setupState.notifications.at(-1)!, /local-activity/);
 });
 
 test("/crew board and post errors use one public actionable prefix and redact unknown codes", async () => {
