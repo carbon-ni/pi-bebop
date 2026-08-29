@@ -1,7 +1,7 @@
 ---
 id: TASK-0140
 title: Defer coordination messages during compaction
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [messaging, compaction, coordination, lifecycle, tdd]
@@ -21,57 +21,96 @@ Compaction delay is delivery scheduling only. It does not change message meaning
 
 ## Scope
 
-Inventory every Bebop-owned path that can enter model context through `pi.sendMessage`. Route all model-bound coordination delivery through same gate, including:
+One composition-root gate owns every Bebop path that can enter model context through `pi.sendMessage`, including:
 
 - Follow-up and Redirect;
-- inbound Member Request;
+- inbound Member Request and its first-idle reminder;
 - correlated Response/wait-resume model delivery;
 - Inbox, Broadcast, external Intake, and Crew-to-Crew handoff;
 - Interrupt recovery message;
-- Presence or other Bebop notifications that enter model context.
+- model-bound Presence notifications;
+- startup or control responses that enter model context, even when they do not trigger a turn.
 
-Control effects are separate from model delivery. For example, hard-interrupt abort request can remain best-effort system control, but its recovery message cannot enter model context during compaction.
+Control effects are separate from model delivery. A hard-interrupt abort request remains best-effort system control, but its recovery message cannot enter model context during compaction.
+
+Add a source ratchet: no Bebop-owned direct `pi.sendMessage` call may remain outside the gate adapter.
 
 ## Delivery contract
 
-1. Receiver reads live Pi compaction state. Sender identity, Role, tool, message, or Presence never decides state.
-2. If recipient is not compacting, preserve current delivery behavior byte-for-byte.
-3. If recipient is compacting, system owns message as pending but does **not** call `pi.sendMessage`, trigger provider turn, append model-visible message, wake blocking wait, or mark request visible to responder.
-4. Sender receives existing queued/deferred acknowledgement only after system safely owns exact message. Acknowledgement does not mean model delivery, reading, response, or completion.
-5. Acknowledged pending message cannot disappear on reload, session replacement, shutdown, or process failure. Persist pending state before acknowledgement, or do not report successful acceptance.
-6. `session_compaction_end` is wake signal, not proof. Gate rechecks live state. If compaction remains active or another compaction started, keep queue pending.
-7. Drain pending entries once, in receiver acceptance order. Preserve exact content, ordered instructions, Origin, callback/correlation metadata, delivery mode, FIFO semantics, and queued Follow-up provenance.
-8. Message accepted before compaction-end boundary stays ahead of message accepted after boundary. Response arrival order or callback timing cannot reorder them.
-9. If compaction starts while queue drains, finish only already committed handoff, stop before next entry, and retain remainder.
-10. `notifyAcceptedMessage` and Member Request visibility/activation occur at safe handoff, not while compacting. No wait or request timer can pretend agent received deferred model context.
-11. Queue is finite and deterministic. Capacity failure rejects newest unowned entry before acknowledgement. It never drops, overwrites, truncates, duplicates, or partially accepts message.
-12. Delivery does not infer task state, availability, willingness, acknowledgement, response, or completion.
+1. Receiver derives compaction state only from canonical Pi lifecycle events. Sender identity, Role, tool, message, or Presence never decides state.
+2. If recipient is not compacting and no older pending entry exists, preserve current delivery behavior byte-for-byte.
+3. If recipient is compacting or an older entry is pending, system owns the message in a receiver journal but does **not** call `pi.sendMessage`, trigger provider work, append a model-visible message, wake a blocking wait, remove an Inbox item, or make a Request visible.
+4. Persist the exact canonical envelope atomically before acknowledging deferred ownership. The deferred acknowledgement is exactly: `Accepted by the recipient system for queued delivery. This does not mean model delivery, reading, availability, completion, or response.` It never reveals compaction. Non-compacting acknowledgements remain byte-identical.
+5. An acknowledged pending message cannot disappear on reload, resume, fork, session replacement, leave, shutdown, socket loss, or process failure.
+6. Pi 0.84.3 `session_before_compact` closes the gate. `session_compact` and `session_compact_failed` are terminal wake signals. There is no `session_compaction_start` or `session_compaction_end` extension event.
+7. Terminal handlers never drain synchronously. They schedule one injected `setImmediate`-class post-event task. The task drains only when local compaction depth is zero and the captured lifecycle generation is still current.
+8. Drain pending entries once, in persisted receiver acceptance order. Preserve exact content, ordered instructions, Origin, callback/correlation metadata, delivery mode, FIFO semantics, and queued Follow-up provenance.
+9. A message accepted before a terminal boundary stays ahead of one accepted after it. New direct delivery cannot overtake an existing backlog.
+10. If compaction starts while the queue drains, finish only the already committed handoff, stop before the next entry, and retain the remainder.
+11. `notifyAcceptedMessage`, Inbox removal, Member Request registration/visibility, and Request timers occur only at safe handoff.
+12. Queue capacity is deterministic: at most 64 pending entries, at most 1,100,000 UTF-8 bytes per canonical persisted envelope, and at most 70,400,000 aggregate canonical bytes. Reject the newest entry atomically before acknowledgement if any limit fails.
+13. Delivery does not infer task state, availability, willingness, acknowledgement, response, or completion.
+
+## Locked ownership and lifecycle boundaries
+
+### Receiver-owned journal
+
+The source of truth is an external journal under the trusted Crew store, not a session entry. Its ownership key is the canonical Crew Manifest path plus the exact Member name, encoded as a safe hash. Role, session ID, and socket path are not ownership.
+
+Each record has a stable receiver-assigned delivery ID, monotonic acceptance sequence, canonical envelope bytes, and `pending` or `handing-off` state. Persist with atomic replacement before deferred acknowledgement. Session entries may provide delivery evidence but are never the pending store.
+
+On handoff, persist `handing-off`, embed the delivery ID in internal message details, then call the unchanged Pi delivery. Mark delivered only after Pi session evidence contains that ID. After a crash, evidence present means do not replay; evidence absent means retry. Real-host crash-point tests must prove no loss or duplicate model handoff.
+
+Reload, resume, fork, replacement, leave, shutdown, and restart retain acknowledged records for the same Manifest and Member. A removed or changed Member identity remains blocked and is never reassigned to another Member.
+
+### Deferred Member Request
+
+The current Request response channel is a live socket, not a durable callback route. Therefore a deferred Member Request stays unacknowledged, unregistered, invisible, and timer-free until safe handoff. Keep its channel open while pending. At handoff, verify the channel is live, register and expose the Request, call `notifyAcceptedMessage`, acknowledge it, and start existing timers.
+
+If the channel closes or the process fails before acknowledgement, delete the unacknowledged pending record and never activate it after restart. The requester receives the existing offline/timeout outcome. Adding a durable Request reply route is out of scope.
+
+### Safe post-compaction seam
+
+Pi 0.84.3 emits extension terminal handlers before its internal compaction cleanup finishes and exposes no public `ExtensionContext.isCompacting()`. The accepted seam is event-derived depth plus generation and a post-event macrotask:
+
+- `session_before_compact`: increment depth and generation synchronously;
+- `session_compact` or `session_compact_failed`: decrement one matching depth and schedule a post-event check;
+- unmatched or stale terminal: no drain;
+- post-event check: drain only at depth zero with unchanged generation;
+- a new start before or during drain closes the gate synchronously.
+
+This seam is accepted only with a real Pi 0.84.3 host test proving the post-event task runs after compaction provider work and that no deferred coordination handoff is lost or duplicated.
 
 ## Implementation plan
 
-1. Add red tests for direct delivery versus compacting deferral at one pure receiver-owned coordination seam.
-2. Add bounded pending-delivery state with explicit ownership, ordering, and terminal cleanup.
-3. Inject gate at Pi composition root. Replace direct Bebop-owned model-bound `pi.sendMessage` calls with gate operation; do not duplicate compaction checks per tool/handler.
-4. Wire balanced Pi compaction lifecycle. Start marks gate closed; end rechecks state and schedules one drain. Reload/session replacement/shutdown restore or safely retain acknowledged pending work.
-5. Keep surface-specific behavior outside gate: Follow-up remains FIFO, Redirect remains steer, Inbox remains durable, Request remains correlated, and Interrupt remains best-effort control plus deferred recovery message.
-6. Preserve immutable queue chronology. Compaction time contributes to acceptance-to-handoff delay once and does not continuously age after handoff.
-7. Update Ubiquitous Language, architecture, and messaging workflow with Compaction Delivery Gate boundary and acknowledgement meaning.
+1. Add red tests for direct delivery, compacting deferral, capacity, persistence, and crash points at one pure receiver-owned seam.
+2. Add the bounded external journal with stable delivery IDs, acceptance sequence, `pending`/`handing-off` reconciliation, and injected atomic storage operations.
+3. Inject the gate at the Pi composition root. Replace every Bebop-owned model-bound `pi.sendMessage` call with the gate; mechanically reject new direct calls.
+4. Wire `session_before_compact`, `session_compact`, and `session_compact_failed` to the locked depth/generation/post-event seam. Remove the historical unsupported event name.
+5. Keep surface-specific behavior outside the gate: Follow-up stays FIFO, Redirect stays steer, Inbox stays durable until handoff, Request stays live-channel correlated, and Interrupt stays best-effort control plus gated recovery.
+6. Reconcile the journal on reload, resume, fork, replacement, leave, shutdown, and restart before accepting new handoff work.
+7. Preserve immutable chronology. Compaction time contributes to acceptance-to-handoff delay once and does not continuously age after handoff.
+8. Update Ubiquitous Language, architecture, and messaging workflow with the gate, journal, lifecycle seam, capacity, and acknowledgement meaning.
 
 ## Acceptance criteria
 
-- [ ] TDD starts with failing direct and compacting paths before gate implementation.
-- [ ] During active manual, automatic, or nested compaction, zero deferred coordination messages call `pi.sendMessage`, trigger model/provider work, enter model context, wake blocking waits, or activate responder-visible Request handling.
-- [ ] First safe compaction-end recheck drains each pending message exactly once; false/stale end events drain nothing.
-- [ ] Mixed Follow-up, Redirect, Request, Response resume, Inbox/Broadcast/Intake/Crew letter, Interrupt recovery, and model-bound notification fixtures retain exact payload, metadata, mode, correlation, and deterministic acceptance order.
-- [ ] Message accepted at same boundary as compaction end has one owner and one handoff. Deterministic race tests cover accept-before-end, end-before-accept, nested start/end, and new compaction during drain.
-- [ ] Messages accepted after compaction cannot overtake deferred messages accepted earlier.
+- [ ] TDD starts with failing direct, compacting, persistence, overflow, crash-point, and lifecycle-race paths.
+- [ ] A source ratchet inventories every Bebop-owned model-bound path and rejects direct `pi.sendMessage` outside the gate adapter.
+- [ ] During active manual, automatic, failed, aborted, or synthetic nested compaction, zero deferred coordination messages call `pi.sendMessage`, trigger coordination provider work, enter model context, wake waits, remove Inbox items, or activate Request handling.
+- [ ] `session_before_compact` closes synchronously; `session_compact` and `session_compact_failed` only schedule the post-event check. Unsupported lifecycle names are absent.
+- [ ] The first safe depth-zero/current-generation post-event check drains each pending message exactly once; unmatched, false, or stale terminals drain nothing.
+- [ ] Deterministic races cover accept-before-terminal, terminal-before-accept, nested start/terminal, new start before the post-event task, and new start during drain.
+- [ ] Mixed Follow-up, Redirect, Request, Request reminder, Response resume, Inbox/Broadcast/Intake/Crew letter, Interrupt recovery, Presence, and control-response fixtures retain exact payload, metadata, mode, correlation, and acceptance order.
+- [ ] A later direct message cannot overtake older pending work. One acceptance sequence governs all surfaces.
+- [ ] Deferred Member Request remains unacknowledged and invisible until handoff; channel loss before handoff never creates a responder-visible orphan.
 - [ ] Queued Follow-up provenance reports immutable receiver-observed acceptance-to-handoff delay including compaction wait, without claiming correlation.
-- [ ] Sender acknowledgement distinguishes safe system acceptance from model handoff and makes no delivery/read/response/completion claim.
-- [ ] Reload, resume, fork, session replacement, shutdown, socket loss, thrown renderer/provider boundary, and process restart cannot lose an acknowledged pending message or hand it off twice.
-- [ ] Capacity is bounded. Overflow and malformed entry fail atomically before acknowledgement without affecting existing FIFO entries.
-- [ ] Compaction state and pending queue expose no message content, instructions, Origin, correlation route, session ID, socket/path, model data, or inferred intent through Member Status, wait-state, Presence, or Crew output.
-- [ ] Existing non-compacting delivery remains byte-compatible and existing Follow-up/Redirect/Request/Inbox/Interrupt tests remain green.
-- [ ] Real Pi host test proves message received during compaction is absent from model/provider context until compaction ends, then appears once in correct order.
+- [ ] Deferred acknowledgement is byte-exact, follows durable ownership, reveals no compaction state, and makes no delivery/read/availability/response/completion claim. Non-compacting acknowledgement is byte-compatible.
+- [ ] Reload, resume, fork, replacement, leave, shutdown, socket loss, thrown renderer/provider boundary, and process restart cannot lose an acknowledged record or hand it off twice.
+- [ ] Crash tests cover before persistence, after persistence/before ack, after ack, after `handing-off`/before Pi send, after Pi session evidence/before journal completion, and restart reconciliation.
+- [ ] Capacity tests enforce 64 entries, 1,100,000 bytes per canonical envelope, and 70,400,000 aggregate bytes. Overflow and malformed records fail atomically before acknowledgement without changing existing FIFO state.
+- [ ] Gate state and journal expose no compaction state, count, content, delivery ID, instructions, Origin, correlation route, session ID, socket/path, model data, or inferred intent through Member Status, wait-state, Presence, Crew output, or capacity errors.
+- [ ] Existing non-compacting Follow-up, Redirect, Request, Inbox, Interrupt, Presence, and startup/control behavior remains byte-compatible.
+- [ ] Real Pi 0.84.3 `AgentSessionRuntime` tests cover manual success, automatic compaction, failed/aborted terminals, provider-context exclusion, exact post-event ordering, Request inactivity, distinct modes, and one final handoff.
 - [ ] Focused tests, typecheck, formatting, architecture/package checks, coverage/risk gate, full hooks, and fresh watcher pass with unchanged-worktree proof.
 
 ## Non-goals
@@ -82,6 +121,10 @@ Control effects are separate from model delivery. For example, hard-interrupt ab
 - Treating compaction end as task completion, availability, acknowledgement, or response.
 - General-purpose scheduler, durable chat history, message dashboard, or productivity monitoring.
 
+## Assignment gate
+
+TASK-0121 is closed. The product boundaries above are locked, but this plan remains unassigned until the Lead explicitly reviews this update and assigns one owner. Updating the plan does not authorize implementation.
+
 ## Notes
 
-This plan is independent but touches shared Pi composition and lifecycle files. Finish current TASK-0121 ownership and exact-hash acceptance before assigning implementation to avoid mixing concurrent work.
+This task touches the Pi composition root, messaging acknowledgement timing, Request activation, Inbox ownership, lifecycle events, and durable storage. Keep one implementation owner and require independent exact-hash QA before closure.
