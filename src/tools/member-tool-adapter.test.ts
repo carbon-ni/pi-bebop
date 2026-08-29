@@ -64,13 +64,13 @@ function setup(
 	registerRedirectMemberTool(pi, state, adapterDependencies);
 	return tools;
 }
-const ack = (disposition: string) => ({
+const ack = (disposition: string, deferred = false) => ({
 	response: {
 		type: "response",
 		command: "send",
 		success: true,
 		id: "request-1",
-		data: { deliveryId: "delivery-request-1", disposition },
+		data: { deliveryId: "delivery-request-1", disposition, ...(deferred ? { deferred: true } : {}) },
 	},
 });
 
@@ -95,6 +95,20 @@ test("application omission defaults to follow-up wire delivery and coordinator q
 		origin: { kind: "crew", name: "dev", role: "developer" },
 	});
 	assert.equal(outcome.disposition, "queued");
+});
+
+test("queued delivery returns the exact deferred acknowledgement without compaction disclosure", async () => {
+	const tools = setup(async () => ack("queued", true));
+	const result = await tools
+		.get("send_follow_up")!
+		.execute("tool-1", { member: "qa", message: "defer this" }, new AbortController().signal);
+	assert.deepEqual(result.content, [
+		{
+			type: "text",
+			text: "Accepted by the recipient system for queued delivery. This does not mean model delivery, reading, availability, completion, or response.",
+		},
+	]);
+	assert.doesNotMatch(result.content[0].text, /compaction/i);
 });
 
 test("registers only intent-named tools with compact parameters and teaching descriptions", () => {

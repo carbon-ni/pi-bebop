@@ -580,7 +580,6 @@ export const GenericRequestSchema = Type.Object(
 	{ additionalProperties: false },
 );
 export const RpcRequestSchema = Type.Union([KnownRequestSchema, GenericRequestSchema]);
-
 export const RpcErrorSchema = Type.Object(
 	{
 		code: Type.Integer(),
@@ -598,6 +597,7 @@ export const SendResultSchema = Type.Object(
 	{
 		deliveryId: Type.String({ minLength: 1 }),
 		disposition: Type.Union([Type.Literal("direct"), Type.Literal("queued"), Type.Literal("steered")]),
+		deferred: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );

@@ -21,9 +21,20 @@ const parameters = Type.Object(
 );
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean; details: unknown };
 
-function resultText(target: string, outcome: { disposition: string }): ToolResult {
+const DEFERRED_ACKNOWLEDGEMENT =
+	"Accepted by the recipient system for queued delivery. This does not mean model delivery, reading, availability, completion, or response.";
+
+function resultText(target: string, outcome: { disposition: string; deferred?: boolean }): ToolResult {
 	return {
-		content: [{ type: "text", text: `[${target}] Message accepted (${outcome.disposition})` }],
+		content: [
+			{
+				type: "text",
+				text:
+					outcome.deferred === true
+						? DEFERRED_ACKNOWLEDGEMENT
+						: `[${target}] Message accepted (${outcome.disposition})`,
+			},
+		],
 		details: outcome,
 	};
 }

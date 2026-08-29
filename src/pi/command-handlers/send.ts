@@ -38,13 +38,15 @@ import { writeMemberIdleWaitEvent, writeMemberUpdateEvent, type RpcSocket } from
 import type { RpcHandlerContext } from "./types.ts";
 import type { CompactionDeliveryResult } from "../../domain/index.ts";
 
+type ModelDeliveryResult = CompactionDeliveryResult & { readonly deferred?: boolean };
+
 async function deliverModelMessage(
 	context: RpcHandlerContext,
 	message: unknown,
 	deliveryId: string,
 	isIdle: boolean,
 	mode: "follow_up" | "immediate",
-): Promise<CompactionDeliveryResult> {
+): Promise<ModelDeliveryResult> {
 	const options = isIdle
 		? { triggerTurn: true }
 		: { triggerTurn: true, deliverAs: mode === "follow_up" ? "followUp" : "steer" };
@@ -87,6 +89,10 @@ export async function handleSend(
 		return;
 	}
 	if (disposition === "queued") context.state.queuedFollowUps.record(deliveryId);
-	context.respond(true, "send", { deliveryId, disposition });
+	context.respond(true, "send", {
+		deliveryId,
+		disposition,
+		...(delivery.deferred === true ? { deferred: true } : {}),
+	});
 	return;
 }

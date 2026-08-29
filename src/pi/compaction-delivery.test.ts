@@ -75,7 +75,7 @@ test("sendDurably waits for journal append before acknowledging deferred accepta
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.equal(settled, false);
 	release();
-	assert.deepEqual(await acknowledgement, { disposition: "deferred" });
+	assert.deepEqual(await acknowledgement, { disposition: "deferred", deferred: true });
 });
 
 test("sendDurably avoids a local id already allocated while reservation was in flight", async () => {
@@ -106,7 +106,7 @@ test("sendDurably avoids a local id already allocated while reservation was in f
 	const generation = adapter.compactionStarted();
 	const durable = adapter.sendDurably({ customType: "crew", content: "reserved" });
 	assert.deepEqual(adapter.send({ customType: "crew", content: "local" }), { disposition: "deferred" });
-	assert.deepEqual(await durable, { disposition: "deferred" });
+	assert.deepEqual(await durable, { disposition: "deferred", deferred: true });
 	assert.deepEqual(ids, ["delivery-1", "delivery-2"]);
 	adapter.compactionEnded(generation);
 });
@@ -138,6 +138,7 @@ test("sendDurably uses the journal reservation for its envelope id", async () =>
 	const generation = adapter.compactionStarted();
 	assert.deepEqual(await adapter.sendDurably({ customType: "crew", content: "reserved" }), {
 		disposition: "deferred",
+		deferred: true,
 	});
 	assert.deepEqual(ids, ["delivery-41"]);
 	adapter.compactionEnded(generation);
@@ -186,7 +187,7 @@ test("reconfigure waits for in-flight durable persistence before replacing the j
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.equal(replaced, false);
 	release();
-	assert.deepEqual(await acceptance, { disposition: "deferred" });
+	assert.deepEqual(await acceptance, { disposition: "deferred", deferred: true });
 	await reconfigure;
 });
 

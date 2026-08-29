@@ -14,6 +14,8 @@ import {
 } from "../infra/compaction-delivery-journal.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
 
+type ModelDeliveryResult = CompactionDeliveryResult & { readonly deferred?: boolean };
+
 function parseDeliveryNumber(id: string): number {
 	const match = /^delivery-(\d+)$/.exec(id);
 	return match ? Number(match[1]) : 0;
@@ -48,13 +50,13 @@ export interface ModelDeliveryAdapter {
 		options?: Readonly<Record<string, unknown>>,
 		onDelivered?: () => void,
 		onFailed?: () => void,
-	) => CompactionDeliveryResult;
+	) => ModelDeliveryResult;
 	readonly sendDurably: (
 		message: unknown,
 		options?: Readonly<Record<string, unknown>>,
 		onDelivered?: () => void,
 		onFailed?: () => void,
-	) => Promise<CompactionDeliveryResult>;
+	) => Promise<ModelDeliveryResult>;
 	readonly configureJournal: (
 		journal: CompactionDeliveryJournal | undefined,
 		hasSessionEvidence?: (deliveryId: string) => Promise<boolean> | boolean,
@@ -64,7 +66,7 @@ export interface ModelDeliveryAdapter {
 	readonly sendAndWait: (
 		message: unknown,
 		options?: Readonly<Record<string, unknown>>,
-	) => Promise<CompactionDeliveryResult>;
+	) => Promise<ModelDeliveryResult>;
 	readonly compactionStarted: () => number;
 	readonly compactionEnded: (generation: number) => boolean;
 }
@@ -199,7 +201,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		options: Readonly<Record<string, unknown>> = {},
 		onDelivered?: () => void,
 		onFailed?: () => void,
-	): Promise<CompactionDeliveryResult> => {
+	): Promise<ModelDeliveryResult> => {
 		if (!journal || (!gate.isCompacting() && gate.pendingCount() === 0))
 			return sendModel(message, options, onDelivered, onFailed);
 		let activeJournal: CompactionDeliveryJournal | undefined;
@@ -220,7 +222,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 				onFailed,
 				() => {
 					persisted = true;
-					resolve({ disposition: "deferred" });
+					resolve({ disposition: "deferred", deferred: true });
 				},
 				() => resolve({ disposition: "invalid" }),
 				reservedId,

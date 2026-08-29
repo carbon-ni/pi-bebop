@@ -36,6 +36,7 @@ export interface MemberMessageOutcome {
 	readonly target: CrewMember;
 	readonly deliveryId: string;
 	readonly disposition: "direct" | "queued" | "steered";
+	readonly deferred?: boolean;
 }
 
 class EndpointQueueCoordinator implements MemberMessageCoordinator {
@@ -167,6 +168,7 @@ async function deliverMemberMessage(
 		target: prepared.target,
 		deliveryId: result.response.data.deliveryId,
 		disposition: result.response.data.disposition,
+		...(result.response.data.deferred === true ? { deferred: true } : {}),
 	};
 }
 
