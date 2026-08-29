@@ -347,7 +347,6 @@ export default function (pi: ExtensionAPI) {
 		state.presenceObserver = undefined;
 	};
 	const refreshPresence = () => presenceComposition.refresh();
-
 	registerSessionControlCommand(
 		pi,
 		state,
@@ -391,7 +390,6 @@ export default function (pi: ExtensionAPI) {
 		},
 		"crew",
 	);
-
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		await handleSessionStart(pi, state, ctx, {
 			inboxBridge,
@@ -464,33 +462,35 @@ export default function (pi: ExtensionAPI) {
 		// wait-resume-settled once per waitId; unrelated settles publish nothing.
 		yieldRuntime.markSettled();
 	});
-
 	// TASK-0080: a run started while resumes were queued -> those resumes
 	// entered model context (the OUTCOME TURN); emit wait-resume-started per id.
 	pi.on("agent_start", () => {
 		cancelCrewMemberIdleCommand(state, "local-activity");
 		yieldRuntime.markStarted();
 	});
-
 	const compactionGenerations: Array<{ generation: number; reason: string; willRetry: boolean }> = [];
+	const compactionEventGenerations = new WeakMap<object, number>();
 	pi.on("session_before_compact", (event: SessionBeforeCompactEvent) => {
-		compactionGenerations.push({
-			generation: state.modelDelivery?.compactionStarted() ?? 0,
-			reason: event.reason,
-			willRetry: event.willRetry,
-		});
+		const generation = state.modelDelivery?.compactionStarted() ?? 0;
+		compactionGenerations.push({ generation, reason: event.reason, willRetry: event.willRetry });
+		compactionEventGenerations.set(event, generation);
 	});
 	const onCompactionTerminal = (
 		event: SessionCompactEvent | { readonly reason: string; readonly willRetry: boolean },
 		ctx: ExtensionContext,
 	) => {
-		let index = compactionGenerations.length - 1;
-		while (
-			index >= 0 &&
-			(compactionGenerations[index].reason !== event.reason ||
-				compactionGenerations[index].willRetry !== event.willRetry)
-		)
-			index -= 1;
+		const taggedGeneration = compactionEventGenerations.get(event);
+		let index =
+			taggedGeneration === undefined
+				? compactionGenerations.length - 1
+				: compactionGenerations.findIndex((item) => item.generation === taggedGeneration);
+		if (taggedGeneration === undefined)
+			while (
+				index >= 0 &&
+				(compactionGenerations[index].reason !== event.reason ||
+					compactionGenerations[index].willRetry !== event.willRetry)
+			)
+				index -= 1;
 		const generation = index < 0 ? undefined : compactionGenerations.splice(index, 1)[0].generation;
 		if (generation !== undefined) state.modelDelivery?.compactionEnded(generation);
 		emitIdleSettled(state, ctx);
