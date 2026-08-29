@@ -13,11 +13,13 @@ import {
 	type Provider,
 } from "@earendil-works/pi-ai";
 import {
-	createAgentSession,
-	DefaultResourceLoader,
+	createAgentSessionFromServices,
+	createAgentSessionRuntime,
+	createAgentSessionServices,
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
+	type CreateAgentSessionRuntimeFactory,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 
@@ -113,6 +115,7 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 	const idleWait = new Promise<void>((resolve) => {
 		idleWaitSeen = resolve;
 	});
+	let completeNextIdleWait = false;
 	const targetConnections = new Set<net.Socket>();
 	const target = await listen(
 		targetSocket,
@@ -137,8 +140,21 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 				return;
 			}
 			if (request.method === "member.idle_wait") {
-				response(socket, request.id, { subscriptionId: String(request.id), event: "member_idle" });
+				response(socket, request.id, { subscriptionId: String(request.id) });
 				idleWaitSeen();
+				if (completeNextIdleWait) {
+					completeNextIdleWait = false;
+					socket.write(
+						`${JSON.stringify({
+							jsonrpc: "2.0",
+							method: "member.idle_wait",
+							params: {
+								subscriptionId: String(request.id),
+								result: { outcome: "idle", disposition: "became-idle" },
+							},
+						})}\n`,
+					);
+				}
 			}
 		},
 		targetConnections,
@@ -213,39 +229,73 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 			});
 		},
 	};
-	const loader = new DefaultResourceLoader({
+	const createRuntime: CreateAgentSessionRuntimeFactory = async ({
+		cwd: runtimeCwd,
+		agentDir: runtimeAgentDir,
+		sessionManager,
+		sessionStartEvent,
+	}) => {
+		const services = await createAgentSessionServices({
+			cwd: runtimeCwd,
+			agentDir: runtimeAgentDir,
+			modelRuntime,
+			settingsManager,
+			resourceLoaderOptions: {
+				additionalExtensionPaths: [path.resolve("src/extension.ts")],
+				extensionFactories: [probeExtension],
+			},
+		});
+		const result = await createAgentSessionFromServices({
+			services,
+			sessionManager,
+			sessionStartEvent,
+			model: fakeModel,
+			noTools: "all",
+		});
+		return { ...result, services, diagnostics: services.diagnostics };
+	};
+	const runtime = await createAgentSessionRuntime(createRuntime, {
 		cwd,
 		agentDir,
-		additionalExtensionPaths: [path.resolve("src/extension.ts")],
-		extensionFactories: [probeExtension],
-		settingsManager,
-	});
-	await loader.reload();
-	const { session } = await createAgentSession({
-		cwd,
-		agentDir,
-		resourceLoader: loader,
-		model: fakeModel,
-		modelRuntime,
-		noTools: "all",
 		sessionManager: SessionManager.inMemory(cwd),
-		settingsManager,
 	});
-	t.after(() => session.dispose());
+	t.after(() => runtime.dispose());
 
-	await session.prompt(`/crew join ${currentSocket}`);
-	await session.prompt("/member-idle-host-probe");
+	await runtime.session.prompt(`/crew join ${currentSocket}`);
+	await runtime.session.prompt("/member-idle-host-probe");
 	assert.equal(probeSignal, undefined, "SDK slash command context has no command AbortSignal");
 	assert.equal(contexts.length, 0, "join and probe commands must not call the provider");
 
-	const memberIdle = session.prompt("/crew member-idle QA");
+	const memberIdle = runtime.session.prompt("/crew member-idle QA");
 	await waitFor(idleWait);
 	assert.equal(contexts.length, 0, "actual member-idle command must wait without a provider turn");
 
-	await session.prompt("ordinary prompt while member-idle is pending");
+	await runtime.session.prompt("ordinary prompt while member-idle is pending");
 	assert.equal(contexts.length, 1, "ordinary prompt creates exactly one provider turn");
 	await waitFor(memberIdle);
 	assert.equal(contexts.length, 1, "member-idle adds no provider turn");
-	await session.prompt("/crew stop");
+
+	const replacementIdle = new Promise<void>((resolve) => {
+		idleWaitSeen = resolve;
+	});
+	const replacedSession = runtime.session;
+	const pendingReplacement = replacedSession.prompt("/crew member-idle QA");
+	await waitFor(replacementIdle);
+	const replacement = runtime.newSession();
+	await waitFor(pendingReplacement);
+	assert.deepEqual(await replacement, { cancelled: false }, "real host replacement completes normally");
+	assert.notEqual(runtime.session, replacedSession, "replacement creates a new AgentSession");
+	assert.equal(contexts.length, 1, "session replacement must not call the provider");
+
+	await runtime.session.prompt(`/crew join ${currentSocket}`);
+	completeNextIdleWait = true;
+	const reusableIdle = new Promise<void>((resolve) => {
+		idleWaitSeen = resolve;
+	});
+	const reusedCommand = runtime.session.prompt("/crew member-idle QA");
+	await waitFor(reusableIdle);
+	await waitFor(reusedCommand);
+	assert.equal(contexts.length, 1, "reused member-idle command adds no provider turn");
+	await runtime.session.prompt("/crew stop");
 	assert.equal(contexts.length, 1, "lifecycle cleanup must not call the provider");
 });
