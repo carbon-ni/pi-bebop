@@ -152,7 +152,9 @@ export default function (pi: ExtensionAPI) {
 		const interruptFlow = createInterruptFlow({
 			isIdle: () => context.isIdle(),
 			abort: () => context.abort(),
-			sendMessage: (message, options) => pi.sendMessage(message as never, options as never),
+			sendMessage: (message, options) => {
+				state.modelDelivery?.send(message, options as Readonly<Record<string, unknown>>);
+			},
 			appendEntry: (customType, data) => pi.appendEntry(customType, data),
 			getEntries: () => context.sessionManager.getEntries() as readonly unknown[],
 		});

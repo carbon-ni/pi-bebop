@@ -79,21 +79,21 @@ export async function handleMemberRequest(
 		};
 		context.socket.once("close", cleanupInbound);
 		context.socket.once("error", cleanupInbound);
-		// Registration precedes Pi visibility. Once sendMessage accepts the
-		// request into context, arm idle handling and acknowledge delivery.
-		// TASK-0081: accepted Bebop model delivery wakes a local blocking idle wait.
+		// Registration precedes visibility. A compacting receiver keeps the live
+		// channel pending until the gate hands the exact request to Pi.
 		const message = renderMemberRequestModelContent(command.payload, command.requestId);
-		context.notifyAcceptedMessage(command.requestId);
-		context.pi.sendMessage(
-			{
-				customType: SESSION_MESSAGE_TYPE,
-				content: message,
-				details: { messagePayload: command.payload, crewRequestId: command.requestId },
-				display: true,
-			},
-			{ triggerTurn: true },
-		);
-		flow.acceptInboundRequest(command.requestId);
+		const modelMessage = {
+			customType: SESSION_MESSAGE_TYPE,
+			content: message,
+			details: { messagePayload: command.payload, crewRequestId: command.requestId },
+			display: true,
+		};
+		const delivery = context.state.modelDelivery?.send(modelMessage, { triggerTurn: true });
+		if (!context.state.modelDelivery) context.pi.sendMessage(modelMessage, { triggerTurn: true });
+		if (!delivery || delivery.disposition === "direct") {
+			context.notifyAcceptedMessage(command.requestId);
+			flow.acceptInboundRequest(command.requestId);
+		}
 		context.respond(true, command.type, {
 			accepted: true,
 			requestId: command.requestId,

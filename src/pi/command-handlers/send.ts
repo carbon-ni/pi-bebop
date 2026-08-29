@@ -37,6 +37,25 @@ import { openTrustedMemberInboxStore } from "../../infra/member-inbox-store.ts";
 import { writeMemberIdleWaitEvent, writeMemberUpdateEvent, type RpcSocket } from "../../infra/rpc-server.ts";
 import type { RpcHandlerContext } from "./types.ts";
 
+function deliverModelMessage(
+	context: RpcHandlerContext,
+	message: unknown,
+	deliveryId: string,
+	isIdle: boolean,
+	mode: "follow_up" | "immediate",
+): void {
+	const options = isIdle
+		? { triggerTurn: true }
+		: { triggerTurn: true, deliverAs: mode === "follow_up" ? "followUp" : "steer" };
+	if (context.state.modelDelivery) {
+		const result = context.state.modelDelivery.send(message, options);
+		if (result.disposition === "direct") context.notifyAcceptedMessage(deliveryId);
+		return;
+	}
+	context.pi.sendMessage(message as never, options as never);
+	context.notifyAcceptedMessage(deliveryId);
+}
+
 export async function handleSend(
 	command: Extract<RpcInboundCommand, { type: "send" }>,
 	context: RpcHandlerContext,
@@ -65,17 +84,8 @@ export async function handleSend(
 	};
 	if (disposition === "queued") context.state.queuedFollowUps.record(deliveryId);
 
-	// TASK-0081: accepted Bebop model delivery (Follow-up/Redirect) wakes a
-	// local blocking idle wait; the unchanged message keeps its mode/FIFO.
-	context.notifyAcceptedMessage(deliveryId);
-	if (isIdle) {
-		context.pi.sendMessage(customMessage, { triggerTurn: true });
-	} else {
-		context.pi.sendMessage(customMessage, {
-			triggerTurn: true,
-			deliverAs: mode === "follow_up" ? "followUp" : "steer",
-		});
-	}
+	// TASK-0081: wake only after the gate hands the unchanged message to Pi.
+	deliverModelMessage(context, customMessage, deliveryId, isIdle, mode);
 
 	context.respond(true, "send", { deliveryId, disposition });
 	return;
