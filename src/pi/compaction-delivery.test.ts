@@ -190,6 +190,34 @@ test("reconfigure waits for in-flight durable persistence before replacing the j
 	await reconfigure;
 });
 
+test("concurrent journal reconfigurations serialize and preserve the last request", async () => {
+	const order: string[] = [];
+	const journal = (name: string) => ({
+		filePath: `/tmp/${name}.json`,
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: 1,
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			envelope,
+		}),
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => order.push(name),
+	});
+	const adapter = createModelDeliveryAdapter(() => undefined);
+	const first = journal("first");
+	const second = journal("second");
+	const third = journal("third");
+	await adapter.configureJournal(first);
+	order.length = 0;
+	await Promise.all([adapter.configureJournal(second), adapter.configureJournal(third)]);
+	assert.deepEqual(order, ["second", "third"]);
+});
+
 test("deferred handoff waits for session evidence before marking delivered", async () => {
 	const calls: string[] = [];
 	let releaseEvidence!: () => void;

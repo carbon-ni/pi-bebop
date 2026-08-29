@@ -109,6 +109,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 	const deferredJournals = new Map<string, CompactionDeliveryJournal>();
 	const allocatedIds = new Set<string>();
 	const inFlightDeliveries = new Set<Promise<void>>();
+	let configurationTail = Promise.resolve();
 	let gate: CompactionDeliveryGate;
 	const decorateMessage = (message: unknown, id: string): unknown => {
 		if (typeof message !== "object" || message === null || Array.isArray(message)) return message;
@@ -299,44 +300,56 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			nextWaitForSessionEvidence,
 			nextIsLiveRequest,
 		) => {
-			if (nextJournal === journal) return;
-			journalGeneration += 1;
-			while (inFlightDeliveries.size > 0 || persisted.size > 0)
-				await Promise.all([...inFlightDeliveries, ...persisted.values()]);
-			if (nextJournal) {
-				await nextJournal.reconcile(hasSessionEvidence);
-				const pending = await nextJournal.listPending();
-				const persistedNextId = nextJournal.nextSequence ? (await nextJournal.nextSequence()) - 1 : 0;
+			const previousConfiguration = configurationTail;
+			let releaseConfiguration!: () => void;
+			configurationTail = new Promise<void>((resolve) => (releaseConfiguration = resolve));
+			await previousConfiguration;
+			try {
+				if (nextJournal === journal) return;
+				journalGeneration += 1;
+				while (inFlightDeliveries.size > 0 || persisted.size > 0)
+					await Promise.all([...inFlightDeliveries, ...persisted.values()]);
+				if (nextJournal) {
+					await nextJournal.reconcile(hasSessionEvidence);
+					const pending = await nextJournal.listPending();
+					const persistedNextId = nextJournal.nextSequence ? (await nextJournal.nextSequence()) - 1 : 0;
+					gate.resetPending();
+					journal = nextJournal;
+					nextId = Math.max(
+						nextId,
+						persistedNextId,
+						...pending.map((record) => parseDeliveryNumber(record.id)),
+					);
+					waitForSessionEvidence = nextWaitForSessionEvidence;
+					isLiveRequest = nextIsLiveRequest;
+					deferredIds.clear();
+					deferredJournals.clear();
+					persisted.clear();
+					failed.clear();
+					for (const record of pending) {
+						allocatedIds.add(record.id);
+						const requestId = requestIdForReplay(record.envelope);
+						if (requestId && nextIsLiveRequest && !(await nextIsLiveRequest(requestId))) {
+							await nextJournal.markDelivered(record.id);
+							continue;
+						}
+						deferredIds.add(record.id);
+						deferredJournals.set(record.id, nextJournal);
+						gate.accept(record.envelope);
+					}
+					return;
+				}
 				gate.resetPending();
-				journal = nextJournal;
-				nextId = Math.max(nextId, persistedNextId, ...pending.map((record) => parseDeliveryNumber(record.id)));
-				waitForSessionEvidence = nextWaitForSessionEvidence;
-				isLiveRequest = nextIsLiveRequest;
+				journal = undefined;
+				waitForSessionEvidence = undefined;
+				isLiveRequest = undefined;
 				deferredIds.clear();
 				deferredJournals.clear();
 				persisted.clear();
 				failed.clear();
-				for (const record of pending) {
-					allocatedIds.add(record.id);
-					const requestId = requestIdForReplay(record.envelope);
-					if (requestId && nextIsLiveRequest && !(await nextIsLiveRequest(requestId))) {
-						await nextJournal.markDelivered(record.id);
-						continue;
-					}
-					deferredIds.add(record.id);
-					deferredJournals.set(record.id, nextJournal);
-					gate.accept(record.envelope);
-				}
-				return;
+			} finally {
+				releaseConfiguration();
 			}
-			gate.resetPending();
-			journal = undefined;
-			waitForSessionEvidence = undefined;
-			isLiveRequest = undefined;
-			deferredIds.clear();
-			deferredJournals.clear();
-			persisted.clear();
-			failed.clear();
 		},
 		compactionStarted: () => gate.compactionStarted(),
 		compactionEnded: (generation) => gate.compactionEnded(generation),
