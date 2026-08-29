@@ -297,11 +297,11 @@ function initialObservationResult(input: {
 	surface: CrewIdleWaitSurface;
 }): CrewIdleWaitResult | null {
 	if (input.lockTriggered) return result(input.selection, "wait-lock", input.surface.now(), "crew-idle-lock");
+	if (!input.isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
 	if (!input.statusFailed) {
 		const offline = firstOffline(input.selection.targets, input.statuses);
 		if (offline) return result(input.selection, "offline", input.surface.now(), "target-offline", [offline]);
 	}
-	if (!input.isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
 	if (input.stateFailed) throw input.stateError;
 	if (input.statusFailed) throw input.statusError;
 	return null;
@@ -354,6 +354,10 @@ export function createCrewIdleWaitFlow(surface: CrewIdleWaitSurface, options: { 
 		} catch (error) {
 			mapSelectionError(error);
 		}
+		const isMembershipValid = () =>
+			membershipMatches(surface.getMembership(), membership, selection, surface.isTrusted());
+		if (input.signal?.aborted) throw new CrewIdleWaitFlowError("aborted");
+		if (!isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
 		if (selection.targets.length === 0) return result(selection, "ready", surface.now(), "no-other-members");
 		const operation = new AbortController();
 		const nowMs = surface.nowMs ?? Date.now;
@@ -368,10 +372,6 @@ export function createCrewIdleWaitFlow(surface: CrewIdleWaitSurface, options: { 
 				operation.abort();
 			}
 		};
-		const isMembershipValid = () =>
-			membershipMatches(surface.getMembership(), membership, selection, surface.isTrusted());
-		if (input.signal?.aborted) throw new CrewIdleWaitFlowError("aborted");
-		if (!isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
 		const timeoutHandle = setTimeout(() => operation.abort(), timeout * 1000);
 		const onAbort = () => operation.abort();
 		input.signal?.addEventListener("abort", onAbort, { once: true });
