@@ -254,6 +254,57 @@ test("model delivery injects its durable id into journal-backed messages", async
 	assert.equal((message.details as any).deliveryId, undefined);
 });
 
+test("model delivery drops replayed requests whose source channel was lost", async () => {
+	const sent: unknown[] = [];
+	const removed: string[] = [];
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: 1,
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			envelope,
+		}),
+		listPending: async () => [
+			{
+				version: 1 as const,
+				id: "delivery-1",
+				sequence: 1,
+				acceptedAt: 1,
+				bytes: 32,
+				state: "pending" as const,
+				envelope: {
+					id: "delivery-1",
+					bytes: 32,
+					message: {
+						customType: "crew",
+						content: "request",
+						details: {
+							crewRequestId: "request-1",
+							messagePayload: {
+								content: "request",
+								origin: { kind: "crew", name: "Mony", role: "lead" },
+							},
+						},
+					},
+					delivery: { triggerTurn: true },
+					metadata: { deliveryId: "delivery-1" },
+				},
+			},
+		],
+		markHandingOff: async () => undefined,
+		markDelivered: async (id: string) => void removed.push(id),
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter((message) => sent.push(message));
+	await adapter.configureJournal(journal, undefined, undefined, () => false);
+	assert.deepEqual(sent, []);
+	assert.deepEqual(removed, ["delivery-1"]);
+});
+
 test("model delivery resumes durable IDs after an adapter restart", async () => {
 	const ids: string[] = [];
 	let nextSequence = 1;

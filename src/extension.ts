@@ -125,7 +125,6 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer("crew-status", renderCrewStatusEntry);
 	pi.registerEntryRenderer("crew-inbox", renderCrewInboxEntry);
 	pi.registerEntryRenderer("crew-board", renderCrewBoardEntry);
-
 	const state = createSocketState();
 	state.modelDelivery = createModelDeliveryAdapter((message, options) => pi.sendMessage(message, options));
 	const sessionNameApi = pi as ExtensionAPI & {
@@ -134,7 +133,12 @@ export default function (pi: ExtensionAPI) {
 	};
 	const configureDeliveryJournal = async (membership: import("./infra/membership-runtime.ts").Membership) => {
 		if (state.context && state.modelDelivery)
-			await configureModelDeliveryJournal(state.modelDelivery, membership, state.context);
+			await configureModelDeliveryJournal(
+				state.modelDelivery,
+				membership,
+				state.context,
+				(requestId) => state.memberRequestFlow?.registry.inboundRequestIds().includes(requestId) === true,
+			);
 	};
 	const sessionNameController = createSessionNameController({
 		setSessionName: (name) => sessionNameApi.setSessionName?.(name),
@@ -150,12 +154,10 @@ export default function (pi: ExtensionAPI) {
 			return readTrustedCrewManifest(manifestPath, projectRoot, () => context.isProjectTrusted());
 		},
 	});
-
 	const inboxBridge = createInboxBridgeController(pi, state);
 	state.onInboxHint = () => {
 		void inboxBridge.attemptOffer();
 	};
-
 	const recoverInterrupts = async () => {
 		const context = state.context;
 		if (!context) return;
@@ -170,7 +172,6 @@ export default function (pi: ExtensionAPI) {
 		});
 		await interruptFlow.recoverPending();
 	};
-
 	state.memberRequestFlow = new MemberRequestFlow({
 		transport: {
 			open: (endpoint, command, options) =>
@@ -292,7 +293,6 @@ export default function (pi: ExtensionAPI) {
 		// Durable TUI-only custom entry: human-visible, never part of LLM context.
 		pi.appendEntry("crew-status", { content: message });
 	};
-
 	const presenceComposition = createPresenceComposition({
 		getMembership: () => {
 			const membership = state.membershipRuntime?.getMembership();

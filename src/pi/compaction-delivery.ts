@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import {
 	canonicalCompactionDeliveryEnvelopeBytes,
 	createCompactionDeliveryGate,
+	isMessagePayload,
 	type CompactionDeliveryEnvelope,
 	type CompactionDeliveryGate,
 	type CompactionDeliveryResult,
@@ -16,6 +17,16 @@ import type { Membership } from "../infra/membership-runtime.ts";
 function parseDeliveryNumber(id: string): number {
 	const match = /^delivery-(\\d+)$/.exec(id);
 	return match ? Number(match[1]) : 0;
+}
+
+function requestIdForReplay(record: CompactionDeliveryEnvelope): string | undefined {
+	if (typeof record.message !== "object" || record.message === null || Array.isArray(record.message))
+		return undefined;
+	const details = (record.message as Record<string, unknown>).details;
+	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
+	if (!isMessagePayload((details as Record<string, unknown>).messagePayload)) return undefined;
+	const requestId = (details as Record<string, unknown>).crewRequestId;
+	return typeof requestId === "string" ? requestId : undefined;
 }
 
 function hasDeliveryId(value: unknown, deliveryId: string, seen = new Set<object>()): boolean {
@@ -48,6 +59,7 @@ export interface ModelDeliveryAdapter {
 		journal: CompactionDeliveryJournal | undefined,
 		hasSessionEvidence?: (deliveryId: string) => Promise<boolean> | boolean,
 		waitForSessionEvidence?: (deliveryId: string) => Promise<boolean> | boolean,
+		isLiveRequest?: (requestId: string) => Promise<boolean> | boolean,
 	) => Promise<void>;
 	readonly sendAndWait: (
 		message: unknown,
@@ -62,6 +74,7 @@ export async function configureModelDeliveryJournal(
 	adapter: ModelDeliveryAdapter,
 	membership: Membership,
 	context: ExtensionContext,
+	isLiveRequest?: (requestId: string) => Promise<boolean> | boolean,
 ): Promise<void> {
 	const journal = await openTrustedCompactionDeliveryJournal({
 		manifestPath: membership.manifestPath,
@@ -79,7 +92,7 @@ export async function configureModelDeliveryJournal(
 		} while (Date.now() < deadline);
 		return false;
 	};
-	await adapter.configureJournal(journal, hasEvidence, waitForEvidence);
+	await adapter.configureJournal(journal, hasEvidence, waitForEvidence, isLiveRequest);
 }
 
 /** Composition-root adapter: every Bebop model delivery crosses this gate. */
@@ -87,6 +100,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 	let nextId = 0;
 	let journal: CompactionDeliveryJournal | undefined;
 	let waitForSessionEvidence: ((deliveryId: string) => Promise<boolean> | boolean) | undefined;
+	let isLiveRequest: ((requestId: string) => Promise<boolean> | boolean) | undefined;
 	const delivered = new Map<string, { success?: () => void; failure?: () => void }>();
 	const deferredIds = new Set<string>();
 	const persisted = new Map<string, Promise<void>>();
@@ -120,6 +134,12 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		if (journal && deferredIds.has(entry.id)) {
 			let handedOff = false;
 			try {
+				const requestId = requestIdForReplay(entry);
+				if (requestId && isLiveRequest && !(await isLiveRequest(requestId))) {
+					await journal.markDelivered(entry.id);
+					finish(entry.id, "failure");
+					return;
+				}
 				await (persisted.get(entry.id) ?? Promise.resolve());
 				await journal.markHandingOff(entry.id);
 				send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
@@ -232,7 +252,12 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 					reject(new Error("delivery-failed"));
 				else if (result.disposition === "direct" && !journal) resolve(result);
 			}),
-		configureJournal: async (nextJournal, hasSessionEvidence = async () => false, nextWaitForSessionEvidence) => {
+		configureJournal: async (
+			nextJournal,
+			hasSessionEvidence = async () => false,
+			nextWaitForSessionEvidence,
+			nextIsLiveRequest,
+		) => {
 			if (nextJournal === journal) return;
 			if (nextJournal) {
 				await nextJournal.reconcile(hasSessionEvidence);
@@ -242,10 +267,16 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 				journal = nextJournal;
 				nextId = Math.max(nextId, persistedNextId, ...pending.map((record) => parseDeliveryNumber(record.id)));
 				waitForSessionEvidence = nextWaitForSessionEvidence;
+				isLiveRequest = nextIsLiveRequest;
 				deferredIds.clear();
 				persisted.clear();
 				failed.clear();
 				for (const record of pending) {
+					const requestId = requestIdForReplay(record.envelope);
+					if (requestId && nextIsLiveRequest && !(await nextIsLiveRequest(requestId))) {
+						await nextJournal.markDelivered(record.id);
+						continue;
+					}
 					deferredIds.add(record.id);
 					gate.accept(record.envelope);
 				}
@@ -254,6 +285,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			gate.resetPending();
 			journal = undefined;
 			waitForSessionEvidence = undefined;
+			isLiveRequest = undefined;
 			deferredIds.clear();
 			persisted.clear();
 			failed.clear();
