@@ -41,6 +41,20 @@ test("actionable error output presents one canonical message to UI and headless 
 	assert.deepEqual(errors, notices);
 });
 
+test("null context uses the same canonical headless error sink", () => {
+	const errors: string[] = [];
+	const originalError = console.error;
+	console.error = (message: string) => errors.push(message);
+	try {
+		reportActionableError(null, descriptor);
+	} finally {
+		console.error = originalError;
+	}
+	assert.deepEqual(errors, [
+		"Crew startup send failed: the target session is not configured. Next: check the target and retry. (code: unknown-target)",
+	]);
+});
+
 test("actionable error output sanitizes untrusted descriptor fields before either sink", () => {
 	const notices: string[] = [];
 	const errors: string[] = [];

@@ -32,7 +32,7 @@ import { createMemberStatusTransport } from "./infra/member-status-transport.ts"
 import { sendMemberIdleWait, sendRpcCommand, sendMemberRequest } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
-import { presentActionableError, type MemberIdleWaitCommand } from "./domain/index.ts";
+import type { MemberIdleWaitCommand } from "./domain/index.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -75,23 +75,19 @@ import { YieldingWaitRuntime } from "./pi/wait-resume.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
 import { handleSessionStart } from "./pi/session-start.ts";
 import { createSessionNameController } from "./pi/session-name.ts";
+import { reportActionableError } from "./pi/actionable-error-output.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
 const CREW_ROLE_FLAG = "crew-role";
 
 function reportLifecycleFailure(context: ExtensionContext | null): void {
-	const message = presentActionableError({
+	reportActionableError(context, {
 		code: "unexpected-failure",
 		operation: "Crew extension lifecycle",
 		reason: "the lifecycle operation could not be completed",
 		recovery: ["retry the Crew operation; if it repeats, inspect Crew state and report the code."],
-	}).message;
-	if (context?.hasUI) {
-		context.ui.notify(message, "error");
-		return;
-	}
-	console.error(message);
+	});
 }
 
 /** Crew management with its own namespaced socket transport. */

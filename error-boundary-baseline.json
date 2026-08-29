@@ -38,11 +38,6 @@
 			"count": 4
 		},
 		{
-			"file": "src/extension.ts",
-			"kind": "pi-notify",
-			"count": 2
-		},
-		{
 			"file": "src/pi/control-commands.ts",
 			"kind": "pi-notify",
 			"count": 14
