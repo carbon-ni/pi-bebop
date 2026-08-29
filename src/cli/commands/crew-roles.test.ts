@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import { decode } from "@toon-format/toon";
-import { PassThrough } from "node:stream";
+import { PassThrough, type Writable } from "node:stream";
 import { CrewManifestReadError } from "../../infra/crew-manifest-store.ts";
 import { CrewManifestError, type CrewManifest } from "../../domain/index.ts";
 import { UsageError } from "../arguments.ts";
 import type { CliContext } from "../context.ts";
+import { runCli } from "../run.ts";
 import { renderCliResult } from "../output.ts";
 import {
 	buildCrewRolesCommand,
@@ -182,9 +185,9 @@ test("crew roles handler fails explicitly when no manifest exists (missing-manif
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.status, "error");
 	assert.equal(outcome.result.error?.code, "missing-manifest");
-	assert.equal(outcome.result.target, "/project");
+	assert.equal(outcome.result.target, ".");
 	assert.equal(outcome.result.error?.operation, "pi-bebop crew roles");
-	assert.deepEqual(outcome.result.error?.location, { kind: "project-path", name: "project", value: "/project" });
+	assert.deepEqual(outcome.result.error?.location, { kind: "project-path", name: "project", value: "." });
 	assert.deepEqual(outcome.result.error?.recovery, [
 		"create a Crew manifest with pi-bebop crew init, then retry pi-bebop crew roles.",
 	]);
@@ -201,13 +204,73 @@ test("crew roles handler fails explicitly on ambiguous dual-layout manifests", a
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.error?.code, "ambiguous-manifest");
-	assert.equal(outcome.result.target, "/project");
+	assert.equal(outcome.result.target, ".");
 	assert.equal(outcome.result.error?.operation, "pi-bebop crew roles");
-	assert.deepEqual(outcome.result.error?.location, { kind: "project-path", name: "project", value: "/project" });
+	assert.deepEqual(outcome.result.error?.location, { kind: "project-path", name: "project", value: "." });
 	assert.deepEqual(outcome.result.error?.recovery, [
 		"remove one supported Crew manifest, then retry pi-bebop crew roles.",
 	]);
 	assert.match(outcome.result.error?.message ?? "", /both supported crew manifests exist/);
+});
+
+test("crew roles runner keeps missing and ambiguous errors safe and format-identical", async () => {
+	const missingDir = await mkdtemp(`${tmpdir()}/bebop-crew-roles-missing-`);
+	const ambiguousDir = await mkdtemp(`${tmpdir()}/bebop-crew-roles-ambiguous-`);
+	try {
+		await mkdir(`${ambiguousDir}/.pi/bebop`, { recursive: true });
+		await mkdir(`${ambiguousDir}/.pi/crew`, { recursive: true });
+		await writeFile(`${ambiguousDir}/.pi/bebop/crew.json`, "{}");
+		await writeFile(`${ambiguousDir}/.pi/crew/crew.json`, "{}");
+
+		for (const cwd of [missingDir, ambiguousDir]) {
+			const results = new Map<string, Record<string, unknown>>();
+			for (const format of ["text", "json", "toon"] as const) {
+				for (const full of [false, true]) {
+					const writes: string[] = [];
+					const output = { write: (chunk: string) => (writes.push(chunk), true) } as unknown as Writable;
+					const args = ["crew", "roles", "--format", format, ...(full ? ["--full"] : [])];
+					const code = await runCli(args, cwd, new PassThrough(), output);
+					assert.equal(code, 1);
+					assert.equal(writes.length, 1, "operational errors write once to stdout");
+					const rendered = writes[0]!;
+					assert.equal(
+						rendered.includes(cwd),
+						false,
+						"runner output must not expose the absolute project root",
+					);
+					const value =
+						format === "text"
+							? { text: rendered }
+							: format === "json"
+								? JSON.parse(rendered)
+								: decode(rendered);
+					if (format !== "text") {
+						const envelope = value as Record<string, any>;
+						assert.equal(envelope.target, ".");
+						assert.equal(envelope.status, "error");
+						assert.equal(envelope.error.location.value, ".");
+						assert.equal(JSON.stringify(envelope).includes(cwd), false);
+						results.set(`${format}-${full}`, envelope);
+					} else {
+						assert.equal(value.text.endsWith("\n"), true);
+					}
+				}
+			}
+			assert.deepEqual(results.get("json-false"), results.get("toon-false"));
+			assert.deepEqual(results.get("json-false"), results.get("json-true"));
+			assert.deepEqual(results.get("toon-false"), results.get("toon-true"));
+			const message = (results.get("json-false") as any).error.message;
+			const textWrites: string[] = [];
+			const textCode = await runCli(["crew", "roles", "--format", "text"], cwd, new PassThrough(), {
+				write: (chunk: string) => (textWrites.push(chunk), true),
+			} as unknown as Writable);
+			assert.equal(textCode, 1);
+			assert.deepEqual(textWrites, [`${message}\n`]);
+		}
+	} finally {
+		await rm(missingDir, { recursive: true, force: true });
+		await rm(ambiguousDir, { recursive: true, force: true });
+	}
 });
 
 test("crew roles handler maps trusted-manifest read failures through stable codes", async () => {
