@@ -6,7 +6,7 @@ import { CrewManifestReadError, readTrustedCrewManifest } from "../../infra/crew
 import { getTrustedCrewManifestPaths } from "../../infra/crew-layout.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
 import { parseFlagTokens } from "../flags.ts";
-import { actionableErrorResult, errorResult } from "../errors.ts";
+import { actionableErrorResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome, CliResult } from "../output.ts";
 
@@ -157,12 +157,13 @@ export async function runCrewRolesCommand(
 	if (existing.length === 0) {
 		return {
 			kind: "result",
-			result: errorResult(
-				"no supported crew manifest found beneath the project",
-				projectRoot,
-				"missing-manifest",
-				"pi-bebop crew roles",
-			),
+			result: actionableErrorResult({
+				code: "missing-manifest",
+				operation: "pi-bebop crew roles",
+				reason: "no supported crew manifest found beneath the project",
+				recovery: ["create a Crew manifest with pi-bebop crew init, then retry pi-bebop crew roles."],
+				location: { kind: "project-path", name: "project", value: projectRoot },
+			}),
 			format: options.format,
 			full: options.full,
 		};
@@ -170,12 +171,13 @@ export async function runCrewRolesCommand(
 	if (existing.length > 1) {
 		return {
 			kind: "result",
-			result: errorResult(
-				"both supported crew manifests exist (.pi/bebop and .pi/crew); remove one",
-				projectRoot,
-				"ambiguous-manifest",
-				"pi-bebop crew roles",
-			),
+			result: actionableErrorResult({
+				code: "ambiguous-manifest",
+				operation: "pi-bebop crew roles",
+				reason: "both supported crew manifests exist (.pi/bebop and .pi/crew); remove one",
+				recovery: ["remove one supported Crew manifest, then retry pi-bebop crew roles."],
+				location: { kind: "project-path", name: "project", value: projectRoot },
+			}),
 			format: options.format,
 			full: options.full,
 		};

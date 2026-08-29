@@ -3,11 +3,6 @@
 	"exemptions": [],
 	"entries": [
 		{
-			"file": "src/cli/commands/crew-roles.ts",
-			"kind": "cli-result",
-			"count": 2
-		},
-		{
 			"file": "src/cli/commands/durable-message.ts",
 			"kind": "cli-result",
 			"count": 12

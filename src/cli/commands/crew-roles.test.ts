@@ -182,6 +182,12 @@ test("crew roles handler fails explicitly when no manifest exists (missing-manif
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.status, "error");
 	assert.equal(outcome.result.error?.code, "missing-manifest");
+	assert.equal(outcome.result.target, "/project");
+	assert.equal(outcome.result.error?.operation, "pi-bebop crew roles");
+	assert.deepEqual(outcome.result.error?.location, { kind: "project-path", name: "project", value: "/project" });
+	assert.deepEqual(outcome.result.error?.recovery, [
+		"create a Crew manifest with pi-bebop crew init, then retry pi-bebop crew roles.",
+	]);
 	assert.match(outcome.result.error?.message ?? "", /no supported crew manifest/);
 });
 
@@ -195,6 +201,10 @@ test("crew roles handler fails explicitly on ambiguous dual-layout manifests", a
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.error?.code, "ambiguous-manifest");
+	assert.equal(outcome.result.target, "/project");
+	assert.equal(outcome.result.error?.operation, "pi-bebop crew roles");
+	assert.deepEqual(outcome.result.error?.location, { kind: "project-path", name: "project", value: "/project" });
+	assert.deepEqual(outcome.result.error?.recovery, ["remove one supported Crew manifest, then retry pi-bebop crew roles."]);
 	assert.match(outcome.result.error?.message ?? "", /both supported crew manifests exist/);
 });
 
