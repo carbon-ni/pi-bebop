@@ -227,6 +227,8 @@ test("/crew member-idle cancels on local activity and clears status/capacity", a
 		}),
 	};
 	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	const statuses: Array<string | undefined> = [];
+	(setupState.ctx.ui as any).setStatus = (_key: string, value: string | undefined) => statuses.push(value);
 	let aborted = false;
 	registerSessionControlCommand(
 		setupState.pi,
@@ -249,6 +251,10 @@ test("/crew member-idle cancels on local activity and clears status/capacity", a
 	await pending;
 	assert.equal(aborted, true);
 	assert.equal(setupState.state.blockingWait.activeMarker(), null);
+	assert.deepEqual(statuses, ["Crew member-idle: observing configured Members…", undefined]);
+	const reusableLease = setupState.state.crewIdleCapacity.acquire("crew-member-idle-command");
+	assert.ok(reusableLease, "capacity is reusable after command cancellation cleanup");
+	reusableLease.release();
 	assert.match(setupState.notifications.at(-1)!, /local-activity/);
 });
 

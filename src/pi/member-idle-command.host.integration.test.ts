@@ -338,6 +338,8 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 	disposed = true;
 	await waitFor(pendingShutdown);
 	await waitFor(idleSubscriptionClosures[shutdownSubscriptionIndex]);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(targetConnections.size, 0, "shutdown must close every target socket");
 	assert.equal(contexts.length, 1, "shutdown cleanup must not call the provider");
 
 	await new Promise((resolve) => setTimeout(resolve, 250));
