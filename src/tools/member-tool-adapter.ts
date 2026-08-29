@@ -84,7 +84,11 @@ function errorReason(code: MemberIntentErrorCode): string {
 	}
 }
 
-function errorText(target: string, code: MemberIntentErrorCode, operation: "send_follow_up" | "redirect_member"): ActionableToolResult {
+function errorText(
+	target: string,
+	code: MemberIntentErrorCode,
+	operation: "send_follow_up" | "redirect_member",
+): ActionableToolResult {
 	return actionableToolError({
 		code,
 		operation,
@@ -142,7 +146,11 @@ export function registerMemberIntentTool(
 				const aborted = signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
 				const rawCode =
 					error instanceof Error && "code" in error ? (error as Error & { code?: unknown }).code : undefined;
-				return errorText(target || "member", aborted ? "aborted" : normalizeMemberIntentErrorCode(rawCode), name);
+				return errorText(
+					target || "member",
+					aborted ? "aborted" : normalizeMemberIntentErrorCode(rawCode),
+					name,
+				);
 			}
 		},
 	});
