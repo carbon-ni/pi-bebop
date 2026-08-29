@@ -78,6 +78,41 @@ test("sendDurably waits for journal append before acknowledging deferred accepta
 	assert.deepEqual(await acknowledgement, { disposition: "deferred" });
 });
 
+test("deferred handoff waits for session evidence before marking delivered", async () => {
+	const calls: string[] = [];
+	let releaseEvidence!: () => void;
+	const evidence = new Promise<void>((resolve) => (releaseEvidence = resolve));
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: 1,
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			envelope,
+		}),
+		listPending: async () => [],
+		markHandingOff: async () => calls.push("handoff"),
+		markDelivered: async () => calls.push("delivered"),
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter(() => calls.push("send"));
+	await adapter.configureJournal(journal, undefined, async () => {
+		await evidence;
+		return true;
+	});
+	const generation = adapter.compactionStarted();
+	const completion = adapter.sendAndWait({ customType: "crew", content: "evidence" });
+	adapter.compactionEnded(generation);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(calls, ["handoff", "send"]);
+	releaseEvidence();
+	await completion;
+	assert.deepEqual(calls, ["handoff", "send", "delivered"]);
+});
+
 test("markDelivered failure keeps handoff successful for the caller", async () => {
 	const sent: unknown[] = [];
 	const journal = {

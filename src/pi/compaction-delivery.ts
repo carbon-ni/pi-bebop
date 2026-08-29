@@ -42,6 +42,7 @@ export interface ModelDeliveryAdapter {
 	readonly configureJournal: (
 		journal: CompactionDeliveryJournal | undefined,
 		hasSessionEvidence?: (deliveryId: string) => Promise<boolean> | boolean,
+		waitForSessionEvidence?: (deliveryId: string) => Promise<boolean> | boolean,
 	) => Promise<void>;
 	readonly sendAndWait: (
 		message: unknown,
@@ -63,15 +64,24 @@ export async function configureModelDeliveryJournal(
 		isProjectTrusted: () => context.isProjectTrusted(),
 		memberName: membership.member.name,
 	});
-	await adapter.configureJournal(journal, async (deliveryId) =>
-		(context.sessionManager.getEntries() as readonly unknown[]).some((entry) => hasDeliveryId(entry, deliveryId)),
-	);
+	const hasEvidence = async (deliveryId: string): Promise<boolean> =>
+		(context.sessionManager.getEntries() as readonly unknown[]).some((entry) => hasDeliveryId(entry, deliveryId));
+	const waitForEvidence = async (deliveryId: string): Promise<boolean> => {
+		const deadline = Date.now() + 2_000;
+		do {
+			if (await hasEvidence(deliveryId)) return true;
+			await new Promise<void>((resolve) => setTimeout(resolve, 25));
+		} while (Date.now() < deadline);
+		return false;
+	};
+	await adapter.configureJournal(journal, hasEvidence, waitForEvidence);
 }
 
 /** Composition-root adapter: every Bebop model delivery crosses this gate. */
 export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): ModelDeliveryAdapter {
 	let nextId = 0;
 	let journal: CompactionDeliveryJournal | undefined;
+	let waitForSessionEvidence: ((deliveryId: string) => Promise<boolean> | boolean) | undefined;
 	const delivered = new Map<string, { success?: () => void; failure?: () => void }>();
 	const deferredIds = new Set<string>();
 	const persisted = new Map<string, Promise<void>>();
@@ -109,10 +119,13 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 				await journal.markHandingOff(entry.id);
 				send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
 				handedOff = true;
-				try {
-					await journal.markDelivered(entry.id);
-				} catch {
-					// Keep the handing-off record for evidence-based reconciliation.
+				const evidenceSeen = waitForSessionEvidence ? await waitForSessionEvidence(entry.id) : true;
+				if (evidenceSeen) {
+					try {
+						await journal.markDelivered(entry.id);
+					} catch {
+						// Keep the handing-off record for evidence-based reconciliation.
+					}
 				}
 				finish(entry.id, "success");
 			} catch {
@@ -214,13 +227,14 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 					reject(new Error("delivery-failed"));
 				else if (result.disposition === "direct" && !journal) resolve(result);
 			}),
-		configureJournal: async (nextJournal, hasSessionEvidence = async () => false) => {
+		configureJournal: async (nextJournal, hasSessionEvidence = async () => false, nextWaitForSessionEvidence) => {
 			if (nextJournal === journal) return;
 			if (nextJournal) {
 				await nextJournal.reconcile(hasSessionEvidence);
 				const pending = await nextJournal.listPending();
 				gate.resetPending();
 				journal = nextJournal;
+				waitForSessionEvidence = nextWaitForSessionEvidence;
 				deferredIds.clear();
 				persisted.clear();
 				failed.clear();
@@ -232,6 +246,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			}
 			gate.resetPending();
 			journal = undefined;
+			waitForSessionEvidence = undefined;
 			deferredIds.clear();
 			persisted.clear();
 			failed.clear();
