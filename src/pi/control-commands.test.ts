@@ -5,7 +5,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { cancelCrewMemberIdleCommand, createSocketState } from "./control-runtime.ts";
 import { registerSessionControlCommand, type ControlCommandDeps } from "./control-commands.ts";
 import { createMembershipRuntime, type MembershipRuntime } from "../infra/membership-runtime.ts";
-import { parseCrewManifest } from "../domain/index.ts";
+import { detectCrewIdleLock, parseCrewManifest } from "../domain/index.ts";
 
 function setup() {
 	let command:
@@ -103,7 +103,7 @@ test("/crew member-idle completes through the shared Crew Idle flow without mode
 			},
 		}),
 	);
-	await setupState.getCommand().handler('member-idle "Dave Smith"', setupState.ctx);
+	await setupState.getCommand().handler("member-idle Dave Smith", setupState.ctx);
 	assert.deepEqual(received, ["Dave Smith"]);
 	assert.equal(setupState.entries[0]!.customType, "crew-member-idle");
 	const content = String(setupState.entries[0]!.data?.content);
@@ -274,7 +274,8 @@ test("/crew member-idle full scope delegates without a crew wait-lock", async ()
 			crewIdleWait: {
 				wait: async (input) => {
 					received = input.members;
-					assert.equal(setupState.state.blockingWait.activeMarker()?.kind, "member-idle");
+					assert.equal(setupState.state.blockingWait.activeMarker(), null);
+					assert.ok(setupState.state.crewMemberIdleCommand);
 					return {
 						scope: "all",
 						members: [{ name: "Kelly", role: "qa" }],
@@ -289,6 +290,22 @@ test("/crew member-idle full scope delegates without a crew wait-lock", async ()
 	await setupState.getCommand().handler("member-idle", setupState.ctx);
 	assert.equal(received, undefined);
 	assert.equal(setupState.state.blockingWait.activeMarker(), null);
+	assert.deepEqual(
+		detectCrewIdleLock({
+			callerWait: setupState.state.blockingWait.activeMarker(),
+			callerName: "Dave",
+			manifestMembers: [{ name: "Dave" }, { name: "Kelly" }],
+			selection: ["Kelly"],
+			observations: [
+				{
+					name: "Kelly",
+					status: "online",
+					wait: { kind: "member-idle", observedAt: "2026-08-29T10:00:00.000Z" },
+				},
+			],
+		}),
+		{ locked: false, reason: "caller-not-crew-gate" },
+	);
 	assert.match(String(setupState.entries[0]!.data?.content), /coversAllOtherMembers=true/);
 });
 

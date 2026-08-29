@@ -82,6 +82,15 @@ function errorResult(target: string, code: string, _message: string): Actionable
 	});
 }
 
+function memberIdleCapacityError(state: SocketState, memberLabel: string): ActionableToolResult | null {
+	if (!state.crewMemberIdleCommand) return null;
+	return errorResult(
+		memberLabel || "member",
+		"wait-in-progress",
+		"Only one blocking idle wait may be active locally",
+	);
+}
+
 export function registerWaitForMemberIdleTool(
 	pi: ExtensionAPI,
 	state: SocketState,
@@ -113,6 +122,8 @@ export function registerWaitForMemberIdleTool(
 				const targetIdentity = { name: resolved.target.name, role: resolved.target.role };
 				const observedAt = () => new Date().toISOString();
 
+				const capacityError = memberIdleCapacityError(state, memberLabel);
+				if (capacityError) return capacityError;
 				const owned = new AbortController();
 				const terminal = await new Promise<MemberIdleWaitTransportResult>((resolveTerminal) => {
 					let settled = false;

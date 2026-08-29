@@ -80,8 +80,14 @@ function parseAgreements(parts: string[]): SessionControlParseResult {
 	return { action: "agreements", target: `activate ${parts[2]}` };
 }
 
-function parseMemberIdle(parts: string[]): SessionControlParseResult {
-	return { action: "member-idle", ...(parts.length > 1 ? { target: parts.slice(1).join(" ") } : {}) };
+function parseMemberIdleTail(args: string): SessionControlParseResult | undefined {
+	const command = args.trimStart();
+	const keyword = "member-idle";
+	if (!command.startsWith(keyword)) return undefined;
+	const tail = command.slice(keyword.length);
+	if (tail.length > 0 && !/^\s/u.test(tail)) return undefined;
+	const target = tail.trim();
+	return { action: "member-idle", ...(target ? { target } : {}) };
 }
 
 function parseInbox(parts: string[]): SessionControlParseResult {
@@ -100,6 +106,8 @@ function parseInbox(parts: string[]): SessionControlParseResult {
 }
 
 export function parseSessionControlAction(args: string): SessionControlParseResult {
+	const memberIdle = parseMemberIdleTail(args);
+	if (memberIdle) return memberIdle;
 	const tokenized = tokenizeSessionControlArgs(args);
 	if (tokenized.error) return tokenized;
 	const parts = tokenized.parts!;
@@ -110,7 +118,6 @@ export function parseSessionControlAction(args: string): SessionControlParseResu
 		return { action, target: args.trim().slice(action.length).trim() };
 	}
 	if (action === "agreements") return parseAgreements(parts);
-	if (action === "member-idle") return parseMemberIdle(parts);
 	if (action === "inbox") return parseInbox(parts);
 	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
 		if (parts.length > 1) return { error: `Too many arguments. Use /crew ${SESSION_CONTROL_USAGE}.` };

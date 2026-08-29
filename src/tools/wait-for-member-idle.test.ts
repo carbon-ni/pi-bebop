@@ -309,6 +309,22 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		assert.equal(state.wakeGate.notifyAccepted("delivery-2"), true);
 	});
 
+	test("TASK-0121: slash member-idle capacity rejects the peer wait without public marker IO", async () => {
+		let probes = 0;
+		const { tool, state } = setup(membership, {
+			probeEndpoint: async () => {
+				probes += 1;
+				return true;
+			},
+		});
+		state.crewMemberIdleCommand = { cancel: () => undefined };
+		const result = await tool.execute("id", { member: "Bob" });
+		assert.equal(result.isError, true);
+		assert.equal((result.details as { error?: string }).error, "wait-in-progress");
+		assert.equal(probes, 0, "peer wait rejects before endpoint IO");
+		assert.equal(state.blockingWait.activeMarker(), null, "slash capacity has no public wait marker");
+	});
+
 	test("TASK-0081: requester abort is a terminal before IO and cancels the subscription", async () => {
 		let aborted = false;
 		const controller = new AbortController();

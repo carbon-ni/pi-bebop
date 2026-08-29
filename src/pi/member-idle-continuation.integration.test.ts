@@ -20,6 +20,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { createSocketState, handleCommand } from "./control-runtime.ts";
+import { registerSessionControlCommand } from "./control-commands.ts";
 import { parseRenderedMessagePayload, type MessagePayload } from "../domain/index.ts";
 import { registerWaitForMemberIdleTool, type MemberIdleWaitToolTransport } from "../tools/wait-for-member-idle.ts";
 
@@ -87,7 +88,7 @@ const parkTransport: MemberIdleWaitToolTransport = {
 };
 
 async function createFakeSession(
-	options: { readonly extraTool?: (pi: ExtensionAPI) => void } = {},
+	options: { readonly extraTool?: (pi: ExtensionAPI, state: ReturnType<typeof createSocketState>) => void } = {},
 ): Promise<FakeHarness> {
 	const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-0089-cwd-"));
 	const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-0089-agent-"));
@@ -171,7 +172,7 @@ async function createFakeSession(
 		factory: (pi: ExtensionAPI) => {
 			piRef = pi;
 			registerWaitForMemberIdleTool(pi, state, parkTransport);
-			options.extraTool?.(pi);
+			options.extraTool?.(pi, state);
 		},
 	};
 
@@ -214,8 +215,8 @@ async function createFakeSession(
 		},
 		cleanup: async () => {
 			session.dispose();
-			await fs.rm(cwd, { recursive: true, force: true });
-			await fs.rm(agentDir, { recursive: true, force: true });
+			await fs.rm(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+			await fs.rm(agentDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
 		},
 	};
 }
@@ -225,6 +226,17 @@ async function waitForArmedWake(state: ReturnType<typeof createSocketState>, dea
 	const started = Date.now();
 	while (!state.wakeGate.armed) {
 		if (Date.now() - started > deadlineMs) throw new Error("wake gate was never armed");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
+
+async function waitForMemberIdleCommand(
+	state: ReturnType<typeof createSocketState>,
+	deadlineMs = 5_000,
+): Promise<void> {
+	const started = Date.now();
+	while (!state.crewMemberIdleCommand) {
+		if (Date.now() - started > deadlineMs) throw new Error("member-idle command was never started");
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
 }
@@ -268,6 +280,29 @@ function textBlocks(context: Context): Array<{ role: string; text: string }> {
 function occurrences(context: Context, needle: string): number {
 	return textBlocks(context).filter(({ text }) => text.includes(needle)).length;
 }
+
+test("TASK-0121: real Pi command host keeps slash member-idle async and provider-free", async (t) => {
+	const harness = await createFakeSession({
+		extraTool: (pi, state) =>
+			registerSessionControlCommand(pi, state, {
+				disableControlServer: async () => undefined,
+				crewIdleWait: {
+					wait: ({ signal }) =>
+						new Promise<never>((_, reject) => {
+							signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+						}),
+				},
+			}),
+	});
+	t.after(() => harness.cleanup());
+	const pending = harness.session.prompt("/crew member-idle");
+	await waitForMemberIdleCommand(harness.state);
+	assert.equal(harness.contexts.length, 0, "slash command must not start a provider turn");
+	assert.equal(harness.state.blockingWait.activeMarker(), null, "slash command must not publish wait-state");
+	harness.state.crewMemberIdleCommand?.cancel("test");
+	await pending;
+	assert.equal(harness.contexts.length, 0, "cancelling slash command must remain provider-free");
+});
 
 test("TASK-0089: accepted Follow-up is consumed in the next provider context before any assistant action", async (t) => {
 	const harness = await createFakeSession();

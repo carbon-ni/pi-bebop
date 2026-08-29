@@ -71,7 +71,6 @@ async function runObservation(
 			// Rendering cleanup must not prevent cancellation and slot release.
 		}
 		if (state.crewMemberIdleCommand === owner) state.crewMemberIdleCommand = undefined;
-		state.blockingWait.release();
 		controller.abort();
 	}
 }
@@ -93,8 +92,7 @@ export function createMemberIdleCommandHandler(
 			notify(ctx, "Crew member-idle is unavailable", "error");
 			return;
 		}
-		const acquired = state.blockingWait.acquire("member-idle");
-		if (!acquired.ok) {
+		if (state.crewMemberIdleCommand || state.blockingWait.activeMarker()) {
 			notify(ctx, "Another blocking idle wait is already active", "warning");
 			return;
 		}

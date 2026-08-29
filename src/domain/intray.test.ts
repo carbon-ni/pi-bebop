@@ -861,15 +861,23 @@ test("isSessionControlRequested accepts only intray flags", () => {
 	assert.equal(isSessionControlRequested(noFlags, []), false);
 });
 
-test("parseSessionControlAction accepts member-idle with omitted and comma-separated targets", () => {
+test("parseSessionControlAction keeps member-idle tails comma-only and preserves exact identity whitespace", () => {
 	assert.deepEqual(parseSessionControlAction("member-idle"), { action: "member-idle" });
 	assert.deepEqual(parseSessionControlAction("member-idle Dave,Kelly"), {
 		action: "member-idle",
 		target: "Dave,Kelly",
 	});
+	assert.deepEqual(parseSessionControlAction("member-idle Mary  Jane,Kelly"), {
+		action: "member-idle",
+		target: "Mary  Jane,Kelly",
+	});
 	assert.deepEqual(parseSessionControlAction('member-idle "Dave Smith",Kelly'), {
 		action: "member-idle",
-		target: "Dave Smith,Kelly",
+		target: '"Dave Smith",Kelly',
+	});
+	assert.deepEqual(parseSessionControlAction(String.raw`member-idle Mary\ Jane,Kelly`), {
+		action: "member-idle",
+		target: String.raw`Mary\ Jane,Kelly`,
 	});
 	assert.deepEqual(parseCrewIdleMemberArgument(" Dave , Kelly "), ["Dave", "Kelly"]);
 	assert.throws(() => parseCrewIdleMemberArgument("Dave,,Kelly"));
