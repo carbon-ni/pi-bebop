@@ -43,6 +43,35 @@ test("model delivery starts durable append before terminal drain", async () => {
 	);
 });
 
+test("markDelivered failure keeps handoff successful for the caller", async () => {
+	const sent: unknown[] = [];
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: 1,
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			envelope,
+		}),
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => {
+			throw new Error("disk unavailable");
+		},
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter((message) => sent.push(message));
+	await adapter.configureJournal(journal);
+	const generation = adapter.compactionStarted();
+	const completion = adapter.sendAndWait({ customType: "crew", content: "sent" });
+	adapter.compactionEnded(generation);
+	await completion;
+	assert.equal(sent.length, 1);
+});
+
 test("model delivery persists and acknowledges a deferred handoff", async () => {
 	const sent: unknown[] = [];
 	const calls: string[] = [];
@@ -145,8 +174,11 @@ test("model delivery injects its durable id into journal-backed messages", async
 	};
 	const adapter = createModelDeliveryAdapter((message) => sent.push(message));
 	await adapter.configureJournal(journal);
+	const generation = adapter.compactionStarted();
 	const message = { customType: "crew", content: "id", details: { requestId: "request-1" } };
 	adapter.send(message);
+	adapter.compactionEnded(generation);
+	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.equal((sent[0].details as any).requestId, "request-1");
 	assert.equal((sent[0].details as any).deliveryId, "delivery-1");
 	assert.equal((message.details as any).deliveryId, undefined);

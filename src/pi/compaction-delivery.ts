@@ -13,6 +13,19 @@ import {
 } from "../infra/compaction-delivery-journal.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
 
+function hasDeliveryId(value: unknown, deliveryId: string, seen = new Set<object>()): boolean {
+	if (typeof value !== "object" || value === null) return false;
+	if (seen.has(value)) return false;
+	seen.add(value);
+	if (Array.isArray(value)) return value.some((item) => hasDeliveryId(item, deliveryId, seen));
+	const record = value as Record<string, unknown>;
+	if (record.deliveryId === deliveryId) return true;
+	return (
+		(record.metadata !== undefined && hasDeliveryId(record.metadata, deliveryId, seen)) ||
+		(record.details !== undefined && hasDeliveryId(record.details, deliveryId, seen))
+	);
+}
+
 export interface ModelDeliveryAdapter {
 	readonly send: (
 		message: unknown,
@@ -45,13 +58,7 @@ export async function configureModelDeliveryJournal(
 		memberName: membership.member.name,
 	});
 	await adapter.configureJournal(journal, async (deliveryId) =>
-		(context.sessionManager.getEntries() as readonly unknown[]).some((entry) => {
-			try {
-				return JSON.stringify(entry).includes(deliveryId);
-			} catch {
-				return false;
-			}
-		}),
+		(context.sessionManager.getEntries() as readonly unknown[]).some((entry) => hasDeliveryId(entry, deliveryId)),
 	);
 }
 
@@ -90,19 +97,25 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			return;
 		}
 		if (journal && deferredIds.has(entry.id)) {
+			let handedOff = false;
 			try {
 				await (persisted.get(entry.id) ?? Promise.resolve());
 				await journal.markHandingOff(entry.id);
 				send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
-				await journal.markDelivered(entry.id);
+				handedOff = true;
+				try {
+					await journal.markDelivered(entry.id);
+				} catch {
+					// Keep the handing-off record for evidence-based reconciliation.
+				}
 				finish(entry.id, "success");
 			} catch {
-				finish(entry.id, "failure");
+				finish(entry.id, handedOff ? "success" : "failure");
 			}
 			return;
 		}
 		try {
-			send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
+			send(entry.message as never, entry.delivery as never);
 			finish(entry.id, "success");
 		} catch {
 			finish(entry.id, "failure");

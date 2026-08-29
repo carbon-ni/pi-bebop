@@ -97,20 +97,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isValidDeliveryEnvelope(record: Record<string, unknown>): boolean {
+	if (!isRecord(record.envelope)) return false;
+	return (
+		record.envelope.id === record.id &&
+		record.envelope.bytes === record.bytes &&
+		isRecord(record.envelope.delivery) &&
+		isRecord(record.envelope.metadata)
+	);
+}
+
+function isValidDeliveryIdentity(record: Record<string, unknown>): boolean {
+	return record.version === 1 && typeof record.id === "string" && record.id.length > 0;
+}
+
+function isValidDeliveryRecord(record: unknown): record is CompactionDeliveryRecord {
+	if (!isRecord(record)) return false;
+	const validIdentity = isValidDeliveryIdentity(record);
+	const sequence = record.sequence;
+	const acceptedAt = record.acceptedAt;
+	const validSequence = typeof sequence === "number" && Number.isSafeInteger(sequence) && sequence > 0;
+	const validTime = typeof acceptedAt === "number" && Number.isSafeInteger(acceptedAt);
+	const validState = record.state === "pending" || record.state === "handing-off";
+	const bytes = record.bytes;
+	const validBytes =
+		typeof bytes === "number" &&
+		Number.isSafeInteger(bytes) &&
+		bytes >= 0 &&
+		bytes <= COMPACTION_DELIVERY_MAX_ENTRY_BYTES;
+	return validIdentity && validSequence && validTime && validState && validBytes && isValidDeliveryEnvelope(record);
+}
+
 function parseJournal(value: unknown): JournalFile {
 	if (!isRecord(value) || value.version !== COMPACTION_DELIVERY_JOURNAL_VERSION || !Array.isArray(value.records))
 		throw new CompactionDeliveryJournalError("invalid-record", "compaction delivery journal is malformed");
 	const records = value.records as CompactionDeliveryRecord[];
+	const valid = records.every(isValidDeliveryRecord);
+	const sequences = new Set(records.map((record) => record.sequence));
 	if (
-		!records.every(
-			(record) =>
-				isRecord(record) &&
-				record.version === 1 &&
-				typeof record.id === "string" &&
-				Number.isSafeInteger(record.sequence) &&
-				Number.isSafeInteger(record.bytes) &&
-				isRecord(record.envelope),
-		)
+		!valid ||
+		sequences.size !== records.length ||
+		records.length > COMPACTION_DELIVERY_MAX_ENTRIES ||
+		recordBytes(records) > COMPACTION_DELIVERY_MAX_BYTES
 	)
 		throw new CompactionDeliveryJournalError(
 			"invalid-record",
