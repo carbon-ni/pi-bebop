@@ -1,4 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { renderMessagePayload } from "./message-renderer.ts";
 import type { MessagePayload } from "./message-payload.ts";
 
@@ -22,17 +23,29 @@ export const DeliveryProvenanceSchema = Type.Object(
 );
 export type DeliveryProvenance = Static<typeof DeliveryProvenanceSchema>;
 
+/**
+ * Exact compact formatter grammar: a non-negative ASCII integer without
+ * leading zeros, bounded to four digits, with exactly one unit. Anything
+ * else (arbitrary text, unicode digits, control characters, decimals,
+ * oversize) is invalid and must fail safe before reaching any display.
+ */
+const QUEUE_DELAY_PATTERN = /^(0|[1-9]\d{0,3})(s|m|h|d)$/;
+
+/**
+ * Closed-schema validator for untrusted `details.deliveryProvenance`: the
+ * strict TypeBox contract (no additional properties, finite numbers) plus
+ * the bounded delay grammar and non-negative finite epoch timestamps.
+ * Malformed values are rejected, never clamped or repaired into display.
+ */
 export function isDeliveryProvenance(value: unknown): value is DeliveryProvenance {
-	if (typeof value !== "object" || value === null) return false;
-	const candidate = value as Record<string, unknown>;
+	if (!Value.Check(DeliveryProvenanceSchema, value)) return false;
+	const candidate = value as DeliveryProvenance;
 	return (
-		typeof candidate.deliveryId === "string" &&
-		candidate.deliveryId.length > 0 &&
-		typeof candidate.acceptedAt === "number" &&
-		typeof candidate.handoffAt === "number" &&
-		typeof candidate.queueDelay === "string" &&
-		candidate.queueDelay.length > 0 &&
-		candidate.disposition === "queued"
+		QUEUE_DELAY_PATTERN.test(candidate.queueDelay) &&
+		Number.isFinite(candidate.acceptedAt) &&
+		Number.isFinite(candidate.handoffAt) &&
+		candidate.acceptedAt >= 0 &&
+		candidate.handoffAt >= 0
 	);
 }
 
