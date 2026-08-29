@@ -5,6 +5,7 @@ export const MIN_CREW_IDLE_WAIT_TIMEOUT = 60;
 export const MAX_CREW_IDLE_WAIT_TIMEOUT = 7200;
 export const MAX_CREW_IDLE_WAIT_MEMBERS = 32;
 export const MAX_CREW_IDLE_WAIT_MEMBER_BYTES = 256;
+export const MAX_CREW_IDLE_MEMBER_ARGUMENT_BYTES = 4096;
 const MEMBER_LABEL = Type.String({ minLength: 1, maxLength: MAX_CREW_IDLE_WAIT_MEMBER_BYTES });
 const ISO_TIMESTAMP_PATTERN = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$";
 const OBSERVED_AT = Type.String({ pattern: ISO_TIMESTAMP_PATTERN });
@@ -66,6 +67,8 @@ export type CrewIdleSelection = {
 };
 export function parseCrewIdleMemberArgument(argument: string | undefined): readonly string[] | undefined {
 	if (argument === undefined || argument.trim() === "") return undefined;
+	if (new TextEncoder().encode(argument).byteLength > MAX_CREW_IDLE_MEMBER_ARGUMENT_BYTES)
+		throw new CrewIdleWaitError("invalid-selection", "member-idle selection exceeds 4096 UTF-8 bytes");
 	const members = argument.split(",").map((member) => member.trim());
 	if (members.length > MAX_CREW_IDLE_WAIT_MEMBERS || members.some((member) => member.length === 0))
 		throw new CrewIdleWaitError("invalid-selection", "member-idle expects non-empty comma-separated Member names");

@@ -1,7 +1,7 @@
 ---
 id: TASK-0118
 title: Implement wait_for_crew_idle for Lead loops
-status: todo
+status: done
 depends_on: [TASK-0117, TASK-0120]
 priority: high
 tags: [crew, idle, tools, auto, coordination, wait-lock, determinism, tdd]

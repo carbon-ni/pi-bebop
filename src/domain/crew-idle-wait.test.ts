@@ -4,8 +4,10 @@ import { Value } from "@sinclair/typebox/value";
 import {
 	CrewIdleWaitInputSchema,
 	CrewIdleWaitResultSchema,
+	MAX_CREW_IDLE_MEMBER_ARGUMENT_BYTES,
 	MAX_CREW_IDLE_WAIT_MEMBER_BYTES,
 	MAX_CREW_IDLE_WAIT_MEMBERS,
+	parseCrewIdleMemberArgument,
 	resolveCrewIdleSelection,
 } from "./crew-idle-wait.ts";
 
@@ -43,6 +45,7 @@ test("crew idle selection rejects empty, duplicate, role, unknown, and self labe
 test("crew idle schemas are closed and bounded", () => {
 	assert.equal(MAX_CREW_IDLE_WAIT_MEMBERS, 32);
 	assert.equal(MAX_CREW_IDLE_WAIT_MEMBER_BYTES, 256);
+	assert.equal(MAX_CREW_IDLE_MEMBER_ARGUMENT_BYTES, 4096);
 	assert.equal(CrewIdleWaitInputSchema.additionalProperties, false);
 	assert.equal(CrewIdleWaitResultSchema.additionalProperties, false);
 	assert.equal(Value.Check(CrewIdleWaitInputSchema, { members: ["Dave"], timeout_seconds: 60 }), true);
@@ -60,4 +63,12 @@ test("crew idle schemas are closed and bounded", () => {
 	};
 	assert.throws(() => resolveCrewIdleSelection(byteBoundManifest, [oversizedName]));
 	assert.doesNotThrow(() => resolveCrewIdleSelection(manifest, ["Dave"]));
+});
+
+test("member-idle parser rejects oversized UTF-8 slash tails before selection", () => {
+	assert.doesNotThrow(() => parseCrewIdleMemberArgument("x".repeat(MAX_CREW_IDLE_MEMBER_ARGUMENT_BYTES)));
+	assert.throws(
+		() => parseCrewIdleMemberArgument("😀".repeat(MAX_CREW_IDLE_MEMBER_ARGUMENT_BYTES)),
+		/member-idle selection exceeds 4096 UTF-8 bytes/,
+	);
 });
