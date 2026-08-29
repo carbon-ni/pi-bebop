@@ -10,7 +10,7 @@ import {
 	isWaitStateSnapshot,
 	resolveWaitStateCaller,
 } from "./blocking-wait-state.ts";
-import { parseRequest } from "./protocol.ts";
+import { parseRequest, requestToCommand } from "./protocol.ts";
 
 const clock = () => {
 	let tick = 0;
@@ -89,7 +89,10 @@ test("snapshot and marker schemas are strict and privacy-safe", () => {
 	assert.equal(BlockingWaitMarkerSchema.additionalProperties, false);
 	assert.equal(WaitStateSnapshotSchema.additionalProperties, false);
 	assert.ok(isBlockingWaitMarker({ kind: "member-idle", observedAt: "2026-08-29T10:00:00.000Z" }));
-	assert.equal(isBlockingWaitMarker({ kind: "member-idle", observedAt: "2026-08-29T10:00:00.000Z", target: "Kelly" }), false);
+	assert.equal(
+		isBlockingWaitMarker({ kind: "member-idle", observedAt: "2026-08-29T10:00:00.000Z", target: "Kelly" }),
+		false,
+	);
 	assert.equal(isBlockingWaitMarker({ kind: "working", observedAt: "2026-08-29T10:00:00.000Z" }), false);
 	assert.equal(isBlockingWaitMarker({ kind: "crew-idle", observedAt: "not-a-time" }), false);
 	assert.equal(isBlockingWaitMarker({ kind: "crew-idle", observedAt: Number.NaN }), false);
@@ -173,17 +176,11 @@ test("lock detector never turns non-explicit observations into lock evidence", (
 		selection: ["Dave", "Kelly"],
 	};
 	const nonLocks: Array<[string, unknown]> = [
-		["offline", [...lockedObservations(["Dave"]), { name: "Kelly", status: "offline" }]],
-		["missing", [...lockedObservations(["Dave"]), { name: "Kelly", status: "missing" }]],
-		["stale", [...lockedObservations(["Dave"]), { name: "Kelly", status: "stale" }]],
-		["failed", [...lockedObservations(["Dave"]), { name: "Kelly", status: "failed" }]],
-		[
-			"target-not-blocking",
-			[
-				...lockedObservations(["Dave"]),
-				{ name: "Kelly", status: "online", wait: null },
-			],
-		],
+		["target-offline", [...lockedObservations(["Dave"]), { name: "Kelly", status: "offline" }]],
+		["target-missing", [...lockedObservations(["Dave"]), { name: "Kelly", status: "missing" }]],
+		["target-stale", [...lockedObservations(["Dave"]), { name: "Kelly", status: "stale" }]],
+		["target-failed", [...lockedObservations(["Dave"]), { name: "Kelly", status: "failed" }]],
+		["target-not-blocking", [...lockedObservations(["Dave"]), { name: "Kelly", status: "online", wait: null }]],
 	];
 	for (const [reason, observations] of nonLocks) {
 		const result = detectCrewIdleLock({ ...base, observations: observations as never });
@@ -228,14 +225,15 @@ test("wait_state wire request decodes into the closed command", () => {
 		JSON.stringify({ jsonrpc: "2.0", id: 7, method: "member.wait_state", params: { member: "Mony" } }),
 	);
 	assert.equal(parsed.error, undefined);
-	if (!parsed.error && parsed.request) {
-		const command = parseRequest(JSON.stringify(parsed.request)).request;
-		assert.ok(command);
-		assert.equal((command as { method?: string }).method, "member.wait_state");
-	}
-	// Extra params are rejected.
+	assert.ok(parsed.request);
+	assert.deepEqual(requestToCommand(parsed.request), { type: "wait_state", member: "Mony", id: 7 });
+	// Extra params are rejected at decode.
 	const bad = parseRequest(
 		JSON.stringify({ jsonrpc: "2.0", id: 8, method: "member.wait_state", params: { member: "Mony", extra: 1 } }),
 	);
-	assert.notEqual(bad.error, undefined);
+	assert.ok(bad.request);
+	assert.deepEqual(requestToCommand(bad.request), {
+		code: -32602,
+		message: "Invalid member.wait_state params",
+	});
 });

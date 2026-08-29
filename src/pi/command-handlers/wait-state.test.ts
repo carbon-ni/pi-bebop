@@ -14,12 +14,14 @@ function contextWithSlot(overrides: Partial<Parameters<typeof handlerContext>[0]
 	const c = handlerContext();
 	c.state.blockingWait = new BlockingWaitSlot(clock());
 	c.state.membershipRuntime = { getMembership: () => joinedMembership() } as never;
+	c.ctx.isProjectTrusted = () => true;
 	return Object.assign(c, overrides);
 }
 
 test("wait_state rejects unjoined and untrusted runtimes", async () => {
 	const unjoined = handlerContext();
 	unjoined.state.blockingWait = new BlockingWaitSlot(clock());
+	unjoined.ctx.isProjectTrusted = () => true;
 	await handleWaitState({ type: "wait_state", member: "Mary", id: "1" }, unjoined);
 	assert.equal((unjoined.responses[0] as { error?: string }).error, "not-joined");
 

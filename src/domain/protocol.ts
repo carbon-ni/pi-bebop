@@ -1,4 +1,4 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { ExtractedMessageSchema, type ExtractedMessage } from "./messages.ts";
 import {
@@ -11,13 +11,13 @@ import {
 } from "./message-payload.ts";
 import { MemberStatusSchema } from "./member-status.ts";
 import { MemberIdleWaitResultSchema } from "./member-idle-wait.ts";
-
+import * as WaitStateProtocol from "./wait-state-protocol.ts";
+export * from "./wait-state-protocol.ts";
 export const JSON_RPC_VERSION = "2.0" as const;
 export const RpcIdSchema = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
 // Keep the transport schema compatible with the TypeBox API exposed by Pi's peer floor.
 // Method-specific payloads are strict; unknown methods may carry only an object params bag.
 export const UnknownMethodParamsSchema = Type.Union([Type.Null(), Type.Object({}, { additionalProperties: true })]);
-
 export const MessageSendParamsSchema = Type.Object(
 	{
 		...MessagePayloadSchema.properties,
@@ -44,7 +44,6 @@ export const PresenceHintParamsSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-
 export const MessageSendRequestSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSON_RPC_VERSION),
@@ -166,7 +165,6 @@ export const MemberStatusTargetCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-
 /**
  * Delegated message delivery (CLI -> source session, TASK-0062): one bounded
  * target label, verbatim message content (bounded, non-blank), ordered
@@ -340,7 +338,6 @@ export const MemberUpdateNotificationSchema = Type.Object(
 );
 export const MemberUpdateResultSchema = Type.Union([MemberUpdateResponseSchema, MemberUpdateMechanicalSchema]);
 export const MemberUpdateIdleSchemaExport = MemberUpdateIdleSchema;
-
 export const MemberInterruptParamsSchema = Type.Object(
 	{
 		target: MemberStatusTargetSchema,
@@ -571,6 +568,7 @@ export const KnownRequestSchema = Type.Union([
 	MemberInboxSendRequestSchema,
 	CrewBroadcastRequestSchema,
 	MemberIdleWaitRequestSchema,
+	WaitStateProtocol.WaitStateRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
 	{
@@ -636,6 +634,7 @@ export const RpcMethodResultSchema = Type.Union([
 	MemberInboxSendResultSchema,
 	CrewBroadcastResultSchema,
 	MemberIdleWaitSubscribeResultSchema,
+	WaitStateProtocol.WaitStateSnapshotResultSchema,
 	EmptyResultSchema,
 ]);
 export const RpcResponseSchema = Type.Union([
@@ -752,6 +751,7 @@ export type RpcMethodResult = Static<typeof RpcMethodResultSchema>;
 export type RpcNotification =
 	| Static<typeof TurnEndNotificationSchema>
 	| Static<typeof MemberIdleWaitNotificationSchema>
+	| Static<typeof WaitStateProtocol.WaitStateNotificationSchema>
 	| Static<typeof MemberUpdateNotificationSchema>;
 export type RpcCommand =
 	| Static<typeof MessageSendCommandSchema>
@@ -771,7 +771,8 @@ export type RpcCommand =
 	| Static<typeof MemberRedirectCommandSchema>
 	| Static<typeof MemberInboxSendCommandSchema>
 	| Static<typeof CrewBroadcastCommandSchema>
-	| Static<typeof MemberIdleWaitCommandSchema>;
+	| Static<typeof MemberIdleWaitCommandSchema>
+	| Static<typeof WaitStateProtocol.WaitStateCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
 	| RequiredId<Static<typeof MessageSendCommandSchema>>
@@ -791,7 +792,8 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof MemberRedirectCommandSchema>>
 	| RequiredId<Static<typeof MemberInboxSendCommandSchema>>
 	| RequiredId<Static<typeof CrewBroadcastCommandSchema>>
-	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>;
+	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>
+	| RequiredId<Static<typeof WaitStateProtocol.WaitStateCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
 export type SubscribeCommand = Static<typeof SubscribeCommandSchema>;
@@ -916,44 +918,29 @@ export function isTurnEndNotification(value: unknown): value is Static<typeof Tu
 export function isMemberUpdateNotification(value: unknown): value is Static<typeof MemberUpdateNotificationSchema> {
 	return Value.Check(MemberUpdateNotificationSchema, value);
 }
-export function methodResultSchema(method: string) {
-	return method === "session.status"
-		? StatusResultSchema
-		: method === "message.send"
-			? SendResultSchema
-			: method === "message.interrupt"
-				? InterruptResultSchema
-				: method === "member.status"
-					? MemberStatusResultSchema
-					: method === "member.status_target"
-						? MemberStatusResultSchema
-						: method === "member.request"
-							? MemberRequestResultSchema
-							: method === "member.respond"
-								? EmptyResultSchema
-								: method === "member.interrupt"
-									? MemberInterruptResultSchema
-									: method === "member.follow_up"
-										? MemberMessageResultSchema
-										: method === "member.redirect"
-											? MemberMessageResultSchema
-											: method === "member.inbox_send"
-												? MemberInboxSendResultSchema
-												: method === "crew.broadcast"
-													? CrewBroadcastResultSchema
-													: method === "member.idle_wait"
-														? MemberIdleWaitSubscribeResultSchema
-														: method === "session.get_message"
-															? GetMessageResultSchema
-															: method === "session.clear"
-																? ClearResultSchema
-																: method === "session.abort"
-																	? EmptyResultSchema
-																	: method === "event.subscribe"
-																		? SubscribeResultSchema
-																		: method === "presence.hint"
-																			? PresenceHintResultSchema
-																			: undefined;
+const METHOD_RESULT_SCHEMAS: Record<string, TSchema> = {
+	"session.status": StatusResultSchema,
+	"message.send": SendResultSchema,
+	"message.interrupt": InterruptResultSchema,
+	"member.status": MemberStatusResultSchema,
+	"member.status_target": MemberStatusResultSchema,
+	"member.request": MemberRequestResultSchema,
+	"member.respond": EmptyResultSchema,
+	"member.interrupt": MemberInterruptResultSchema,
+	"member.follow_up": MemberMessageResultSchema,
+	"member.redirect": MemberMessageResultSchema,
+	"member.inbox_send": MemberInboxSendResultSchema,
+	"crew.broadcast": CrewBroadcastResultSchema,
+	"member.idle_wait": MemberIdleWaitSubscribeResultSchema,
+	"member.wait_state": WaitStateProtocol.WaitStateSnapshotResultSchema,
+	"session.get_message": GetMessageResultSchema,
+	"session.clear": ClearResultSchema,
+	"session.abort": EmptyResultSchema,
+	"event.subscribe": SubscribeResultSchema,
+	"presence.hint": PresenceHintResultSchema,
+};
+export function methodResultSchema(method: string): TSchema | undefined {
+	return METHOD_RESULT_SCHEMAS[method];
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -1031,6 +1018,7 @@ export function serializeProtocolMessage(value: RpcWireResponse | RpcNotificatio
 		!Value.Check(RpcResponseSchema, value) &&
 		!Value.Check(TurnEndNotificationSchema, value) &&
 		!Value.Check(MemberIdleWaitNotificationSchema, value) &&
+		!Value.Check(WaitStateProtocol.WaitStateNotificationSchema, value) &&
 		!Value.Check(MemberUpdateNotificationSchema, value)
 	)
 		throw new Error("Invalid JSON-RPC message");
@@ -1258,6 +1246,18 @@ const COMMAND_CODEC_TABLE: CodecTable = {
 		encode: (command, id) => encodeCommandRequest("member.idle_wait", command, id),
 		decode: (request) =>
 			decodeDirect(request, "member_idle_wait", MemberIdleWaitParamsSchema, "Invalid member.idle_wait params"),
+	},
+	wait_state: {
+		type: "wait_state",
+		method: "member.wait_state",
+		encode: (command, id) => encodeCommandRequest("member.wait_state", command, id),
+		decode: (request) =>
+			decodeDirect(
+				request,
+				"wait_state",
+				WaitStateProtocol.WaitStateParamsSchema,
+				"Invalid member.wait_state params",
+			),
 	},
 };
 function codecForCommand(type: CommandType): CodecRow<CommandType> {

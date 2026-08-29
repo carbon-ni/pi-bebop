@@ -4,6 +4,7 @@ import {
 	buildResultResponse,
 	buildTurnEndNotification,
 	buildMemberUpdateNotification,
+	buildWaitStateNotification,
 	isMemberIdleWaitNotification,
 	parseRequest,
 	requestToCommand,
@@ -44,47 +45,29 @@ export function writeWireError(
 	write(socket, buildErrorResponse(id, code, message, data));
 }
 
+const COMMAND_METHODS: Record<string, string> = {
+	status: "session.status",
+	send: "message.send",
+	interrupt: "message.interrupt",
+	member_status: "member.status",
+	member_status_target: "member.status_target",
+	member_request: "member.request",
+	member_response: "member.respond",
+	member_interrupt: "member.interrupt",
+	member_follow_up: "member.follow_up",
+	member_redirect: "member.redirect",
+	member_inbox_send: "member.inbox_send",
+	crew_broadcast: "crew.broadcast",
+	member_idle_wait: "member.idle_wait",
+	wait_state: "member.wait_state",
+	get_message: "session.get_message",
+	clear: "session.clear",
+	abort: "session.abort",
+	subscribe: "event.subscribe",
+	presence_hint: "presence.hint",
+};
 function methodForCommand(command: string): string | undefined {
-	switch (command) {
-		case "status":
-			return "session.status";
-		case "send":
-			return "message.send";
-		case "interrupt":
-			return "message.interrupt";
-		case "member_status":
-			return "member.status";
-		case "member_status_target":
-			return "member.status_target";
-		case "member_request":
-			return "member.request";
-		case "member_response":
-			return "member.respond";
-		case "member_interrupt":
-			return "member.interrupt";
-		case "member_follow_up":
-			return "member.follow_up";
-		case "member_redirect":
-			return "member.redirect";
-		case "member_inbox_send":
-			return "member.inbox_send";
-		case "crew_broadcast":
-			return "crew.broadcast";
-		case "member_idle_wait":
-			return "member.idle_wait";
-		case "get_message":
-			return "session.get_message";
-		case "clear":
-			return "session.clear";
-		case "abort":
-			return "session.abort";
-		case "subscribe":
-			return "event.subscribe";
-		case "presence_hint":
-			return "presence.hint";
-		default:
-			return undefined;
-	}
+	return COMMAND_METHODS[command];
 }
 export function writeResponse(socket: RpcSocket, response: RpcCommandResponse): void {
 	if (typeof response.id !== "string" && typeof response.id !== "number") {
@@ -134,6 +117,19 @@ export function writeMemberIdleWaitEvent(socket: RpcSocket, event: { subscriptio
 	};
 	if (!isMemberIdleWaitNotification(notification)) throw new Error("Invalid member idle wait event");
 	write(socket, notification);
+}
+
+/** TASK-0117: server -> client one-shot wait-state transition notification. */
+export function writeWaitStateEvent(
+	socket: RpcSocket,
+	event: { subscriptionId: string; snapshot: import("../domain/index.ts").WaitStateSnapshot },
+): void {
+	const notification = buildWaitStateNotification(event.subscriptionId, event.snapshot);
+	try {
+		write(socket, notification);
+	} catch {
+		/* Socket may be closed. */
+	}
 }
 
 export async function createRpcServer(socketPath: string, onCommand: RpcCommandHandler): Promise<RpcServer> {

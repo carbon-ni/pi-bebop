@@ -10,6 +10,7 @@ import {
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
 import {
 	AcceptedLocalMessageWakeGate,
+	BlockingWaitSlot,
 	createMemberIdleWaitResult,
 	getLastAssistantMessage,
 	QueuedFollowUpAcceptanceRegistry,
@@ -57,6 +58,11 @@ interface IdleWaitSubscription {
 	subscriptionId: string;
 }
 
+interface WaitStateSubscription {
+	socket: RpcSocket;
+	subscriptionId: string;
+}
+
 export interface SocketState {
 	server: RpcServer | null;
 	socketPath: string | null;
@@ -69,6 +75,10 @@ export interface SocketState {
 	wakeGate: AcceptedLocalMessageWakeGate;
 	/** TASK-0139: session-local busy-acceptance registry for queued Follow-up handoff provenance. */
 	queuedFollowUps: QueuedFollowUpAcceptanceRegistry;
+	/** TASK-0117: runtime-owned single blocking-wait marker (none | member-idle | crew-idle). */
+	blockingWait: BlockingWaitSlot;
+	/** TASK-0117: one-shot wait-state transition subscriptions (member.wait_state). */
+	waitStateSubscriptions: WaitStateSubscription[];
 	membershipRuntime: MembershipRuntime | null;
 	presenceObserver?: PresenceObserver;
 	onInboxHint?: () => void;
@@ -397,6 +407,8 @@ export function createSocketState(): SocketState {
 		idleWaitSubscriptions: [],
 		wakeGate: new AcceptedLocalMessageWakeGate(),
 		queuedFollowUps: new QueuedFollowUpAcceptanceRegistry({ now: () => Date.now() }),
+		blockingWait: new BlockingWaitSlot({ now: () => new Date().toISOString() }),
+		waitStateSubscriptions: [],
 		membershipRuntime: null,
 		sessionNameController: undefined,
 	};

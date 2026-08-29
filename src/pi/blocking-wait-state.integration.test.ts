@@ -101,12 +101,14 @@ test("peer snapshots wait state and receives exactly one transition notification
 	} as never;
 	const pi = { sendMessage: () => undefined, appendEntry: () => undefined } as never;
 	const server = await createRpcServer(socketPath, (command, socket) => handleCommand(pi, state, command, socket));
-	t.after(async () => {
-		await closeRpcServer(server);
-	});
 
 	const client = await lineClient(socketPath);
-	t.after(() => client.close());
+	// One deterministic cleanup hook: the client connection must close before
+	// closeRpcServer stops waiting for connections.
+	t.after(async () => {
+		client.close();
+		await closeRpcServer(server);
+	});
 
 	client.send({ jsonrpc: "2.0", id: 41, method: "member.wait_state", params: { member: "Mony" } });
 	const response = await client.nextMessage();
@@ -162,18 +164,22 @@ test("a disconnected subscriber is cleaned up and never crashes a later transiti
 	} as never;
 	const pi = { sendMessage: () => undefined, appendEntry: () => undefined } as never;
 	const server = await createRpcServer(socketPath, (command, socket) => handleCommand(pi, state, command, socket));
-	t.after(async () => {
-		await closeRpcServer(server);
-	});
 
 	const client = await lineClient(socketPath);
+	t.after(async () => {
+		client.close();
+		await closeRpcServer(server);
+	});
 	client.send({ jsonrpc: "2.0", id: 7, method: "member.wait_state", params: { member: "Mony" } });
 	const response = await client.nextMessage();
 	assert.equal(response.error, undefined);
 	assert.equal(state.waitStateSubscriptions.length, 1);
 	client.close();
-	await new Promise((resolve) => setImmediate(resolve));
-	await new Promise((resolve) => setImmediate(resolve));
+	// Bounded wait: the server-side socket close event is asynchronous.
+	const deadline = Date.now() + 2_000;
+	while (state.waitStateSubscriptions.length > 0 && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
 	assert.equal(state.waitStateSubscriptions.length, 0, "disconnect removed the one-shot subscription");
 	// Transition after disconnect is a clean no-op for the dead subscriber.
 	assert.equal(state.blockingWait.acquire("member-idle").ok, true);

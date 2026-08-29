@@ -10,6 +10,7 @@ import { handleMemberRedirect } from "./member-redirect.ts";
 import { handleMemberInboxSend } from "./member-inbox-send.ts";
 import { handleCrewBroadcast } from "./crew-broadcast.ts";
 import { handleMemberIdleWait } from "./member-idle-wait.ts";
+import { handleWaitState } from "./wait-state.ts";
 import { handleStatus } from "./status.ts";
 import { handleAbort } from "./abort.ts";
 import { handleMemberInterrupt } from "./member-interrupt.ts";
@@ -30,6 +31,7 @@ export const commandHandlers: Record<RpcInboundCommand["type"], AnyRpcCommandHan
 	member_inbox_send: handleMemberInboxSend,
 	crew_broadcast: handleCrewBroadcast,
 	member_idle_wait: handleMemberIdleWait,
+	wait_state: handleWaitState,
 	status: handleStatus,
 	abort: handleAbort,
 	member_interrupt: handleMemberInterrupt,

@@ -116,14 +116,25 @@ export function registerWaitForMemberIdleTool(
 				const owned = new AbortController();
 				const terminal = await new Promise<MemberIdleWaitTransportResult>((resolveTerminal) => {
 					let settled = false;
+					let cleanedUp = false;
 					const finish = (outcome: MemberIdleWaitTransportResult) => {
 						if (settled) return;
 						settled = true;
 						resolveTerminal(outcome);
 					};
+					// TASK-0117: idempotent cleanup runs on EVERY terminal path — including
+					// the accepted-message wake — so the marker and wake gate release
+					// deterministically even if transport abort resolution lags.
+					const cleanup = () => {
+						if (cleanedUp) return;
+						cleanedUp = true;
+						state.wakeGate.release(wakeListener);
+						state.blockingWait.release();
+						owned.abort();
+					};
 					const wakeListener = (deliveryId: string) => {
 						void deliveryId;
-						owned.abort();
+						cleanup();
 						finish({
 							ok: true,
 							result: createMemberIdleWaitResult(
@@ -138,10 +149,12 @@ export function registerWaitForMemberIdleTool(
 						finish({ ok: false, code: "wait-in-progress" });
 						return;
 					}
-					const cleanup = () => {
+					const marker = state.blockingWait.acquire("member-idle");
+					if (marker.ok === false) {
 						state.wakeGate.release(wakeListener);
-						owned.abort();
-					};
+						finish({ ok: false, code: "wait-in-progress" });
+						return;
+					}
 					if (signal) {
 						if (signal.aborted) {
 							cleanup();
@@ -157,10 +170,10 @@ export function registerWaitForMemberIdleTool(
 							{ once: true },
 						);
 					}
-					// Reachability probe (IO) runs AFTER the slot is armed; offline
-					// is a compact offline outcome. Then open the one-shot
-					// subscription with the owned controller so a winning local
-					// terminal (message/abort) cancels it.
+					// Reachability probe (IO) runs AFTER the slot is armed and the marker
+					// acquired; offline is a compact offline outcome. Then open the one-shot
+					// subscription with the owned controller so a winning local terminal
+					// (message/abort) cancels it.
 					void (async () => {
 						const alive = await surface.probeEndpoint(resolved.target.socketPath);
 						if (!alive) {
