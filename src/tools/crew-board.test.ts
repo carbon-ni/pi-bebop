@@ -98,9 +98,16 @@ test("read_crew_board renders a compact empty and one-Post decision view", async
 
 	const one = await readTool({ ...empty, posts: [post()] }).execute("r", {});
 	assert.equal(one.content[0].text, "#1 [tip] Dave (dev)\nTDD evidence discipline ...");
+	assert.doesNotMatch(one.content[0].text, /post-aaaaaaaa/);
 	assert.deepEqual(one.details, {
 		posts: [
-			{ sequence: 1, kind: "tip", author: { name: "Dave", role: "dev" }, message: "TDD evidence discipline ..." },
+			{
+				post_id: "post-" + "a".repeat(64),
+				sequence: 1,
+				kind: "tip",
+				author: { name: "Dave", role: "dev" },
+				message: "TDD evidence discipline ...",
+			},
 		],
 	});
 	for (const forbidden of ["version", "createdAt", "semanticFingerprint", "redactions", "nextCursor", "hasMore"])
@@ -112,9 +119,10 @@ test("read_crew_board adds only actionable references, links, continuation, and 
 		references: ["UL.md"],
 		link: { relation: "disputes", postId: "post-" + "c".repeat(64) },
 	});
+	const secondPostId = "post-" + "b".repeat(64);
 	const result = {
 		...empty,
-		posts: [linked, post({ sequence: 2, message: "Second" })],
+		posts: [linked, post({ id: secondPostId, sequence: 2, message: "Second" })],
 		nextCursor: "cursor-token",
 		hasMore: true,
 		corruptCount: 2,
@@ -131,6 +139,7 @@ test("read_crew_board adds only actionable references, links, continuation, and 
 	assert.deepEqual(output.details, {
 		posts: [
 			{
+				post_id: "post-" + "a".repeat(64),
 				sequence: 1,
 				kind: "tip",
 				author: { name: "Dave", role: "dev" },
@@ -138,7 +147,13 @@ test("read_crew_board adds only actionable references, links, continuation, and 
 				references: ["UL.md"],
 				link: { relation: "disputes", post_id: "post-" + "c".repeat(64) },
 			},
-			{ sequence: 2, kind: "tip", author: { name: "Dave", role: "dev" }, message: "Second" },
+			{
+				post_id: secondPostId,
+				sequence: 2,
+				kind: "tip",
+				author: { name: "Dave", role: "dev" },
+				message: "Second",
+			},
 		],
 		nextCursor: "cursor-token",
 		hasMore: true,

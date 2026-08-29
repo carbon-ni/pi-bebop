@@ -48,6 +48,7 @@ type AppendParams = {
 type ReadParams = { kinds?: ("tip" | "kudos" | "feedback" | "warning" | "note")[]; after?: string; limit?: number };
 
 type DecisionPost = {
+	post_id: string;
 	sequence: number;
 	kind: CrewPost["kind"];
 	author: CrewPost["author"];
@@ -65,6 +66,7 @@ type DecisionView = {
 
 function decisionPost(post: CrewPost): DecisionPost {
 	return {
+		post_id: post.id,
 		sequence: post.sequence,
 		kind: post.kind,
 		author: { name: post.author.name, role: post.author.role },
