@@ -378,8 +378,9 @@ test("cleans failed tails and isolates a role-switched endpoint while the old qu
 		.execute("call", { member: "qa", message: "recovers" }, undefined, undefined, undefined);
 	const results = await Promise.all([failed, recovered]);
 	assert.equal(results[0].isError, true);
-	assert.match(results[0].content[0].text, /offline.*target shutdown/i);
-	assert.equal(results[0].details.error, "offline");
+	assert.match(results[0].content[0].text, /code: unexpected-failure/);
+	assert.equal(results[0].details.error, "unexpected-failure");
+	assert.doesNotMatch(JSON.stringify(results[0].details), /target shutdown/i);
 	assert.equal(results[1].isError, undefined);
 	assert.equal(failureCalls, 2);
 	assert.equal(failureCoordinator.pendingKeyCount(), 0);
@@ -412,14 +413,15 @@ test("classifies every representative invalid acknowledgement, remote rejection,
 		.execute("call", { member: "qa", message: "x" }, undefined, undefined, undefined);
 	assert.equal(remoteResult.details.error, "remote-rejected");
 	const offline = setup(async () => {
-		throw new Error("ENOENT socket");
+		throw Object.assign(new Error("ENOENT socket"), { code: "offline" });
 	});
 	const offlineResult = await offline
 		.get("send_follow_up")!
 		.execute("call", { member: "qa", message: "x" }, new AbortController().signal, undefined, undefined);
 	assert.equal(offlineResult.details.error, "offline");
-	assert.match(offlineResult.content[0].text, /offline.*target shutdown/i);
-	assert.doesNotMatch(offlineResult.content[0].text, /ENOENT/i);
+	assert.match(offlineResult.content[0].text, /offline/i);
+	assert.doesNotMatch(offlineResult.content[0].text, /ENOENT|socket/i);
+	assert.doesNotMatch(JSON.stringify(offlineResult.details), /ENOENT|socket/i);
 });
 
 test("rejects response waiting and preserves membership target errors without RPC", async () => {
@@ -455,9 +457,13 @@ test("rejects response waiting and preserves membership target errors without RP
 
 test("both intent tools expose actionable parity for typed and raw failures", async () => {
 	for (const name of ["send_follow_up", "redirect_member"] as const) {
-		for (const failure of [
-			new MemberMessageError("remote-rejected", "remote error at /var/folders/qa/private.sock"),
-			new Error("dependency failed at /tmp/quarantine-123"),
+		for (const { failure, code } of [
+			{
+				failure: new MemberMessageError("remote-rejected", "remote error at /var/folders/qa/private.sock"),
+				code: "remote-rejected",
+			},
+			{ failure: Object.assign(new Error("offline at /tmp/private.sock"), { code: "offline" }), code: "offline" },
+			{ failure: new Error("dependency failed at /tmp/quarantine-123"), code: "unexpected-failure" },
 		]) {
 			const tools = setup(async () => {
 				throw failure;
@@ -467,6 +473,7 @@ test("both intent tools expose actionable parity for typed and raw failures", as
 				.execute("call", { member: "qa", message: "x" }, undefined, undefined, undefined);
 			assert.equal(result.isError, true, name);
 			assert.equal(typeof result.details.actionableError, "object", name);
+			assert.equal(result.details.error, code, name);
 			assert.equal(result.details.error, result.details.actionableError.code, name);
 			assert.equal(result.content[0].text, result.details.actionableError.message, name);
 			assert.doesNotMatch(result.content[0].text, /private\.sock|quarantine-123|remote error at/i, name);

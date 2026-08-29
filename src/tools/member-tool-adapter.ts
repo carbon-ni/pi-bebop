@@ -27,32 +27,68 @@ function resultText(target: string, outcome: { disposition: string }): ToolResul
 		details: outcome,
 	};
 }
-function errorText(
-	target: string,
-	code: string,
-	_message: string,
-	operation: "send_follow_up" | "redirect_member",
-): ActionableToolResult {
-	const reason =
-		code === "ambiguous-member"
-			? "Ambiguous member target"
-			: code === "offline"
-				? "offline target shutdown"
-				: code === "response-wait-requires-member-request"
-					? "response unavailable without a member request"
-					: code === "self-send"
-						? "the target is yourself"
-						: code === "unknown-member"
-							? "Unknown member target"
-							: code === "not-joined"
-								? "Not joined to a crew"
-								: code === "unexpected-failure"
-									? "the member message operation could not be completed"
-									: "the member message operation was rejected";
+const MEMBER_INTENT_ERROR_CODES = new Set([
+	"unknown-member",
+	"ambiguous-member",
+	"self-send",
+	"not-joined",
+	"response-wait-requires-member-request",
+	"invalid-payload",
+	"offline",
+	"remote-rejected",
+	"invalid-ack",
+	"outcome-unknown",
+	"aborted",
+]);
+
+type MemberIntentErrorCode =
+	| "unknown-member"
+	| "ambiguous-member"
+	| "self-send"
+	| "not-joined"
+	| "response-wait-requires-member-request"
+	| "invalid-payload"
+	| "offline"
+	| "remote-rejected"
+	| "invalid-ack"
+	| "outcome-unknown"
+	| "aborted"
+	| "unexpected-failure";
+
+function normalizeMemberIntentErrorCode(code: unknown): MemberIntentErrorCode {
+	return typeof code === "string" && MEMBER_INTENT_ERROR_CODES.has(code)
+		? (code as MemberIntentErrorCode)
+		: "unexpected-failure";
+}
+
+function errorReason(code: MemberIntentErrorCode): string {
+	switch (code) {
+		case "ambiguous-member":
+			return "Ambiguous member target";
+		case "offline":
+			return "offline target shutdown";
+		case "response-wait-requires-member-request":
+			return "response unavailable without a member request";
+		case "self-send":
+			return "the target is yourself";
+		case "unknown-member":
+			return "Unknown member target";
+		case "not-joined":
+			return "Not joined to a crew";
+		case "aborted":
+			return "the member message operation was aborted";
+		case "unexpected-failure":
+			return "the member message operation could not be completed";
+		default:
+			return "the member message operation was rejected";
+	}
+}
+
+function errorText(target: string, code: MemberIntentErrorCode, operation: "send_follow_up" | "redirect_member"): ActionableToolResult {
 	return actionableToolError({
 		code,
 		operation,
-		reason,
+		reason: errorReason(code),
 		recovery: ["verify crew membership and the target, then retry the tool."],
 		location: { kind: "member", name: "member", value: target },
 	});
@@ -102,16 +138,11 @@ export function registerMemberIntentTool(
 				);
 				return resultText(`${outcome.target.name} (${outcome.target.role})`, outcome);
 			} catch (error) {
-				if (error instanceof MemberMessageError)
-					return errorText(target || "member", error.code, error.message, name);
-				const message = error instanceof Error ? error.message : "Member endpoint offline";
+				if (error instanceof MemberMessageError) return errorText(target || "member", error.code, name);
 				const aborted = signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
-				return errorText(
-					target || "member",
-					aborted ? "aborted" : "offline",
-					aborted ? "Member request aborted" : `Member endpoint offline: ${message}`,
-					name,
-				);
+				const rawCode =
+					error instanceof Error && "code" in error ? (error as Error & { code?: unknown }).code : undefined;
+				return errorText(target || "member", aborted ? "aborted" : normalizeMemberIntentErrorCode(rawCode), name);
 			}
 		},
 	});

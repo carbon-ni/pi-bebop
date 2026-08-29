@@ -78,11 +78,6 @@
 			"count": 1
 		},
 		{
-			"file": "src/tools/member-tool-adapter.ts",
-			"kind": "tool-result",
-			"count": 1
-		},
-		{
 			"file": "src/tools/wait-for-member-idle.ts",
 			"kind": "tool-result",
 			"count": 1
