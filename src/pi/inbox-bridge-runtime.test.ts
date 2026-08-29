@@ -159,6 +159,17 @@ describe("ownership mapping", () => {
 });
 
 describe("adapter controller wiring", () => {
+	test("deferred gate ownership stays outstanding and is not retried", async () => {
+		const harness = setup([], [item(0), item(1)]);
+		(harness.state as any).modelDelivery = {
+			send: () => ({ disposition: "deferred" }),
+		};
+		harness.controller.establish(ownershipFromMembership(membershipFixture()));
+		assert.deepEqual(await harness.controller.attemptOffer(), { offered: true, itemId: "inbox-0-abc" });
+		assert.deepEqual(await harness.controller.attemptOffer(), { offered: false, reason: "outstanding" });
+		assert.equal(harness.pending.length, 2);
+	});
+
 	test("offerItem hands the inbox item to Pi as a typed follow-up message", async () => {
 		const harness = setup([], [item(0), item(1)]);
 		harness.controller.establish(ownershipFromMembership(membershipFixture()));
