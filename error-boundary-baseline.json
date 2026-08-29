@@ -8,11 +8,6 @@
 			"count": 12
 		},
 		{
-			"file": "src/cli/commands/member-idle-wait.ts",
-			"kind": "cli-result",
-			"count": 11
-		},
-		{
 			"file": "src/cli/commands/member-interrupt.ts",
 			"kind": "cli-result",
 			"count": 14

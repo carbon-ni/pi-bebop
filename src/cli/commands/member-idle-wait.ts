@@ -1,11 +1,15 @@
 import { Command, CommanderError } from "commander";
 import { formatMemberIdleWaitResult, isMemberIdleWaitResult } from "../../domain/index.ts";
-import { sendMemberIdleWait, type MemberIdleWaitClientOutcome } from "../../infra/rpc-client.ts";
-import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
+import {
+	mapIdleWaitTransportError,
+	normalizeIdleWaitErrorCode,
+	sendMemberIdleWaitThroughSockets,
+	type MemberIdleWaitCliOutcome,
+} from "../../infra/member-idle-wait-cli-transport.ts";
 import { parsePositiveDurationMs } from "../parser.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
 import { parseFlagTokens } from "../flags.ts";
-import { errorResult, usageResult } from "../errors.ts";
+import { actionableErrorResult, actionableUsageResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../source-session.ts";
@@ -110,9 +114,11 @@ export function parseMemberIdleWaitCommand(args: string[], _cwd = process.cwd())
 	};
 }
 
-type MemberIdleWaitCliOutcome =
-	| MemberIdleWaitClientOutcome
-	| { readonly ok: false; readonly code: "unknown-session" | "offline-session" };
+export {
+	mapIdleWaitTransportError,
+	normalizeIdleWaitErrorCode,
+	normalizeIdleWaitTransportOutcome,
+} from "../../infra/member-idle-wait-cli-transport.ts";
 
 export interface MemberIdleWaitCliDependencies {
 	readonly resolveSource: (input: { explicitSession?: string; environmentSession?: string }) => SourceResolution;
@@ -125,51 +131,9 @@ export interface MemberIdleWaitCliDependencies {
 	readonly environmentSession: () => string | undefined;
 }
 
-export function mapIdleWaitTransportError(error: unknown): MemberIdleWaitCliOutcome {
-	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
-	const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-	if (code === "ENOENT") return { ok: false, code: "unknown-session" };
-	if (code === "ECONNREFUSED" || code === "ENOTCONN") return { ok: false, code: "offline-session" };
-	if (error instanceof Error && /timed? ?out|timeout/i.test(error.message)) return { ok: false, code: "timeout" };
-	return { ok: false, code: "transport-error" };
-}
-
-export function normalizeIdleWaitTransportOutcome(outcome: MemberIdleWaitClientOutcome): MemberIdleWaitCliOutcome {
-	if (outcome.ok || !("transportCode" in outcome)) return outcome;
-	if (outcome.transportCode === "ENOENT") return { ok: false, code: "unknown-session" };
-	if (outcome.transportCode === "ECONNREFUSED" || outcome.transportCode === "ENOTCONN")
-		return { ok: false, code: "offline-session" };
-	return outcome;
-}
-
-async function waitThroughSocket(
-	socketPath: string,
-	target: string,
-	timeoutSeconds: number,
-	signal: AbortSignal,
-): Promise<MemberIdleWaitCliOutcome> {
-	try {
-		const resolved = await resolveMemberEndpoint(socketPath);
-		return normalizeIdleWaitTransportOutcome(
-			await sendMemberIdleWait(
-				resolved,
-				{ type: "member_idle_wait", member: target },
-				{ timeoutSeconds, signal },
-			),
-		);
-	} catch (error) {
-		return mapIdleWaitTransportError(error);
-	}
-}
-
 export const defaultMemberIdleWaitCliDependencies: MemberIdleWaitCliDependencies = {
 	resolveSource: (input) => resolveSourceSession(input),
-	sendWait: async (source, target, timeoutSeconds, signal) => {
-		const primary = await waitThroughSocket(source.idSocketPath, target, timeoutSeconds, signal);
-		if (primary.ok || !("code" in primary) || primary.code !== "unknown-session") return primary;
-		// A stale id socket may have a valid alias; retry exactly once.
-		return waitThroughSocket(source.aliasSocketPath, target, timeoutSeconds, signal);
-	},
+	sendWait: sendMemberIdleWaitThroughSockets,
 	environmentSession: () => process.env.PI_SESSION_ID,
 };
 
@@ -186,10 +150,16 @@ export async function runMemberIdleWaitCommand(
 	if (!source.ok)
 		return {
 			kind: "result",
-			result: usageResult(
-				"message" in source ? source.message : "Unable to resolve source session",
-				"code" in source ? source.code : "invalid-session",
-			),
+			result: actionableUsageResult({
+				code: normalizeIdleWaitErrorCode("code" in source ? source.code : "invalid-session"),
+				operation: "pi-bebop member wait-idle",
+				reason:
+					"code" in source && source.code === "session-required"
+						? "a source session is required"
+						: "the source session value is invalid",
+				recovery: ["run pi-bebop member wait-idle --help and retry with valid input."],
+				location: { kind: "command", name: "member wait-idle" },
+			}),
 			format: options.format,
 			full: false,
 		};
@@ -202,24 +172,26 @@ export async function runMemberIdleWaitCommand(
 	if (!outcome.ok)
 		return {
 			kind: "result",
-			result: errorResult(
-				`Member idle wait failed: ${"code" in outcome ? outcome.code : "transport-error"}`,
-				options.member,
-				"code" in outcome ? outcome.code : "transport-error",
-				"pi-bebop member wait-idle",
-			),
+			result: actionableErrorResult({
+				code: normalizeIdleWaitErrorCode("code" in outcome ? outcome.code : "transport-error"),
+				operation: "pi-bebop member wait-idle",
+				reason: "the member idle wait operation failed",
+				recovery: ["check the source session and Member name, then retry."],
+				location: { kind: "argument", name: "member", value: options.member },
+			}),
 			format: options.format,
 			full: false,
 		};
 	if (!isMemberIdleWaitResult(outcome.result))
 		return {
 			kind: "result",
-			result: errorResult(
-				"Member idle wait failed: malformed-response",
-				options.member,
-				"malformed-response",
-				"pi-bebop member wait-idle",
-			),
+			result: actionableErrorResult({
+				code: "malformed-response",
+				operation: "pi-bebop member wait-idle",
+				reason: "the member idle wait response was malformed",
+				recovery: ["retry the wait; if it repeats, report the operation and code."],
+				location: { kind: "argument", name: "member", value: options.member },
+			}),
 			format: options.format,
 			full: false,
 		};
