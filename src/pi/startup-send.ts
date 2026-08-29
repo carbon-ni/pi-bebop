@@ -12,11 +12,11 @@ import {
 	isSafeSessionId,
 	normalizeMode,
 	normalizeWaitUntil,
-	presentActionableError,
 	type ActionableErrorDescriptor,
 	type RpcSendCommand,
 	type WaitUntil,
 } from "../domain/index.ts";
+import { reportActionableError } from "./actionable-error-output.ts";
 
 export type StartupControlSendFlags = {
 	target: string;
@@ -265,28 +265,23 @@ function reportStartupControlSend(
 	level: "info" | "warning" | "error" = "info",
 	descriptor?: ActionableErrorDescriptor,
 ): void {
-	const rendered =
-		level === "error"
-			? presentActionableError(
-					descriptor ?? {
-						code: "unexpected-failure",
-						operation: "Crew startup send",
-						reason: "the startup operation could not be completed",
-						recovery: [
-							"verify startup configuration and retry; if it repeats, report the operation and code.",
-						],
-					},
-				).message
-			: message;
-	if (ctx.hasUI) {
-		ctx.ui.notify(rendered, level);
-		return;
-	}
 	if (level === "error") {
-		console.error(rendered);
+		reportActionableError(
+			ctx,
+			descriptor ?? {
+				code: "unexpected-failure",
+				operation: "Crew startup send",
+				reason: "the startup operation could not be completed",
+				recovery: ["verify startup configuration and retry; if it repeats, report the operation and code."],
+			},
+		);
 		return;
 	}
-	console.log(rendered);
+	if (ctx.hasUI) {
+		ctx.ui.notify(message, level);
+		return;
+	}
+	console.log(message);
 }
 
 export async function maybeHandleStartupSocketJoin(
