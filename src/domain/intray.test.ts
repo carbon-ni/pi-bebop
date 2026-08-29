@@ -882,6 +882,9 @@ test("parseSessionControlAction keeps member-idle tails comma-only and preserves
 	assert.deepEqual(parseCrewIdleMemberArgument(" Dave , Kelly "), ["Dave", "Kelly"]);
 	assert.throws(() => parseCrewIdleMemberArgument("Dave,,Kelly"));
 	assert.throws(() => parseCrewIdleMemberArgument(","));
+	assert.deepEqual(parseSessionControlAction(`member-idle ${"a".repeat(4095)} `), {
+		error: "member-idle selection exceeds 4096 UTF-8 bytes",
+	});
 });
 
 test("parseSessionControlAction accepts the exact crew command surface", () => {

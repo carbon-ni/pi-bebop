@@ -95,7 +95,7 @@ export function registerWaitForCrewIdleTool(
 			}
 			if (state.crewMemberIdleCommand)
 				return errorResult("wait-in-progress", "Only one blocking wait may be active locally");
-			const lease = state.crewIdleCapacity.acquire();
+			const lease = state.crewIdleCapacity.acquire("crew-idle-tool");
 			if (!lease) return errorResult("wait-in-progress", "Only one blocking wait may be active locally");
 			const owned = new AbortController();
 			let cleaned = false;

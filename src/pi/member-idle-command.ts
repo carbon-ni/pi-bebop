@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { parseCrewIdleMemberArgument, type CrewIdleWaitResult } from "../domain/index.ts";
 import type { CrewIdleWaitInputWithCaller } from "../application/crew-idle-wait-flow.ts";
 import { contextIsCompacting, type SocketState } from "./control-runtime.ts";
@@ -17,7 +17,7 @@ function renderResult(result: CrewIdleWaitResult): string {
 	return `Crew member-idle: ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}; targets=${targets}; coversAllOtherMembers=${result.coversAllOtherMembers}; observedAt=${result.observedAt}; caveat=momentary distributed observation, not a whole-Crew atomic state${blockers ? `; blockers=${blockers}` : ""}`;
 }
 
-function notify(ctx: ExtensionContext, message: string, level: "warning" | "error"): void {
+function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error"): void {
 	try {
 		if (ctx.hasUI) ctx.ui.notify(message, level);
 	} catch {
@@ -41,13 +41,12 @@ function validateLocalState(ctx: ExtensionContext): boolean {
 }
 
 async function runObservation(
-	pi: ExtensionAPI,
 	state: SocketState,
 	operation: CrewIdleWaitOperation,
 	members: readonly string[] | undefined,
 	ctx: ExtensionContext,
 ): Promise<void> {
-	const lease = state.crewIdleCapacity.acquire();
+	const lease = state.crewIdleCapacity.acquire("crew-member-idle-command");
 	if (!lease) {
 		notify(ctx, "Another blocking idle wait is already active", "warning");
 		return;
@@ -65,7 +64,7 @@ async function runObservation(
 	try {
 		if (ctx.hasUI) ctx.ui.setStatus(MEMBER_IDLE_STATUS_KEY, "Crew member-idle: observing configured Members…");
 		const result = await operation.wait({ members: members ? [...members] : undefined, signal: controller.signal });
-		pi.appendEntry("crew-member-idle", { content: renderResult(result) });
+		notify(ctx, renderResult(result), "info");
 	} catch (error) {
 		const reason = cancelReason ?? (error instanceof Error ? error.message : "observation failed");
 		notify(ctx, `Crew member-idle ended: ${reason}`, cancelReason ? "warning" : "error");
@@ -82,7 +81,6 @@ async function runObservation(
 }
 
 export function createMemberIdleCommandHandler(
-	pi: ExtensionAPI,
 	state: SocketState,
 	operation: CrewIdleWaitOperation | undefined,
 ): (target: string | undefined, ctx: ExtensionContext) => Promise<void> {
@@ -102,6 +100,6 @@ export function createMemberIdleCommandHandler(
 			notify(ctx, "Another blocking idle wait is already active", "warning");
 			return;
 		}
-		await runObservation(pi, state, operation, members, ctx);
+		await runObservation(state, operation, members, ctx);
 	};
 }

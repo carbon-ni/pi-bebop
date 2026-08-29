@@ -93,7 +93,7 @@ async function runMemberIdleWaitTransport(
 	signal: AbortSignal | undefined,
 	transport: MemberIdleWaitToolTransport,
 ): Promise<MemberIdleWaitTransportResult> {
-	const lease = state.crewIdleCapacity.acquire();
+	const lease = state.crewIdleCapacity.acquire("member-idle-tool");
 	if (!lease) return { ok: false, code: "wait-in-progress" };
 	const owned = new AbortController();
 	const terminal = await new Promise<MemberIdleWaitTransportResult>((resolveTerminal) => {

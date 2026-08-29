@@ -75,7 +75,7 @@ test("wait_for_crew_idle rejects behind an active slash command before IO", asyn
 
 test("wait_for_crew_idle rejects behind an active slash capacity lease before IO", async () => {
 	const { tool, state, io } = setup();
-	const lease = state.crewIdleCapacity.acquire();
+	const lease = state.crewIdleCapacity.acquire("crew-idle-tool");
 	assert.ok(lease);
 	const result = await tool.execute("id", {});
 	assert.equal(result.isError, true);

@@ -1,3 +1,5 @@
+import { assertCrewIdleMemberArgumentWithinLimit } from "./crew-idle-wait.ts";
+
 export const CONTROL_FLAG = "intray";
 export const CONTROL_SHORT_FLAG = "in";
 
@@ -86,6 +88,11 @@ function parseMemberIdleTail(args: string): SessionControlParseResult | undefine
 	if (!command.startsWith(keyword)) return undefined;
 	const tail = command.slice(keyword.length);
 	if (tail.length > 0 && !/^\s/u.test(tail)) return undefined;
+	try {
+		assertCrewIdleMemberArgumentWithinLimit(tail);
+	} catch (error) {
+		return { error: error instanceof Error ? error.message : "Invalid member-idle selection." };
+	}
 	const target = tail.trim();
 	return { action: "member-idle", ...(target ? { target } : {}) };
 }

@@ -317,7 +317,7 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 				return true;
 			},
 		});
-		const lease = state.crewIdleCapacity.acquire();
+		const lease = state.crewIdleCapacity.acquire("member-idle-tool");
 		assert.ok(lease);
 		const result = await tool.execute("id", { member: "Bob" });
 		assert.equal(result.isError, true);

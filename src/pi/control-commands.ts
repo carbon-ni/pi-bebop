@@ -324,7 +324,7 @@ export function registerSessionControlCommand(
 	commandName = "crew",
 ): void {
 	const getCompletionMembership = () => deps.membershipRuntime ?? state.membershipRuntime;
-	const handleMemberIdleAction = createMemberIdleCommandHandler(pi, state, deps.crewIdleWait);
+	const handleMemberIdleAction = createMemberIdleCommandHandler(state, deps.crewIdleWait);
 	pi.registerCommand(commandName, {
 		description:
 			"Join and manage Crew; use /crew board to inspect shared Posts and /crew post to add one (pull-only).",

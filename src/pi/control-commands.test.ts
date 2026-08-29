@@ -105,8 +105,8 @@ test("/crew member-idle completes through the shared Crew Idle flow without mode
 	);
 	await setupState.getCommand().handler("member-idle Dave Smith", setupState.ctx);
 	assert.deepEqual(received, ["Dave Smith"]);
-	assert.equal(setupState.entries[0]!.customType, "crew-member-idle");
-	const content = String(setupState.entries[0]!.data?.content);
+	assert.equal(setupState.entries.length, 0, "successful member-idle stays out of durable session entries");
+	const content = setupState.notifications.at(-1)!;
 	assert.match(content, /Dave Smith \(dev\)/);
 	assert.doesNotMatch(content, /socket|session|instruction|\/dave\.sock/);
 	assert.deepEqual(setupState.messages, []);
@@ -306,7 +306,8 @@ test("/crew member-idle full scope delegates without a crew wait-lock", async ()
 		}),
 		{ locked: false, reason: "caller-not-crew-gate" },
 	);
-	assert.match(String(setupState.entries[0]!.data?.content), /coversAllOtherMembers=true/);
+	assert.equal(setupState.entries.length, 0, "successful member-idle stays out of durable session entries");
+	assert.match(setupState.notifications.at(-1)!, /coversAllOtherMembers=true/);
 });
 
 test("/crew member-idle rejects an oversized tail before membership, capacity, or operation IO", async () => {

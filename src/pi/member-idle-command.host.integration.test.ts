@@ -259,7 +259,10 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 		agentDir,
 		sessionManager: SessionManager.inMemory(cwd),
 	});
-	t.after(() => runtime.dispose());
+	let disposed = false;
+	t.after(async () => {
+		if (!disposed) await runtime.dispose();
+	});
 
 	await runtime.session.prompt(`/crew join ${currentSocket}`);
 	await runtime.session.prompt("/member-idle-host-probe");
@@ -296,6 +299,22 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 	await waitFor(reusableIdle);
 	await waitFor(reusedCommand);
 	assert.equal(contexts.length, 1, "reused member-idle command adds no provider turn");
-	await runtime.session.prompt("/crew stop");
-	assert.equal(contexts.length, 1, "lifecycle cleanup must not call the provider");
+	assert.equal(
+		runtime.session.messages.some(
+			(message) => "customType" in message && message.customType === "crew-member-idle",
+		),
+		false,
+		"successful member-idle stays out of durable session entries",
+	);
+
+	const shutdownIdle = new Promise<void>((resolve) => {
+		idleWaitSeen = resolve;
+	});
+	const pendingShutdown = runtime.session.prompt("/crew member-idle QA");
+	await waitFor(shutdownIdle);
+	await runtime.dispose();
+	disposed = true;
+	await waitFor(pendingShutdown);
+	assert.equal(contexts.length, 1, "shutdown cleanup must not call the provider");
+	await new Promise((resolve) => setTimeout(resolve, 250));
 });

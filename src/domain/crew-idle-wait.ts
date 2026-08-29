@@ -65,10 +65,14 @@ export type CrewIdleSelection = {
 	readonly targets: readonly CrewIdleMember[];
 	readonly coversAllOtherMembers: boolean;
 };
-export function parseCrewIdleMemberArgument(argument: string | undefined): readonly string[] | undefined {
-	if (argument === undefined || argument.trim() === "") return undefined;
+export function assertCrewIdleMemberArgumentWithinLimit(argument: string): void {
 	if (new TextEncoder().encode(argument).byteLength > MAX_CREW_IDLE_MEMBER_ARGUMENT_BYTES)
 		throw new CrewIdleWaitError("invalid-selection", "member-idle selection exceeds 4096 UTF-8 bytes");
+}
+
+export function parseCrewIdleMemberArgument(argument: string | undefined): readonly string[] | undefined {
+	if (argument !== undefined) assertCrewIdleMemberArgumentWithinLimit(argument);
+	if (argument === undefined || argument.trim() === "") return undefined;
 	const members = argument.split(",").map((member) => member.trim());
 	if (members.length > MAX_CREW_IDLE_WAIT_MEMBERS || members.some((member) => member.length === 0))
 		throw new CrewIdleWaitError("invalid-selection", "member-idle expects non-empty comma-separated Member names");
