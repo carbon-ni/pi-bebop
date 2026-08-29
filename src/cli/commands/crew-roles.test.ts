@@ -222,17 +222,34 @@ test("crew roles runner keeps missing and ambiguous errors safe and format-ident
 		await writeFile(`${ambiguousDir}/.pi/bebop/crew.json`, "{}");
 		await writeFile(`${ambiguousDir}/.pi/crew/crew.json`, "{}");
 
+		const run = async (args: string[], cwd: string) => {
+			const stdout: string[] = [];
+			const stderr: string[] = [];
+			const originalStderrWrite = process.stderr.write;
+			process.stderr.write = ((chunk: string | Uint8Array) => {
+				stderr.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
+				return true;
+			}) as typeof process.stderr.write;
+			try {
+				const code = await runCli(args, cwd, new PassThrough(), {
+					write: (chunk: string) => (stdout.push(chunk), true),
+				} as unknown as Writable);
+				return { code, stdout, stderr };
+			} finally {
+				process.stderr.write = originalStderrWrite;
+			}
+		};
+
 		for (const cwd of [missingDir, ambiguousDir]) {
 			const results = new Map<string, Record<string, unknown>>();
 			for (const format of ["text", "json", "toon"] as const) {
 				for (const full of [false, true]) {
-					const writes: string[] = [];
-					const output = { write: (chunk: string) => (writes.push(chunk), true) } as unknown as Writable;
 					const args = ["crew", "roles", "--format", format, ...(full ? ["--full"] : [])];
-					const code = await runCli(args, cwd, new PassThrough(), output);
-					assert.equal(code, 1);
-					assert.equal(writes.length, 1, "operational errors write once to stdout");
-					const rendered = writes[0]!;
+					const runResult = await run(args, cwd);
+					assert.equal(runResult.code, 1);
+					assert.equal(runResult.stdout.length, 1, "operational errors write once to stdout");
+					assert.deepEqual(runResult.stderr, [], "operational errors write nothing to stderr");
+					const rendered = runResult.stdout[0]!;
 					assert.equal(
 						rendered.includes(cwd),
 						false,
@@ -260,12 +277,10 @@ test("crew roles runner keeps missing and ambiguous errors safe and format-ident
 			assert.deepEqual(results.get("json-false"), results.get("json-true"));
 			assert.deepEqual(results.get("toon-false"), results.get("toon-true"));
 			const message = (results.get("json-false") as any).error.message;
-			const textWrites: string[] = [];
-			const textCode = await runCli(["crew", "roles", "--format", "text"], cwd, new PassThrough(), {
-				write: (chunk: string) => (textWrites.push(chunk), true),
-			} as unknown as Writable);
-			assert.equal(textCode, 1);
-			assert.deepEqual(textWrites, [`${message}\n`]);
+			const textResult = await run(["crew", "roles", "--format", "text"], cwd);
+			assert.equal(textResult.code, 1);
+			assert.deepEqual(textResult.stderr, [], "text operational errors write nothing to stderr");
+			assert.deepEqual(textResult.stdout, [`${message}\n`]);
 		}
 	} finally {
 		await rm(missingDir, { recursive: true, force: true });
