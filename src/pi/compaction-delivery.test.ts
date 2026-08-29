@@ -212,10 +212,23 @@ test("concurrent journal reconfigurations serialize and preserve the last reques
 	const first = journal("first");
 	const second = journal("second");
 	const third = journal("third");
+	let releaseSecond!: () => void;
+	const secondReady = new Promise<void>((resolve) => (releaseSecond = resolve));
+	second.reconcile = async () => {
+		order.push("second-start");
+		await secondReady;
+		order.push("second-end");
+	};
 	await adapter.configureJournal(first);
 	order.length = 0;
-	await Promise.all([adapter.configureJournal(second), adapter.configureJournal(third)]);
-	assert.deepEqual(order, ["second", "third"]);
+	const configureSecond = adapter.configureJournal(second);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	const configureThird = adapter.configureJournal(third);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(order, ["second-start"]);
+	releaseSecond();
+	await Promise.all([configureSecond, configureThird]);
+	assert.deepEqual(order, ["second-start", "second-end", "third"]);
 });
 
 test("deferred handoff waits for session evidence before marking delivered", async () => {
