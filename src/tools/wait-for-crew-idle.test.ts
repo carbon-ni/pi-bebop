@@ -63,6 +63,16 @@ test("wait_for_crew_idle exposes frozen targets and observation caveat in model-
 	assert.match(text, /momentary distributed observation, not a whole-Crew atomic state/);
 });
 
+test("wait_for_crew_idle rejects behind an active slash command before IO", async () => {
+	const { tool, state, io } = setup();
+	state.crewMemberIdleCommand = { cancel: () => undefined };
+	const result = await tool.execute("id", {});
+	assert.equal(result.isError, true);
+	assert.match(result.content[0].text, /wait-in-progress/);
+	assert.deepEqual(io, { status: 0, state: 0, wait: 0 });
+	assert.equal(state.blockingWait.activeMarker(), null);
+});
+
 test("wait_for_crew_idle rejects behind an active slash capacity lease before IO", async () => {
 	const { tool, state, io } = setup();
 	const lease = state.crewIdleCapacity.acquire();
