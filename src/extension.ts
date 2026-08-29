@@ -19,6 +19,7 @@ import {
 	registerInterruptMemberTool,
 	registerGetMemberStatusTool,
 	registerWaitForMemberIdleTool,
+	registerWaitForCrewIdleTool,
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
 	registerWaitForRequestOutcomeTool,
@@ -29,6 +30,7 @@ import { createMemberMessageCoordinator } from "./application/member-message.ts"
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
 import { createMemberStatusTransport } from "./infra/member-status-transport.ts";
+import { createCrewIdleWaitTransport } from "./infra/crew-idle-wait-transport.ts";
 import { sendMemberIdleWait, sendRpcCommand, sendMemberRequest } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
@@ -225,7 +227,8 @@ export default function (pi: ExtensionAPI) {
 	registerSendToCrewTool(pi, state);
 	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
 	registerInterruptMemberTool(pi, state);
-	registerGetMemberStatusTool(pi, state, createMemberStatusTransport());
+	const memberStatusTransport = createMemberStatusTransport();
+	registerGetMemberStatusTool(pi, state, memberStatusTransport);
 	registerWaitForMemberIdleTool(pi, state, {
 		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
 		requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
@@ -239,6 +242,14 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 	});
+	registerWaitForCrewIdleTool(
+		pi,
+		state,
+		createCrewIdleWaitTransport({
+			getCurrentMember: () => state.membershipRuntime?.getMembership()?.member ?? null,
+			status: memberStatusTransport,
+		}),
+	);
 	registerLeaveCrewPostTool(pi, state, {
 		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
 		getCurrentMembership: () => state.membershipRuntime?.getMembership() ?? null,

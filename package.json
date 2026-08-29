@@ -28,6 +28,7 @@
 		"src/application/crew-retrospective-round-flow.ts",
 		"src/application/crew-retrospective-cadence.ts",
 		"src/application/crew-broadcast.ts",
+		"src/application/crew-idle-wait-flow.ts",
 		"src/application/crew-board.ts",
 		"src/application/crew-init-flow.ts",
 		"src/application/direct-message.ts",
@@ -67,6 +68,7 @@
 		"src/domain/inbox-hint.ts",
 		"src/domain/index.ts",
 		"src/domain/member-idle-wait.ts",
+		"src/domain/crew-idle-wait.ts",
 		"src/domain/member-inbox.ts",
 		"src/domain/member-interrupt.ts",
 		"src/domain/member-request.ts",
@@ -108,6 +110,8 @@
 		"src/infra/member-inbox-store.ts",
 		"src/infra/membership-runtime.ts",
 		"src/infra/rpc-client.ts",
+		"src/infra/crew-idle-wait-transport.ts",
+		"src/infra/wait-state-client.ts",
 		"src/infra/rpc-server.ts",
 		"src/infra/session-env.ts",
 		"src/infra/socket-endpoint.ts",
@@ -129,7 +133,8 @@
 		"src/tools/member-tool-adapter.ts",
 		"src/tools/redirect-member.ts",
 		"src/tools/send-follow-up.ts",
-		"src/tools/send-to-inbox.ts"
+		"src/tools/send-to-inbox.ts",
+		"src/tools/wait-for-crew-idle.ts"
 	],
 	"pi": {
 		"extensions": [

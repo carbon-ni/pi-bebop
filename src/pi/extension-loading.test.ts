@@ -21,6 +21,7 @@ const MEMBERSHIP_TOOLS = [
 	"interrupt_member",
 	"get_member_status",
 	"wait_for_member_idle",
+	"wait_for_crew_idle",
 	"leave_crew_post",
 	"read_crew_board",
 ];

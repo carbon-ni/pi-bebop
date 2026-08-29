@@ -151,6 +151,7 @@ export const MEMBERSHIP_TOOLS = [
 	"interrupt_member",
 	"get_member_status",
 	"wait_for_member_idle",
+	"wait_for_crew_idle",
 	"send_member_request",
 	"respond_to_member_request",
 	"wait_for_request_outcome",

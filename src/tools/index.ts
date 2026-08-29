@@ -6,6 +6,7 @@ export { registerBroadcastToCrewTool } from "./broadcast-to-crew.ts";
 export { registerInterruptMemberTool } from "./interrupt-member.ts";
 export { registerGetMemberStatusTool } from "./get-member-status.ts";
 export { registerWaitForMemberIdleTool } from "./wait-for-member-idle.ts";
+export { registerWaitForCrewIdleTool } from "./wait-for-crew-idle.ts";
 export { registerLeaveCrewPostTool, registerReadCrewBoardTool } from "./crew-board.ts";
 export {
 	registerSendMemberRequestTool,
