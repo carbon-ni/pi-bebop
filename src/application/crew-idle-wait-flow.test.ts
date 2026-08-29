@@ -73,6 +73,23 @@ test("crew idle flow returns offline and bounded unstable blockers without seria
 	assert.ok(calls >= 2);
 });
 
+test("crew idle flow rejects a pre-aborted caller before starting transport or a timeout", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	const surface = surfaceFor({ Dave: "busy", Kelly: "busy" });
+	let statusCalls = 0;
+	const requestStatus = surface.requestStatus;
+	surface.requestStatus = async (...args) => {
+		statusCalls += 1;
+		return requestStatus(...args);
+	};
+	await assert.rejects(
+		createCrewIdleWaitFlow(surface).wait({ signal: controller.signal }),
+		(error: { code?: string }) => error.code === "aborted",
+	);
+	assert.equal(statusCalls, 0);
+});
+
 test("crew idle flow detects a full explicit wait-lock but not a selected subset", async () => {
 	const slot = new BlockingWaitSlot({ now: () => "2026-08-29T10:00:00.000Z" });
 	slot.acquire("crew-idle");

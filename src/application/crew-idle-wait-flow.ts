@@ -298,9 +298,9 @@ export function createCrewIdleWaitFlow(surface: CrewIdleWaitSurface, options: { 
 				operation.abort();
 			}
 		};
+		if (input.signal?.aborted) throw new CrewIdleWaitFlowError("aborted");
 		const timeoutHandle = setTimeout(() => operation.abort(), timeout * 1000);
 		const onAbort = () => operation.abort();
-		if (input.signal?.aborted) throw new CrewIdleWaitFlowError("aborted");
 		input.signal?.addEventListener("abort", onAbort, { once: true });
 		try {
 			const statePromise = observeStates(surface, selection.targets, operation.signal, triggerLock, states);
