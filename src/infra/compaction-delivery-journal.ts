@@ -50,14 +50,73 @@ interface JournalDependencies {
 	readonly writeFile?: (filePath: string, data: string) => Promise<void>;
 	readonly rename?: (from: string, to: string) => Promise<void>;
 	readonly mkdir?: (directory: string) => Promise<void>;
+	readonly acquireLock?: (filePath: string) => Promise<() => Promise<void>>;
+	readonly syncDirectory?: (directory: string) => Promise<void>;
+}
+
+const LOCK_RETRY_MS = 20;
+const LOCK_TIMEOUT_MS = 2_000;
+const LOCK_STALE_MS = 30_000;
+
+async function acquireFileLock(filePath: string): Promise<() => Promise<void>> {
+	const lockPath = `${filePath}.lock`;
+	await fs.mkdir(path.dirname(lockPath), { recursive: true });
+	const started = Date.now();
+	while (true) {
+		try {
+			const handle = await fs.open(lockPath, "wx");
+			await handle.writeFile(`${process.pid}\\n`, "utf8");
+			await handle.sync();
+			await handle.close();
+			return async () => {
+				try {
+					await fs.unlink(lockPath);
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				}
+			};
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+			if (Date.now() - started >= LOCK_TIMEOUT_MS) {
+				try {
+					const stat = await fs.stat(lockPath);
+					if (Date.now() - stat.mtimeMs >= LOCK_STALE_MS) {
+						await fs.unlink(lockPath);
+						continue;
+					}
+				} catch (statError) {
+					if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
+				}
+				throw error;
+			}
+			await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+		}
+	}
 }
 
 const defaults: Required<JournalDependencies> = {
 	readFile: (filePath) => fs.readFile(filePath),
-	writeFile: (filePath, data) => fs.writeFile(filePath, data, "utf8"),
+	writeFile: async (filePath, data) => {
+		const handle = await fs.open(filePath, "w");
+		try {
+			await handle.writeFile(data, "utf8");
+			await handle.sync();
+		} finally {
+			await handle.close();
+		}
+	},
 	rename: (from, to) => fs.rename(from, to),
 	mkdir: async (directory) => {
 		await fs.mkdir(directory, { recursive: true });
+	},
+	acquireLock: acquireFileLock,
+	syncDirectory: async (directory) => {
+		const handle = await fs.open(directory, "r");
+		try {
+			await handle.sync();
+		} finally {
+			await handle.close();
+		}
 	},
 };
 
@@ -187,25 +246,18 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 	const deps = { ...defaults, ...options.deps };
 	const directory = path.join(path.dirname(manifestPath), "compaction-delivery");
 	const filePath = path.join(directory, `${journalKey(manifestPath, options.memberName)}.json`);
-	let loaded: JournalFile | null = null;
 	let operation = Promise.resolve();
 
 	const read = async (): Promise<JournalFile> => {
-		if (loaded) return loaded;
 		try {
-			loaded = parseJournal(JSON.parse((await deps.readFile(filePath)).toString("utf8")));
+			return parseJournal(JSON.parse((await deps.readFile(filePath)).toString("utf8")));
 		} catch (error) {
 			if (error instanceof CompactionDeliveryJournalError) throw error;
-			if ((error as NodeJS.ErrnoException).code === "ENOENT")
-				loaded = { version: 1, nextSequence: 1, records: [] };
-			else
-				throw new CompactionDeliveryJournalError(
-					"storage-failed",
-					"failed to read compaction delivery journal",
-					{ cause: error },
-				);
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, nextSequence: 1, records: [] };
+			throw new CompactionDeliveryJournalError("storage-failed", "failed to read compaction delivery journal", {
+				cause: error,
+			});
 		}
-		return loaded;
 	};
 
 	const write = async (next: JournalFile): Promise<void> => {
@@ -225,18 +277,32 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 		}
 		await deps.writeFile(temporary, `${serialized}\n`);
 		await deps.rename(temporary, filePath);
-		loaded = next;
+		await deps.syncDirectory(directory);
 	};
 
-	const transact = async <T>(task: () => Promise<T>): Promise<T> => {
+	const transact = async <T>(task: () => Promise<T>, locked = false): Promise<T> => {
 		const previous = operation;
-		let release!: () => void;
-		operation = new Promise<void>((resolve) => (release = resolve));
+		let releaseOperation!: () => void;
+		operation = new Promise<void>((resolve) => (releaseOperation = resolve));
 		await previous;
+		let releaseLock: (() => Promise<void>) | undefined;
 		try {
+			if (locked) {
+				try {
+					releaseLock = await deps.acquireLock(filePath);
+				} catch (error) {
+					throw new CompactionDeliveryJournalError("storage-failed", "failed to acquire delivery journal lock", {
+						cause: error,
+					});
+				}
+			}
 			return await task();
 		} finally {
-			release();
+			try {
+				await releaseLock?.();
+			} finally {
+				releaseOperation();
+			}
 		}
 	};
 
@@ -271,7 +337,7 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 					records: [...journal.records, record],
 				});
 				return record;
-			}),
+			}, true),
 		// Handoff records remain visible until Pi evidence confirms delivery;
 		// reconciliation deliberately returns both pending and handing-off rows.
 		listPending: () => transact(async () => (await read()).records),
@@ -285,12 +351,12 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 						record.id === id ? { ...record, state: "handing-off" } : record,
 					),
 				});
-			}),
+			}, true),
 		markDelivered: (id) =>
 			transact(async () => {
 				const journal = await read();
 				await write({ ...journal, records: journal.records.filter((record) => record.id !== id) });
-			}),
+			}, true),
 		reconcile: (hasEvidence) =>
 			transact(async () => {
 				const journal = await read();
@@ -300,6 +366,6 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 					records.push(record.state === "handing-off" ? { ...record, state: "pending" } : record);
 				}
 				await write({ ...journal, records });
-			}),
+			}, true),
 	};
 }
