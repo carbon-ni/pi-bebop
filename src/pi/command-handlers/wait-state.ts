@@ -39,15 +39,18 @@ export const handleWaitState: RpcCommandHandler<Extract<RpcInboundCommand, { typ
 
 	const identity = { name: membership.member.name, role: membership.member.role };
 	const subscriptionId = String(context.id);
-	const { marker } = context.state.blockingWait.subscribeOnce((transition) => {
+	const subscription = context.state.blockingWait.subscribeOnce((transition) => {
+		subscription.unsubscribe();
 		removeSubscription(context.state.waitStateSubscriptions, subscriptionId);
 		writeWaitStateEvent(context.socket, {
 			subscriptionId,
 			snapshot: { member: identity, wait: transition },
 		});
 	});
+	const { marker } = subscription;
 	context.state.waitStateSubscriptions.push({ socket: context.socket, subscriptionId });
 	const cleanup = () => {
+		subscription.unsubscribe();
 		removeSubscription(context.state.waitStateSubscriptions, subscriptionId);
 	};
 	context.socket.once("close", cleanup);

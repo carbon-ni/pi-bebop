@@ -74,6 +74,19 @@ test("subscribeOnce returns the current marker atomically and fires exactly once
 	assert.deepEqual(seen, ["member-idle", null]);
 });
 
+test("unsubscribe removes a one-shot listener before a later transition", () => {
+	const slot = new BlockingWaitSlot(clock());
+	const seen: string[] = [];
+	const subscription = slot.subscribeOnce((marker) => seen.push(marker?.kind ?? "none"));
+	subscription.unsubscribe();
+	assert.equal(slot.acquire("member-idle").ok, true);
+	assert.deepEqual(seen, []);
+	assert.equal(slot.release(), true);
+	assert.deepEqual(seen, []);
+	// Idempotent: repeated cleanup remains harmless.
+	subscription.unsubscribe();
+});
+
 test("multiple one-shot subscribers each fire exactly once in subscription order", () => {
 	const slot = new BlockingWaitSlot(clock());
 	const order: string[] = [];

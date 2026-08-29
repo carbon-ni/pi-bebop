@@ -99,6 +99,19 @@ test("wait_state subscription fires exactly once on the next transition, then re
 	assert.equal(written.length, 1);
 });
 
+test("wait_state disconnect unsubscribes from the slot before a later transition", async () => {
+	const c = contextWithSlot();
+	const written: unknown[] = [];
+	(c.socket as EventEmitter as { write: (value: string) => void }).write = ((value: string) => {
+		written.push(JSON.parse(value));
+	}) as never;
+	await handleWaitState({ type: "wait_state", member: "Mary", id: "12" }, c);
+	(c.socket as EventEmitter).emit("close");
+	assert.equal(c.state.waitStateSubscriptions.length, 0);
+	assert.equal(c.state.blockingWait.acquire("member-idle").ok, true);
+	assert.deepEqual(written, [], "disconnected subscriber receives no later transition");
+});
+
 test("wait_state enforces finite subscription capacity", async () => {
 	const c = contextWithSlot();
 	for (let i = 0; i < 8; i += 1) {

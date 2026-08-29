@@ -122,10 +122,22 @@ export class BlockingWaitSlot {
 		return this.active;
 	}
 
-	subscribeOnce(listener: BlockingWaitSubscription): { readonly marker: BlockingWaitMarker | null } {
+	subscribeOnce(listener: BlockingWaitSubscription): {
+		readonly marker: BlockingWaitMarker | null;
+		readonly unsubscribe: () => void;
+	} {
 		const marker = this.active;
+		let subscribed = true;
 		this.listeners.push(listener);
-		return { marker };
+		return {
+			marker,
+			unsubscribe: () => {
+				if (!subscribed) return;
+				subscribed = false;
+				const index = this.listeners.indexOf(listener);
+				if (index !== -1) this.listeners.splice(index, 1);
+			},
+		};
 	}
 
 	private publish(marker: BlockingWaitMarker | null): void {
