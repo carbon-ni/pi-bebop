@@ -170,17 +170,25 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			}),
 		configureJournal: async (nextJournal, hasSessionEvidence = async () => false) => {
 			if (nextJournal === journal) return;
+			if (nextJournal) {
+				await nextJournal.reconcile(hasSessionEvidence);
+				const pending = await nextJournal.listPending();
+				gate.resetPending();
+				journal = nextJournal;
+				deferredIds.clear();
+				persisted.clear();
+				failed.clear();
+				for (const record of pending) {
+					deferredIds.add(record.id);
+					gate.accept(record.envelope);
+				}
+				return;
+			}
 			gate.resetPending();
-			journal = nextJournal;
+			journal = undefined;
 			deferredIds.clear();
 			persisted.clear();
 			failed.clear();
-			if (!journal) return;
-			await journal.reconcile(hasSessionEvidence);
-			for (const record of await journal.listPending()) {
-				deferredIds.add(record.id);
-				gate.accept(record.envelope);
-			}
 		},
 		compactionStarted: () => gate.compactionStarted(),
 		compactionEnded: (generation) => gate.compactionEnded(generation),
