@@ -11,6 +11,46 @@ const snapshot = (wait: null) => ({ member: { name: "Dave", role: "dev" }, wait 
 const listen = (server: net.Server, socketPath: string) =>
 	new Promise<void>((resolve) => server.listen(socketPath, resolve));
 
+test("wait-state client ignores transitions for another subscription", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "bebop-wait-state-correlation-"));
+	const socketPath = path.join(root, "peer.sock");
+	const server = net.createServer((connection) => {
+		connection.setEncoding("utf8");
+		connection.once("data", (chunk) => {
+			const request = JSON.parse(String(chunk).trim()) as { id: string | number };
+			const subscriptionId = String(request.id);
+			connection.write(
+				`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { subscriptionId, snapshot: snapshot(null) } })}\n`,
+			);
+			connection.write(`${JSON.stringify(buildWaitStateNotification("other", snapshot(null)))}\n`);
+			connection.write(`${JSON.stringify(buildWaitStateNotification(subscriptionId, snapshot(null)))}\n`);
+		});
+	});
+	await listen(server, socketPath);
+	let transitions = 0;
+	const controller = new AbortController();
+	const transition = new Promise<void>((resolve) => {
+		void sendMemberWaitState(
+			socketPath,
+			{ type: "wait_state", member: "Mony" },
+			{
+				signal: controller.signal,
+				onTransition: (value) => {
+					transitions += 1;
+					assert.deepEqual(value, snapshot(null));
+					resolve();
+				},
+			},
+		).then((result) => assert.equal(result.ok, true));
+	});
+	await transition;
+	assert.equal(transitions, 1);
+	controller.abort();
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	await new Promise<void>((resolve) => server.close(() => resolve()));
+	await rm(root, { recursive: true, force: true });
+});
+
 test("wait-state client keeps a real socket for one transition and closes it on abort", async () => {
 	const root = await mkdtemp(path.join(os.tmpdir(), "bebop-wait-state-"));
 	const socketPath = path.join(root, "peer.sock");

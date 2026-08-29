@@ -40,6 +40,7 @@ export async function sendMemberWaitState(
 		let buffer = "";
 		let settled = false;
 		let closed = false;
+		let subscriptionId: string | null = null;
 		let timeoutHandle: NodeJS.Timeout;
 		const cleanup = () => {
 			if (closed) return;
@@ -84,10 +85,7 @@ export async function sendMemberWaitState(
 					return;
 				}
 				if (isWaitStateNotification(value)) {
-					if (!isWaitStateSnapshot(value.params.snapshot)) {
-						finish({ ok: false, code: "malformed-response" });
-						return;
-					}
+					if (value.params.subscriptionId !== subscriptionId) continue;
 					options.onTransition(value.params.snapshot);
 					continue;
 				}
@@ -107,11 +105,12 @@ export async function sendMemberWaitState(
 					finish({ ok: false, code: "malformed-response" });
 					return;
 				}
-				const result = value.result as { snapshot?: unknown };
-				if (!isWaitStateSnapshot(result.snapshot)) {
+				const result = value.result as { subscriptionId?: unknown; snapshot?: unknown };
+				if (typeof result.subscriptionId !== "string" || !isWaitStateSnapshot(result.snapshot)) {
 					finish({ ok: false, code: "malformed-response" });
 					return;
 				}
+				subscriptionId = result.subscriptionId;
 				settled = true;
 				clearTimeout(timeoutHandle);
 				resolve({ ok: true, snapshot: result.snapshot });
