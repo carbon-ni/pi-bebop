@@ -21,22 +21,19 @@ function notify(ctx: ExtensionContext, message: string, level: "warning" | "erro
 	if (ctx.hasUI) ctx.ui.notify(message, level);
 }
 
-function validateLocalState(target: string | undefined, ctx: ExtensionContext): readonly string[] | undefined | null {
+function parseSelection(target: string | undefined, ctx: ExtensionContext): readonly string[] | undefined | null {
 	try {
-		const members = parseCrewIdleMemberArgument(target);
-		if (!ctx.isIdle() || contextIsCompacting(ctx) || ctx.hasPendingMessages()) {
-			notify(
-				ctx,
-				"Crew member-idle requires a locally idle, non-compacting session with no pending messages",
-				"warning",
-			);
-			return null;
-		}
-		return members;
+		return parseCrewIdleMemberArgument(target);
 	} catch (error) {
 		notify(ctx, error instanceof Error ? error.message : "Invalid member-idle selection", "error");
 		return null;
 	}
+}
+
+function validateLocalState(ctx: ExtensionContext): boolean {
+	if (ctx.isIdle() && !contextIsCompacting(ctx) && !ctx.hasPendingMessages()) return true;
+	notify(ctx, "Crew member-idle requires a locally idle, non-compacting session with no pending messages", "warning");
+	return false;
 }
 
 export function createMemberIdleCommandHandler(
@@ -45,8 +42,13 @@ export function createMemberIdleCommandHandler(
 	operation: CrewIdleWaitOperation | undefined,
 ): (target: string | undefined, ctx: ExtensionContext) => Promise<void> {
 	return async (target, ctx) => {
-		const members = validateLocalState(target, ctx);
+		const members = parseSelection(target, ctx);
 		if (members === null) return;
+		if (!state.membershipRuntime?.getMembership() || ctx.isProjectTrusted?.() !== true) {
+			notify(ctx, "Crew member-idle is unavailable: join a trusted Crew first", "error");
+			return;
+		}
+		if (!validateLocalState(ctx)) return;
 		if (!operation) {
 			notify(ctx, "Crew member-idle is unavailable", "error");
 			return;

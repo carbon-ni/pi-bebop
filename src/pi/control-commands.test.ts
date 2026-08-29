@@ -111,8 +111,46 @@ test("/crew member-idle completes through the shared Crew Idle flow without mode
 	assert.equal(setupState.state.blockingWait.activeMarker(), null);
 });
 
+test("/crew member-idle stays unavailable when unjoined or untrusted", async () => {
+	const setupState = setup();
+	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	let calls = 0;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewIdleWait: {
+				wait: async () => {
+					calls += 1;
+					throw new Error("must not wait");
+				},
+			},
+		}),
+	);
+	await setupState.getCommand().handler("member-idle", setupState.ctx);
+	assert.equal(calls, 0);
+	assert.match(setupState.notifications[0]!, /unavailable/);
+	setupState.notifications.length = 0;
+	setupState.state.membershipRuntime = {
+		getMembership: () => ({
+			member: { name: "Dave", role: "dev", socketPath: "/d" },
+			manifest: { members: [{ name: "Dave", role: "dev", socketPath: "/d" }] },
+		}),
+	};
+	Object.assign(setupState.ctx, { isProjectTrusted: () => false });
+	await setupState.getCommand().handler("member-idle", setupState.ctx);
+	assert.equal(calls, 0);
+	assert.match(setupState.notifications[0]!, /trusted Crew/);
+});
+
 test("/crew member-idle rejects local activity and malformed selection before waiting", async () => {
 	const setupState = setup();
+	setupState.state.membershipRuntime = {
+		getMembership: () => ({
+			member: { name: "Dave", role: "dev", socketPath: "/d" },
+			manifest: { members: [{ name: "Dave", role: "dev", socketPath: "/d" }] },
+		}),
+	};
 	Object.assign(setupState.ctx, { isIdle: () => false, hasPendingMessages: () => false });
 	let calls = 0;
 	registerSessionControlCommand(
@@ -138,6 +176,12 @@ test("/crew member-idle rejects local activity and malformed selection before wa
 
 test("/crew member-idle cancels on local activity and clears status/capacity", async () => {
 	const setupState = setup();
+	setupState.state.membershipRuntime = {
+		getMembership: () => ({
+			member: { name: "Dave", role: "dev", socketPath: "/d" },
+			manifest: { members: [{ name: "Dave", role: "dev", socketPath: "/d" }] },
+		}),
+	};
 	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
 	let aborted = false;
 	registerSessionControlCommand(
