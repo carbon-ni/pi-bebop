@@ -115,10 +115,7 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 	const idleWait = new Promise<void>((resolve) => {
 		idleWaitSeen = resolve;
 	});
-	let idleSubscriptionClosed!: () => void;
-	const oldIdleSubscriptionClosed = new Promise<void>((resolve) => {
-		idleSubscriptionClosed = resolve;
-	});
+	const idleSubscriptionClosures: Array<Promise<void>> = [];
 	let completeNextIdleWait = false;
 	const targetConnections = new Set<net.Socket>();
 	const target = await listen(
@@ -144,7 +141,13 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 				return;
 			}
 			if (request.method === "member.idle_wait") {
-				socket.once("close", idleSubscriptionClosed);
+				let resolveClosed!: () => void;
+				idleSubscriptionClosures.push(
+					new Promise<void>((resolve) => {
+						resolveClosed = resolve;
+					}),
+				);
+				socket.once("close", resolveClosed);
 				response(socket, request.id, { subscriptionId: String(request.id) });
 				idleWaitSeen();
 				if (completeNextIdleWait) {
@@ -290,11 +293,12 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 	const oldSessionIdleEntries = replacedSession.messages.filter(
 		(message) => "customType" in message && message.customType === "crew-member-idle",
 	).length;
+	const replacementSubscriptionIndex = idleSubscriptionClosures.length;
 	const pendingReplacement = replacedSession.prompt("/crew member-idle QA");
 	await waitFor(replacementIdle);
 	const replacement = runtime.newSession();
 	await waitFor(pendingReplacement);
-	await waitFor(oldIdleSubscriptionClosed);
+	await waitFor(idleSubscriptionClosures[replacementSubscriptionIndex]);
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.equal(
 		replacedSession.messages.filter(
@@ -327,11 +331,14 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 	const shutdownIdle = new Promise<void>((resolve) => {
 		idleWaitSeen = resolve;
 	});
+	const shutdownSubscriptionIndex = idleSubscriptionClosures.length;
 	const pendingShutdown = runtime.session.prompt("/crew member-idle QA");
 	await waitFor(shutdownIdle);
 	await runtime.dispose();
 	disposed = true;
 	await waitFor(pendingShutdown);
+	await waitFor(idleSubscriptionClosures[shutdownSubscriptionIndex]);
 	assert.equal(contexts.length, 1, "shutdown cleanup must not call the provider");
+
 	await new Promise((resolve) => setTimeout(resolve, 250));
 });
