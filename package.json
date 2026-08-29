@@ -172,9 +172,9 @@
 		"commander": "15.0.0"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-ai": "0.84.2",
-		"@earendil-works/pi-coding-agent": "0.84.2",
-		"@earendil-works/pi-tui": "0.84.2",
+		"@earendil-works/pi-ai": "0.84.3",
+		"@earendil-works/pi-coding-agent": "0.84.3",
+		"@earendil-works/pi-tui": "0.84.3",
 		"@sinclair/typebox": "0.34.50",
 		"@types/node": "^22.13.0",
 		"esbuild": "^0.25.12",
