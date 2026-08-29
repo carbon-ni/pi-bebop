@@ -71,11 +71,6 @@
 			"file": "src/tools/broadcast-to-crew.ts",
 			"kind": "tool-result",
 			"count": 3
-		},
-		{
-			"file": "src/tools/wait-for-member-idle.ts",
-			"kind": "tool-result",
-			"count": 1
 		}
 	]
 }
