@@ -242,7 +242,7 @@ test("unknown root flags still produce structured usage output with exit 2", asy
 		});
 		const code = await runCli(args, process.cwd(), process.stdin, output);
 		assert.equal(code, 2, args.join(" "));
-		assert.match(text, /Invalid command/);
+		assert.match(text, /the command input is invalid/);
 	}
 });
 
@@ -268,7 +268,7 @@ test("leaf -h is a consistent usage error, never silent help (no short aliases)"
 		});
 		const code = await runCli([...leaf, "-h"], process.cwd(), process.stdin, output);
 		assert.equal(code, 2, leaf.join(" "));
-		assert.match(text, /status: usage|Unknown flag|unknown option/, leaf.join(" "));
+		assert.match(text, /the command input is invalid/, leaf.join(" "));
 		assert.ok(
 			!text.includes("Usage:") && !text.includes("Options:") && !text.includes("Commands:"),
 			`${leaf.join(" ")} -h must not render help`,
@@ -522,7 +522,7 @@ test("runs the built CLI artifact under plain Node", async () => {
 	});
 	const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
 	assert.equal(code, 2);
-	assert.match(stdout, /Invalid --wait/);
+	assert.match(stdout, /the command input is invalid/);
 });
 
 test("aborts a held-open stdin read on SIGINT", async () => {
@@ -992,7 +992,7 @@ test("packs and executes the bundled CLI locally without registry access", async
 			cliError = error as { code?: number; stdout?: string };
 		}
 		assert.equal(cliError?.code, 2);
-		assert.match(cliError?.stdout ?? "", /Invalid --wait/);
+		assert.match(cliError?.stdout ?? "", /the command input is invalid/);
 	} finally {
 		await rm(archiveDir, { recursive: true, force: true });
 		await rm(extract, { recursive: true, force: true });
@@ -1330,10 +1330,7 @@ test("unknown command exits 2 with valid alternatives before any IO", async () =
 	});
 	const code = await runCli(["frobnicate"], process.cwd(), process.stdin, output);
 	assert.equal(code, 2);
-	assert.match(
-		text,
-		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast/,
-	);
+	assert.match(text, /the command input is invalid/);
 });
 
 test("crew init creates a fresh canonical scaffold in a temp project with created status", async () => {

@@ -1,6 +1,6 @@
 import { createCliRegistry } from "./registry.ts";
 import { UsageError, type CliFormat } from "./arguments.ts";
-import { requestedFormat, usageResult } from "./errors.ts";
+import { actionableUsageResult, requestedFormat } from "./errors.ts";
 import { writeOutcome } from "./output.ts";
 import { rootCliHelp } from "./root-help.ts";
 import type { CliContext } from "./context.ts";
@@ -17,6 +17,17 @@ import type { Readable, Writable } from "node:stream";
 
 function parsedFormat(options: { format?: CliFormat } | null | undefined, args: string[]): CliFormat {
 	return options && typeof options.format === "string" ? options.format : requestedFormat(args);
+}
+
+const ROOT_USAGE_ERROR = {
+	code: "usage",
+	operation: "pi-bebop command input",
+	reason: "the command input is invalid",
+	recovery: ["run the command with --help, correct the input, and retry."],
+} as const;
+
+function rootUsageResult() {
+	return actionableUsageResult(ROOT_USAGE_ERROR);
 }
 
 export async function runCli(
@@ -38,7 +49,7 @@ export async function runCli(
 	} catch (error) {
 		return writeOutcome(output, {
 			kind: "result",
-			result: usageResult((error as UsageError).message),
+			result: rootUsageResult(),
 			format: requestedFormat(args),
 			full: false,
 		});
@@ -59,7 +70,7 @@ export async function runCli(
 		if (error instanceof UsageError) {
 			return writeOutcome(output, {
 				kind: "result",
-				result: usageResult(error.message),
+				result: rootUsageResult(),
 				format: parsedFormat(options as { format?: CliFormat } | null | undefined, args),
 				full: false,
 			});

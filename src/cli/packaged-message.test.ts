@@ -344,6 +344,6 @@ test("packaged CLI rejects a wait flag with accepted-only recovery and no delive
 		"json",
 	]);
 	assert.equal(outcome.code, 2, outcome.stdout);
-	assert.match(outcome.stdout, /accepted-delivery only/);
+	assert.match(outcome.stdout, /the command input is invalid/);
 	assert.equal(sessions.targetMessages.length, 0);
 });

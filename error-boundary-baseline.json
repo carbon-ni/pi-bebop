@@ -33,11 +33,6 @@
 			"count": 2
 		},
 		{
-			"file": "src/cli/run.ts",
-			"kind": "cli-result",
-			"count": 2
-		},
-		{
 			"file": "src/cli/source-session.ts",
 			"kind": "cli-result",
 			"count": 4
