@@ -469,29 +469,22 @@ export default function (pi: ExtensionAPI) {
 		yieldRuntime.markStarted();
 	});
 	const compactionGenerations: Array<{ generation: number; reason: string; willRetry: boolean }> = [];
-	const compactionEventGenerations = new WeakMap<object, number>();
 	pi.on("session_before_compact", (event: SessionBeforeCompactEvent) => {
 		const generation = state.modelDelivery?.compactionStarted() ?? 0;
 		compactionGenerations.push({ generation, reason: event.reason, willRetry: event.willRetry });
-		compactionEventGenerations.set(event, generation);
 	});
 	const onCompactionTerminal = (
 		event: SessionCompactEvent | { readonly reason: string; readonly willRetry: boolean },
 		ctx: ExtensionContext,
 	) => {
-		const taggedGeneration = compactionEventGenerations.get(event);
-		let index =
-			taggedGeneration === undefined
-				? compactionGenerations.length - 1
-				: compactionGenerations.findIndex((item) => item.generation === taggedGeneration);
-		if (taggedGeneration === undefined)
-			while (
-				index >= 0 &&
-				(compactionGenerations[index].reason !== event.reason ||
-					compactionGenerations[index].willRetry !== event.willRetry)
-			)
-				index -= 1;
-		const generation = index < 0 ? undefined : compactionGenerations.splice(index, 1)[0].generation;
+		// Pi emits a distinct terminal event object, so object identity cannot
+		// correlate it with `session_before_compact`. Terminal callbacks are
+		// ordered with their starts; consume the oldest matching lifecycle tag.
+		const first = compactionGenerations[0];
+		const generation =
+			first && first.reason === event.reason && first.willRetry === event.willRetry
+				? compactionGenerations.shift()!.generation
+				: undefined;
 		if (generation !== undefined) state.modelDelivery?.compactionEnded(generation);
 		emitIdleSettled(state, ctx);
 	};

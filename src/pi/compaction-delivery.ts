@@ -15,7 +15,7 @@ import {
 import type { Membership } from "../infra/membership-runtime.ts";
 
 function parseDeliveryNumber(id: string): number {
-	const match = /^delivery-(\\d+)$/.exec(id);
+	const match = /^delivery-(\d+)$/.exec(id);
 	return match ? Number(match[1]) : 0;
 }
 
@@ -99,15 +99,18 @@ export async function configureModelDeliveryJournal(
 export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): ModelDeliveryAdapter {
 	let nextId = 0;
 	let journal: CompactionDeliveryJournal | undefined;
+	let journalGeneration = 0;
 	let waitForSessionEvidence: ((deliveryId: string) => Promise<boolean> | boolean) | undefined;
 	let isLiveRequest: ((requestId: string) => Promise<boolean> | boolean) | undefined;
 	const delivered = new Map<string, { success?: () => void; failure?: () => void }>();
 	const deferredIds = new Set<string>();
 	const persisted = new Map<string, Promise<void>>();
 	const failed = new Set<string>();
+	const deferredJournals = new Map<string, CompactionDeliveryJournal>();
+	const allocatedIds = new Set<string>();
 	let gate: CompactionDeliveryGate;
 	const decorateMessage = (message: unknown, id: string): unknown => {
-		if (!journal || typeof message !== "object" || message === null || Array.isArray(message)) return message;
+		if (typeof message !== "object" || message === null || Array.isArray(message)) return message;
 		const source = message as Record<string, unknown>;
 		const details = source.details;
 		return {
@@ -122,6 +125,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		deferredIds.delete(id);
 		if (callback === "failure") failed.add(id);
 		persisted.delete(id);
+		deferredJournals.delete(id);
 		const callbacks = delivered.get(id);
 		callbacks?.[callback]?.();
 		delivered.delete(id);
@@ -131,7 +135,8 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			failed.delete(entry.id);
 			return;
 		}
-		if (journal && deferredIds.has(entry.id)) {
+		const deliveryJournal = deferredJournals.get(entry.id) ?? journal;
+		if (deliveryJournal && deferredIds.has(entry.id)) {
 			let handedOff = false;
 			try {
 				const requestId = requestIdForReplay(entry);
@@ -141,13 +146,13 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 					return;
 				}
 				await (persisted.get(entry.id) ?? Promise.resolve());
-				await journal.markHandingOff(entry.id);
+				await deliveryJournal.markHandingOff(entry.id);
 				send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
 				handedOff = true;
 				const evidenceSeen = waitForSessionEvidence ? await waitForSessionEvidence(entry.id) : true;
 				if (evidenceSeen) {
 					try {
-						await journal.markDelivered(entry.id);
+						await deliveryJournal.markDelivered(entry.id);
 					} catch {
 						// Keep the handing-off record for evidence-based reconciliation.
 					}
@@ -172,13 +177,24 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		schedule: (task) => setImmediate(task),
 		deliver,
 	});
-	const sendDurably = (
+	const sendDurably = async (
 		message: unknown,
 		options: Readonly<Record<string, unknown>> = {},
 		onDelivered?: () => void,
 		onFailed?: () => void,
-	): Promise<CompactionDeliveryResult> =>
-		new Promise((resolve) => {
+	): Promise<CompactionDeliveryResult> => {
+		if (!journal || (!gate.isCompacting() && gate.pendingCount() === 0))
+			return sendModel(message, options, onDelivered, onFailed);
+		let activeJournal: CompactionDeliveryJournal | undefined;
+		let reservedId: string | undefined;
+		do {
+			const generation = journalGeneration;
+			activeJournal = journal;
+			reservedId = activeJournal?.reserveId ? await activeJournal.reserveId() : undefined;
+			if (reservedId && allocatedIds.has(reservedId)) continue;
+			if (generation === journalGeneration && activeJournal === journal) break;
+		} while (true);
+		return new Promise((resolve) => {
 			let persisted = false;
 			const result = sendModel(
 				message,
@@ -190,9 +206,12 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 					resolve({ disposition: "deferred" });
 				},
 				() => resolve({ disposition: "invalid" }),
+				reservedId,
+				activeJournal,
 			);
-			if (result.disposition !== "deferred" || !journal || persisted) resolve(result);
+			if (result.disposition !== "deferred" || !activeJournal || persisted) resolve(result);
 		});
+	};
 	const sendModel = (
 		message: unknown,
 		options: Readonly<Record<string, unknown>> = {},
@@ -200,8 +219,12 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		onFailed?: () => void,
 		onPersisted?: () => void,
 		onPersistenceFailed?: () => void,
+		reservedId?: string,
+		journalOverride?: CompactionDeliveryJournal,
 	): CompactionDeliveryResult => {
-		const id = `delivery-${++nextId}`;
+		const id = reservedId ?? `delivery-${++nextId}`;
+		allocatedIds.add(id);
+		nextId = Math.max(nextId, parseDeliveryNumber(id));
 		let bytes: number;
 		try {
 			bytes = canonicalCompactionDeliveryEnvelopeBytes(message, options, { deliveryId: id }).byteLength;
@@ -212,11 +235,13 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		const shouldPersist = gate.isCompacting() || gate.pendingCount() > 0;
 		if (onDelivered || onFailed) delivered.set(id, { success: onDelivered, failure: onFailed });
 		const result = gate.accept(envelope);
-		if (result.disposition === "deferred" && shouldPersist && journal) {
+		const deliveryJournal = journalOverride ?? journal;
+		if (result.disposition === "deferred" && shouldPersist && deliveryJournal) {
 			deferredIds.add(id);
+			deferredJournals.set(id, deliveryJournal);
 			persisted.set(
 				id,
-				journal.append(envelope, Date.now()).then(
+				deliveryJournal.append(envelope, Date.now()).then(
 					() => {
 						onPersisted?.();
 					},
@@ -259,6 +284,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			nextIsLiveRequest,
 		) => {
 			if (nextJournal === journal) return;
+			journalGeneration += 1;
 			if (nextJournal) {
 				await nextJournal.reconcile(hasSessionEvidence);
 				const pending = await nextJournal.listPending();
@@ -269,15 +295,18 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 				waitForSessionEvidence = nextWaitForSessionEvidence;
 				isLiveRequest = nextIsLiveRequest;
 				deferredIds.clear();
+				deferredJournals.clear();
 				persisted.clear();
 				failed.clear();
 				for (const record of pending) {
+					allocatedIds.add(record.id);
 					const requestId = requestIdForReplay(record.envelope);
 					if (requestId && nextIsLiveRequest && !(await nextIsLiveRequest(requestId))) {
 						await nextJournal.markDelivered(record.id);
 						continue;
 					}
 					deferredIds.add(record.id);
+					deferredJournals.set(record.id, nextJournal);
 					gate.accept(record.envelope);
 				}
 				return;
@@ -287,6 +316,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			waitForSessionEvidence = undefined;
 			isLiveRequest = undefined;
 			deferredIds.clear();
+			deferredJournals.clear();
 			persisted.clear();
 			failed.clear();
 		},

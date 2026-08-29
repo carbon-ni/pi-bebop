@@ -85,6 +85,20 @@ test("journal reconciliation removes a handoff with session evidence", async () 
 	assert.deepEqual(await journal.listPending(), []);
 });
 
+test("journal reserves unique ids across separate instances under the filesystem lock", async () => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-delivery-reserve-"));
+	const manifestPath = path.join(root, ".pi", "bebop", "crew.json");
+	await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+	await fs.writeFile(manifestPath, "{}\n");
+	const options = { manifestPath, projectRoot: root, isProjectTrusted: () => true, memberName: "Dave" };
+	const first = await openTrustedCompactionDeliveryJournal(options);
+	const second = await openTrustedCompactionDeliveryJournal(options);
+	const ids = await Promise.all([first.reserveId!(), second.reserveId!(), first.reserveId!()]);
+	assert.deepEqual(new Set(ids).size, 3);
+	assert.deepEqual(ids.sort(), ["delivery-1", "delivery-2", "delivery-3"]);
+	await fs.rm(root, { recursive: true, force: true });
+});
+
 test("journal writers in separate instances retain both records under the filesystem lock", async () => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-delivery-"));
 	const manifestPath = path.join(root, ".pi", "bebop", "crew.json");

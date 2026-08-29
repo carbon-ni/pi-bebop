@@ -65,7 +65,7 @@ async function acquireFileLock(filePath: string): Promise<() => Promise<void>> {
 	while (true) {
 		try {
 			const handle = await fs.open(lockPath, "wx");
-			await handle.writeFile(`${process.pid}\\n`, "utf8");
+			await handle.writeFile(`${process.pid}\n`, "utf8");
 			await handle.sync();
 			await handle.close();
 			return async () => {
@@ -213,6 +213,8 @@ function parseJournal(value: unknown): JournalFile {
 export interface CompactionDeliveryJournal {
 	readonly filePath: string;
 	readonly nextSequence?: () => Promise<number>;
+	/** Reserve a globally unique delivery id before constructing its envelope. */
+	readonly reserveId?: () => Promise<string>;
 	readonly append: (envelope: CompactionDeliveryEnvelope, acceptedAt: number) => Promise<CompactionDeliveryRecord>;
 	readonly listPending: () => Promise<readonly CompactionDeliveryRecord[]>;
 	readonly markHandingOff: (id: string) => Promise<void>;
@@ -314,6 +316,13 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 	return {
 		filePath,
 		nextSequence: async () => (await read()).nextSequence,
+		reserveId: () =>
+			transact(async () => {
+				const journal = await read();
+				const sequence = journal.nextSequence;
+				await write({ ...journal, nextSequence: sequence + 1 });
+				return `delivery-${sequence}`;
+			}, true),
 		append: (envelope, acceptedAt) =>
 			transact(async () => {
 				const journal = await read();

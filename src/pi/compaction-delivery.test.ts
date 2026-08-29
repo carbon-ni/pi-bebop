@@ -78,6 +78,71 @@ test("sendDurably waits for journal append before acknowledging deferred accepta
 	assert.deepEqual(await acknowledgement, { disposition: "deferred" });
 });
 
+test("sendDurably avoids a local id already allocated while reservation was in flight", async () => {
+	const ids: string[] = [];
+	let reservation = 0;
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		reserveId: async () => `delivery-${++reservation}`,
+		append: async (envelope: any) => {
+			ids.push(envelope.id);
+			return {
+				version: 1 as const,
+				id: envelope.id,
+				sequence: envelope.id === "delivery-1" ? 1 : 2,
+				acceptedAt: 1,
+				bytes: envelope.bytes,
+				state: "pending" as const,
+				envelope,
+			};
+		},
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter(() => undefined);
+	await adapter.configureJournal(journal);
+	const generation = adapter.compactionStarted();
+	const durable = adapter.sendDurably({ customType: "crew", content: "reserved" });
+	assert.deepEqual(adapter.send({ customType: "crew", content: "local" }), { disposition: "deferred" });
+	assert.deepEqual(await durable, { disposition: "deferred" });
+	assert.deepEqual(ids, ["delivery-1", "delivery-2"]);
+	adapter.compactionEnded(generation);
+});
+
+test("sendDurably uses the journal reservation for its envelope id", async () => {
+	const ids: string[] = [];
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		reserveId: async () => "delivery-41",
+		append: async (envelope: any) => {
+			ids.push(envelope.id);
+			return {
+				version: 1 as const,
+				id: envelope.id,
+				sequence: 42,
+				acceptedAt: 1,
+				bytes: envelope.bytes,
+				state: "pending" as const,
+				envelope,
+			};
+		},
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter(() => undefined);
+	await adapter.configureJournal(journal);
+	const generation = adapter.compactionStarted();
+	assert.deepEqual(await adapter.sendDurably({ customType: "crew", content: "reserved" }), {
+		disposition: "deferred",
+	});
+	assert.deepEqual(ids, ["delivery-41"]);
+	adapter.compactionEnded(generation);
+});
+
 test("deferred handoff waits for session evidence before marking delivered", async () => {
 	const calls: string[] = [];
 	let releaseEvidence!: () => void;
