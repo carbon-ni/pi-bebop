@@ -28,11 +28,6 @@
 			"count": 13
 		},
 		{
-			"file": "src/cli/errors.ts",
-			"kind": "cli-result",
-			"count": 2
-		},
-		{
 			"file": "src/cli/source-session.ts",
 			"kind": "cli-result",
 			"count": 4
