@@ -12,6 +12,25 @@ export interface CompactionDeliveryEnvelope {
 	readonly metadata: Readonly<Record<string, unknown>>;
 }
 
+function canonicalJson(value: unknown): string {
+	if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	const record = value as Record<string, unknown>;
+	return `{${Object.keys(record)
+		.sort()
+		.map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+		.join(",")}}`;
+}
+
+/** Canonical bytes persisted for one complete model-delivery envelope. */
+export function canonicalCompactionDeliveryEnvelopeBytes(
+	message: unknown,
+	delivery: Readonly<Record<string, unknown>>,
+	metadata: Readonly<Record<string, unknown>>,
+): Uint8Array {
+	return new TextEncoder().encode(canonicalJson({ delivery, message, metadata }) + "\n");
+}
+
 export type CompactionDeliveryResult =
 	| { readonly disposition: "direct" }
 	| { readonly disposition: "deferred" }

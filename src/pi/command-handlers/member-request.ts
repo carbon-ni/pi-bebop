@@ -90,10 +90,13 @@ export async function handleMemberRequest(
 		};
 		const delivery = context.state.modelDelivery?.send(modelMessage, { triggerTurn: true });
 		if (!context.state.modelDelivery) context.pi.sendMessage(modelMessage, { triggerTurn: true });
-		if (!delivery || delivery.disposition === "direct") {
-			context.notifyAcceptedMessage(command.requestId);
-			flow.acceptInboundRequest(command.requestId);
+		if (delivery && delivery.disposition !== "direct") {
+			flow.registry.failBeforeAcceptance(command.requestId);
+			context.respond(false, command.type, undefined, "delivery-deferred");
+			return;
 		}
+		context.notifyAcceptedMessage(command.requestId);
+		flow.acceptInboundRequest(command.requestId);
 		context.respond(true, command.type, {
 			accepted: true,
 			requestId: command.requestId,

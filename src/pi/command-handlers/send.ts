@@ -36,6 +36,7 @@ import { submitCrewBroadcast, CrewBroadcastApplicationError } from "../../applic
 import { openTrustedMemberInboxStore } from "../../infra/member-inbox-store.ts";
 import { writeMemberIdleWaitEvent, writeMemberUpdateEvent, type RpcSocket } from "../../infra/rpc-server.ts";
 import type { RpcHandlerContext } from "./types.ts";
+import type { CompactionDeliveryResult } from "../../domain/index.ts";
 
 function deliverModelMessage(
 	context: RpcHandlerContext,
@@ -43,17 +44,18 @@ function deliverModelMessage(
 	deliveryId: string,
 	isIdle: boolean,
 	mode: "follow_up" | "immediate",
-): void {
+): CompactionDeliveryResult {
 	const options = isIdle
 		? { triggerTurn: true }
 		: { triggerTurn: true, deliverAs: mode === "follow_up" ? "followUp" : "steer" };
 	if (context.state.modelDelivery) {
 		const result = context.state.modelDelivery.send(message, options);
 		if (result.disposition === "direct") context.notifyAcceptedMessage(deliveryId);
-		return;
+		return result;
 	}
 	context.pi.sendMessage(message as never, options as never);
 	context.notifyAcceptedMessage(deliveryId);
+	return { disposition: "direct" };
 }
 
 export async function handleSend(
@@ -82,11 +84,13 @@ export async function handleSend(
 		},
 		display: true,
 	};
-	if (disposition === "queued") context.state.queuedFollowUps.record(deliveryId);
-
 	// TASK-0081: wake only after the gate hands the unchanged message to Pi.
-	deliverModelMessage(context, customMessage, deliveryId, isIdle, mode);
-
+	const delivery = deliverModelMessage(context, customMessage, deliveryId, isIdle, mode);
+	if (delivery.disposition === "invalid" || delivery.disposition === "capacity-exceeded") {
+		context.respond(false, "send", undefined, "delivery-failed");
+		return;
+	}
+	if (disposition === "queued") context.state.queuedFollowUps.record(deliveryId);
 	context.respond(true, "send", { deliveryId, disposition });
 	return;
 }

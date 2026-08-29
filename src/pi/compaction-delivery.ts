@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	canonicalCompactionDeliveryEnvelopeBytes,
 	createCompactionDeliveryGate,
 	type CompactionDeliveryEnvelope,
 	type CompactionDeliveryGate,
@@ -10,14 +11,6 @@ export interface ModelDeliveryAdapter {
 	readonly send: (message: unknown, options?: Readonly<Record<string, unknown>>) => CompactionDeliveryResult;
 	readonly compactionStarted: () => number;
 	readonly compactionEnded: (generation: number) => boolean;
-}
-
-function canonicalBytes(value: unknown): number {
-	try {
-		return new TextEncoder().encode(JSON.stringify(value) ?? "null").byteLength;
-	} catch {
-		return Number.MAX_SAFE_INTEGER;
-	}
 }
 
 /** Composition-root adapter: every Bebop model delivery crosses this gate. */
@@ -39,7 +32,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			const id = `delivery-${++nextId}`;
 			return gate.accept({
 				id,
-				bytes: canonicalBytes({ id, message, delivery: options, metadata: { deliveryId: id } }),
+				bytes: canonicalCompactionDeliveryEnvelopeBytes(message, options, { deliveryId: id }).byteLength,
 				message,
 				delivery: options,
 				metadata: { deliveryId: id },
