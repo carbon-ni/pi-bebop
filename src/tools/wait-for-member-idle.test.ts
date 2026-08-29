@@ -38,8 +38,12 @@ function setup(membership: unknown | (() => unknown), transport: Partial<MemberI
 	const state = createSocketState();
 	state.membershipRuntime = { getMembership } as never;
 	state.context = { isProjectTrusted: () => true } as never;
+	const probes: Array<string | null> = [];
 	const defaultTransport: MemberIdleWaitToolTransport = {
-		probeEndpoint: async () => true,
+		probeEndpoint: async () => {
+			probes.push(state.blockingWait?.activeMarker()?.kind ?? null);
+			return true;
+		},
 		requestIdleWait: async () => ({
 			ok: true,
 			result: {
@@ -52,7 +56,7 @@ function setup(membership: unknown | (() => unknown), transport: Partial<MemberI
 	};
 	registerWaitForMemberIdleTool(pi, state, { ...defaultTransport, ...transport });
 	assert.ok(registeredTool);
-	return { tool: registeredTool!, state };
+	return { tool: registeredTool!, state, probes };
 }
 
 const membership = {
@@ -346,6 +350,80 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		assert.equal(details.actionableError.code, "unexpected-failure");
 		assert.equal(result.content[0]?.text, details.actionableError.message);
 		assert.doesNotMatch(JSON.stringify(result), /password-secret/i);
+	});
+
+	test("TASK-0117: marker kind member-idle is acquired before target IO and released exactly once per terminal", async () => {
+		const { tool, state, probes } = setup(membership, {
+			requestIdleWait: () => new Promise(() => undefined),
+		});
+		const pending = tool.execute("id", { member: "Bob" });
+		await flush();
+		// Acquired BEFORE the reachability probe observed it.
+		assert.deepEqual(probes, ["member-idle"]);
+		assert.equal(state.blockingWait.activeMarker()?.kind, "member-idle");
+		const seen: Array<string | null> = [];
+		state.blockingWait.subscribeOnce((marker) => seen.push(marker ? marker.kind : null));
+		// Unblock via a local accepted-message wake (TASK-0081 path).
+		state.wakeGate.notifyAccepted("delivery-x");
+		const result = await pending;
+		assert.equal(result.isError, undefined);
+		assert.equal((result.details as { result: { outcome: string } }).result.outcome, "message-received");
+		assert.deepEqual(state.blockingWait.activeMarker(), null, "released exactly once");
+		assert.deepEqual(seen, [null], "release transition observed exactly once");
+	});
+
+	test("TASK-0117: every terminal path releases the marker (offline, timeout, error, abort)", async () => {
+		const cases: Array<[string, Partial<MemberIdleWaitToolTransport>]> = [
+			[
+				"offline",
+				{
+					probeEndpoint: async () => false,
+				},
+			],
+			[
+				"timeout",
+				{
+					requestIdleWait: async () => ({ ok: false as const, code: "timeout" as const }),
+				},
+			],
+			[
+				"transport-error",
+				{
+					requestIdleWait: async () => {
+						throw new Error("boom");
+					},
+				},
+			],
+		];
+		for (const [label, transportOverride] of cases) {
+			const { tool, state } = setup(membership, transportOverride);
+			const result = await tool.execute("id", { member: "Bob" });
+			void result;
+			await flush();
+			assert.deepEqual(state.blockingWait.activeMarker(), null, label);
+		}
+		const { tool: abortTool, state: abortState } = setup(membership, {
+			requestIdleWait: () => new Promise(() => undefined),
+		});
+		const controller = new AbortController();
+		const aborting = abortTool.execute("id", { member: "Bob" }, controller.signal);
+		await flush();
+		assert.equal(abortState.blockingWait.activeMarker()?.kind, "member-idle");
+		controller.abort();
+		await aborting;
+		assert.deepEqual(abortState.blockingWait.activeMarker(), null, "aborted");
+	});
+
+	test("TASK-0117: the single local slot rejects any second blocking wait kind before remote IO", async () => {
+		const { tool, state } = setup(membership, {
+			requestIdleWait: () => new Promise(() => undefined),
+		});
+		const first = tool.execute("id", { member: "Bob" });
+		await flush();
+		assert.equal(state.blockingWait.acquire("crew-idle").ok, false);
+		state.wakeGate.notifyAccepted("delivery-y");
+		await first;
+		assert.deepEqual(state.blockingWait.activeMarker(), null);
 	});
 
 	test("timeout_seconds is validated (out of range rejected deterministically before IO)", async () => {
