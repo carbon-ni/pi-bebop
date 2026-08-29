@@ -4,6 +4,7 @@ import { getCrewManifestPathFromSocketPath } from "../infra/crew-manifest-store.
 import {
 	ensureControlServer,
 	reconcileMembershipTools,
+	cancelCrewMemberIdleCommand,
 	refreshIntrayStatus,
 	refreshSessionAliases,
 	activateMembershipTool,
@@ -41,6 +42,9 @@ export async function handleSessionStart(
 		readonly syncSessionName?: (membership: any | null) => void | Promise<void>;
 	},
 ): Promise<void> {
+	// A new branch/session context replaces the previous command owner. Cancel
+	// any human observation before restoring membership or replacing sockets.
+	cancelCrewMemberIdleCommand(state, "session-replaced");
 	const startup = await prepareStartupSelection(pi, ctx);
 	if (!startup) return;
 	const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];

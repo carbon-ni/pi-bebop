@@ -106,7 +106,9 @@ test("/crew member-idle completes through the shared Crew Idle flow without mode
 	await setupState.getCommand().handler('member-idle "Dave Smith"', setupState.ctx);
 	assert.deepEqual(received, ["Dave Smith"]);
 	assert.equal(setupState.entries[0]!.customType, "crew-member-idle");
-	assert.match(String(setupState.entries[0]!.data?.content), /Dave Smith \(dev\)/);
+	const content = String(setupState.entries[0]!.data?.content);
+	assert.match(content, /Dave Smith \(dev\)/);
+	assert.doesNotMatch(content, /socket|session|instruction|\/dave\.sock/);
 	assert.deepEqual(setupState.messages, []);
 	assert.equal(setupState.state.blockingWait.activeMarker(), null);
 });
@@ -250,6 +252,99 @@ test("/crew member-idle cancels on local activity and clears status/capacity", a
 	assert.match(setupState.notifications.at(-1)!, /local-activity/);
 });
 
+test("/crew member-idle full scope delegates without a crew wait-lock", async () => {
+	const setupState = setup();
+	setupState.state.membershipRuntime = {
+		getMembership: () => ({
+			member: { name: "Dave", role: "dev", socketPath: "/d" },
+			manifest: {
+				members: [
+					{ name: "Dave", role: "dev", socketPath: "/d" },
+					{ name: "Kelly", role: "qa", socketPath: "/k" },
+				],
+			},
+		}),
+	};
+	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	let received: readonly string[] | undefined;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewIdleWait: {
+				wait: async (input) => {
+					received = input.members;
+					assert.equal(setupState.state.blockingWait.activeMarker()?.kind, "member-idle");
+					return {
+						scope: "all",
+						members: [{ name: "Kelly", role: "qa" }],
+						coversAllOtherMembers: true,
+						outcome: "ready",
+						observedAt: "2026-08-29T10:00:00.000Z",
+					};
+				},
+			},
+		}),
+	);
+	await setupState.getCommand().handler("member-idle", setupState.ctx);
+	assert.equal(received, undefined);
+	assert.equal(setupState.state.blockingWait.activeMarker(), null);
+	assert.match(String(setupState.entries[0]!.data?.content), /coversAllOtherMembers=true/);
+});
+
+test("/crew member-idle rejects an oversized tail before membership, capacity, or operation IO", async () => {
+	const setupState = setup();
+	const oversizedTail = Array.from({ length: 32 }, () => "a".repeat(256)).join(",");
+	let calls = 0;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewIdleWait: {
+				wait: async () => {
+					calls += 1;
+					throw new Error("must not wait");
+				},
+			},
+		}),
+	);
+	await setupState.getCommand().handler(`member-idle ${oversizedTail}`, setupState.ctx);
+	assert.equal(calls, 0);
+	assert.equal(setupState.state.blockingWait.activeMarker(), null);
+	assert.match(setupState.notifications[0]!, /4096 UTF-8 bytes/);
+});
+
+test("/crew member-idle rejects capacity contention before operation IO", async () => {
+	const setupState = setup();
+	setupState.state.membershipRuntime = {
+		getMembership: () => ({
+			member: { name: "Dave", role: "dev", socketPath: "/d" },
+			manifest: { members: [{ name: "Dave", role: "dev", socketPath: "/d" }] },
+		}),
+	};
+	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	const held = setupState.state.blockingWait.acquire("crew-idle");
+	assert.equal(held.ok, true);
+	let calls = 0;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			crewIdleWait: {
+				wait: async () => {
+					calls += 1;
+					throw new Error("must not wait");
+				},
+			},
+		}),
+	);
+	await setupState.getCommand().handler("member-idle", setupState.ctx);
+	assert.equal(calls, 0);
+	assert.equal(setupState.state.blockingWait.activeMarker()?.kind, "crew-idle");
+	assert.match(setupState.notifications[0]!, /another blocking idle wait/i);
+	setupState.state.blockingWait.release();
+});
+
 test("/crew leave cancels a pending member-idle observation before releasing membership", async () => {
 	const setupState = setup();
 	const membership = {
@@ -294,6 +389,48 @@ test("/crew leave cancels a pending member-idle observation before releasing mem
 	await pending;
 	assert.equal(aborted, true);
 	assert.equal(left, true);
+	assert.equal(setupState.state.blockingWait.activeMarker(), null);
+});
+
+test("/crew stop cancels a pending member-idle observation before cleanup", async () => {
+	const setupState = setup();
+	const membership = {
+		member: { name: "Dave", role: "dev", socketPath: "/d" },
+		manifest: { members: [{ name: "Dave", role: "dev", socketPath: "/d" }] },
+	};
+	let stopped = false;
+	const runtime = {
+		getMembership: () => membership,
+		leave: async () => ({ left: true as const }),
+	};
+	setupState.state.membershipRuntime = runtime as never;
+	Object.assign(setupState.ctx, { isIdle: () => true, hasPendingMessages: () => false });
+	let aborted = false;
+	registerSessionControlCommand(
+		setupState.pi,
+		setupState.state,
+		baseDeps({
+			membershipRuntime: runtime as never,
+			disableControlServer: async () => {
+				stopped = true;
+			},
+			crewIdleWait: {
+				wait: ({ signal }) =>
+					new Promise((_, reject) =>
+						signal.addEventListener("abort", () => {
+							aborted = true;
+							reject(new Error("aborted"));
+						}),
+					),
+			},
+		}),
+	);
+	const pending = setupState.getCommand().handler("member-idle", setupState.ctx);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await setupState.getCommand().handler("stop", setupState.ctx);
+	await pending;
+	assert.equal(aborted, true);
+	assert.equal(stopped, true);
 	assert.equal(setupState.state.blockingWait.activeMarker(), null);
 });
 

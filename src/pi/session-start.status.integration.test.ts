@@ -184,6 +184,19 @@ test("session-start boundary keeps UI/headless known and unknown failures identi
 	}
 });
 
+test("session replacement cancels an in-flight member-idle command before restoring state", async () => {
+	const harness = createHarness("replacement-session", []);
+	const reasons: string[] = [];
+	harness.state.crewMemberIdleCommand = { cancel: (reason) => reasons.push(reason) };
+	harness.state.membershipRuntime = {
+		join: async () => assert.fail("replacement without persisted membership must not join"),
+		getMembership: () => null,
+		leave: async () => ({ ok: true, left: false }),
+	} as never;
+	await handleSessionStart(createPi([]) as never, harness.state, harness.state.context as never, createDeps(harness));
+	assert.deepEqual(reasons, ["session-replaced"]);
+});
+
 test("startup restore refreshes the status line from online to the restored identity", async () => {
 	const harness = createHarness("restore-session", [persistedEntry]);
 	let membership: typeof restoredMembership | null = null;

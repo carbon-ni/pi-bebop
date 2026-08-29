@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -43,6 +44,9 @@ type LifecycleHarness = {
 	readonly activeTools: string[];
 	readonly activeToolCalls: string[][];
 	readonly sentMessages: unknown[];
+	readonly command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+	readonly remoteRequests: string[];
+	readonly closeRemote: () => Promise<void>;
 	readonly clearPresenceFailure: () => void;
 };
 
@@ -50,16 +54,21 @@ async function createLifecycleHarness(options: {
 	hasUI: boolean;
 	failPresence: boolean;
 	presenceNotifications?: boolean;
+	remoteIdle?: boolean;
 }): Promise<LifecycleHarness> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "bebop-lifecycle-"));
 	const sessionId = path.basename(root);
 	const socketPath = path.join(root, ".pi", "bebop", "sockets", "dev.sock");
+	const remoteSocketPath = path.join(root, ".pi", "bebop", "sockets", "qa.sock");
 	await mkdir(path.dirname(socketPath), { recursive: true });
 	await writeFile(
 		path.join(root, ".pi", "bebop", "crew.json"),
 		JSON.stringify({
 			version: 1,
-			members: [{ name: "Dev", role: "developer", socket: "sockets/dev.sock" }],
+			members: [
+				{ name: "Dev", role: "developer", socket: "sockets/dev.sock" },
+				...(options.remoteIdle ? [{ name: "QA", role: "qa", socket: "sockets/qa.sock" }] : []),
+			],
 			presence: { notifications: options.presenceNotifications ?? true },
 		}),
 	);
@@ -68,16 +77,20 @@ async function createLifecycleHarness(options: {
 	const notifications: string[] = [];
 	const entries: string[] = [];
 	const sentMessages: unknown[] = [];
+	const remoteRequests: string[] = [];
 	const registeredTools = [...MEMBERSHIP_TOOLS];
 	const activeTools = ["read", ...registeredTools];
 	const activeToolCalls: string[][] = [];
 	const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+	let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 	const pi = {
 		registerFlag() {},
 		registerMessageRenderer() {},
 		registerEntryRenderer() {},
 		registerTool() {},
-		registerCommand() {},
+		registerCommand(_name: string, definition: { handler: (args: string, ctx: unknown) => Promise<void> }) {
+			command = definition;
+		},
 		getAllTools: () => registeredTools.map((name) => ({ name })),
 		getActiveTools: () => [...activeTools],
 		setActiveTools: (names: string[]) => {
@@ -95,6 +108,45 @@ async function createLifecycleHarness(options: {
 		sendMessage: (message: unknown) => sentMessages.push(message),
 		on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => handlers.set(event, handler),
 	};
+	const remoteServer = options.remoteIdle
+		? net.createServer((socket) => {
+				let buffer = "";
+				socket.setEncoding("utf8");
+				socket.on("data", (chunk) => {
+					buffer += chunk;
+					let newline = buffer.indexOf("\n");
+					while (newline !== -1) {
+						const line = buffer.slice(0, newline).trim();
+						buffer = buffer.slice(newline + 1);
+						newline = buffer.indexOf("\n");
+						if (!line) continue;
+						const request = JSON.parse(line) as { id: string | number; method: string };
+						remoteRequests.push(request.method);
+						const response = (result: unknown) =>
+							socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\n");
+						if (request.method === "member.status") {
+							response({
+								status: {
+									member: { name: "QA", role: "qa" },
+									presence: "online",
+									activity: "busy",
+									hasPendingMessages: false,
+									observedAt: "2026-08-29T10:00:00.000Z",
+								},
+							});
+						} else if (request.method === "member.wait_state") {
+							response({
+								subscriptionId: String(request.id),
+								snapshot: { member: { name: "QA", role: "qa" }, wait: null },
+							});
+						} else if (request.method === "member.idle_wait") {
+							response({ subscriptionId: String(request.id), event: "member_idle" });
+						}
+					}
+				});
+			})
+		: null;
+	if (remoteServer) await new Promise<void>((resolve) => remoteServer.listen(remoteSocketPath, resolve));
 	const context = {
 		cwd: root,
 		hasUI: options.hasUI,
@@ -106,6 +158,8 @@ async function createLifecycleHarness(options: {
 			theme: { fg: (_color: string, value: string) => value },
 		},
 		isProjectTrusted: () => true,
+		isIdle: () => true,
+		hasPendingMessages: () => false,
 		sessionManager: {
 			getSessionId: () => {
 				if (failPresence && !cleanupSafe) {
@@ -131,6 +185,11 @@ async function createLifecycleHarness(options: {
 		activeTools,
 		activeToolCalls,
 		sentMessages,
+		command,
+		remoteRequests,
+		closeRemote: async () => {
+			if (remoteServer) await new Promise<void>((resolve) => remoteServer.close(() => resolve()));
+		},
 		clearPresenceFailure: () => {
 			failPresence = false;
 			cleanupSafe = true;
@@ -234,6 +293,37 @@ test("session_shutdown reports release failure once and still cleans server and 
 		assert.equal(result.harness.activeToolCalls.filter((names) => !names.includes("send_follow_up")).length, 1);
 		assert.equal(result.harness.sentMessages.length, 0);
 		assert.equal(result.harness.entries.includes("bebop-session-message"), false);
+	}
+});
+
+test("real Pi command host keeps member-idle asynchronous, cancellable, and turn-free", async () => {
+	const harness = await createLifecycleHarness({
+		hasUI: true,
+		failPresence: false,
+		presenceNotifications: false,
+		remoteIdle: true,
+	});
+	try {
+		await harness.handlers.get("session_start")?.({}, harness.context);
+		assert.ok(harness.command, "extension host must register the crew command");
+		const pending = harness.command.handler("member-idle", harness.context);
+		assert.equal(pending instanceof Promise, true);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.deepEqual([...harness.remoteRequests].sort(), [
+			"member.idle_wait",
+			"member.status",
+			"member.wait_state",
+		]);
+		assert.deepEqual(harness.sentMessages, []);
+		assert.equal(harness.entries.includes("crew-member-idle"), false);
+		await harness.handlers.get("session_shutdown")?.({}, harness.context);
+		await pending;
+		assert.deepEqual(harness.sentMessages, []);
+		assert.equal(harness.entries.includes("crew-member-idle"), false);
+	} finally {
+		await harness.handlers.get("session_shutdown")?.({}, harness.context);
+		await harness.closeRemote();
+		await rm(harness.root, { recursive: true, force: true });
 	}
 });
 
