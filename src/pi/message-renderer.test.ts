@@ -38,6 +38,50 @@ test("renderer preserves ordinary and malformed user-authored reply instruction 
 	assert.equal(stripMessageMetadata("keep <reply_instruction>unfinished"), "keep <reply_instruction>unfinished");
 });
 
+test("queued follow-up label and hint expose the compact immutable delay consistently", () => {
+	const queued = {
+		customType: "bebop-session-message",
+		content: "[follow-up · queued 14m before delivery · uncorrelated] …",
+		details: {
+			messagePayload: { content: "Heads up", origin: { kind: "crew" as const, name: "Tony", role: "lead" } },
+			deliveryProvenance: {
+				deliveryId: "delivery-q1",
+				acceptedAt: 1_000,
+				handoffAt: 1_000 + 14 * 60_000,
+				queueDelay: "14m",
+				disposition: "queued",
+			},
+		},
+	};
+	assert.equal(sessionMessageKind(queued), "follow-up");
+	assert.equal(sessionMessageLabel(queued), "[follow-up · queued 14m before delivery · uncorrelated]");
+	assert.match(sessionMessageHint(queued) ?? "", /may predate newer coordination/);
+	assert.match(sessionMessageHint(queued) ?? "", /never infer response causality from arrival order/);
+	assert.match(sessionMessageHint(queued) ?? "", /send_member_request/);
+	// Display never leaks the deliveryId or raw timestamps; collapsed/expanded parity.
+	const collapsed = JSON.stringify(getMessageDisplayModel(queued, false));
+	const expanded = JSON.stringify(getMessageDisplayModel(queued, true));
+	assert.ok(!collapsed.includes("delivery-q1"));
+	assert.ok(!expanded.includes("delivery-q1"));
+	assert.ok(!expanded.includes("840000"));
+	// Historical follow-ups without provenance stay byte-identical.
+	const legacy = {
+		customType: "bebop-session-message",
+		content: "old",
+		details: { messagePayload: { content: "old" } },
+	};
+	assert.equal(sessionMessageLabel(legacy), "[follow-up]");
+	assert.equal(sessionMessageHint(legacy), null);
+	// Malformed provenance fails safe to the plain follow-up label.
+	const malformed = {
+		customType: "bebop-session-message",
+		content: "old",
+		details: { messagePayload: { content: "old" }, deliveryProvenance: { queueDelay: 14 } },
+	};
+	assert.equal(sessionMessageLabel(malformed), "[follow-up]");
+	assert.equal(sessionMessageHint(malformed), null);
+});
+
 test("TASK-0076: inbound Member request is visibly distinguished from ordinary Follow-up in the UI", () => {
 	const requestMessage = {
 		customType: "bebop-session-message",

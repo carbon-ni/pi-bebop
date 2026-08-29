@@ -213,6 +213,9 @@ test("TASK-0076: coordination rule is one non-contradictory requester->wait / re
 	// Ordinary Follow-up stays information-only with no correlated Response expected.
 	assert.match(coordination, /send_follow_up for information only/i);
 	assert.match(coordination, /no correlated Response is expected/i);
+	// TASK-0139: arrival order is never response causality.
+	assert.match(coordination, /never infer response causality from Follow-up arrival order/i);
+	assert.match(coordination, /a queued Follow-up may predate newer coordination/i);
 	// The rule never relies on a Crew role such as lead/QA.
 	assert.doesNotMatch(coordination, /\blead\b|\bqa\b|\bpo\b|\bdev\b/i);
 });

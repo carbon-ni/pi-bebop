@@ -114,6 +114,10 @@ test("registers only intent-named tools with compact parameters and teaching des
 	}
 	assert.match(tools.get("send_follow_up")!.description, /information/i);
 	assert.match(tools.get("send_follow_up")!.description, /no correlated Response/i);
+	assert.match(
+		tools.get("send_follow_up")!.description,
+		/never infer response causality from Follow-up arrival order/i,
+	);
 	assert.doesNotMatch(tools.get("send_follow_up")!.description, /by default|default coordination/i);
 	assert.match(tools.get("redirect_member")!.description, /redirect.*active/i);
 });
