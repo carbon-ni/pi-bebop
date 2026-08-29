@@ -102,21 +102,19 @@ export function createInboxBridgeController(
 			// Membership at handoff time — never from the sender payload, origin, or
 			// any caller-provided value. Omitted when the manifest has no name.
 			const crewName = state.membershipRuntime?.getMembership()?.manifest.name;
-			// TASK-0081: the inbox offer is a Bebop-owned model delivery; a local
-			// blocking idle wait wakes on it before the unchanged message submits.
-			notifyAcceptedMessage(state, `inbox-${entry.id}`);
-			pi.sendMessage(
-				{
-					customType: SESSION_MESSAGE_TYPE,
-					content: renderMessagePayload(entry.payload),
-					display: true,
-					details: {
-						messagePayload: entry.payload,
-						inbox: { itemId: entry.id, ...(crewName === undefined ? {} : { crewName }) },
-					},
+			const modelMessage = {
+				customType: SESSION_MESSAGE_TYPE,
+				content: renderMessagePayload(entry.payload),
+				display: true,
+				details: {
+					messagePayload: entry.payload,
+					inbox: { itemId: entry.id, ...(crewName === undefined ? {} : { crewName }) },
 				},
-				{ triggerTurn: true, deliverAs: "followUp" },
-			);
+			};
+			const delivery = state.modelDelivery?.send(modelMessage, { triggerTurn: true, deliverAs: "followUp" });
+			if (!state.modelDelivery) pi.sendMessage(modelMessage, { triggerTurn: true, deliverAs: "followUp" });
+			if (delivery && delivery.disposition !== "direct") return false;
+			if (!delivery || delivery.disposition === "direct") notifyAcceptedMessage(state, `inbox-${entry.id}`);
 			return true;
 		},
 		offeringState,
