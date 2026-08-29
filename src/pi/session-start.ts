@@ -18,7 +18,8 @@ import {
 	type StartupRoleSelection,
 } from "./startup-send.ts";
 import { ownershipFromMembership } from "./inbox-bridge-runtime.ts";
-import { presentActionableError, type ActionableErrorDescriptor } from "../domain/index.ts";
+import type { ActionableErrorDescriptor } from "../domain/index.ts";
+import { reportActionableError } from "./actionable-error-output.ts";
 import type { createSocketState } from "./control-runtime.ts";
 import { createInboxBridgeController } from "./inbox-bridge-runtime.ts";
 
@@ -84,9 +85,7 @@ type StartupSelection = {
 };
 
 function reportStartupError(ctx: ExtensionContext, descriptor: ActionableErrorDescriptor): void {
-	const message = presentActionableError(descriptor).message;
-	if (ctx.hasUI) ctx.ui.notify(message, "error");
-	else console.error(message);
+	reportActionableError(ctx, descriptor);
 }
 
 async function prepareStartupSelection(pi: ExtensionAPI, ctx: ExtensionContext): Promise<StartupSelection | undefined> {

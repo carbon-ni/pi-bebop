@@ -46,11 +46,6 @@
 			"file": "src/pi/control-commands.ts",
 			"kind": "pi-notify",
 			"count": 14
-		},
-		{
-			"file": "src/pi/session-start.ts",
-			"kind": "pi-notify",
-			"count": 2
 		}
 	]
 }
