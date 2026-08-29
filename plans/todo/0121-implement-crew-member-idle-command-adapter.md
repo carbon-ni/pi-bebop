@@ -1,7 +1,7 @@
 ---
 id: TASK-0121
 title: Implement /crew member-idle command adapter
-status: done
+status: doing
 depends_on: [TASK-0118, TASK-0120]
 priority: high
 tags: [crew, idle, command, selection, pi-api, lifecycle, tdd]
