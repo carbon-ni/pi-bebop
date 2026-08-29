@@ -12,14 +12,26 @@ export interface CompactionDeliveryEnvelope {
 	readonly metadata: Readonly<Record<string, unknown>>;
 }
 
-function canonicalJson(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-	const record = value as Record<string, unknown>;
-	return `{${Object.keys(record)
-		.sort()
-		.map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-		.join(",")}}`;
+function canonicalJson(value: unknown, seen = new Set<object>()): string {
+	if (value === null) return "null";
+	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+		const encoded = JSON.stringify(value);
+		if (encoded === undefined) throw new TypeError("unsupported JSON value");
+		return encoded;
+	}
+	if (typeof value !== "object") throw new TypeError("unsupported JSON value");
+	if (seen.has(value)) throw new TypeError("circular JSON value");
+	seen.add(value);
+	try {
+		if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item, seen)).join(",")}]`;
+		const record = value as Record<string, unknown>;
+		return `{${Object.keys(record)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key], seen)}`)
+			.join(",")}}`;
+	} finally {
+		seen.delete(value);
+	}
 }
 
 /** Canonical bytes persisted for one complete model-delivery envelope. */
@@ -51,6 +63,7 @@ export interface CompactionDeliveryGate {
 	accept(entry: CompactionDeliveryEnvelope): CompactionDeliveryResult;
 	pendingCount(): number;
 	pendingBytes(): number;
+	isCompacting(): boolean;
 }
 
 export function createCompactionDeliveryGate(options: CompactionDeliveryGateOptions): CompactionDeliveryGate {
@@ -115,5 +128,6 @@ export function createCompactionDeliveryGate(options: CompactionDeliveryGateOpti
 
 		pendingCount: () => pending.length,
 		pendingBytes: () => pendingBytes,
+		isCompacting: isClosed,
 	};
 }

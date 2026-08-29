@@ -111,10 +111,14 @@ export function createInboxBridgeController(
 					inbox: { itemId: entry.id, ...(crewName === undefined ? {} : { crewName }) },
 				},
 			};
-			const delivery = state.modelDelivery?.send(modelMessage, { triggerTurn: true, deliverAs: "followUp" });
-			if (!state.modelDelivery) pi.sendMessage(modelMessage, { triggerTurn: true, deliverAs: "followUp" });
-			if (delivery && delivery.disposition !== "direct") return false;
-			if (!delivery || delivery.disposition === "direct") notifyAcceptedMessage(state, `inbox-${entry.id}`);
+			const delivery = state.modelDelivery?.send(modelMessage, { triggerTurn: true, deliverAs: "followUp" }, () =>
+				notifyAcceptedMessage(state, `inbox-${entry.id}`),
+			);
+			if (!state.modelDelivery) {
+				pi.sendMessage(modelMessage, { triggerTurn: true, deliverAs: "followUp" });
+				notifyAcceptedMessage(state, `inbox-${entry.id}`);
+			}
+			if (delivery?.disposition === "invalid" || delivery?.disposition === "capacity-exceeded") return false;
 			return true;
 		},
 		offeringState,

@@ -46,8 +46,10 @@ export async function handleInterrupt(
 		abort: () => context.ctx.abort(),
 		sendMessage: (message, options) => {
 			if (context.state.modelDelivery)
-				context.state.modelDelivery.send(message, options as Readonly<Record<string, unknown>>);
-			else void context.pi.sendMessage(message as never, options as never);
+				return context.state.modelDelivery
+					.sendAndWait(message, options as Readonly<Record<string, unknown>>)
+					.then(() => undefined);
+			void context.pi.sendMessage(message as never, options as never);
 		},
 		appendEntry: (customType, data) => context.pi.appendEntry(customType, data),
 		getEntries: () => context.ctx.sessionManager.getEntries() as readonly unknown[],

@@ -1,5 +1,11 @@
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionContext, MessageEndEvent } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	MessageEndEvent,
+	SessionBeforeCompactEvent,
+	SessionCompactEvent,
+} from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import {
 	renderCrewPresence,
@@ -81,7 +87,7 @@ import { handleSessionStart } from "./pi/session-start.ts";
 import { handleMessageEndQueuedFollowUp, queuedFollowUpMessageEndResult } from "./pi/queued-follow-up-handoff.ts";
 import { createSessionNameController } from "./pi/session-name.ts";
 import { reportActionableError } from "./pi/actionable-error-output.ts";
-import { createModelDeliveryAdapter } from "./pi/compaction-delivery.ts";
+import { configureModelDeliveryJournal, createModelDeliveryAdapter } from "./pi/compaction-delivery.ts";
 
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
@@ -126,6 +132,10 @@ export default function (pi: ExtensionAPI) {
 		setSessionName?: (name: string) => void;
 		getSessionName?: () => string | undefined;
 	};
+	const configureDeliveryJournal = async (membership: import("./infra/membership-runtime.ts").Membership) => {
+		if (state.context && state.modelDelivery)
+			await configureModelDeliveryJournal(state.modelDelivery, membership, state.context);
+	};
 	const sessionNameController = createSessionNameController({
 		setSessionName: (name) => sessionNameApi.setSessionName?.(name),
 		getSessionName: () => sessionNameApi.getSessionName?.(),
@@ -152,8 +162,8 @@ export default function (pi: ExtensionAPI) {
 		const interruptFlow = createInterruptFlow({
 			isIdle: () => context.isIdle(),
 			abort: () => context.abort(),
-			sendMessage: (message, options) => {
-				state.modelDelivery?.send(message, options as Readonly<Record<string, unknown>>);
+			sendMessage: async (message, options) => {
+				await state.modelDelivery?.sendAndWait(message, options as Readonly<Record<string, unknown>>);
 			},
 			appendEntry: (customType, data) => pi.appendEntry(customType, data),
 			getEntries: () => context.sessionManager.getEntries() as readonly unknown[],
@@ -354,6 +364,9 @@ export default function (pi: ExtensionAPI) {
 			stopPresence,
 			syncSessionName: async (membership) => {
 				sessionNameController.syncMembership(membership);
+				await (membership
+					? configureDeliveryJournal(membership)
+					: state.modelDelivery?.configureJournal(undefined));
 				await refreshSessionAliases(state);
 			},
 			inboxBridge,
@@ -389,6 +402,9 @@ export default function (pi: ExtensionAPI) {
 			restoreSessionName: (entries) => sessionNameController.restore(entries),
 			syncSessionName: async (membership) => {
 				sessionNameController.syncMembership(membership);
+				await (membership
+					? configureDeliveryJournal(membership)
+					: state.modelDelivery?.configureJournal(undefined));
 				await refreshSessionAliases(state, ctx);
 			},
 		});
@@ -409,8 +425,6 @@ export default function (pi: ExtensionAPI) {
 		cancelCrewMemberIdleCommand(state, "session-shutdown");
 		inboxBridge.invalidate();
 		const context = state.context;
-		// TASK-0080: shutdown cancels every parked wait (wait-cancelled per id,
-		// no resumes queued) so no stale wait survives the session; auto clears
 		// its suspension via the cancelled events and no work is resumed.
 		yieldRuntime.cancelAll();
 		await releaseMembershipBeforeCleanup({
@@ -458,14 +472,26 @@ export default function (pi: ExtensionAPI) {
 		yieldRuntime.markStarted();
 	});
 
-	// Terminal compaction handlers run before Pi's internal cleanup. The gate
-	// schedules an injected post-event task and re-checks depth/generation there.
-	const compactionGenerations: number[] = [];
-	pi.on("session_before_compact", () => {
-		compactionGenerations.push(state.modelDelivery?.compactionStarted() ?? 0);
+	const compactionGenerations: Array<{ generation: number; reason: string; willRetry: boolean }> = [];
+	pi.on("session_before_compact", (event: SessionBeforeCompactEvent) => {
+		compactionGenerations.push({
+			generation: state.modelDelivery?.compactionStarted() ?? 0,
+			reason: event.reason,
+			willRetry: event.willRetry,
+		});
 	});
-	const onCompactionTerminal = (_event: unknown, ctx: ExtensionContext) => {
-		const generation = compactionGenerations.pop();
+	const onCompactionTerminal = (
+		event: SessionCompactEvent | { readonly reason: string; readonly willRetry: boolean },
+		ctx: ExtensionContext,
+	) => {
+		let index = compactionGenerations.length - 1;
+		while (
+			index >= 0 &&
+			(compactionGenerations[index].reason !== event.reason ||
+				compactionGenerations[index].willRetry !== event.willRetry)
+		)
+			index -= 1;
+		const generation = index < 0 ? undefined : compactionGenerations.splice(index, 1)[0].generation;
 		if (generation !== undefined) state.modelDelivery?.compactionEnded(generation);
 		emitIdleSettled(state, ctx);
 	};

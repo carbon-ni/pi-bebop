@@ -61,14 +61,26 @@ const defaults: Required<JournalDependencies> = {
 	},
 };
 
-function stableJson(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value);
-	if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-	const object = value as Record<string, unknown>;
-	return `{${Object.keys(object)
-		.sort()
-		.map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`)
-		.join(",")}}`;
+function stableJson(value: unknown, seen = new Set<object>()): string {
+	if (value === null) return "null";
+	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+		const encoded = JSON.stringify(value);
+		if (encoded === undefined) throw new TypeError("unsupported JSON value");
+		return encoded;
+	}
+	if (typeof value !== "object") throw new TypeError("unsupported JSON value");
+	if (seen.has(value)) throw new TypeError("circular JSON value");
+	seen.add(value);
+	try {
+		if (Array.isArray(value)) return `[${value.map((item) => stableJson(item, seen)).join(",")}]`;
+		const object = value as Record<string, unknown>;
+		return `{${Object.keys(object)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${stableJson(object[key], seen)}`)
+			.join(",")}}`;
+	} finally {
+		seen.delete(value);
+	}
 }
 
 function journalKey(manifestPath: string, memberName: string): string {
@@ -171,7 +183,19 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 	const write = async (next: JournalFile): Promise<void> => {
 		await deps.mkdir(directory);
 		const temporary = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-		await deps.writeFile(temporary, `${stableJson(next)}\n`);
+		let serialized: string;
+		try {
+			serialized = stableJson(next);
+		} catch (error) {
+			throw new CompactionDeliveryJournalError(
+				"invalid-record",
+				"compaction delivery journal contains an unserializable value",
+				{
+					cause: error,
+				},
+			);
+		}
+		await deps.writeFile(temporary, `${serialized}\n`);
 		await deps.rename(temporary, filePath);
 		loaded = next;
 	};

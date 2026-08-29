@@ -36,6 +36,18 @@ import { submitCrewBroadcast, CrewBroadcastApplicationError } from "../../applic
 import { openTrustedMemberInboxStore } from "../../infra/member-inbox-store.ts";
 import { writeMemberIdleWaitEvent, writeMemberUpdateEvent, type RpcSocket } from "../../infra/rpc-server.ts";
 import type { RpcHandlerContext } from "./types.ts";
+import type { Membership } from "../../infra/membership-runtime.ts";
+
+function isDeliveryFailure(disposition: string | undefined): boolean {
+	return disposition === "invalid" || disposition === "capacity-exceeded";
+}
+
+function isConfiguredOrigin(membership: Membership, origin: { name: string; role: string }): boolean {
+	const configured = membership.manifest.members.find(
+		(member) => member.name === origin.name && member.role === origin.role,
+	);
+	return configured !== undefined && configured.name !== membership.member.name;
+}
 
 export async function handleMemberRequest(
 	command: Extract<RpcInboundCommand, { type: "member_request" }>,
@@ -56,10 +68,7 @@ export async function handleMemberRequest(
 		context.respond(false, command.type, undefined, "invalid-payload");
 		return;
 	}
-	const configuredOrigin = membership.manifest.members.find(
-		(member) => member.name === origin.name && member.role === origin.role,
-	);
-	if (!configuredOrigin || configuredOrigin.name === membership.member.name) {
+	if (!isConfiguredOrigin(membership, origin)) {
 		context.respond(false, command.type, undefined, "invalid-origin");
 		return;
 	}
@@ -88,11 +97,39 @@ export async function handleMemberRequest(
 			details: { messagePayload: command.payload, crewRequestId: command.requestId },
 			display: true,
 		};
-		const delivery = context.state.modelDelivery?.send(modelMessage, { triggerTurn: true });
-		if (!context.state.modelDelivery) context.pi.sendMessage(modelMessage, { triggerTurn: true });
-		if (delivery && delivery.disposition !== "direct") {
+		let disposition: string | undefined;
+		const acceptAfterHandoff = () => {
+			if (disposition !== "deferred") return;
+			if ("destroyed" in context.socket && context.socket.destroyed) {
+				flow.removeInboundRequest(command.requestId);
+				return;
+			}
+			context.notifyAcceptedMessage(command.requestId);
+			flow.acceptInboundRequest(command.requestId);
+			context.respond(true, command.type, {
+				accepted: true,
+				requestId: command.requestId,
+				member: { name: membership.member.name, role: membership.member.role },
+			});
+		};
+		const failAfterHandoff = () => {
+			if (disposition !== "deferred" || ("destroyed" in context.socket && context.socket.destroyed === true))
+				return;
 			flow.registry.failBeforeAcceptance(command.requestId);
-			context.respond(false, command.type, undefined, "delivery-deferred");
+			context.respond(false, command.type, undefined, "delivery-failed");
+		};
+		const delivery = context.state.modelDelivery?.send(
+			modelMessage,
+			{ triggerTurn: true },
+			acceptAfterHandoff,
+			failAfterHandoff,
+		);
+		if (!context.state.modelDelivery) context.pi.sendMessage(modelMessage, { triggerTurn: true });
+		disposition = delivery?.disposition ?? "direct";
+		if (delivery?.disposition === "deferred") return;
+		if (isDeliveryFailure(delivery?.disposition)) {
+			flow.registry.failBeforeAcceptance(command.requestId);
+			context.respond(false, command.type, undefined, "delivery-failed");
 			return;
 		}
 		context.notifyAcceptedMessage(command.requestId);
