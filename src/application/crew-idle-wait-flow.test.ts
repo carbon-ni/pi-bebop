@@ -73,6 +73,20 @@ test("crew idle flow returns offline and bounded unstable blockers without seria
 	assert.ok(calls >= 2);
 });
 
+test("blocking idle transport offline returns bounded offline outcome", async () => {
+	const surface = surfaceFor({ Dave: "busy", Kelly: "idle" });
+	surface.requestMemberIdle = async (member) =>
+		member.name === "Dave" ? { ok: false, code: "offline" } : { ok: true, outcome: "already-idle" };
+	const result = await createCrewIdleWaitFlow(surface).wait({});
+	assert.equal(result.outcome, "offline");
+	assert.equal(result.reason, "target-offline");
+	assert.deepEqual(
+		result.blockers?.map((item) => item.member.name),
+		["Dave"],
+	);
+	assert.equal(result.blockers?.[0]?.status, "offline");
+});
+
 test("one-member crews return ready with the no-other-members reason", async () => {
 	const surface = surfaceFor({});
 	(surface as any).getMembership = () => ({

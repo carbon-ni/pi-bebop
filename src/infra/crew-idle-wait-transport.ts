@@ -61,6 +61,8 @@ export function createCrewIdleWaitTransport(input: {
 					if (outcome.result.outcome === "timeout") return { ok: false, code: "timeout" };
 					return { ok: false, code: "transport-error" };
 				}
+				if (outcome.code === "offline") return { ok: false, code: "offline" };
+				if (outcome.code === "transport-error" && outcome.transportCode) return { ok: false, code: "offline" };
 				return { ok: false, code: outcome.code };
 			} catch (error) {
 				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };

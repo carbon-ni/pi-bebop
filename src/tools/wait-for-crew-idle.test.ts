@@ -9,6 +9,7 @@ function setup(busy = false) {
 	const members = [
 		{ name: "Mony", role: "lead", socketPath: "/mony.sock" },
 		{ name: "Dave", role: "dev", socketPath: "/dave.sock" },
+		{ name: "Kelly", role: "qa", socketPath: "/kelly.sock" },
 	];
 	const state: any = {
 		blockingWait: new BlockingWaitSlot({ now: () => "2026-08-29T10:00:00.000Z" }),
@@ -40,6 +41,16 @@ test("wait_for_crew_idle exposes only bounded optional selection and timeout", (
 	assert.equal(tool.parameters.additionalProperties, false);
 	assert.deepEqual(Object.keys(tool.parameters.properties), ["members", "timeout_seconds"]);
 	assert.match(tool.description, /final status round/i);
+});
+
+test("wait_for_crew_idle exposes frozen targets and observation caveat in model-visible text", async () => {
+	const { tool } = setup();
+	const result = await tool.execute("id", { members: ["Dave"] });
+	const text = result.content[0].text;
+	assert.match(text, /targets: Dave \(dev\)/);
+	assert.match(text, /coversAllOtherMembers: false/);
+	assert.match(text, /observedAt: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
+	assert.match(text, /momentary distributed observation, not a whole-Crew atomic state/);
 });
 
 test("wait_for_crew_idle releases the crew marker on normal completion", async () => {

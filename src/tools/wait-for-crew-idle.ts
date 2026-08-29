@@ -63,10 +63,11 @@ function errorResult(code: string, reason: string): ActionableToolResult {
 
 function renderResult(result: CrewIdleWaitResult): string {
 	const scope = result.scope === "all" ? "all other Members" : "selected Members";
+	const targets = result.members.map((member) => `${member.name} (${member.role})`).join(", ");
 	const blockers = result.blockers
 		?.map((item) => `${item.member.name} (${item.member.role}): ${item.status}`)
 		.join(", ");
-	return `[${scope}] ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}${blockers ? ` — blockers: ${blockers}` : ""}`;
+	return `[${scope}] ${result.outcome}${result.reason ? ` — ${result.reason}` : ""} — targets: ${targets || "none"}; coversAllOtherMembers: ${result.coversAllOtherMembers}; observedAt: ${result.observedAt}; caveat: momentary distributed observation, not a whole-Crew atomic state${blockers ? ` — blockers: ${blockers}` : ""}`;
 }
 
 export function registerWaitForCrewIdleTool(

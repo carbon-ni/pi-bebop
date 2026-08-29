@@ -3,8 +3,9 @@ import { Value } from "@sinclair/typebox/value";
 
 export const MIN_CREW_IDLE_WAIT_TIMEOUT = 60;
 export const MAX_CREW_IDLE_WAIT_TIMEOUT = 7200;
-export const MAX_CREW_IDLE_WAIT_MEMBERS = 64;
-const MEMBER_LABEL = Type.String({ minLength: 1, maxLength: 256 });
+export const MAX_CREW_IDLE_WAIT_MEMBERS = 32;
+export const MAX_CREW_IDLE_WAIT_MEMBER_BYTES = 256;
+const MEMBER_LABEL = Type.String({ minLength: 1, maxLength: MAX_CREW_IDLE_WAIT_MEMBER_BYTES });
 const ISO_TIMESTAMP_PATTERN = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$";
 const OBSERVED_AT = Type.String({ pattern: ISO_TIMESTAMP_PATTERN });
 const TIMEOUT = Type.Integer({ minimum: MIN_CREW_IDLE_WAIT_TIMEOUT, maximum: MAX_CREW_IDLE_WAIT_TIMEOUT });
@@ -95,7 +96,12 @@ export function resolveCrewIdleSelection(
 	if (requested.length > MAX_CREW_IDLE_WAIT_MEMBERS) throw new CrewIdleWaitError("invalid-selection");
 	const names = new Set<string>();
 	for (const name of requested) {
-		if (typeof name !== "string" || name.length === 0 || name.trim() !== name) {
+		if (
+			typeof name !== "string" ||
+			name.length === 0 ||
+			name.trim() !== name ||
+			new TextEncoder().encode(name).byteLength > MAX_CREW_IDLE_WAIT_MEMBER_BYTES
+		) {
 			throw new CrewIdleWaitError("invalid-selection");
 		}
 		if (names.has(name)) throw new CrewIdleWaitError("duplicate-member");

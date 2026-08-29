@@ -235,10 +235,16 @@ async function runRounds(input: {
 		);
 		if (!input.isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
 		if (input.isLocked()) return result(input.selection, "wait-lock", input.now(), "crew-idle-lock");
-		for (const waitResult of waits) {
+		for (const [index, waitResult] of waits.entries()) {
 			if (!("code" in waitResult)) continue;
 			if (waitResult.code === "timeout")
 				return result(input.selection, "timeout", input.now(), "deadline", blockers);
+			if (waitResult.code === "offline") {
+				const target = input.selection.targets[index];
+				return result(input.selection, "offline", input.now(), "target-offline", [
+					{ member: identity(target), status: "offline", observedAt: input.now() },
+				]);
+			}
 			throw new CrewIdleWaitFlowError(mapTransportError(waitResult.code));
 		}
 		if (input.nowMs() >= input.deadline)
