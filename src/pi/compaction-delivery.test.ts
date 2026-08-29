@@ -79,6 +79,35 @@ test("model delivery persists and acknowledges a deferred handoff", async () => 
 	);
 });
 
+test("model delivery drains journal-backed messages in FIFO handoff order", async () => {
+	const sent: string[] = [];
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: Number(envelope.id.split("-")[1]),
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			envelope,
+		}),
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter((message: any) => sent.push(message.content));
+	await adapter.configureJournal(journal);
+	const generation = adapter.compactionStarted();
+	adapter.send({ customType: "crew", content: "first" });
+	adapter.send({ customType: "crew", content: "second" });
+	adapter.compactionEnded(generation);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(sent, ["first", "second"]);
+});
+
 test("model delivery preserves complete message and delivery options while open", () => {
 	const sent: unknown[] = [];
 	const adapter = createModelDeliveryAdapter((message, options) => {

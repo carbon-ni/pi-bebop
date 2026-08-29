@@ -54,7 +54,7 @@ export interface CompactionDeliveryGateOptions {
 	readonly maxBytes: number;
 	readonly maxEntryBytes?: number;
 	readonly schedule: (task: () => void) => void;
-	readonly deliver: (entry: CompactionDeliveryEnvelope) => void;
+	readonly deliver: (entry: CompactionDeliveryEnvelope) => void | Promise<void>;
 }
 
 export interface CompactionDeliveryGate {
@@ -85,14 +85,15 @@ export function createCompactionDeliveryGate(options: CompactionDeliveryGateOpti
 
 	const isClosed = (): boolean => activeGenerations.length > 0;
 
-	const drain = (generation: number): void => {
+	const drain = async (generation: number): Promise<void> => {
 		if (isClosed() || generation !== nextGeneration) return;
 		while (pending.length > 0) {
 			if (isClosed() || generation !== nextGeneration) return;
 			const entry = pending.shift()!;
 			pendingIds.delete(entry.id);
 			pendingBytes -= entry.bytes;
-			options.deliver(entry);
+			const delivery = options.deliver(entry);
+			if (delivery instanceof Promise) await delivery;
 		}
 	};
 

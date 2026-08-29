@@ -84,23 +84,21 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		callbacks?.[callback]?.();
 		delivered.delete(id);
 	};
-	const deliver = (entry: CompactionDeliveryEnvelope): void => {
+	const deliver = async (entry: CompactionDeliveryEnvelope): Promise<void> => {
 		if (failed.has(entry.id)) {
 			failed.delete(entry.id);
 			return;
 		}
 		if (journal && deferredIds.has(entry.id)) {
-			const append = persisted.get(entry.id) ?? Promise.resolve();
-			void append
-				.then(() => journal?.markHandingOff(entry.id))
-				.then(() => {
-					send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
-					return journal?.markDelivered(entry.id);
-				})
-				.then(
-					() => finish(entry.id, "success"),
-					() => finish(entry.id, "failure"),
-				);
+			try {
+				await (persisted.get(entry.id) ?? Promise.resolve());
+				await journal.markHandingOff(entry.id);
+				send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
+				await journal.markDelivered(entry.id);
+				finish(entry.id, "success");
+			} catch {
+				finish(entry.id, "failure");
+			}
 			return;
 		}
 		try {
