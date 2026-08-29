@@ -15,16 +15,23 @@ Observed reproduction: Dave's TASK-0011 Follow-up was accepted as queued at `05:
 
 ## Product contract
 
-Follow-up delivery order is not response causality. A busy-target queued Follow-up carries immutable target-observed delivery provenance: the existing delivery ID, target acceptance time, and `queued` disposition. Its compact model-visible header explicitly says it is uncorrelated and may predate newer coordination. TUI rendering exposes the same chronology without expanding internal payload/storage objects.
+Follow-up delivery order is not response causality. A busy-target queued Follow-up carries immutable target-observed delivery provenance: the existing delivery ID, target acceptance time, handoff time, and `queued` disposition. Default model/TUI output presents the useful relative queue delay instead of raw timestamps:
 
-Acceptance time is target-local observation, not sender-authored time and not authentication. `replyTo` remains callback routing only. Only Member Request/Response establishes request correlation.
+```text
+[follow-up · queued 14m before delivery · uncorrelated]
+```
+
+The delay is computed once from target acceptance to target handoff, uses compact deterministic units (`s`, `m`, `h`, `d`), and never changes on rerender or reload. It explicitly says the Follow-up may predate newer coordination. Exact timestamps remain structured provenance for audit, not default output.
+
+Acceptance and handoff times are target-local observations, not sender-authored time and not authentication. `replyTo` remains callback routing only. Only Member Request/Response establishes request correlation.
 
 ## Acceptance criteria
 
 - [ ] A red two-session regression reproduces old Follow-up queued to busy lead → newer assignment sent to developer → developer receives/acts on newer assignment → old Follow-up handed to lead.
 - [ ] Sender acknowledgement and recipient delivery context share one delivery ID and report the true `queued` disposition.
-- [ ] Queued recipient model content includes bounded target-acceptance time plus explicit `uncorrelated`/`may predate newer coordination` language; it never implies reply, completion, current state, or task ownership.
-- [ ] Queued TUI collapsed/expanded rendering exposes compact chronology consistently without raw session IDs, aliases, sockets, queue/storage internals, or duplicate canonical payloads.
+- [ ] Queued recipient model content includes one compact immutable `<duration> before delivery` label plus explicit `uncorrelated`/`may predate newer coordination` language; it never implies reply, completion, current state, or task ownership.
+- [ ] Queue-delay formatting is deterministic at boundary values from seconds through days, never negative, never continuously aging, and uses target acceptance/handoff—not sender clock or eventual read time.
+- [ ] Queued TUI collapsed/expanded rendering exposes the same compact delay consistently; exact timestamps remain structured-only, with no raw session IDs, aliases, sockets, queue/storage internals, or duplicate canonical payloads.
 - [ ] Direct Follow-ups and steered Redirects retain their current intent, timing, output, and rendering; they do not gain noisy queued warnings.
 - [ ] Historical session messages without delivery provenance render and build model context byte-identically to current behavior.
 - [ ] FIFO, trigger-turn, wake-gate, message content/instructions/Origin, callback-only `replyTo`, and busy/idle disposition semantics remain unchanged.
