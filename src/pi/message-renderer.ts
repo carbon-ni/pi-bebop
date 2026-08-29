@@ -2,7 +2,7 @@ import type { EntryRenderer, MessageRenderer } from "@earendil-works/pi-coding-a
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { TextContent } from "@earendil-works/pi-ai";
 import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import { isCrewDisplayName } from "../domain/index.ts";
+import { isCrewDisplayName, isDeliveryProvenance, queuedFollowUpLabel } from "../domain/index.ts";
 import { isMessagePayload, renderMessagePayloadForDisplay, type MessagePayload } from "../domain/index.ts";
 
 const SENDER_INFO_PATTERN = /<sender_info>[\s\S]*?<\/sender_info>/g;
@@ -194,10 +194,26 @@ export function sessionMessageKind(message: unknown): SessionMessageKind {
 	return "other";
 }
 
+/**
+ * TASK-0139: queued Follow-up provenance label from typed details only;
+ * malformed or absent provenance fails safe to the plain follow-up label.
+ * Exact timestamps and the delivery ID stay structured-only (never displayed).
+ */
+export function queuedProvenanceOf(message: unknown): import("../domain/index.ts").DeliveryProvenance | null {
+	const details = (message as { details?: unknown }).details;
+	if (typeof details !== "object" || details === null) return null;
+	const provenance = (details as { deliveryProvenance?: unknown }).deliveryProvenance;
+	return isDeliveryProvenance(provenance) ? provenance : null;
+}
+
 export function sessionMessageLabel(message: unknown): string {
 	const kind = sessionMessageKind(message);
 	if (kind === "member-request") return "[member request]";
-	if (kind === "follow-up") return "[follow-up]";
+	if (kind === "follow-up") {
+		const provenance = queuedProvenanceOf(message);
+		if (provenance) return queuedFollowUpLabel(provenance.queueDelay);
+		return "[follow-up]";
+	}
 	if (kind === "wait-resume") return "[wait resume]";
 	const customType = (message as { customType?: unknown }).customType;
 	return typeof customType === "string" && customType ? `[${customType}]` : "[message]";
@@ -206,6 +222,12 @@ export function sessionMessageLabel(message: unknown): string {
 export function sessionMessageHint(message: unknown): string | null {
 	const kind = sessionMessageKind(message);
 	if (kind === "member-request") return "Respond with respond_to_member_request after completing the requested work.";
+	if (kind === "follow-up" && queuedProvenanceOf(message)) {
+		return (
+			"This Follow-up may predate newer coordination; never infer response causality from arrival order. " +
+			"Use send_member_request when exactly one answer, report, verdict, or evidence response is required."
+		);
+	}
 	if (kind === "wait-resume")
 		return "A crew-wait-resume reached a terminal outcome (Response, offline, or a bounded timeout); act on it or continue. A timeout never implies task failure.";
 	return null;

@@ -54,7 +54,10 @@ test("message_end replaces a pending queued follow-up with immutable handoff pro
 
 test("message_end replacement is claimed exactly once", () => {
 	const state = stateWithPending("delivery-7", 1_000, 2_000);
-	const first = handleMessageEndQueuedFollowUp(state, queuedMessage({ messagePayload: payload, deliveryId: "delivery-7" }));
+	const first = handleMessageEndQueuedFollowUp(
+		state,
+		queuedMessage({ messagePayload: payload, deliveryId: "delivery-7" }),
+	);
 	assert.ok(first);
 	const second = handleMessageEndQueuedFollowUp(state, first);
 	assert.equal(second, undefined, "a delivered message is never rewritten twice");

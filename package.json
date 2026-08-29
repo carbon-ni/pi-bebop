@@ -73,6 +73,7 @@
 		"src/domain/member-status.ts",
 		"src/domain/message-payload.ts",
 		"src/domain/message-renderer.ts",
+		"src/domain/queued-follow-up-provenance.ts",
 		"src/domain/messages.ts",
 		"src/domain/presence.ts",
 		"src/domain/protocol.ts",

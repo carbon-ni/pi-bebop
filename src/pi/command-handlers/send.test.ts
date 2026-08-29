@@ -33,7 +33,7 @@ test("send acknowledges a valid escaped payload and delivers it", async () => {
 });
 
 test("busy ordinary Follow-up acknowledges queued, seeds deliveryId, and records acceptance", async () => {
-	const c = handlerContext();
+	const c = handlerContext({ id: "q1" });
 	c.ctx.isIdle = () => false;
 	c.state.queuedFollowUps = new QueuedFollowUpAcceptanceRegistry({ now: () => 1_000 });
 	const sent: unknown[] = [];
@@ -61,10 +61,7 @@ test("direct and steered deliveries record no acceptance and seed no deliveryId"
 	direct.pi.sendMessage = ((m: unknown, o: unknown) => directSent.push({ m, o })) as never;
 	await handleSend({ type: "send", payload: { content: "direct" }, id: "d1" }, direct);
 	assert.equal((direct.responses[0] as any).data.disposition, "direct");
-	assert.equal(
-		((directSent[0] as { m: { details: Record<string, unknown> } }).m.details).deliveryId,
-		undefined,
-	);
+	assert.equal((directSent[0] as { m: { details: Record<string, unknown> } }).m.details.deliveryId, undefined);
 	assert.equal(direct.state.queuedFollowUps.pendingCount(), 0);
 
 	const steered = handlerContext();
@@ -74,9 +71,6 @@ test("direct and steered deliveries record no acceptance and seed no deliveryId"
 	steered.pi.sendMessage = ((m: unknown, o: unknown) => steeredSent.push({ m, o })) as never;
 	await handleSend({ type: "send", payload: { content: "steer" }, delivery: "immediate", id: "s1" }, steered);
 	assert.equal((steered.responses[0] as any).data.disposition, "steered");
-	assert.equal(
-		((steeredSent[0] as { m: { details: Record<string, unknown> } }).m.details).deliveryId,
-		undefined,
-	);
+	assert.equal((steeredSent[0] as { m: { details: Record<string, unknown> } }).m.details.deliveryId, undefined);
 	assert.equal(steered.state.queuedFollowUps.pendingCount(), 0);
 });

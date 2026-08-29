@@ -8,7 +8,12 @@ import {
 	removeSocket,
 } from "../infra/control-store.ts";
 import { getCurrentGitBranch, getGitProjectName } from "../infra/git-branch.ts";
-import { AcceptedLocalMessageWakeGate, createMemberIdleWaitResult, getLastAssistantMessage } from "../domain/index.ts";
+import {
+	AcceptedLocalMessageWakeGate,
+	createMemberIdleWaitResult,
+	getLastAssistantMessage,
+	QueuedFollowUpAcceptanceRegistry,
+} from "../domain/index.ts";
 import {
 	closeRpcServer,
 	createRpcServer,
@@ -62,6 +67,8 @@ export interface SocketState {
 	idleWaitSubscriptions: IdleWaitSubscription[];
 	/** TASK-0081: session-local accepted-message wake seam for the single blocking idle wait. */
 	wakeGate: AcceptedLocalMessageWakeGate;
+	/** TASK-0139: session-local busy-acceptance registry for queued Follow-up handoff provenance. */
+	queuedFollowUps: QueuedFollowUpAcceptanceRegistry;
 	membershipRuntime: MembershipRuntime | null;
 	presenceObserver?: PresenceObserver;
 	onInboxHint?: () => void;
@@ -389,6 +396,7 @@ export function createSocketState(): SocketState {
 		turnEndSubscriptions: [],
 		idleWaitSubscriptions: [],
 		wakeGate: new AcceptedLocalMessageWakeGate(),
+		queuedFollowUps: new QueuedFollowUpAcceptanceRegistry({ now: () => Date.now() }),
 		membershipRuntime: null,
 		sessionNameController: undefined,
 	};

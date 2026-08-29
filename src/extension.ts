@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, MessageEndEvent } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
 import {
 	renderCrewPresence,
@@ -74,6 +74,7 @@ import { WAIT_RESUME_MESSAGE_TYPE } from "./pi/wait-resume.ts";
 import { YieldingWaitRuntime } from "./pi/wait-resume.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
 import { handleSessionStart } from "./pi/session-start.ts";
+import { handleMessageEndQueuedFollowUp, queuedFollowUpMessageEndResult } from "./pi/queued-follow-up-handoff.ts";
 import { createSessionNameController } from "./pi/session-name.ts";
 import { reportActionableError } from "./pi/actionable-error-output.ts";
 
@@ -405,6 +406,11 @@ export default function (pi: ExtensionAPI) {
 		state.context = null;
 		state.socketPath = null;
 	});
+
+	// TASK-0139: at model handoff of a queued Follow-up, replace it once with
+	// immutable target-observed queue provenance (label + may-predate
+	// guidance). Direct/steered/historical messages stay untouched.
+	pi.on("message_end", (event: MessageEndEvent) => queuedFollowUpMessageEndResult(state, event.message));
 
 	pi.on("turn_end", (event, ctx) => {
 		emitTurnEnd(state, event, ctx);

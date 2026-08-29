@@ -87,8 +87,10 @@ test("queued model content carries the label, uncorrelated + may-predate guidanc
 	assert.notEqual(canonicalStart, -1);
 	const parsed = parseRenderedMessagePayload(content.slice(canonicalStart, canonicalEnd + 1));
 	assert.equal(parsed.content, payload.content);
-	// Guidance never implies reply, completion, current state, or task ownership.
-	assert.doesNotMatch(content, /response to|completion|currently|owns|owner/i);
+	// Guidance never implies reply, completion, current state, or task ownership
+	// (checked on the guidance header, not sender-authored payload content).
+	const guidance = content.slice(0, canonicalStart);
+	assert.doesNotMatch(guidance, /response to|completion|currently|owns|owner/i);
 });
 
 test("queued model content never leaks raw session IDs, aliases, sockets, or queue internals", () => {
@@ -101,6 +103,23 @@ test("queued model content never leaks raw session IDs, aliases, sockets, or que
 	});
 	assert.ok(!content.includes("delivery-1"), "deliveryId stays structured-only");
 	assert.ok(!/\d{13}|\d{1,2}:\d{2}/.test(content), "no raw epoch or clock timestamps in model content");
+});
+
+test("queued model content preserves bounded Unicode payload content verbatim", () => {
+	const unicodePayload = {
+		content: "完成 🎉 — café naïve “quoted” \u2028line-sep 日報",
+		origin: { kind: "crew" as const, name: "Dave", role: "dev" },
+	};
+	const content = renderQueuedFollowUpModelContent(unicodePayload, {
+		deliveryId: "d",
+		acceptedAt: 1,
+		handoffAt: 2,
+		queueDelay: "1s",
+		disposition: "queued",
+	});
+	const parsed = parseRenderedMessagePayload(content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1));
+	assert.equal(parsed.content, unicodePayload.content);
+	assert.equal(content.split("\n").length, 2, "label+guidance stays one line; payload stays one canonical line");
 });
 
 test("delivery provenance schema is strict TypeBox with frozen semantics", () => {
@@ -118,9 +137,6 @@ test("delivery provenance schema is strict TypeBox with frozen semantics", () =>
 			disposition: "queued",
 		}),
 	);
-	assert.equal(
-		isDeliveryProvenance({ deliveryId: "d", acceptedAt: 1, handoffAt: 2, queueDelay: "1s" }),
-		false,
-	);
+	assert.equal(isDeliveryProvenance({ deliveryId: "d", acceptedAt: 1, handoffAt: 2, queueDelay: "1s" }), false);
 	assert.equal(Type.Kind === undefined, true, "typebox import stays available");
 });

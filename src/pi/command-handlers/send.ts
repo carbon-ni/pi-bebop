@@ -50,16 +50,24 @@ export async function handleSend(
 	const message = renderFollowUpModelContent(payload);
 	const mode = command.delivery ?? "follow_up";
 	const isIdle = context.ctx.isIdle() && !context.contextIsCompacting();
+	const disposition = isIdle ? "direct" : mode === "follow_up" ? "queued" : "steered";
+	const deliveryId = `delivery-${context.id}`;
 	const customMessage = {
 		customType: SESSION_MESSAGE_TYPE,
 		content: message,
-		details: { messagePayload: payload },
+		// TASK-0139: a busy-target queued Follow-up seeds its structured delivery
+		// ID so the message_end handoff seam can attach immutable queue provenance;
+		details: {
+			messagePayload: payload,
+			...(disposition === "queued" ? { deliveryId } : {}),
+		},
 		display: true,
 	};
+	if (disposition === "queued") context.state.queuedFollowUps.record(deliveryId);
 
 	// TASK-0081: accepted Bebop model delivery (Follow-up/Redirect) wakes a
 	// local blocking idle wait; the unchanged message keeps its mode/FIFO.
-	context.notifyAcceptedMessage(`delivery-${context.id}`);
+	context.notifyAcceptedMessage(deliveryId);
 	if (isIdle) {
 		context.pi.sendMessage(customMessage, { triggerTurn: true });
 	} else {
@@ -69,7 +77,6 @@ export async function handleSend(
 		});
 	}
 
-	const disposition = isIdle ? "direct" : mode === "follow_up" ? "queued" : "steered";
-	context.respond(true, "send", { deliveryId: `delivery-${context.id}`, disposition });
+	context.respond(true, "send", { deliveryId, disposition });
 	return;
 }

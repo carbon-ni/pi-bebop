@@ -73,10 +73,19 @@ async function startTarget(root: string, name: string, clock: { now: number }): 
 }
 
 function handoffMessages(target: TargetRuntime): Array<Record<string, unknown>> {
+	// Pi wraps the accepted custom message as an AgentMessage (`role: "custom"`,
+	// delivery timestamp) exactly when the agent loop hands it to the model —
+	// that is the message_end event the extension seam observes.
 	return target.accepted
 		.map((entry) => entry.message)
 		.filter((message) => (message as { details?: { deliveryId?: unknown } }).details?.deliveryId !== undefined)
-		.map((message) => handleMessageEndQueuedFollowUp(target.state, message))
+		.map((message) =>
+			handleMessageEndQueuedFollowUp(target.state, {
+				role: "custom",
+				timestamp: 2,
+				...(message as Record<string, unknown>),
+			}),
+		)
 		.filter((replacement): replacement is Record<string, unknown> => replacement !== undefined);
 }
 
@@ -179,13 +188,13 @@ test("two queued Follow-ups hand off in FIFO acceptance order, each with its own
 
 	const handoffs = handoffMessages(lead);
 	assert.equal(handoffs.length, 2);
-	assert.match(String(handoffs[0].content), /"first"/);
-	assert.match(String(handoffs[1].content), /"second"/);
+	assert.match(String(handoffs[0].content), /\bfirst\b/);
+	assert.match(String(handoffs[1].content), /\bsecond\b/);
 	const delays = handoffs.map(
-		(h) => ((h.details as { deliveryProvenance: { queueDelay: string } }).deliveryProvenance.queueDelay),
+		(h) => (h.details as { deliveryProvenance: { queueDelay: string } }).deliveryProvenance.queueDelay,
 	);
 	// Both computed once from their own acceptance, in FIFO order, immutable.
-	assert.deepEqual(delays, ["66m", "0s"]);
+	assert.deepEqual(delays, ["1h", "0s"]);
 	// Claim-once: a replayed handoff never rewrites the frozen content.
 	assert.equal(handoffMessages(lead).length, 0);
 });

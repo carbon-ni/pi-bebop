@@ -60,7 +60,7 @@ export function formatMembershipContext(membership: Membership): string {
 		? `Crew contact: ${contact.name} (${contact.role}) — external Intake triage`
 		: "Crew contact: none (Crew Intake disabled)";
 	const coordination =
-		"Coordination: use send_member_request to send a Member request (you are the Requester and alone wait for its outcome with wait_for_request_outcome); when you receive a Member request you are the Responder and send one correlated Response with respond_to_member_request; use send_follow_up for information only — no correlated Response is expected.";
+		"Coordination: use send_member_request to send a Member request (you are the Requester and alone wait for its outcome with wait_for_request_outcome); when you receive a Member request you are the Responder and send one correlated Response with respond_to_member_request; use send_follow_up for information only — no correlated Response is expected, and never infer response causality from Follow-up arrival order (a queued Follow-up may predate newer coordination).";
 	const board =
 		"Crew Board: use read_crew_board to inspect shared Posts and leave_crew_post to add one. Posts are not delivered automatically.";
 	const crewNameLine = membership.manifest.name === undefined ? "" : `\nCrew name: ${membership.manifest.name}`;
