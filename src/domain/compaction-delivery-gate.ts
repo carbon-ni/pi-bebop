@@ -63,6 +63,7 @@ export interface CompactionDeliveryGate {
 	accept(entry: CompactionDeliveryEnvelope): CompactionDeliveryResult;
 	pendingCount(): number;
 	pendingBytes(): number;
+	resetPending(): void;
 	isCompacting(): boolean;
 }
 
@@ -128,6 +129,13 @@ export function createCompactionDeliveryGate(options: CompactionDeliveryGateOpti
 
 		pendingCount: () => pending.length,
 		pendingBytes: () => pendingBytes,
+		resetPending(): void {
+			pending.length = 0;
+			pendingIds.clear();
+			pendingBytes = 0;
+			nextGeneration++;
+			activeGenerations.length = 0;
+		},
 		isCompacting: isClosed,
 	};
 }

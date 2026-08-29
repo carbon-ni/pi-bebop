@@ -65,6 +65,21 @@ test("journal rejects unserializable records with a bounded error", async () => 
 	await assert.rejects(() => journal.append({ ...envelope("bad"), message }, 1), { code: "invalid-record" });
 });
 
+test("journal reconciliation removes a handoff with session evidence", async () => {
+	const memory = memoryDeps();
+	const journal = await openTrustedCompactionDeliveryJournal({
+		manifestPath: "/project/.pi/bebop/crew.json",
+		projectRoot: "/project",
+		isProjectTrusted: () => true,
+		memberName: "Dave",
+		deps: memory.deps,
+	});
+	await journal.append(envelope("evidenced"), 1);
+	await journal.markHandingOff("evidenced");
+	await journal.reconcile((id) => id === "evidenced");
+	assert.deepEqual(await journal.listPending(), []);
+});
+
 test("journal reconciliation requeues an unacknowledged handoff", async () => {
 	const memory = memoryDeps();
 	const journal = await openTrustedCompactionDeliveryJournal({
