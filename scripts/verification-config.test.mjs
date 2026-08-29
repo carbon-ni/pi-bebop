@@ -10,6 +10,7 @@ const makefile = readFileSync(resolve(root, "Makefile"), "utf8");
 const prePush = readFileSync(resolve(root, ".githooks/pre-push"), "utf8");
 const readme = readFileSync(resolve(root, "README.md"), "utf8");
 const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+const failureNotifier = readFileSync(resolve(root, "scripts/notify-crew-on-watch-failure.sh"), "utf8");
 
 function jobSection(name) {
 	const start = watchConfig.indexOf(`name: ${name}`);
@@ -29,6 +30,14 @@ test("final watcher gate covers every non-ignored repository input", () => {
 	for (const ignoredPath of [".git/**", ".tmp/**", ".pi/**", "node_modules/**", "coverage/**", '"**/*.log"']) {
 		assert.ok(watchConfig.includes(`- ${ignoredPath}`), `missing ignored path: ${ignoredPath}`);
 	}
+});
+
+test("failed watcher generations notify the crew after a quiet period", () => {
+	assert.match(watchConfig, /debounce: 2s/);
+	assert.match(watchConfig, /hooks:\s*\n\s+failure:\s+scripts\/notify-crew-on-watch-failure\.sh/);
+	assert.match(failureNotifier, /QUIET_PERIOD_SECONDS=5/);
+	assert.match(failureNotifier, /pi-bebop crew broadcast/);
+	assert.doesNotMatch(watchConfig, /^\s+recovery(?:_policy)?:/m);
 });
 
 test("CI and local final verification invoke the canonical make all gate", () => {

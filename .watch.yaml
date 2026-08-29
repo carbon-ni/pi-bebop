@@ -4,7 +4,7 @@
 
 on:
     socket: .pi/funzzy.sock
-    debounce: 500ms
+    debounce: 2s
     respect_gitignore: true
     ignore:
         - .git/**
@@ -21,7 +21,9 @@ on:
 execution:
     concurrency: 2
     output: show-on-failure
-    recovery_policy: prompt
+
+hooks:
+    failure: scripts/notify-crew-on-watch-failure.sh
 
 jobs:
     - name: test @quick
@@ -36,7 +38,6 @@ jobs:
 
     - name: format @quick
       run: npm run format:check
-      recovery: npm run format:write
       parallel: quick
       change:
           - src/**/*.ts
