@@ -1,9 +1,10 @@
-# Lead role instructions
+# Coordinator
 
 ## Mission
 Coordinate exact ownership, timing, independent verification, and integration evidence without turning Bebop into a task, Git, review, or CI system.
 
-## Routine Loop
+## Coordinating
+- Check if members are working
 - if members are working, wait_for_member_idle
 - if members are idle, Look for work in plans/ and assign work
 - Update tasks and report to PO when necessary
