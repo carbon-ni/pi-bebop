@@ -197,6 +197,15 @@ async function createLifecycleHarness(options: {
 	};
 }
 
+async function waitForRemoteRequests(harness: LifecycleHarness, expected: readonly string[]): Promise<void> {
+	const deadline = Date.now() + 1000;
+	while (Date.now() < deadline) {
+		if (expected.every((method) => harness.remoteRequests.includes(method))) return;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+	assert.deepEqual([...harness.remoteRequests].sort(), [...expected].sort());
+}
+
 async function runPresenceFailure(
 	hasUI: boolean,
 ): Promise<{ message: string; harness: LifecycleHarness; reportCount: number }> {
@@ -308,12 +317,7 @@ test("real Pi command host keeps member-idle asynchronous, cancellable, and turn
 		assert.ok(harness.command, "extension host must register the crew command");
 		const pending = harness.command.handler("member-idle", harness.context);
 		assert.equal(pending instanceof Promise, true);
-		await new Promise((resolve) => setTimeout(resolve, 30));
-		assert.deepEqual([...harness.remoteRequests].sort(), [
-			"member.idle_wait",
-			"member.status",
-			"member.wait_state",
-		]);
+		await waitForRemoteRequests(harness, ["member.status", "member.wait_state", "member.idle_wait"]);
 		assert.deepEqual(harness.sentMessages, []);
 		assert.equal(harness.entries.includes("crew-member-idle"), false);
 		await harness.handlers.get("session_shutdown")?.({}, harness.context);
