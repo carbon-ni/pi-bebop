@@ -93,11 +93,6 @@
 			"count": 1
 		},
 		{
-			"file": "src/tools/send-to-inbox.ts",
-			"kind": "tool-result",
-			"count": 1
-		},
-		{
 			"file": "src/tools/wait-for-member-idle.ts",
 			"kind": "tool-result",
 			"count": 1
