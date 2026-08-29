@@ -179,6 +179,28 @@ describe("reload recovery (exactly-once handoff)", () => {
 		assert.deepEqual(phases, ["pending", "handed-off"]);
 	});
 
+	test("recovery waits for the gated handoff before persisting handed-off evidence", async () => {
+		const recovered = makeSurface();
+		recovered.appendEntry("intray-interrupt", {
+			phase: "pending",
+			interruptId: "interrupt-deferred",
+			targetName: "Tony",
+			senderName: "Mary",
+			abortRequested: true,
+			content: "wait for gate",
+		});
+		let release!: () => void;
+		const handoff = new Promise<void>((resolve) => (release = resolve));
+		recovered.sendMessage = () => handoff;
+		const flow = createInterruptFlow(recovered);
+		const recovery = flow.recoverPending();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		assert.equal(recovered.getEntries().filter((entry: any) => entry.data?.phase === "handed-off").length, 0);
+		release();
+		await recovery;
+		assert.equal(recovered.getEntries().filter((entry: any) => entry.data?.phase === "handed-off").length, 1);
+	});
+
 	test("handed-off evidence means no re-delivery", async () => {
 		const surface = makeSurface();
 		const flow = createInterruptFlow(surface);
