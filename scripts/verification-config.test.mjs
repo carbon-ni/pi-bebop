@@ -35,7 +35,7 @@ test("final watcher gate covers every non-ignored repository input", () => {
 test("failed watcher generations notify the crew after a quiet period", () => {
 	assert.match(watchConfig, /debounce: 2s/);
 	assert.match(watchConfig, /hooks:\s*\n\s+failure:\s+scripts\/notify-crew-on-watch-failure\.sh/);
-	assert.match(failureNotifier, /QUIET_PERIOD_SECONDS=5/);
+	assert.match(failureNotifier, /QUIET_PERIOD_SECONDS=120/);
 	assert.match(failureNotifier, /pi-bebop crew broadcast/);
 	assert.doesNotMatch(watchConfig, /^\s+recovery(?:_policy)?:/m);
 });
