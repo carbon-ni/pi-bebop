@@ -2,7 +2,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	CrewIdleWaitInputSchema,
 	createCrewIdleWaitResult,
+	resolveCrewIdleSelection,
 	type CrewIdleMember,
+	type CrewIdleSelection,
 	type CrewIdleWaitResult,
 } from "../domain/index.ts";
 import {
@@ -79,6 +81,17 @@ export function registerWaitForCrewIdleTool(
 			"Block this Lead run until all scoped Crew Members are mechanically idle, a bounded final status round confirms readiness, a target goes offline, the deadline expires, the bounded rounds remain unstable, or a full Crew Idle Lock is observed. Omit members to select every other configured Member; an explicit list is exact-name only and remains in manifest order. A full-roster lock is a coordination signal, not idle, completion, acknowledgement, availability, or willingness. If a Bebop message is accepted for this session, release this wait and process that message first under its original delivery mode. Only one blocking wait may be active locally. This tool never polls, infers tasks, reads conversations, interrupts, redirects, or starts another turn. The final status round is distributed and momentary, not atomic.",
 		parameters,
 		async execute(_toolCallId, params, signal): Promise<ToolResult> {
+			const membership = state.membershipRuntime?.getMembership() ?? null;
+			let frozenSelection: CrewIdleSelection | undefined;
+			if (membership) {
+				try {
+					frozenSelection = resolveCrewIdleSelection(membership, params.members);
+				} catch (error) {
+					if (error instanceof Error && "code" in error)
+						return errorResult(String(error.code), error.message);
+					return errorResult("unexpected-failure", "Crew idle selection failed");
+				}
+			}
 			const owned = new AbortController();
 			let cleaned = false;
 			let wakeListener: ((deliveryId: string) => void) | null = null;
@@ -93,17 +106,17 @@ export function registerWaitForCrewIdleTool(
 				wakeListener = (deliveryId: string) => {
 					void deliveryId;
 					cleanup();
-					const membership = state.membershipRuntime?.getMembership();
-					const others =
-						membership?.manifest.members.filter((member) => member.name !== membership.member.name) ?? [];
-					const requested = Array.isArray(params.members) ? params.members : undefined;
-					const members = requested ? others.filter((member) => requested.includes(member.name)) : others;
+					if (!frozenSelection) {
+						resolve(
+							errorResult(
+								"not-joined",
+								"Crew idle wait is unavailable because this session is not joined",
+							),
+						);
+						return;
+					}
 					const result = createCrewIdleWaitResult({
-						selection: {
-							scope: requested ? "selected" : "all",
-							targets: members,
-							coversAllOtherMembers: members.length === others.length,
-						},
+						selection: frozenSelection,
 						outcome: "message-received",
 						observedAt: new Date().toISOString(),
 						reason: "message-received",
@@ -140,6 +153,7 @@ export function registerWaitForCrewIdleTool(
 				timeout_seconds: params.timeout_seconds,
 				callerWait: marker.marker,
 				signal: owned.signal,
+				selection: frozenSelection,
 			});
 			const abort = () => owned.abort();
 			signal?.addEventListener("abort", abort, { once: true });

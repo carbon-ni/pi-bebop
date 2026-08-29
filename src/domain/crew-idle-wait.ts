@@ -44,7 +44,6 @@ export const CrewIdleWaitResultSchema = Type.Object(
 			Type.Literal("unstable"),
 			Type.Literal("wait-lock"),
 			Type.Literal("message-received"),
-			Type.Literal("no-other-members"),
 		]),
 		reason: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
 		blockers: Type.Optional(Type.Array(BlockerSchema, { maxItems: MAX_CREW_IDLE_WAIT_MEMBERS })),

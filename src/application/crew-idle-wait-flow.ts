@@ -68,6 +68,7 @@ export interface CrewIdleWaitSurface {
 export type CrewIdleWaitInputWithCaller = CrewIdleWaitInput & {
 	readonly callerWait?: BlockingWaitMarker | null;
 	readonly signal?: AbortSignal;
+	readonly selection?: CrewIdleSelection;
 };
 
 const DEFAULT_TIMEOUT = 1800;
@@ -108,6 +109,21 @@ function blockersFor(targets: readonly CrewIdleMember[], statuses: readonly Memb
 }
 function firstOffline(targets: readonly CrewIdleMember[], statuses: readonly MemberStatus[]): CrewIdleBlocker | null {
 	return blockersFor(targets, statuses).find((item) => item.status === "offline") ?? null;
+}
+function sameMember(left: CrewIdleMember, right: CrewIdleMember): boolean {
+	return left.name === right.name && left.role === right.role && left.socketPath === right.socketPath;
+}
+function membershipMatches(
+	current: CrewIdleMembership | null,
+	initial: CrewIdleMembership,
+	selection: CrewIdleSelection,
+	trusted: boolean,
+): boolean {
+	if (!trusted || !current || !sameMember(current.member, initial.member)) return false;
+	if (current.manifest.members.length !== initial.manifest.members.length) return false;
+	if (current.manifest.members.some((member, index) => !sameMember(member, initial.manifest.members[index])))
+		return false;
+	return selection.targets.every((target) => current.manifest.members.some((member) => sameMember(member, target)));
 }
 function assertStatus(target: CrewIdleMember, outcome: CrewIdleStatusTransportResult): MemberStatus {
 	if ("code" in outcome) throw new CrewIdleWaitFlowError(mapTransportError(outcome.code));
@@ -191,9 +207,11 @@ async function runRounds(input: {
 	now: () => string;
 	nowMs: () => number;
 	isLocked: () => boolean;
+	isMembershipValid: () => boolean;
 }): Promise<CrewIdleWaitResult> {
 	let statuses = input.statuses;
 	for (let round = 1; round <= input.roundCap; round += 1) {
+		if (!input.isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
 		if (input.isLocked()) return result(input.selection, "wait-lock", input.now(), "crew-idle-lock");
 		const blockers = blockersFor(input.selection.targets, statuses);
 		if (blockers.length === 0)
@@ -215,6 +233,7 @@ async function runRounds(input: {
 					: Promise.resolve({ ok: true as const, outcome: "already-idle" as const }),
 			),
 		);
+		if (!input.isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
 		if (input.isLocked()) return result(input.selection, "wait-lock", input.now(), "crew-idle-lock");
 		for (const waitResult of waits) {
 			if (!("code" in waitResult)) continue;
@@ -235,6 +254,58 @@ async function runRounds(input: {
 	);
 }
 
+type InitialObservations = {
+	readonly statuses: MemberStatus[];
+	readonly statusFailed: boolean;
+	readonly statusError?: unknown;
+	readonly stateFailed: boolean;
+	readonly stateError?: unknown;
+};
+async function collectInitialObservations(input: {
+	surface: CrewIdleWaitSurface;
+	selection: CrewIdleSelection;
+	signal: AbortSignal;
+	triggerLock: (snapshot: WaitStateSnapshot) => void;
+	states: Map<string, WaitStateSnapshot>;
+}): Promise<InitialObservations> {
+	const statePromise = observeStates(
+		input.surface,
+		input.selection.targets,
+		input.signal,
+		input.triggerLock,
+		input.states,
+	);
+	const statusPromise = collectStatuses(input.surface, input.selection.targets, input.signal);
+	const [statusOutcome, stateOutcome] = await Promise.allSettled([statusPromise, statePromise]);
+	return {
+		statuses: statusOutcome.status === "fulfilled" ? statusOutcome.value : [],
+		statusFailed: statusOutcome.status === "rejected",
+		statusError: statusOutcome.status === "rejected" ? statusOutcome.reason : undefined,
+		stateFailed: stateOutcome.status === "rejected",
+		stateError: stateOutcome.status === "rejected" ? stateOutcome.reason : undefined,
+	};
+}
+function initialObservationResult(input: {
+	selection: CrewIdleSelection;
+	statuses: readonly MemberStatus[];
+	statusFailed: boolean;
+	statusError?: unknown;
+	stateFailed: boolean;
+	stateError?: unknown;
+	lockTriggered: boolean;
+	isMembershipValid: () => boolean;
+	surface: CrewIdleWaitSurface;
+}): CrewIdleWaitResult | null {
+	if (input.lockTriggered) return result(input.selection, "wait-lock", input.surface.now(), "crew-idle-lock");
+	if (!input.statusFailed) {
+		const offline = firstOffline(input.selection.targets, input.statuses);
+		if (offline) return result(input.selection, "offline", input.surface.now(), "target-offline", [offline]);
+	}
+	if (!input.isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
+	if (input.stateFailed) throw input.stateError;
+	if (input.statusFailed) throw input.statusError;
+	return null;
+}
 function handleFlowError(input: {
 	selection: CrewIdleSelection;
 	surface: CrewIdleWaitSurface;
@@ -279,12 +350,11 @@ export function createCrewIdleWaitFlow(surface: CrewIdleWaitSurface, options: { 
 		const timeout = timeoutSeconds(input.timeout_seconds);
 		let selection: CrewIdleSelection;
 		try {
-			selection = resolveCrewIdleSelection(membership, input.members);
+			selection = input.selection ?? resolveCrewIdleSelection(membership, input.members);
 		} catch (error) {
 			mapSelectionError(error);
 		}
-		if (selection.targets.length === 0)
-			return result(selection, "no-other-members", surface.now(), "no-other-members");
+		if (selection.targets.length === 0) return result(selection, "ready", surface.now(), "no-other-members");
 		const operation = new AbortController();
 		const nowMs = surface.nowMs ?? Date.now;
 		const deadline = nowMs() + timeout * 1000;
@@ -298,23 +368,30 @@ export function createCrewIdleWaitFlow(surface: CrewIdleWaitSurface, options: { 
 				operation.abort();
 			}
 		};
+		const isMembershipValid = () =>
+			membershipMatches(surface.getMembership(), membership, selection, surface.isTrusted());
 		if (input.signal?.aborted) throw new CrewIdleWaitFlowError("aborted");
+		if (!isMembershipValid()) throw new CrewIdleWaitFlowError("membership-lost");
 		const timeoutHandle = setTimeout(() => operation.abort(), timeout * 1000);
 		const onAbort = () => operation.abort();
 		input.signal?.addEventListener("abort", onAbort, { once: true });
 		try {
-			const statePromise = observeStates(surface, selection.targets, operation.signal, triggerLock, states);
-			lastStatuses = await collectStatuses(surface, selection.targets, operation.signal);
-			await statePromise;
-			if (
-				lockTriggered ||
-				detectLock(selection, input.callerWait, membership.member.name, membership.manifest.members, states)
-			)
-				return result(selection, "wait-lock", surface.now(), "crew-idle-lock");
-			if (firstOffline(selection.targets, lastStatuses)) {
-				const offline = firstOffline(selection.targets, lastStatuses)!;
-				return result(selection, "offline", surface.now(), "target-offline", [offline]);
-			}
+			const observations = await collectInitialObservations({
+				surface,
+				selection,
+				signal: operation.signal,
+				triggerLock,
+				states,
+			});
+			lastStatuses = observations.statuses;
+			const initialResult = initialObservationResult({
+				selection,
+				...observations,
+				lockTriggered,
+				isMembershipValid,
+				surface,
+			});
+			if (initialResult) return initialResult;
 			return await runRounds({
 				surface,
 				selection,
@@ -333,6 +410,7 @@ export function createCrewIdleWaitFlow(surface: CrewIdleWaitSurface, options: { 
 						membership.manifest.members,
 						states,
 					),
+				isMembershipValid,
 			});
 		} catch (error) {
 			return handleFlowError({

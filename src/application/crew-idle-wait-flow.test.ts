@@ -73,6 +73,51 @@ test("crew idle flow returns offline and bounded unstable blockers without seria
 	assert.ok(calls >= 2);
 });
 
+test("one-member crews return ready with the no-other-members reason", async () => {
+	const surface = surfaceFor({});
+	(surface as any).getMembership = () => ({
+		member: identity("Mony", "lead"),
+		manifest: { members: [identity("Mony", "lead")] },
+	});
+	const result = await createCrewIdleWaitFlow(surface).wait({});
+	assert.equal(result.outcome, "ready");
+	assert.equal(result.reason, "no-other-members");
+});
+
+test("offline status wins when paired wait-state transport fails", async () => {
+	const surface = surfaceFor({ Dave: "busy", Kelly: "busy" });
+	surface.requestStatus = async (member) =>
+		member.name === "Dave"
+			? {
+					ok: true,
+					status: {
+						...status(member, "idle"),
+						presence: "offline" as const,
+						activity: "unavailable",
+						hasPendingMessages: "unavailable",
+					},
+				}
+			: { ok: true, status: status(member, "busy") };
+	surface.requestWaitState = async () => ({ ok: false, code: "transport-error" });
+	const result = await createCrewIdleWaitFlow(surface).wait({});
+	assert.equal(result.outcome, "offline");
+	assert.equal(result.blockers?.[0]?.status, "offline");
+});
+
+test("crew idle flow maps membership loss during the operation", async () => {
+	const surface = surfaceFor({ Dave: "idle", Kelly: "idle" });
+	const initial = surface.getMembership();
+	let calls = 0;
+	(surface as any).getMembership = () => {
+		calls += 1;
+		return calls > 1 ? null : initial;
+	};
+	await assert.rejects(
+		createCrewIdleWaitFlow(surface).wait({}),
+		(error: { code?: string }) => error.code === "membership-lost",
+	);
+});
+
 test("crew idle flow rejects a pre-aborted caller before starting transport or a timeout", async () => {
 	const controller = new AbortController();
 	controller.abort();

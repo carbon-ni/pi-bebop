@@ -49,6 +49,21 @@ test("wait_for_crew_idle releases the crew marker on normal completion", async (
 	assert.equal(state.blockingWait.activeMarker(), null);
 });
 
+test("wait_for_crew_idle wake keeps the frozen selected manifest scope", async () => {
+	const { tool, state } = setup(true);
+	const original = state.membershipRuntime.getMembership;
+	const promise = tool.execute("id", { members: ["Dave"] });
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	state.membershipRuntime.getMembership = () => ({
+		...original(),
+		manifest: { members: [original().member, { name: "Kelly", role: "qa", socketPath: "/kelly.sock" }] },
+	});
+	assert.equal(state.wakeGate.notifyAccepted("delivery-selected"), true);
+	const result = await promise;
+	assert.equal(result.details.result.outcome, "message-received");
+	assert.deepEqual(result.details.result.members, [{ name: "Dave", role: "dev" }]);
+});
+
 test("wait_for_crew_idle wakes on an accepted local message and terminates the continuation", async () => {
 	const { tool, state } = setup(true);
 	const promise = tool.execute("id", {});
