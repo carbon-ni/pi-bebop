@@ -115,6 +115,10 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 	const idleWait = new Promise<void>((resolve) => {
 		idleWaitSeen = resolve;
 	});
+	let idleSubscriptionClosed!: () => void;
+	const oldIdleSubscriptionClosed = new Promise<void>((resolve) => {
+		idleSubscriptionClosed = resolve;
+	});
 	let completeNextIdleWait = false;
 	const targetConnections = new Set<net.Socket>();
 	const target = await listen(
@@ -140,6 +144,7 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 				return;
 			}
 			if (request.method === "member.idle_wait") {
+				socket.once("close", idleSubscriptionClosed);
 				response(socket, request.id, { subscriptionId: String(request.id) });
 				idleWaitSeen();
 				if (completeNextIdleWait) {
@@ -282,10 +287,22 @@ test("TASK-0121: SDK AgentSession runs actual Crew member-idle asynchronously wi
 		idleWaitSeen = resolve;
 	});
 	const replacedSession = runtime.session;
+	const oldSessionIdleEntries = replacedSession.messages.filter(
+		(message) => "customType" in message && message.customType === "crew-member-idle",
+	).length;
 	const pendingReplacement = replacedSession.prompt("/crew member-idle QA");
 	await waitFor(replacementIdle);
 	const replacement = runtime.newSession();
 	await waitFor(pendingReplacement);
+	await waitFor(oldIdleSubscriptionClosed);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(
+		replacedSession.messages.filter(
+			(message) => "customType" in message && message.customType === "crew-member-idle",
+		).length,
+		oldSessionIdleEntries,
+		"replacement must not append a late result to the old session",
+	);
 	assert.deepEqual(await replacement, { cancelled: false }, "real host replacement completes normally");
 	assert.notEqual(runtime.session, replacedSession, "replacement creates a new AgentSession");
 	assert.equal(contexts.length, 1, "session replacement must not call the provider");

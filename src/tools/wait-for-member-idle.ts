@@ -157,20 +157,20 @@ async function runMemberIdleWaitTransport(
 		}
 		// Reachability probe runs only after private capacity, wake, and marker ownership.
 		void (async () => {
-			const alive = await transport.probeEndpoint(resolved.target.socketPath);
-			if (!alive) {
-				cleanup();
-				finish({
-					ok: true,
-					result: createMemberIdleWaitResult(
-						{ name: resolved.target.name, role: resolved.target.role },
-						{ outcome: "offline" },
-						now(),
-					),
-				});
-				return;
-			}
 			try {
+				const alive = await transport.probeEndpoint(resolved.target.socketPath);
+				if (!alive) {
+					cleanup();
+					finish({
+						ok: true,
+						result: createMemberIdleWaitResult(
+							{ name: resolved.target.name, role: resolved.target.role },
+							{ outcome: "offline" },
+							now(),
+						),
+					});
+					return;
+				}
 				const outcome = await transport.requestIdleWait(resolved.target.socketPath, memberLabel, {
 					timeoutSeconds: resolved.timeoutSeconds,
 					signal: owned.signal,

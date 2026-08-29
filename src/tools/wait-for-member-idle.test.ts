@@ -358,6 +358,22 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		assert.equal((malformedResult.details as { error?: string }).error, "malformed-response");
 	});
 
+	test("TASK-0121: rejected reachability probe releases every local wait owner", async () => {
+		const { tool, state } = setup(membership, {
+			probeEndpoint: async () => {
+				throw new Error("probe failed");
+			},
+		});
+		const result = await tool.execute("id", { member: "Bob" });
+		assert.equal(result.isError, true);
+		assert.equal((result.details as { error?: string }).error, "transport-error");
+		assert.equal(state.wakeGate.armed, false);
+		assert.equal(state.blockingWait.activeMarker(), null);
+		const lease = state.crewIdleCapacity.acquire("member-idle-tool");
+		assert.ok(lease, "capacity is reusable after probe failure");
+		lease.release();
+	});
+
 	test("runtime unknown transport code is genericized in content and details", async () => {
 		const { tool } = setup(membership, {
 			requestIdleWait: async () => ({ ok: false, code: "password-secret" as never }),
