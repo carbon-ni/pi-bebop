@@ -2,10 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Value } from "@sinclair/typebox/value";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { normalizeCrewBoardErrorCode, registerLeaveCrewPostTool, registerReadCrewBoardTool } from "./crew-board.ts";
+import {
+	formatCrewBoardDecision,
+	normalizeCrewBoardErrorCode,
+	registerLeaveCrewPostTool,
+	registerReadCrewBoardTool,
+	toCrewBoardDecisionView,
+} from "./crew-board.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 import { parseCrewManifest } from "../domain/index.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
+import type { BoardReadResult, CrewPost } from "../domain/index.ts";
 
 const manifestPath = "/project/.pi/bebop/crew.json";
 const manifest = parseCrewManifest(
@@ -58,6 +65,88 @@ test("Crew Board tool schemas are closed and use public post_id links", () => {
 	assert.equal(Value.Check(append.parameters, { message: "hello", author: "spoof" }), false);
 	assert.equal(Value.Check(read.parameters, { limit: 20, kinds: ["tip"] }), true);
 	assert.equal(Value.Check(read.parameters, { workflow: "x" }), false);
+});
+
+function readTool(result: BoardReadResult): any {
+	return setup(registerReadCrewBoardTool, {
+		isProjectTrusted: () => true,
+		openStore: async () => ({ append: async () => ({}), read: async () => result }),
+	});
+}
+
+function post(overrides: Partial<CrewPost> = {}): CrewPost {
+	return {
+		version: 1,
+		id: "post-" + "a".repeat(64),
+		sequence: 1,
+		createdAt: 123,
+		author: { name: "Dave", role: "dev" },
+		kind: "tip",
+		message: "TDD evidence discipline ...",
+		references: [],
+		link: null,
+		redactions: [],
+		semanticFingerprint: "b".repeat(64),
+		...overrides,
+	};
+}
+
+test("read_crew_board renders a compact empty and one-Post decision view", async () => {
+	const emptyResult = await readTool(empty).execute("r", {});
+	assert.equal(emptyResult.content[0].text, "Crew Board is empty.");
+	assert.deepEqual(emptyResult.details, { posts: [] });
+
+	const one = await readTool({ ...empty, posts: [post()] }).execute("r", {});
+	assert.equal(one.content[0].text, "#1 [tip] Dave (dev)\nTDD evidence discipline ...");
+	assert.deepEqual(one.details, {
+		posts: [
+			{ sequence: 1, kind: "tip", author: { name: "Dave", role: "dev" }, message: "TDD evidence discipline ..." },
+		],
+	});
+	for (const forbidden of ["version", "createdAt", "semanticFingerprint", "redactions", "nextCursor", "hasMore"])
+		assert.equal(JSON.stringify(one).includes(forbidden), false, forbidden);
+});
+
+test("read_crew_board adds only actionable references, links, continuation, and warnings", async () => {
+	const linked = post({
+		references: ["UL.md"],
+		link: { relation: "disputes", postId: "post-" + "c".repeat(64) },
+	});
+	const result = {
+		...empty,
+		posts: [linked, post({ sequence: 2, message: "Second" })],
+		nextCursor: "cursor-token",
+		hasMore: true,
+		corruptCount: 2,
+		quarantinedThisRead: 1,
+		corruptCountTruncated: true,
+	};
+	const output = await readTool(result).execute("r", {});
+	assert.equal(
+		output.content[0].text,
+		"#1 [tip] Dave (dev)\nTDD evidence discipline ...\nReferences: UL.md\nLink: disputes post-" +
+			"c".repeat(64) +
+			"\n\n#2 [tip] Dave (dev)\nSecond\n\nMore: cursor-token\nWarning: 2 corrupt Posts; 1 Post quarantined during this read; corrupt Post count truncated",
+	);
+	assert.deepEqual(output.details, {
+		posts: [
+			{
+				sequence: 1,
+				kind: "tip",
+				author: { name: "Dave", role: "dev" },
+				message: "TDD evidence discipline ...",
+				references: ["UL.md"],
+				link: { relation: "disputes", post_id: "post-" + "c".repeat(64) },
+			},
+			{ sequence: 2, kind: "tip", author: { name: "Dave", role: "dev" }, message: "Second" },
+		],
+		nextCursor: "cursor-token",
+		hasMore: true,
+		warnings: ["2 corrupt Posts", "1 Post quarantined during this read", "corrupt Post count truncated"],
+	});
+	assert.equal(JSON.stringify(output.details).includes("createdAt"), false);
+	assert.deepEqual(toCrewBoardDecisionView(empty), { posts: [] });
+	assert.equal(formatCrewBoardDecision(empty), "Crew Board is empty.");
 });
 
 test("append tool adapts link and returns persisted-only acknowledgement", async () => {
@@ -155,7 +244,7 @@ test("read tool returns shared result and Membership loss rejects", async () => 
 		registerReadCrewBoardTool(pi, dynamic, deps);
 		return registered;
 	})();
-	assert.deepEqual((await tool.execute("r", {})).details, empty);
+	assert.deepEqual((await tool.execute("r", {})).details, { posts: [] });
 	current.value = null;
 	const rejected = await tool.execute("r", {});
 	assert.equal(rejected.isError, true);

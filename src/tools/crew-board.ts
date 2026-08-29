@@ -3,6 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { readCrewBoard, leaveCrewPost, type CrewBoardStoreDependencies } from "../application/crew-board.ts";
 import { openTrustedCrewBoardStore } from "../infra/crew-board-store.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import type { BoardReadResult, CrewPost } from "../domain/index.ts";
 import { actionableToolError } from "./actionable-tool-result.ts";
 
 const kinds = Type.Union([
@@ -45,6 +46,79 @@ type AppendParams = {
 	link?: { relation: "supersedes" | "disputes"; post_id: string };
 };
 type ReadParams = { kinds?: ("tip" | "kudos" | "feedback" | "warning" | "note")[]; after?: string; limit?: number };
+
+type DecisionPost = {
+	sequence: number;
+	kind: CrewPost["kind"];
+	author: CrewPost["author"];
+	message: string;
+	references?: readonly string[];
+	link?: { relation: "supersedes" | "disputes"; post_id: string };
+};
+
+type DecisionView = {
+	posts: readonly DecisionPost[];
+	nextCursor?: string;
+	hasMore?: true;
+	warnings?: readonly string[];
+};
+
+function decisionPost(post: CrewPost): DecisionPost {
+	return {
+		sequence: post.sequence,
+		kind: post.kind,
+		author: { name: post.author.name, role: post.author.role },
+		message: post.message,
+		...(post.references.length === 0 ? {} : { references: [...post.references] }),
+		...(post.link === null ? {} : { link: { relation: post.link.relation, post_id: post.link.postId } }),
+	};
+}
+
+function decisionWarnings(result: BoardReadResult): string[] {
+	const warnings: string[] = [];
+	if (result.corruptCount > 0)
+		warnings.push(`${result.corruptCount} corrupt Post${result.corruptCount === 1 ? "" : "s"}`);
+	if (result.quarantinedThisRead > 0)
+		warnings.push(
+			`${result.quarantinedThisRead} Post${result.quarantinedThisRead === 1 ? "" : "s"} quarantined during this read`,
+		);
+	if (result.corruptCountTruncated) warnings.push("corrupt Post count truncated");
+	return warnings;
+}
+
+export function toCrewBoardDecisionView(result: BoardReadResult): DecisionView {
+	const warnings = decisionWarnings(result);
+	return {
+		posts: result.posts.map(decisionPost),
+		...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+		...(result.hasMore ? { hasMore: true as const } : {}),
+		...(warnings.length === 0 ? {} : { warnings }),
+	};
+}
+
+function formatDecisionPost(post: DecisionPost): string {
+	const lines = [`#${post.sequence} [${post.kind}] ${post.author.name} (${post.author.role})`, post.message];
+	if (post.references?.length) lines.push(`References: ${post.references.join(", ")}`);
+	if (post.link) lines.push(`Link: ${post.link.relation} ${post.link.post_id}`);
+	return lines.join("\n");
+}
+
+export function formatCrewBoardDecision(result: BoardReadResult): string {
+	const view = toCrewBoardDecisionView(result);
+	if (view.posts.length === 0) {
+		const suffixes = [
+			...(view.nextCursor === undefined ? [] : [`More: ${view.nextCursor}`]),
+			...(view.warnings?.length ? [`Warning: ${view.warnings.join("; ")}`] : []),
+		];
+		return ["Crew Board is empty.", ...suffixes].join("\n");
+	}
+	const posts = view.posts.map(formatDecisionPost).join("\n\n");
+	const suffixes = [
+		...(view.nextCursor === undefined ? [] : [`More: ${view.nextCursor}`]),
+		...(view.warnings?.length ? [`Warning: ${view.warnings.join("; ")}`] : []),
+	];
+	return suffixes.length === 0 ? posts : `${posts}\n\n${suffixes.join("\n")}`;
+}
 
 function defaultDependencies(state: SocketState): CrewBoardStoreDependencies {
 	const isProjectTrusted = () => state.context?.isProjectTrusted?.() === true;
@@ -155,7 +229,8 @@ export function registerReadCrewBoardTool(
 					{ membership: state.membershipRuntime?.getMembership() ?? null, ...params },
 					boardDependencies,
 				);
-				return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+				const view = toCrewBoardDecisionView(result);
+				return { content: [{ type: "text", text: formatCrewBoardDecision(result) }], details: view };
 			} catch (error) {
 				return errorResult(error);
 			}
