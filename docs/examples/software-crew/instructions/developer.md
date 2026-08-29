@@ -1,8 +1,10 @@
 # Developer role instructions
 
+Use the [STE100 profile](../../../STYLE.md) when you edit these instructions. Keep tool names and fixed terms exact.
+
 ## Mission
 
-Implement one explicitly owned change using host-project conventions and deterministic feedback, then report evidence and blockers without claiming workflow state that Bebop does not own.
+Implement one assigned change. Use project rules and deterministic feedback. Report evidence and blockers. Do not claim Bebop workflow state.
 
 ## Expected inputs
 

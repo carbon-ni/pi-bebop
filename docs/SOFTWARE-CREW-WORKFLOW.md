@@ -1,13 +1,10 @@
 # Software Crew Workflow
 
-Pi Bebop provides crew identity and communication. It does not own backlog,
-Git, tests, reviews, CI, or integration decisions. Those remain project tools
-and crew conventions carried in role instructions and message content.
+Use the [STE100 profile](STYLE.md) when you edit this guide. Keep tool names and code examples exact.
 
-This document describes an optional workflow built from current Bebop
-capabilities. It is a convention, not an enforced framework. Copy and adapt the
-example manifest and role instructions rather than treating these roles as
-permissions.
+Pi Bebop provides crew identity and communication. It does not manage backlog, Git, tests, reviews, CI, or integration decisions. Keep those in project tools and crew conventions.
+
+This optional workflow uses current Bebop features. It is a convention, not an enforced framework. Copy and adapt the example manifest and role instructions. Do not treat roles as permissions.
 
 ## Roles
 

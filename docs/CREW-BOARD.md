@@ -2,9 +2,13 @@
 
 Status: **implemented (v1 local Crew Board)**.
 
+Use the [STE100 profile](STYLE.md) when you edit this reference. Keep post fields, schemas, and fixed values exact.
+
 ## Problem
 
-Useful project context is often too lightweight for formal documentation but too durable or broadly relevant for a direct Member message. Sending it to every Member interrupts work and duplicates delivery; leaving it only in one Pi session loses shared context. A shared board could solve that problem, but only if it does not quietly become another delivery channel, a task system, a rating system, or a source of authority.
+Some project context does not belong in formal documentation or a direct Member message. A direct message interrupts work. One Pi session does not retain shared context.
+
+A shared board can retain this context. It must not become a delivery channel, task system, rating system, or source of authority.
 
 ## Desired outcome
 

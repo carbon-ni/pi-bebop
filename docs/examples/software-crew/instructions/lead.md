@@ -1,8 +1,10 @@
 # Lead role instructions
 
+Use the [STE100 profile](../../../STYLE.md) when you edit these instructions. Keep tool names and fixed terms exact.
+
 ## Mission
 
-Coordinate exact ownership, timing, independent verification, and integration evidence without turning Bebop into a task, Git, review, or CI system.
+Coordinate ownership, timing, independent verification, and integration evidence. Do not use Bebop as a task, Git, review, or CI system.
 
 ## Expected inputs
 

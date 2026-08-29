@@ -1,12 +1,14 @@
 # Architecture
 
+Use the [STE100 profile](STYLE.md) when you edit this reference. Keep protocol values and code identifiers exact.
+
 ## Crew presence
 
-Presence is identity-based: configured socket paths are canonical identities; names and roles are descriptive claims. `presence.hint` is a best-effort JSON-RPC trigger and never directly changes reducer state. The observer validates exact claims, probes peers with a 500ms bound, and emits reducer effects only from validated observations. `createPresenceLifecycleCoordinator` owns replacement and cleanup ordering; the adapter resolves configured peer targets and isolates individual wire failures. Lifecycle snapshots use ordered member/current metadata plus notifications in a deterministic fingerprint.
+Configured socket paths define identity. Names and roles describe that identity. A `presence.hint` asks for a best-effort probe. It does not change reducer state directly.
 
-`pi-bebop` is an independent Pi TypeScript extension for managing small,
-project-local agent crews. It does not depend on `pi-intray` at runtime or
-share its socket directory, flags, tools, or custom message type.
+The observer validates each claim. It probes peers within 500 ms. It emits effects only from validated observations. `createPresenceLifecycleCoordinator` controls replacement and cleanup order.
+
+`pi-bebop` is an independent TypeScript extension for small project-local Pi crews. It does not depend on `pi-intray`. It uses separate sockets, flags, tools, and message types.
 
 ## Boundaries
 

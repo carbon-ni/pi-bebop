@@ -2,6 +2,8 @@
 
 Scope: Pi Bebop, a project-local crew coordination extension.
 
+Use the [STE100 profile](docs/STYLE.md) when you edit this glossary. Keep canonical terms and code identifiers exact.
+
 ## Product concepts
 
 | Canonical term                  | Definition                                                                                                                                                                                                                                                                     | Avoid                                                         |

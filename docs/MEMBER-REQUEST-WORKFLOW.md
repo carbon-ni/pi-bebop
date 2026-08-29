@@ -2,9 +2,11 @@
 
 Status: **available**.
 
-This workflow extends the optional [Software Crew Workflow](SOFTWARE-CREW-WORKFLOW.md).
-It coordinates a bounded Member request without treating mechanical idle as a
-Response or implying completion, correctness, authority, or progress.
+Use the [STE100 profile](STYLE.md) when you edit this guide. Keep tool names, outcomes, and fixed values exact.
+
+This workflow extends the optional [Software Crew Workflow](SOFTWARE-CREW-WORKFLOW.md). It coordinates one bounded Member request.
+
+Mechanical idle is not a Response. A Response does not prove completion, correctness, authority, or progress.
 
 ## Terms
 
@@ -168,9 +170,7 @@ retracts accepted work and does not prove work stopped, failed, or completed.
 Outcomes may arrive out of assignment order; opaque Request IDs preserve
 correlation. In the same synchronous-handler boundary the priority is
 `response > offline > grace-expiry > hard-expiry > idle-signal`: a complete
-Response beats a subsequent socket close, and a Response arriving with the
-responder's first idle is simply accepted, because idle is nonterminal and
-never competes with a Response. The `response-after-idle` reason applies only
+Response beats a later socket close. Bebop accepts a Response that arrives with the responder's first idle. Idle is nonterminal and does not compete with Response. The `response-after-idle` reason applies only
 to the exact tie where the grace-expiry and hard-expiry timers fire at the
 same instant — never to a Response/idle boundary.
 

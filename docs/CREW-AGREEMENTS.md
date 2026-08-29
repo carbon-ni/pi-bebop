@@ -2,14 +2,13 @@
 
 Status: **defined, not implemented**.
 
+Use the [STE100 profile](STYLE.md) when you edit this reference. Keep record states, schemas, and fixed values exact.
+
 ## Problem
 
-A Crew may discover better ways to collaborate, but Bebop has no canonical way
-to preserve those decisions, review them periodically, or apply them equally to
-every Member. Without a product contract, a Role, claimed Origin, Member
-message, or model-produced summary could accidentally become authority to
-change shared instructions. Retrospectives could also produce different facts
-for different Members or behave differently after restart.
+A Crew can find better ways to collaborate. Bebop needs one clear way to retain, review, and apply those agreements.
+
+A Role, claimed Origin, Member message, or model summary must not change shared instructions. Restart must not change a retrospective result.
 
 ## Desired outcome
 

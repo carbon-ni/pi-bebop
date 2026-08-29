@@ -2,153 +2,140 @@
 
 <img width="240" height="164" alt="bebop" src="https://github.com/user-attachments/assets/ff4eccd9-73e7-4e09-a617-ce7b7db7e299" align="right" />
 
-Give a small dysfunctional but effective crew to your Pi agents.
+Pi Bebop gives Pi agents a project-local crew.
 
-</br>
-</br>
-</br>
-</br>
-</br>
+It manages crew identity, member lifecycle, and explicit communication. It does
+not manage tasks, Git, reviews, tests, CI, or releases.
 
-## What is Pi Bebop
+This document follows the [Pi Bebop documentation style](docs/STYLE.md).
 
-Pi Bebop gives your Pi agents a project-local crew: independent members with
-names and roles, a trusted manifest, and explicit communication and lifecycle
-tools between them. Members join from any worktree or path, and every agent-facing
-surface is active only while the member is joined.
+## What Bebop provides
 
-Bebop is transport, not workflow. It moves messages and lifecycle signals between
-members; it has no task, Git, review, or CI ownership.
+- A trusted crew manifest in `.pi/bebop/crew.json`.
+- Independent Pi sessions with exact member names and roles.
+- Explicit tools for live, durable, and correlated communication.
+- A shared Crew Board for pull-based project context.
+- A standalone CLI for crew setup and member operations.
 
-## Why Bebop
-
-- **Independent Pi Members** — each member is its own Pi session with its own
-  context, plans, and tools; nothing is shared implicitly.
-- **Project-local crew identity** — a trusted `.pi/bebop/crew.json` manifest owns
-  names, roles, sockets, and instructions; no global registry.
-- **Explicit communication and lifecycle tools** — every message, request, inbox,
-  interrupt, and wait has a distinct tool with a one-phrase guarantee.
+A role describes responsibility. A role does not grant permission. Presence only
+shows endpoint reachability. It does not show availability or progress.
 
 ## Install
 
-### Extension
+### Install as a Pi extension
 
 ```bash
-## Npm
 pi install npm:@carbon-ni/pi-bebop
+```
 
-## GitHub release
+Install from a GitHub release when you need a release build:
+
+```bash
 pi install git:github.com/carbon-ni/pi-bebop
 ```
 
-### CLI
+### Install the CLI
 
 ```bash
-## Install
 npm install -g @carbon-ni/pi-bebop
-
-## Npx
-npx @carbon-ni/pi-bebop --help
+pi-bebop --help
 ```
 
-Install from this checkout so the `pi-bebop` bin is on your PATH:
+For this checkout, link the package:
 
 ```bash
 npm link
 pi-bebop --help
 ```
 
-Or install the packed tarball into a project:
+`pi-bebop --help` performs no project, session, or filesystem work. Use
+`pi-bebop <command> --help` for a command. Use long flags in scripts.
 
-```bash
-npm install ./carbon-ni-pi-bebop-0.1.0.tgz
-npx pi-bebop --help
-```
+## Start a crew
 
-`pi-bebop --help` prints deterministic root help and exits 0 with no project,
-session, or filesystem IO. Leaf help is `pi-bebop <command> --help`; leaf `-h`
-is intentionally a structured usage error (exit 2), matching the
-canonical-long-flags-only contract. The scoped package is prepared for publication
-but is not published to npm yet; install from a checkout or tarball locally.
-
-## Start a Crew
+Create the standard crew files:
 
 ```bash
 pi-bebop crew init
-# discover the configured roles before choosing identity (read-only):
+```
+
+List roles before you start members:
+
+```bash
 pi-bebop crew roles
+```
+
+Start one Pi session for each manifest role:
+
+```bash
 pi --crew-role lead
 pi --crew-role developer
-# in each member session, inspect the authoritative roster:
+```
+
+In a joined session, inspect the roster:
+
+```text
 /crew members
 ```
 
-`crew init` creates `.pi/bebop/crew.json`, shared `common.md`, role instruction
-templates, and a `sockets/` directory — deterministic, non-interactive, and a
-safe no-op on rerun. Review names, Intake contact, common guidance, and role
-instructions before joining. `AGENTS.md` remains project-wide agent guidance;
-`common.md` is shared crew collaboration guidance; role files define
-member-specific responsibilities.
-`pi-bebop crew roles` prints the exact configured role values (TOON by default,
-`--format json|text`) rooted at the current working directory, so startup role
-selection never depends on opening `crew.json` manually; it never starts a
-server, joins, or mutates files. Start each member by its manifest role;
-`/crew members` shows exactly `current`, `online`, or `offline` with configured
-project socket paths.
+`crew init` creates the manifest, shared instructions, role instructions, and
+the socket directory. It does not start members or create a Git commit. Review
+the generated names, contact, and instructions before you join.
 
-## Choose communication
+Read [Crew init](docs/CREW-INIT.md) for the full layout and conflict rules.
 
-| Tool                  | Use when                                                | Guarantee                                                                                                               |
-| --------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `send_member_request` | you need one correlated answer, report, or verdict      | exactly one Response, offline, timeout-after-idle, or timeout-max-wait — you resume via a later `crew-wait-resume` turn |
-| `send_follow_up`      | ordinary information                                    | accepted delivery only; no correlated Response expected                                                                 |
-| `redirect_member`     | change what a member is doing next                      | steered before the target's next model step; never aborts                                                               |
-| `send_to_inbox`       | the peer may be offline                                 | persisted durably; read later as a normal follow-up                                                                     |
-| `send_to_crew`        | exchange one durable letter with another local Crew     | persisted for its configured contact only; no delivery, read, acknowledgement, or answer is implied                     |
-| `interrupt_member`    | work is stuck, harmful, or based on invalid assumptions | best-effort abort plus recovery guidance; never rolls back side effects                                                 |
-| `broadcast_to_crew`   | a shared team-wide constraint                           | durable per-recipient copy for every other member; idempotent retry                                                     |
+## Choose a communication tool
 
-### Crew Correspondence
+| Tool | Use | Result |
+| --- | --- | --- |
+| `send_follow_up` | Send normal information. | The target accepts a live non-interrupting message. |
+| `redirect_member` | Change the target's next model step. | The target receives a live steer. It does not abort work. |
+| `send_to_inbox` | Keep a message for an offline member. | Bebop persists one Inbox item. |
+| `send_member_request` | Require one correlated answer. | Bebop returns a request ID after acceptance. |
+| `respond_to_member_request` | Answer an active member request. | Bebop sends one correlated response. |
+| `wait_for_request_outcome` | Wait after you sent a member request. | Bebop returns its oldest terminal request outcome. |
+| `interrupt_member` | Stop harmful or invalid active work. | Bebop requests an abort and sends recovery guidance. |
+| `broadcast_to_crew` | Share one constraint with other members. | Bebop persists one Inbox item for each recipient. |
+| `send_to_crew` | Send a durable letter to another local crew. | Bebop persists it for that crew contact. |
+| `get_member_status` | Check one member's mechanical state. | Bebop returns a bounded status snapshot. |
+| `wait_for_member_idle` | Wait for one member to settle. | Bebop returns an idle, offline, timeout, or message result. |
+| `read_crew_board` | Read shared pull-based context. | Bebop returns a bounded page of Crew Posts. |
+| `leave_crew_post` | Keep a reusable note for the crew. | Bebop persists an attributed Crew Post. |
 
-`send_to_crew` sends one **Crew Correspondence** to another local Crew only by
-its absolute `.pi/bebop/crew.json` or `.pi/crew/crew.json` path. The caller must
-be joined: Bebop derives the claimed Member Origin and **Crew Return Address**
-from that Membership. It persists the letter for the target's configured Intake
-contact, even when that contact is offline; persisted means neither delivered,
-read, acknowledged, nor answered. The receiver may send a separate one-way
-reply by explicitly calling `send_to_crew` with the claimed Crew Return Address:
+Accepted means that a live endpoint acknowledged delivery. Persisted means that
+Bebop stored data. Neither result means that work is complete or approved.
+
+Read [UL.md](UL.md) before you use terms in crew instructions or messages.
+
+## Work with another crew
+
+Use `send_to_crew` with an absolute manifest path. Both crews must use the same
+machine. The source member must be joined.
 
 ```text
-Alpha: send_to_crew({ manifestPath: "/projects/beta/.pi/crew/crew.json", message: "Can you review this?" })
-Beta:  send_to_crew({ manifestPath: "/projects/alpha/.pi/bebop/crew.json", message: "Yes." })
+send_to_crew({
+  manifestPath: "/projects/beta/.pi/bebop/crew.json",
+  message: "Can you review this change?"
+})
 ```
 
-Correspondence is same-machine, claimed attribution rather than authentication,
-and an old return path may be stale. It has no discovery, short-name addressing,
-live route, automatic reply/Response, thread, receipt, encryption, or
-cross-machine transport. Do not use `pi-bebop send --crew` as a correspondence
-reply: that CLI path is external and unverified, so it never derives Crew Origin
-or a Crew Return Address.
+The message is a one-way durable letter. It is not a live route, a response,
+or proof that the receiver read it.
 
-`wait_for_member_idle` blocks the current run until the target settles to mechanical idle, goes offline, the bounded timeout expires, or an accepted
-Bebop message releases the wait under its original delivery mode. For the supported solitary invocation, a waking message is consumed immediately
-in the next model continuation; `message-received` never implies idle or completion. Call this coordination wait alone, not in a parallel tool
-batch, because its terminating result must be the only result in the batch. Under Pi 0.84.x a mixed batch may run one tool-result continuation
-before consuming the unchanged waking message once on the following turn. The bounded timeout is always the fallback.
-`wait_for_request_outcome` yields the run and resumes in a later turn, so
-correlated Request outcome waits never deadlock.
+## Learn more
 
-## Boundaries
+- [Ubiquitous language](UL.md) — canonical product terms.
+- [Architecture](docs/ARCHITECTURE.md) — layers, trust, lifecycle, and storage.
+- [Software crew workflow](docs/SOFTWARE-CREW-WORKFLOW.md) — optional role conventions.
+- [Member request workflow](docs/MEMBER-REQUEST-WORKFLOW.md) — bounded correlated requests.
+- [Crew Board](docs/CREW-BOARD.md) — shared pull-based context.
+- [Crew idle gate](docs/CREW-IDLE-GATE.md) — bounded crew-idle observation.
+- [Crew agreements](docs/CREW-AGREEMENTS.md) — future retrospective contract.
+- [Crew message log](docs/CREW-MESSAGE-LOG.md) — retained messaging evidence contract.
+- [Actionable errors](docs/ACTIONABLE-ERRORS.md) — user-facing failure contract.
+- [Documentation style](docs/STYLE.md) — STE100 profile.
 
-- Roles are responsibility, not permissions; repeated roles route by exact name.
-- Online or idle is reachability at last observation — never availability or
-  progress.
-- Accepted, Persisted, or Response is never completion; Bebop has no task, Git,
-  review, or CI ownership.
-- Bebop is transport, not workflow: it never claims exactly-once execution and
-  never picks workers or classifies content.
-
-## Development
+## Develop
 
 ```bash
 npm install
@@ -158,14 +145,12 @@ npm run build
 npm test
 ```
 
-`make hooks-install` opts this checkout into the repository-owned pre-push hook;
-`make hooks-check` verifies the local Git setting and executable hook without
-changing anything. Hooks provide early feedback, but GitHub CI remains
-authoritative. `make all` runs the same pre-push/CI gate (format, package, lint,
-build, test, security).
+`make hooks-install` enables the repository pre-push hook. `make hooks-check`
+checks that installation. The local hook gives early feedback. GitHub CI remains
+authoritative. `make all` runs the pre-push and CI gate.
 
-Release verification is separate because it installs a pinned consumer dependency
-set and may need network:
+Run package verification separately. It installs a consumer dependency set and
+can need network access.
 
 ```bash
 make package-verify

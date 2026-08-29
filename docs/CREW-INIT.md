@@ -1,13 +1,10 @@
 # Crew Init
 
-`pi-bebop crew init` is the deterministic, non-interactive scaffold that
-creates a canonical software crew layout in a project. It is creation, not
-configuration migration: it never overwrites, merges, or forces.
+Use the [STE100 profile](STYLE.md) when you edit this guide. Keep commands, paths, schemas, and fixed values exact.
 
-> TASK-0053 defines the contract (managed layout, deterministic versioned
-> template bytes, preflight/conflict decision, output and exit-code contract,
-> usage validation, path redaction). The CLI wiring and filesystem mutation
-> are TASK-0054 and are not implemented by this task.
+`pi-bebop crew init` creates the canonical software crew layout. It is deterministic and non-interactive. It creates files. It does not migrate configuration, overwrite files, merge files, or force changes.
+
+TASK-0053 defines the contract. TASK-0054 adds CLI wiring and filesystem mutation.
 
 ## Command
 

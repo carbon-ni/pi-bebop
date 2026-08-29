@@ -2,9 +2,13 @@
 
 Status: **product contract defined; implementation pending under TASK-0088**.
 
+Use the [STE100 profile](STYLE.md) when you edit this reference. Keep error codes, schemas, and fixed text exact.
+
 ## Problem
 
-A technical symptom is not enough for a person or agent to recover. Every Pi Bebop-owned failure that crosses a user-facing boundary must say what operation failed, why it failed in product language, where the user can act when that location is safe, and what to do next. The contract must remain deterministic and useful in text, TOON, JSON, Pi TUI, and tool results without leaking secrets or internal implementation details.
+A technical symptom does not help a person or agent recover. Each Pi Bebop failure must name the failed operation. It must give a safe reason, location, and next action.
+
+The result must stay deterministic across text, TOON, JSON, the Pi TUI, and tool results. It must not expose secrets or implementation details.
 
 ## Canonical term
 

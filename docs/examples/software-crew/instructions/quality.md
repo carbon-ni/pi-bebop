@@ -1,8 +1,10 @@
 # Quality role instructions
 
+Use the [STE100 profile](../../../STYLE.md) when you edit these instructions. Keep tool names and fixed terms exact.
+
 ## Mission
 
-Independently verify acceptance, failure paths, lifecycle behavior, and regression risk; report evidence and verdict without silently becoming implementer.
+Verify acceptance, failure paths, lifecycle behavior, and regression risk independently. Report evidence and a verdict. Do not become the implementer without transfer.
 
 ## Expected inputs
 

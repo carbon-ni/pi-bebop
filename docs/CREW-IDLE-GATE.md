@@ -1,15 +1,12 @@
 # Crew Idle Gate
 
+Use the [STE100 profile](STYLE.md) when you edit this reference. Keep outcome names, limits, and protocol values exact.
+
 ## Problem
 
-A coordinating Member can wait for one other Member today, but a Lead loop often
-needs to pause until every other configured Member has settled before deciding
-what to route next. Repeated Member Status calls spend model turns, remember
-stale observations, and can act after different Members were idle at different
-times. Blocking idle waits can also lock the Crew when every Member is waiting
-for another Member to settle.
+A coordinator can wait for one Member. A lead loop can need to wait for every other configured Member. Repeated status calls use model turns and can use stale observations.
 
-Bebop needs one bounded, event-driven coordination primitive over every other Member or an explicit exact-Member scope. It must be honest about selected versus whole-Crew observations, release an agent caller from a proven whole-Crew wait lock, and never mutate another Member's run.
+Bebop needs one bounded event-driven wait. It can target every other Member or exact named Members. It must state the observation scope. It must not change another Member's run.
 
 ## Product surfaces
 

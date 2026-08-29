@@ -1,19 +1,14 @@
 # Crew Message Log
 
+Use the [STE100 profile](STYLE.md) when you edit this reference. Keep event names, schemas, and fixed values exact.
+
 Status: **defined, not implemented**.
 
 ## Problem
 
-Bebop owns several Crew messaging paths, but their mechanical outcomes are split
-between transient delivery, durable Inbox state, and per-feature records. The
-Crew therefore cannot inspect one honest retained account of which Bebop
-messaging surfaces were used, which mechanical outcomes occurred, or where
-capture itself was incomplete.
+Bebop stores messaging outcomes in several places. These places include live delivery, Inbox state, and feature records. The crew needs one retained account of the observed outcomes and capture gaps.
 
-A retained log is useful only if it is bounded, Crew-readable, and explicit
-about gaps. It must not become another delivery queue, a surveillance feed, or
-a source of inferred preference, intent, productivity, agreement, or Member
-quality.
+The log must stay bounded and crew-readable. It must state gaps. It must not become a delivery queue, surveillance feed, or source of inferred Member qualities.
 
 ## Desired outcome
 

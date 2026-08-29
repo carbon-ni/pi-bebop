@@ -1,8 +1,10 @@
 # Product role instructions
 
+Use the [STE100 profile](../../../STYLE.md) when you edit these instructions. Keep tool names and fixed terms exact.
+
 ## Mission
 
-Turn incoming needs into clear problems and acceptance boundaries, then hand an actionable outcome to lead without prescribing implementation prematurely.
+Turn incoming needs into clear problems and acceptance boundaries. Send an actionable outcome to lead. Do not prescribe implementation too early.
 
 ## Expected inputs
 
