@@ -15,7 +15,7 @@ Bebop can submit model-bound coordination messages while recipient Pi is compact
 
 ## Desired outcome
 
-Add one receiver-owned **Compaction Delivery Gate**. System accepts coordination messages into bounded pending delivery while recipient compacts. It hands them to Pi exactly once after compaction ends. Senders do not poll, retry, inspect compaction, or coordinate release.
+Add one receiver-owned **Compaction Delivery Gate**. System accepts coordination messages into bounded pending delivery while recipient compacts. After compaction, it hands them to Pi once during normal operation and uses an explicit at-least-once recovery contract after an ambiguous process crash. Senders do not poll, retry, inspect compaction, or coordinate release.
 
 Compaction delay is delivery scheduling only. It does not change message meaning, mode, correlation, priority, attribution, or authority.
 
@@ -44,7 +44,7 @@ Add a source ratchet: no Bebop-owned direct `pi.sendMessage` call may remain out
 5. An acknowledged pending message cannot disappear on reload, resume, fork, session replacement, leave, shutdown, socket loss, or process failure.
 6. Pi 0.84.3 `session_before_compact` closes the gate. `session_compact` and `session_compact_failed` are terminal wake signals. There is no `session_compaction_start` or `session_compaction_end` extension event.
 7. Terminal handlers never drain synchronously. They schedule one injected `setImmediate`-class post-event task. The task drains only when local compaction depth is zero and the captured lifecycle generation is still current.
-8. Drain pending entries once, in persisted receiver acceptance order. Preserve exact content, ordered instructions, Origin, callback/correlation metadata, delivery mode, FIFO semantics, and queued Follow-up provenance.
+8. Drain pending entries once during uninterrupted operation, in persisted receiver acceptance order. Preserve exact content, ordered instructions, Origin, callback/correlation metadata, delivery mode, FIFO semantics, and queued Follow-up provenance. An ambiguous crash recovery may replay the same envelope under the locked TASK-0143 contract.
 9. A message accepted before a terminal boundary stays ahead of one accepted after it. New direct delivery cannot overtake an existing backlog.
 10. If compaction starts while the queue drains, finish only the already committed handoff, stop before the next entry, and retain the remainder.
 11. `notifyAcceptedMessage`, Inbox removal, Member Request registration/visibility, and Request timers occur only at safe handoff.
@@ -59,7 +59,7 @@ The source of truth is an external journal under the trusted Crew store, not a s
 
 Each record has a stable receiver-assigned delivery ID, monotonic acceptance sequence, canonical envelope bytes, and `pending` or `handing-off` state. Persist with atomic replacement before deferred acknowledgement. Session entries may provide delivery evidence but are never the pending store.
 
-On handoff, persist `handing-off`, embed the delivery ID in internal message details, then call the unchanged Pi delivery. Mark delivered only after Pi session evidence contains that ID. After a crash, evidence present means do not replay; evidence absent means retry. Real-host crash-point tests must prove no loss or duplicate model handoff.
+On handoff, persist `handing-off`, embed the delivery ID in internal message details, then call the unchanged Pi delivery. Mark delivered only after Pi session evidence contains that ID. After a crash, evidence present means do not replay; evidence absent is an ambiguous window and triggers an at-least-once replay with the same delivery ID. Persist replay-attempt state first and attach bounded model-visible possible-duplicate provenance without exposing the ID. Real-host crash-point tests must prove no acknowledged loss and bound duplicates to this explicit window.
 
 Reload, resume, fork, replacement, leave, shutdown, and restart retain acknowledged records for the same Manifest and Member. A removed or changed Member identity remains blocked and is never reassigned to another Member.
 
@@ -79,7 +79,7 @@ Pi 0.84.3 emits extension terminal handlers before its internal compaction clean
 - post-event check: drain only at depth zero with unchanged generation;
 - a new start before or during drain closes the gate synchronously.
 
-This seam is accepted only with a real Pi 0.84.3 host test proving the post-event task runs after compaction provider work and that no deferred coordination handoff is lost or duplicated.
+This seam is accepted only with a real Pi 0.84.3 host test proving the post-event task runs after compaction provider work, normal operation hands off once, and ambiguous restart follows the explicit at-least-once replay contract.
 
 ## Feasibility freeze
 
@@ -132,19 +132,19 @@ After F1–F3 pass, implementation resumes against this bounded matrix. Rows ide
 - [ ] A source ratchet inventories every Bebop-owned model-bound path and rejects direct `pi.sendMessage` outside the gate adapter.
 - [ ] During active manual, automatic, failed, aborted, or synthetic nested compaction, zero deferred coordination messages call `pi.sendMessage`, trigger coordination provider work, enter model context, wake waits, remove Inbox items, or activate Request handling.
 - [ ] `session_before_compact` closes synchronously; `session_compact` and `session_compact_failed` only schedule the post-event check. Unsupported lifecycle names are absent.
-- [ ] The first safe depth-zero/current-generation post-event check drains each pending message exactly once; unmatched, false, or stale terminals drain nothing.
+- [ ] The first safe depth-zero/current-generation post-event check drains each pending message once during uninterrupted operation; unmatched, false, or stale terminals drain nothing. Only an evidence-absent ambiguous restart may replay.
 - [ ] Deterministic races cover accept-before-terminal, terminal-before-accept, nested start/terminal, new start before the post-event task, and new start during drain.
 - [ ] Mixed Follow-up, Redirect, Request, Request reminder, Response resume, Inbox/Broadcast/Intake/Crew letter, Interrupt recovery, Presence, and control-response fixtures retain exact payload, metadata, mode, correlation, and acceptance order.
 - [ ] A later direct message cannot overtake older pending work. One acceptance sequence governs all surfaces.
 - [ ] Deferred Member Request remains unacknowledged and invisible until handoff; channel loss before handoff never creates a responder-visible orphan.
 - [ ] Queued Follow-up provenance reports immutable receiver-observed acceptance-to-handoff delay including compaction wait, without claiming correlation.
 - [ ] Deferred acknowledgement is byte-exact, follows durable ownership, reveals no compaction state, and makes no delivery/read/availability/response/completion claim. Non-compacting acknowledgement is byte-compatible.
-- [ ] Reload, resume, fork, replacement, leave, shutdown, socket loss, thrown renderer/provider boundary, and process restart cannot lose an acknowledged record or hand it off twice.
-- [ ] Crash tests cover before persistence, after persistence/before ack, after ack, after `handing-off`/before Pi send, after Pi session evidence/before journal completion, and restart reconciliation.
+- [ ] Reload, resume, fork, replacement, leave, shutdown, socket loss, and thrown renderer/provider boundaries cannot lose an acknowledged record. Process restart replays only an evidence-absent `handing-off` record, with the same delivery ID and explicit possible-duplicate provenance.
+- [ ] Crash tests cover before persistence, after persistence/before ack, after ack, after `handing-off`/before Pi send, the ambiguous Pi-send/evidence window, after Pi session evidence/before journal completion, replay-attempt persistence, and restart reconciliation.
 - [ ] Capacity tests enforce 64 entries, 1,100,000 bytes per canonical envelope, and 70,400,000 aggregate bytes. Overflow and malformed records fail atomically before acknowledgement without changing existing FIFO state.
-- [ ] Gate state and journal expose no compaction state, count, content, delivery ID, instructions, Origin, correlation route, session ID, socket/path, model data, or inferred intent through Member Status, wait-state, Presence, Crew output, or capacity errors.
+- [ ] Gate state and journal expose no compaction state, count, content, delivery ID, instructions, Origin, correlation route, session ID, socket/path, model data, or inferred intent through Member Status, wait-state, Presence, Crew output, or capacity errors. Model-visible replay provenance reveals only ambiguous-restart and possible-duplicate meaning.
 - [ ] Existing non-compacting Follow-up, Redirect, Request, Inbox, Interrupt, Presence, and startup/control behavior remains byte-compatible.
-- [ ] Real Pi 0.84.3 `AgentSessionRuntime` tests cover manual success, automatic compaction, failed/aborted terminals, provider-context exclusion, exact post-event ordering, Request inactivity, distinct modes, and one final handoff.
+- [ ] Real Pi 0.84.3 `AgentSessionRuntime` tests cover manual success, automatic compaction, failed/aborted terminals, provider-context exclusion, exact post-event ordering, Request inactivity, distinct modes, one normal handoff, and bounded ambiguous-restart replay.
 - [ ] Focused tests, typecheck, formatting, architecture/package checks, coverage/risk gate, full hooks, and fresh watcher pass with unchanged-worktree proof.
 
 ## Non-goals
@@ -162,4 +162,4 @@ TASK-0121 remains closed. TASK-0140 is Product-blocked on TASK-0143. Resume only
 
 ## Notes
 
-This task touches the Pi composition root, messaging acknowledgement timing, Request activation, Inbox ownership, lifecycle events, and durable storage. The current evidence-only source ratchet remains useful, but F2 prevents the original exactly-once contract from closing without redesign.
+This task touches the Pi composition root, messaging acknowledgement timing, Request activation, Inbox ownership, lifecycle events, and durable storage. The evidence-only source ratchet remains useful. F2 disproved the original crash-safe exactly-once claim; TASK-0143 replaces it with an honest at-least-once ambiguous-restart contract.

@@ -1,7 +1,7 @@
 ---
 id: TASK-0143
 title: Redesign compaction delivery guarantee within Pi public APIs
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [messaging, compaction, product, feasibility, determinism]
@@ -22,7 +22,24 @@ The unavoidable extension-only choice is explicit:
 - **at-most-once across that window:** mark complete before unproven Pi durability, so duplicates are avoided but acknowledged delivery can be lost;
 - **block durable crash recovery:** keep exactly-once only for in-process operation and reject or retain ambiguous records for explicit recovery rather than automatic handoff.
 
-The recommended starting point is at-least-once with stable delivery IDs and explicit replay provenance because acknowledged message loss is less recoverable than an observable duplicate. This recommendation is not accepted until Product locks the tradeoff.
+## Locked Product decision
+
+Product selected **at-least-once across the ambiguous crash window**. Acknowledged journal work must not be silently lost. A process crash may cause one replay attempt with the same stable delivery ID when durable Pi session evidence is absent, even if Pi had consumed the first handoff before crashing. Such a replay is a possible duplicate, not a new message or a new acceptance.
+
+The bounded contract is:
+
+1. **Before durable journal append:** no acknowledgement, no ownership, no later replay.
+2. **After append and before Pi handoff:** retain `pending`; restart replays in original sequence.
+3. **After `handing-off` and with durable typed Pi evidence present:** complete the journal record; never replay.
+4. **After `handing-off` and with evidence absent:** treat the window as ambiguous and replay once per recovery attempt using the same delivery ID and envelope. Persist replay-attempt state before invoking Pi.
+5. **Replay provenance:** add bounded structured metadata and model-visible provenance saying the delivery was replayed after an ambiguous restart and may be a duplicate. Do not expose the delivery ID, paths, routes, queue size, or compaction state.
+6. **FIFO:** an ambiguous head record is reconciled or replayed before any later record; later direct delivery cannot overtake it.
+7. **Acknowledgement:** remains persisted-only and never claims model delivery, reading, availability, completion, response, or exactly-once processing.
+8. **Member Request exception:** its live response channel is not durable. It remains unacknowledged until safe handoff; channel/process loss before acknowledgement cancels it. After acknowledgement, ordinary requester offline/timeout semantics apply; never create a channel-less replayed Request after restart.
+9. **Inbox/one-way/Interrupt/Response/Presence:** retain their original surface semantics; if eligible for durable replay, reuse the same delivery ID and mark only replay provenance. Inbox removal remains after committed handoff evidence.
+10. **No upstream changes:** use only published Pi 0.84.3 public APIs. The implementation and documentation must state the unavoidable duplicate window honestly.
+
+At-most-once was rejected because it can silently lose acknowledged coordination. Explicit recovery was rejected as the default because it can indefinitely stall the global FIFO and requires an operator surface outside TASK-0140.
 
 ## Acceptance criteria
 
