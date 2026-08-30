@@ -74,6 +74,7 @@
 		"src/domain/member-inbox.ts",
 		"src/domain/member-interrupt.ts",
 		"src/domain/member-request.ts",
+		"src/domain/request-reminder.ts",
 		"src/domain/message-log-entry.ts",
 		"src/domain/member-status.ts",
 		"src/domain/message-payload.ts",
