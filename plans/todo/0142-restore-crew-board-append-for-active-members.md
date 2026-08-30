@@ -28,7 +28,7 @@ Do not bypass Membership attribution or write Board files manually to publish th
 - [x] A real extension-host test persists one Post through `leave_crew_post`, returns a Post ID, and reads the same canonical Post back through `read_crew_board` (`src/pi/crew-board.host.integration.test.ts`).
 - [x] Exact replay remains idempotent; a distinct operation creates a distinct Post; no retry creates duplicates (`src/infra/crew-board-store.test.ts`, replay/conflict/concurrent append matrix).
 - [ ] After the fix, persist the agreed interim TASK-0140 retrospective synthesis and record its Post ID in the retrospective report.
-- [ ] Focused tests, full gates, fresh watcher, and independent exact-head QA pass (focused gates pass locally; new candidate QA still required).
+- [x] Focused tests, full gates, fresh watcher, and independent exact-head QA pass: Kelly verified detached exact `ae0feb9c9bc32a8801549d67241814e95990ede7`, `make all` exit 0, Board 35/35, arch 34/34, typecheck, and diff-check.
 
 ## Notes
 
