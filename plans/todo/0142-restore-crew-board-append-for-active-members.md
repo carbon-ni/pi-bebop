@@ -1,0 +1,36 @@
+---
+id: TASK-0142
+title: Restore Crew Board append for active Members
+status: todo
+depends_on: []
+priority: high
+tags: [crew, board, collaboration, regression, tdd]
+---
+
+# Restore Crew Board append for active Members
+
+## Problem
+
+The interim TASK-0140 retrospective could be read from the Crew Board but could not be persisted: both Mary and Mony received `board-failed` from `leave_crew_post` while active Membership sockets and Board reads remained valid. Repeated retries provide no new evidence and the shared retrospective has no durable Post ID.
+
+## Context
+
+The existing Board contains one healthy Post and `read_crew_board` succeeds. The append directory is below capacity and no lock or temporary file is visible. This narrows the observed failure to the append authorization, validation, or write path. Public error sanitization currently hides the underlying unknown failure, so diagnosis must preserve privacy while producing stable actionable evidence.
+
+Do not bypass Membership attribution or write Board files manually to publish the retrospective.
+
+## Acceptance criteria
+
+- [ ] Add a failing regression fixture reproducing append rejection while the same active trusted Membership can read the Board.
+- [ ] Cover both Mary/Product and Mony/Lead membership snapshots without inferring authority from Role.
+- [ ] Identify the exact append-path failure and fix it without weakening operation-ID, author, trust, layout, link, capacity, locking, or atomic-publish validation.
+- [ ] Known append failures retain bounded stable error codes and recovery guidance; unknown exceptions remain sanitized without making diagnosis impossible in tests or internal evidence.
+- [ ] A real extension-host test persists one Post through `leave_crew_post`, returns a Post ID, and reads the same canonical Post back through `read_crew_board`.
+- [ ] Exact replay remains idempotent; a distinct operation creates a distinct Post; no retry creates duplicates.
+- [ ] After the fix, persist the agreed interim TASK-0140 retrospective synthesis and record its Post ID in the retrospective report.
+- [ ] Focused tests, full gates, fresh watcher, and independent exact-head QA pass.
+
+## Notes
+
+Observed on commit `51947eb`: Board read succeeded, while append attempts by Mary and Mony returned `board-failed`. No Post ID was created.
+
