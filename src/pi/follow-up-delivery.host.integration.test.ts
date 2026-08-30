@@ -312,5 +312,9 @@ test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) 
 	await target.session.waitForIdle();
 	assert.equal(received.length, 1, "the RPC Follow-up is delivered once");
 	assert.equal((received[0] as { content: string }).content.includes("queued update"), true);
+	const payload = (received[0] as { details: { messagePayload: { instructions: string[]; origin: unknown } } })
+		.details.messagePayload;
+	assert.deepEqual(payload.instructions, ["keep FIFO"]);
+	assert.deepEqual(payload.origin, { kind: "crew", name: "Sender", role: "lead" });
 	await currentTurn;
 });
