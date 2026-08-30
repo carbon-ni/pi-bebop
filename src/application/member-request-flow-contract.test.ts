@@ -141,7 +141,7 @@ function clockNoop(_cb: () => void): number {
 	return 0;
 }
 
-test("TASK-0080 C2: hard timer starts at accepted (acceptedAt + max_wait_seconds) and wins before any idle", async () => {
+test("TASK-0080 C2/TASK-0144: hard timer starts at accepted and follows one reminder before timeout", async () => {
 	const h = setup({ timeoutSeconds: 120, maxWaitSeconds: 300 });
 	await send(h, { timeoutSeconds: 120, maxWaitSeconds: 300 });
 	const outcomes: string[] = [];
@@ -152,9 +152,16 @@ test("TASK-0080 C2: hard timer starts at accepted (acceptedAt + max_wait_seconds
 	h.clock.advance(120_000);
 	assert.equal(h.flow.registry.hasPendingOutcome(), true);
 	assert.deepEqual(outcomes, []);
+	// The requester reminder is nonterminal at +180s.
+	h.clock.advance(60_000);
+	assert.deepEqual(outcomes, ["still-pending:"]);
+	// Re-arm the yielding outcome callback; the hard deadline remains +300s.
+	h.flow.waitForRequestOutcome((update) =>
+		outcomes.push(`${update.kind}:${update.kind === "timeout" ? update.reason : ""}`),
+	);
 	// At the hard deadline: timeout(max-wait).
-	h.clock.advance(180_000);
-	assert.deepEqual(outcomes, ["timeout:max-wait"]);
+	h.clock.advance(120_000);
+	assert.deepEqual(outcomes, ["still-pending:", "timeout:max-wait"]);
 	assert.equal(h.flow.registry.outboundCount(), 0);
 	assert.equal(h.clock.remaining(), 0);
 });
