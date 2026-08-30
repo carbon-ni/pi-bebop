@@ -731,9 +731,15 @@ test("model delivery defers Pi handoff until the terminal lifecycle task", async
 	const adapter = createModelDeliveryAdapter((message, options) => sent.push({ message, options }));
 	const generation = adapter.compactionStarted();
 	const message = { customType: "crew", content: "deferred", details: { messagePayload: { id: 2 } } };
-	assert.deepEqual(adapter.send(message, { triggerTurn: true }), { disposition: "deferred" });
+	let notified = 0;
+	assert.deepEqual(
+		adapter.send(message, { triggerTurn: true }, () => notified++),
+		{ disposition: "deferred" },
+	);
 	assert.deepEqual(sent, []);
+	assert.equal(notified, 0);
 	assert.equal(adapter.compactionEnded(generation), true);
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.deepEqual(sent, [{ message, options: { triggerTurn: true } }]);
+	assert.equal(notified, 1);
 });

@@ -215,15 +215,13 @@ export default function (pi: ExtensionAPI) {
 				details: { wait: message.details },
 				display: true,
 			};
-			// TASK-0081: the crew-wait-resume MODEL delivery is a Bebop-owned
-			// delivery; a local blocking idle wait wakes on it (a Response on the
-			// request-scoped RPC channel alone is not a wake).
-			notifyAcceptedMessage(
-				state,
-				`wait-resume-${String((message.details as { waitId?: string }).waitId ?? "")}`,
-			);
-			if (isIdle) state.modelDelivery?.send(customMessage, { triggerTurn: true });
-			else state.modelDelivery?.send(customMessage, { triggerTurn: true, deliverAs: message.deliverAs });
+			// TASK-0081: wake only after the gate hands the resume to Pi.
+			const waitId = String((message.details as { waitId?: string }).waitId ?? "");
+			const notifyHandoff = () => notifyAcceptedMessage(state, `wait-resume-${waitId}`);
+			const deliveryOptions = isIdle
+				? { triggerTurn: true }
+				: { triggerTurn: true, deliverAs: message.deliverAs };
+			state.modelDelivery?.send(customMessage, deliveryOptions, notifyHandoff);
 		},
 		isRunIdle: () => state.context?.isIdle?.() === true,
 		// TASK-0080: shared events are fire-and-forget session entries with the
