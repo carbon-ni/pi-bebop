@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -11,11 +11,11 @@ import {
 	type Provider,
 } from "@earendil-works/pi-ai";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
-import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
+import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { createMemberMessageCoordinator } from "../application/member-message.ts";
-import { createSocketState, handleCommand } from "./control-runtime.ts";
 import { registerSendFollowUpTool } from "../tools/send-follow-up.ts";
 import bebopExtension from "../extension.ts";
+import { createSocketState } from "./control-runtime.ts";
 import { createModelDeliveryAdapter } from "./compaction-delivery.ts";
 import {
 	createAgentSession,
@@ -130,7 +130,7 @@ async function createSession(
 	});
 	await resourceLoader.reload();
 	const sessionManager = SessionManager.inMemory(cwd);
-	const { session } = await createAgentSession({
+	const { session, extensionsResult } = await createAgentSession({
 		cwd,
 		agentDir,
 		model,
@@ -142,8 +142,11 @@ async function createSession(
 		settingsManager: settings,
 	});
 	return {
+		cwd,
 		session,
 		sessionManager,
+		settings,
+		extensionsResult,
 		cleanup: async () => {
 			session.dispose();
 			await rm(cwd, { recursive: true, force: true });
@@ -233,30 +236,32 @@ test("TASK-0145: baseline and busy Follow-up both preserve host lifecycle orderi
 
 test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) => {
 	const root = await mkdtemp(path.join(os.tmpdir(), "bebop-follow-up-rpc-"));
-	const targetSocket = path.join(root, "target.sock");
 	const targetEvents: string[] = [];
 	let releaseCurrent!: () => void;
 	let releaseFollowUp!: () => void;
 	const currentRelease = new Promise<void>((resolve) => (releaseCurrent = resolve));
 	const followUpRelease = new Promise<void>((resolve) => (releaseFollowUp = resolve));
 	const target = await createSession(targetEvents, [currentRelease, followUpRelease], [bebopExtension as never]);
-	const targetState = createSocketState();
-	targetState.context = {
-		hasUI: false,
-		sessionManager: target.sessionManager,
-		isIdle: () => target.session.isIdle,
-		isProjectTrusted: () => true,
-	} as never;
-	const targetPi = {
-		sendMessage: (message: unknown, options: unknown) => {
-			void target.session.sendCustomMessage(message as never, options as never);
-		},
-	};
-	const server = await createRpcServer(targetSocket, (command, socket) =>
-		handleCommand(targetPi as never, targetState, command, socket),
+	const targetSocket = path.join(target.cwd, ".pi", "bebop", "sockets", "target.sock");
+	await mkdir(path.dirname(targetSocket), { recursive: true });
+	await writeFile(
+		path.join(target.cwd, ".pi", "bebop", "crew.json"),
+		JSON.stringify({
+			version: 1,
+			members: [
+				{ name: "Target", role: "qa", socket: "sockets/target.sock" },
+				{ name: "Sender", role: "lead", socket: "sockets/sender.sock" },
+			],
+		}),
 	);
+	target.settings.setProjectTrusted(true);
+	(target.extensionsResult as unknown as { runtime: { flagValues: Map<string, unknown> } }).runtime.flagValues.set(
+		"crew",
+		true,
+	);
+	await target.session.bindExtensions({});
+	await target.session.prompt("/crew join .pi/bebop/sockets/target.sock");
 	t.after(async () => {
-		await closeRpcServer(server);
 		await target.cleanup();
 		await rm(root, { recursive: true, force: true });
 	});
@@ -273,12 +278,20 @@ test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) 
 	const senderState = createSocketState();
 	senderState.membershipRuntime = {
 		getMembership: () => ({
-			manifestPath: path.join(root, ".pi", "bebop", "crew.json"),
-			socketPath: path.join(root, "sender.sock"),
-			member: { name: "Sender", role: "lead", socketPath: path.join(root, "sender.sock") },
+			manifestPath: path.join(target.cwd, ".pi", "bebop", "crew.json"),
+			socketPath: path.join(target.cwd, ".pi", "bebop", "sockets", "sender.sock"),
+			member: {
+				name: "Sender",
+				role: "lead",
+				socketPath: path.join(target.cwd, ".pi", "bebop", "sockets", "sender.sock"),
+			},
 			manifest: {
 				members: [
-					{ name: "Sender", role: "lead", socketPath: path.join(root, "sender.sock") },
+					{
+						name: "Sender",
+						role: "lead",
+						socketPath: path.join(target.cwd, ".pi", "bebop", "sockets", "sender.sock"),
+					},
 					{ name: "Target", role: "qa", socketPath: targetSocket },
 				],
 			},
@@ -293,7 +306,7 @@ test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) 
 					classifyLostAck: options.classifyLostAck,
 				}),
 		},
-		resolveEndpoint: async (socketPath) => socketPath,
+		resolveEndpoint: resolveMemberEndpoint,
 		coordinator: createMemberMessageCoordinator(),
 	});
 	const followUpTool = tools.find((tool) => tool.name === "send_follow_up");
@@ -322,4 +335,5 @@ test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) 
 	assert.deepEqual(payload.instructions, ["keep FIFO"]);
 	assert.deepEqual(payload.origin, { kind: "crew", name: "Sender", role: "lead" });
 	await currentTurn;
+	await target.session.prompt("/crew stop");
 });
