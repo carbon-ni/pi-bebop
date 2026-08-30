@@ -140,6 +140,25 @@ test("TASK-0144: repeated empty wait remains a normal all-settled result", async
 	assert.equal(result.details.outcome, "all-settled");
 });
 
+test("TASK-0144: parked requester wait resumes on still-pending reminder while Request remains active", async () => {
+	const { tools, state, pi, yieldRuntime, delivered } = setup();
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
+	const registry = state.memberRequestFlow!.registry;
+	registry.registerOutbound({ requestId: "active", member: { name: "qa", role: "reviewer" }, now: 1_000 });
+	registry.acceptOutbound("active");
+	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(result.details.yielded, true);
+	registry.publishReminder({
+		kind: "still-pending",
+		requestId: "active",
+		member: { name: "qa", role: "reviewer" },
+		ageSeconds: 180,
+	});
+	assert.equal(delivered.length, 1);
+	assert.match(delivered[0]!.content, /still-pending/);
+	assert.equal(registry.outboundCount(), 1);
+});
+
 test("TASK-0080-fix: the wait tool forwards the FULL Response (message + ordered instructions) to the resume", async () => {
 	const { tools, state, pi, yieldRuntime, delivered } = setup();
 	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
