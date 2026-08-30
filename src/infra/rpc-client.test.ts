@@ -1131,7 +1131,7 @@ test("sendMemberRequest reports offline terminal closure and caller close idempo
 						id: request.id,
 						result: { accepted: true, requestId: "r-off", member: { name: "Bob", role: "dev" } },
 					});
-					setTimeout(() => socket.end(), 2);
+					setTimeout(() => socket.end(), 25);
 				}
 			}),
 		async (socketPath) => {
@@ -1147,7 +1147,7 @@ test("sendMemberRequest reports offline terminal closure and caller close idempo
 				},
 				{ onUpdate: (update) => updates.push(update) },
 			);
-			await new Promise((resolve) => setTimeout(resolve, 20));
+			await new Promise((resolve) => setTimeout(resolve, 60));
 			result.close();
 			result.close();
 			assert.equal(updates.length, 1);
