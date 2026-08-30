@@ -24,20 +24,22 @@ The unavoidable extension-only choice is explicit:
 
 ## Locked Product decision
 
-Product selected **at-least-once across the ambiguous crash window**. Acknowledged journal work must not be silently lost. A process crash may cause one replay attempt with the same stable delivery ID when durable Pi session evidence is absent, even if Pi had consumed the first handoff before crashing. Such a replay is a possible duplicate, not a new message or a new acceptance.
+Product selected **at-least-once across the ambiguous crash window**. Acknowledged journal work must not be silently lost. A process crash may cause one automatic replay with the same stable delivery ID when durable Pi session evidence is absent, even if Pi had consumed the first handoff before crashing. Such a replay is a possible duplicate, not a new message or a new acceptance.
 
 The bounded contract is:
 
-1. **Before durable journal append:** no acknowledgement, no ownership, no later replay.
-2. **After append and before Pi handoff:** retain `pending`; restart replays in original sequence.
-3. **After `handing-off` and with durable typed Pi evidence present:** complete the journal record; never replay.
-4. **After `handing-off` and with evidence absent:** treat the window as ambiguous and replay once per recovery attempt using the same delivery ID and envelope. Persist replay-attempt state before invoking Pi.
-5. **Replay provenance:** add bounded structured metadata and model-visible provenance saying the delivery was replayed after an ambiguous restart and may be a duplicate. Do not expose the delivery ID, paths, routes, queue size, or compaction state.
-6. **FIFO:** an ambiguous head record is reconciled or replayed before any later record; later direct delivery cannot overtake it.
-7. **Acknowledgement:** remains persisted-only and never claims model delivery, reading, availability, completion, response, or exactly-once processing.
-8. **Member Request exception:** its live response channel is not durable. It remains unacknowledged until safe handoff; channel/process loss before acknowledgement cancels it. After acknowledgement, ordinary requester offline/timeout semantics apply; never create a channel-less replayed Request after restart.
-9. **Inbox/one-way/Interrupt/Response/Presence:** retain their original surface semantics; if eligible for durable replay, reuse the same delivery ID and mark only replay provenance. Inbox removal remains after committed handoff evidence.
-10. **No upstream changes:** use only published Pi 0.84.3 public APIs. The implementation and documentation must state the unavoidable duplicate window honestly.
+1. **Before durable journal append:** no acknowledgement, no ownership, and no later handoff.
+2. **`pending` after append and before Pi handoff:** restart resumes the first handoff in original sequence. This is not a possible duplicate and gets no replay provenance.
+3. **`handing-off` with durable typed Pi evidence present:** complete the journal record and never replay.
+4. **`handing-off` with evidence absent and `replayAttempts: 0`:** treat the window as ambiguous. Atomically persist `replayAttempts: 1` before one automatic replay with the same delivery ID and immutable canonical envelope.
+5. **Second ambiguity:** if evidence remains absent after the automatic replay, atomically change state to `replay-blocked`. Do not call Pi again. Retain the record, block later FIFO handoff, and emit one bounded local actionable error. Do not put the error in model context, Presence, Member Status, wait-state, or Crew output. Explicit operator recovery is a future surface, not an automatic retry in TASK-0140.
+6. **Journal schema:** each record has state `pending`, `handing-off`, or `replay-blocked`, plus `replayAttempts: 0 | 1`. The canonical envelope stays byte-immutable. State and counter transition in the same atomic store write before handoff.
+7. **Replay provenance:** derive the Pi handoff without mutating the stored envelope. Prefix the cloned model content with the exact 56-byte ASCII text `[replayed after ambiguous restart; possible duplicate]\n\n`. Add closed internal details `{ deliveryReplay: { kind: "ambiguous-restart", possibleDuplicate: true } }`. The prefix and details are separate from canonical-envelope capacity accounting. Never expose the delivery ID, paths, routes, queue size, or compaction state.
+8. **FIFO:** a `pending`, `handing-off`, or `replay-blocked` head record is reconciled before any later record; later direct delivery cannot overtake it.
+9. **Acknowledgement:** remains persisted-only and never claims model delivery, reading, availability, completion, response, or exactly-once processing.
+10. **Member Request exception:** its live response channel is not durable. It remains unacknowledged until safe handoff; channel/process loss before acknowledgement cancels it. After acknowledgement, ordinary requester offline/timeout semantics apply; never create a channel-less replayed Request after restart.
+11. **Inbox/one-way/Interrupt/Response/Presence:** retain their original surface semantics; if eligible for ambiguous replay, reuse the same delivery ID and add only the defined replay provenance. Inbox removal remains after committed handoff evidence.
+12. **No upstream changes:** use only published Pi 0.84.3 public APIs. The implementation and documentation must state the unavoidable duplicate window honestly.
 
 At-most-once was rejected because it can silently lose acknowledged coordination. Explicit recovery was rejected as the default because it can indefinitely stall the global FIFO and requires an operator surface outside TASK-0140.
 
@@ -47,7 +49,7 @@ At-most-once was rejected because it can silently lose acknowledged coordination
 - [ ] Select one explicit loss/duplicate/recovery contract for the handoff crash window; document why the rejected alternatives are worse for Crew coordination.
 - [ ] Define guarantees separately for normal in-process delivery, graceful restart, process crash before Pi handoff, and ambiguous crash during/after Pi handoff.
 - [ ] Preserve the existing persisted-only deferred acknowledgement meaning; it must not claim model delivery or exactly-once processing.
-- [ ] Define stable delivery-ID, replay provenance, Inbox/Request/Interrupt behavior, FIFO ordering, and operator recovery under the selected contract.
+- [ ] Define stable delivery-ID, immutable envelope, replay counter/state, exact replay provenance, Inbox/Request/Interrupt behavior, FIFO ordering, and bounded `replay-blocked` operator outcome under the selected contract.
 - [ ] Update TASK-0140 Desired outcome, Delivery contract, journal reconciliation, acceptance matrix, tests, and Ubiquitous Language so no exactly-once claim exceeds public evidence.
 - [ ] Obtain explicit Product acceptance and independent QA review of the revised contract before TASK-0140 production implementation resumes.
 

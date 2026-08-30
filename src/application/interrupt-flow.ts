@@ -206,10 +206,11 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 	};
 
 	/**
-	 * Reload recovery (exactly-once handoff): if the newest evidence for a
-	 * target is pending-without-handed-off (crash between persist and handoff),
-	 * re-deliver the recovery message before normal continuation. Returns the
-	 * re-delivered record or null when nothing is pending.
+	 * Reload recovery for pending session evidence: if the newest evidence for
+	 * a target is pending-without-handed-off (crash between persist and handoff),
+	 * re-deliver the recovery message before normal continuation. This local
+	 * flow makes no crash-safe exactly-once claim. Returns the recovered record
+	 * or null when nothing is pending.
 	 */
 	const recoverPending = async (): Promise<InterruptEvidenceRecord | null> => {
 		const record = latestInterruptEvidence(surface.getEntries());

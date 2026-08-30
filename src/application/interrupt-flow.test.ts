@@ -152,7 +152,7 @@ describe("createInterruptFlow", () => {
 	});
 });
 
-describe("reload recovery (exactly-once handoff)", () => {
+describe("reload recovery for pending session evidence", () => {
 	test("pending-without-handed-off is re-delivered and marked handed-off", async () => {
 		// Simulate crash after pending persist but before handoff: the persisted
 		// pending evidence lives in the session branch, so the recovered surface

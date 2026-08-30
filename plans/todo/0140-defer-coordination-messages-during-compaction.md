@@ -44,7 +44,7 @@ Add a source ratchet: no Bebop-owned direct `pi.sendMessage` call may remain out
 5. An acknowledged pending message cannot disappear on reload, resume, fork, session replacement, leave, shutdown, socket loss, or process failure.
 6. Pi 0.84.3 `session_before_compact` closes the gate. `session_compact` and `session_compact_failed` are terminal wake signals. There is no `session_compaction_start` or `session_compaction_end` extension event.
 7. Terminal handlers never drain synchronously. They schedule one injected `setImmediate`-class post-event task. The task drains only when local compaction depth is zero and the captured lifecycle generation is still current.
-8. Drain pending entries once during uninterrupted operation, in persisted receiver acceptance order. Preserve exact content, ordered instructions, Origin, callback/correlation metadata, delivery mode, FIFO semantics, and queued Follow-up provenance. An ambiguous crash recovery may replay the same envelope under the locked TASK-0143 contract.
+8. Drain pending entries once during uninterrupted operation, in persisted receiver acceptance order. Preserve the immutable canonical envelope, ordered instructions, Origin, callback/correlation metadata, delivery mode, FIFO semantics, and queued Follow-up provenance. An ambiguous crash recovery derives one handoff with the separate exact replay provenance locked by TASK-0143.
 9. A message accepted before a terminal boundary stays ahead of one accepted after it. New direct delivery cannot overtake an existing backlog.
 10. If compaction starts while the queue drains, finish only the already committed handoff, stop before the next entry, and retain the remainder.
 11. `notifyAcceptedMessage`, Inbox removal, Member Request registration/visibility, and Request timers occur only at safe handoff.
@@ -57,9 +57,13 @@ Add a source ratchet: no Bebop-owned direct `pi.sendMessage` call may remain out
 
 The source of truth is an external journal under the trusted Crew store, not a session entry. Its ownership key is the canonical Crew Manifest path plus the exact Member name, encoded as a safe hash. Role, session ID, and socket path are not ownership.
 
-Each record has a stable receiver-assigned delivery ID, monotonic acceptance sequence, canonical envelope bytes, and `pending` or `handing-off` state. Persist with atomic replacement before deferred acknowledgement. Session entries may provide delivery evidence but are never the pending store.
+Each record has a stable receiver-assigned delivery ID, monotonic acceptance sequence, immutable canonical envelope bytes, state `pending`, `handing-off`, or `replay-blocked`, and `replayAttempts: 0 | 1`. Persist with atomic replacement before deferred acknowledgement. Session entries may provide delivery evidence but are never the pending store.
 
-On handoff, persist `handing-off`, embed the delivery ID in internal message details, then call the unchanged Pi delivery. Mark delivered only after Pi session evidence contains that ID. After a crash, evidence present means do not replay; evidence absent is an ambiguous window and triggers an at-least-once replay with the same delivery ID. Persist replay-attempt state first and attach bounded model-visible possible-duplicate provenance without exposing the ID. Real-host crash-point tests must prove no acknowledged loss and bound duplicates to this explicit window.
+A restarted `pending` record resumes its first handoff without possible-duplicate provenance. For a new handoff, atomically persist `handing-off` with `replayAttempts: 0`, embed the delivery ID in internal details, then call Pi. Mark delivered only after Pi session evidence contains that ID.
+
+After a crash, evidence present means do not replay. For evidence-absent `handing-off` with `replayAttempts: 0`, atomically persist `replayAttempts: 1`, then automatically replay once with the same delivery ID. Keep the canonical envelope immutable. The cloned Pi handoff gets exact content prefix `[replayed after ambiguous restart; possible duplicate]\n\n` and closed details `{ deliveryReplay: { kind: "ambiguous-restart", possibleDuplicate: true } }`. This 56-byte ASCII prefix and the derived details are not canonical-envelope capacity bytes and expose no ID.
+
+If evidence remains absent after that replay, atomically persist `replay-blocked`; do not call Pi again. Retain the record at the FIFO head and emit one bounded local actionable error outside model context and all Crew-visible status surfaces. Real-host crash-point tests must prove no acknowledged loss and at most one automatic replay.
 
 Reload, resume, fork, replacement, leave, shutdown, and restart retain acknowledged records for the same Manifest and Member. A removed or changed Member identity remains blocked and is never reassigned to another Member.
 
@@ -118,7 +122,7 @@ After F1–F3 pass, implementation resumes against this bounded matrix. Rows ide
 ## Implementation plan
 
 1. Add red tests for direct delivery, compacting deferral, capacity, persistence, and crash points at one pure receiver-owned seam.
-2. Add the bounded external journal with stable delivery IDs, acceptance sequence, `pending`/`handing-off` reconciliation, and injected atomic storage operations.
+2. Add the bounded external journal with stable delivery IDs, acceptance sequence, `pending`/`handing-off`/`replay-blocked` reconciliation, `replayAttempts: 0 | 1`, and injected atomic storage operations.
 3. Inject the gate at the Pi composition root. Replace every Bebop-owned model-bound `pi.sendMessage` call with the gate; mechanically reject new direct calls.
 4. Wire `session_before_compact`, `session_compact`, and `session_compact_failed` to the locked depth/generation/post-event seam. Remove the historical unsupported event name.
 5. Keep surface-specific behavior outside the gate: Follow-up stays FIFO, Redirect stays steer, Inbox stays durable until handoff, Request stays live-channel correlated, and Interrupt stays best-effort control plus gated recovery.
@@ -139,8 +143,8 @@ After F1–F3 pass, implementation resumes against this bounded matrix. Rows ide
 - [ ] Deferred Member Request remains unacknowledged and invisible until handoff; channel loss before handoff never creates a responder-visible orphan.
 - [ ] Queued Follow-up provenance reports immutable receiver-observed acceptance-to-handoff delay including compaction wait, without claiming correlation.
 - [ ] Deferred acknowledgement is byte-exact, follows durable ownership, reveals no compaction state, and makes no delivery/read/availability/response/completion claim. Non-compacting acknowledgement is byte-compatible.
-- [ ] Reload, resume, fork, replacement, leave, shutdown, socket loss, and thrown renderer/provider boundaries cannot lose an acknowledged record. Process restart replays only an evidence-absent `handing-off` record, with the same delivery ID and explicit possible-duplicate provenance.
-- [ ] Crash tests cover before persistence, after persistence/before ack, after ack, after `handing-off`/before Pi send, the ambiguous Pi-send/evidence window, after Pi session evidence/before journal completion, replay-attempt persistence, and restart reconciliation.
+- [ ] Reload, resume, fork, replacement, leave, shutdown, socket loss, and thrown renderer/provider boundaries cannot lose an acknowledged record. Restart resumes `pending` as a first handoff without replay provenance; it automatically replays only evidence-absent `handing-off` with `replayAttempts: 0`; a second ambiguity becomes retained `replay-blocked` without another Pi call.
+- [ ] Crash tests cover before persistence, after persistence/before ack, `pending` restart, after ack, after `handing-off`/before Pi send, the ambiguous Pi-send/evidence window, after Pi session evidence/before journal completion, atomic `replayAttempts` persistence, first replay, second ambiguity to `replay-blocked`, and restart reconciliation.
 - [ ] Capacity tests enforce 64 entries, 1,100,000 bytes per canonical envelope, and 70,400,000 aggregate bytes. Overflow and malformed records fail atomically before acknowledgement without changing existing FIFO state.
 - [ ] Gate state and journal expose no compaction state, count, content, delivery ID, instructions, Origin, correlation route, session ID, socket/path, model data, or inferred intent through Member Status, wait-state, Presence, Crew output, or capacity errors. Model-visible replay provenance reveals only ambiguous-restart and possible-duplicate meaning.
 - [ ] Existing non-compacting Follow-up, Redirect, Request, Inbox, Interrupt, Presence, and startup/control behavior remains byte-compatible.
