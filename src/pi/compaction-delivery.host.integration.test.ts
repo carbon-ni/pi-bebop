@@ -302,23 +302,33 @@ test("Pi 0.84.3 host preserves nested, stale-terminal, and new-start drain barri
 		reconcile: async () => undefined,
 	};
 	await adapter.configureJournal(journal);
-	let outer = 0;
-	let inner = 0;
+	const generations: number[] = [];
+	let compactions = 0;
 	const extension = {
 		name: "bebop-compaction-barrier-host-probe",
 		factory: (pi: ExtensionAPI) => {
 			pi.on("session_before_compact", async () => {
-				events.push("before");
-				outer = adapter.compactionStarted();
-				inner = adapter.compactionStarted();
-				assert.equal(adapter.compactionEnded(outer), false);
-				await adapter.sendDurably({ customType: "probe", content: "first" }, { triggerTurn: true });
+				compactions++;
+				events.push(`before:${compactions}`);
+				const generation = adapter.compactionStarted();
+				generations.push(generation);
+				if (compactions === 1) {
+					const nested = adapter.compactionStarted();
+					assert.equal(adapter.compactionEnded(generation), false);
+					await adapter.sendDurably({ customType: "probe", content: "first" }, { triggerTurn: true });
+					assert.equal(adapter.compactionEnded(nested), true);
+					return;
+				}
 				await adapter.sendDurably({ customType: "probe", content: "second" }, { triggerTurn: true });
 			});
 			pi.on("session_compact", () => {
-				events.push("terminal");
-				assert.equal(adapter.compactionEnded(inner), true);
-				assert.equal(adapter.compactionEnded(outer), true);
+				events.push(`terminal:${compactions}`);
+				if (compactions === 1) {
+					assert.equal(adapter.compactionEnded(generations[0]!), true);
+					return;
+				}
+				assert.equal(adapter.compactionEnded(generations[0]!), false, "old host terminal is stale");
+				assert.equal(adapter.compactionEnded(generations[1]!), true);
 			});
 		},
 	};
@@ -362,7 +372,27 @@ test("Pi 0.84.3 host preserves nested, stale-terminal, and new-start drain barri
 	});
 	t.after(() => session.dispose());
 	await session.compact();
+	sessionManager.appendMessage({
+		role: "user",
+		content: [{ type: "text", text: "message after first compaction ".repeat(30) }],
+		timestamp: Date.now(),
+	} as never);
+	sessionManager.appendMessage(assistantMessage("answer after first compaction ".repeat(30)));
+	await session.compact();
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	await new Promise<void>((resolve) => setImmediate(resolve));
-	assert.deepEqual(events, ["before", "provider-start", "provider-done", "terminal", "send:first", "send:second"]);
+	assert.deepEqual(events, [
+		"before:1",
+		"provider-start",
+		"provider-done",
+		"terminal:1",
+		"before:2",
+		"provider-start",
+		"provider-done",
+		"provider-start",
+		"provider-done",
+		"terminal:2",
+		"send:first",
+		"send:second",
+	]);
 });
