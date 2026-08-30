@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
 set -eu
 
-make all
+exec make all

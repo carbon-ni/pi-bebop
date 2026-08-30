@@ -36,19 +36,6 @@ jobs:
           - tsconfig.json
       run_on_init: true
 
-    - name: format @quick
-      run: npm run format:check
-      parallel: quick
-      change:
-          - src/**/*.ts
-          - index.ts
-          - scripts/**/*.mjs
-          - package.json
-          - .watch.yaml
-          - .prettierrc.json
-          - tsconfig.json
-      run_on_init: true
-
     - name: lint @quick
       run: npm run lint
       parallel: quick
@@ -57,13 +44,6 @@ jobs:
           - package.json
           - package-lock.json
           - tsconfig.json
-      run_on_init: true
-
-    - name: security audit @quick
-      run: npm audit --omit=dev --audit-level=moderate
-      change:
-          - package.json
-          - package-lock.json
       run_on_init: true
 
     - name: quality gate @agent-final

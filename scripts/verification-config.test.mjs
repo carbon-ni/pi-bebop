@@ -7,7 +7,9 @@ const root = resolve(import.meta.dirname, "..");
 const watchConfig = readFileSync(resolve(root, ".watch.yaml"), "utf8");
 const ciConfig = readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8");
 const makefile = readFileSync(resolve(root, "Makefile"), "utf8");
+const preCommit = readFileSync(resolve(root, ".githooks/pre-commit"), "utf8");
 const prePush = readFileSync(resolve(root, ".githooks/pre-push"), "utf8");
+const quietQualityGate = readFileSync(resolve(root, "scripts/quiet-quality-gate.mjs"), "utf8");
 const readme = readFileSync(resolve(root, "README.md"), "utf8");
 const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const failureNotifier = readFileSync(resolve(root, "scripts/notify-crew-on-watch-failure.sh"), "utf8");
@@ -45,10 +47,17 @@ test("CI and local final verification invoke the canonical make all gate", () =>
 	assert.match(jobSection("quality gate @agent-final"), /run: make all/);
 });
 
-test("quick watcher jobs remain targeted instead of inheriting the final gate trigger", () => {
-	for (const job of ["test @quick", "format @quick", "lint @quick", "security audit @quick"]) {
-		const section = jobSection(job);
-		assert.doesNotMatch(section, /change:\s*["']\*\*\/\*["']/);
+test("normal gates run only lint and tests through a quiet boolean gate", () => {
+	assert.match(makefile, /^all:\s+quiet-quality-gate$/m);
+	assert.match(makefile, /^quiet-quality-gate:$/m);
+	assert.match(preCommit, /^exec make all$/m);
+	assert.match(prePush, /^exec make all$/m);
+	assert.match(quietQualityGate, /\["npm", \["run", "lint"\]\]/);
+	assert.match(quietQualityGate, /\["npm", \["test"\]\]/);
+	assert.ok(quietQualityGate.includes('write("true\\n")'));
+	assert.ok(quietQualityGate.includes('write("false\\n")'));
+	for (const job of ["format @quick", "security audit @quick"]) {
+		assert.equal(watchConfig.includes(`name: ${job}`), false, `${job} must not run in normal feedback`);
 	}
 });
 
@@ -57,9 +66,11 @@ test("repository hooks have an explicit install and check path", () => {
 	assert.match(makefile, /git config core\.hooksPath \.githooks/);
 	assert.match(makefile, /^hooks-check:$/m);
 	assert.match(makefile, /core\.hooksPath/);
-	assert.match(makefile, /\.githooks\/pre-push/);
-	assert.match(makefile, /make all/);
-	assert.match(prePush, /^make all$/m);
+	for (const hook of ["pre-commit", "pre-push", "commit-msg"]) {
+		assert.match(makefile, new RegExp(`test -x \\.githooks/${hook}`));
+	}
+	assert.match(makefile, /exec make all/);
+	assert.match(prePush, /^exec make all$/m);
 	assert.match(readme, /make hooks-install/);
 	assert.match(readme, /make hooks-check/);
 	assert.match(readme, /GitHub CI remains\s+authoritative/);

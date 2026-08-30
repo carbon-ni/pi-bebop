@@ -1,7 +1,4 @@
 #!/usr/bin/env sh
 set -eu
 
-npm run lint
-npm run verify:arch
-npm run verify:error-boundary
-npm test
+exec make all

@@ -145,9 +145,10 @@ npm run build
 npm test
 ```
 
-`make hooks-install` enables the repository pre-push hook. `make hooks-check`
-checks that installation. The local hook gives early feedback. GitHub CI remains
-authoritative. `make all` runs the pre-push and CI gate.
+`make hooks-install` enables repository hooks. `make hooks-check` checks that
+installation. Hooks, the watcher, and GitHub CI run lint and tests. `make all`
+prints `true` on success. On failure it prints `false` and the failing command
+output. GitHub CI remains authoritative.
 
 Run package verification separately. It installs a consumer dependency set and
 can need network access.
