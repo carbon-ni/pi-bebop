@@ -2,7 +2,7 @@
 
 set -eu
 
-QUIET_PERIOD_SECONDS=300
+QUIET_PERIOD_SECONDS=120
 STATE_DIR=".tmp/funzzy-failure-notification"
 STATE_FILE="$STATE_DIR/state"
 LOCK_DIR="$STATE_DIR/worker.lock"
