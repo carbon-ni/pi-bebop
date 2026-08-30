@@ -57,6 +57,57 @@ const OUTCOMES = new Set([
 	"no-recipients",
 	"failed",
 ]);
+
+const SURFACE_STAGE_OUTCOME: Record<string, Record<string, ReadonlySet<string>>> = {
+	"follow-up": {
+		delivery: new Set(["direct", "queued", "offline", "failed"]),
+	},
+	redirect: {
+		delivery: new Set(["redirected", "offline", "failed"]),
+	},
+	"member-request": {
+		delivery: new Set(["direct", "queued", "offline", "failed"]),
+		"request-terminal": new Set([
+			"response-recorded",
+			"offline",
+			"timeout-max-wait",
+			"timeout-response-after-idle",
+			"cancelled",
+			"failed",
+		]),
+	},
+	"member-response": {
+		delivery: new Set(["direct", "queued", "offline", "failed"]),
+	},
+	"member-inbox": {
+		persistence: new Set(["persisted", "already-persisted", "failed"]),
+		handoff: new Set(["offered", "handoff-recorded", "cancelled", "failed"]),
+	},
+	"crew-broadcast": {
+		persistence: new Set(["persisted", "already-persisted", "failed"]),
+		handoff: new Set(["offered", "handoff-recorded", "cancelled", "failed"]),
+		"broadcast-summary": new Set(["complete", "partial", "no-recipients", "failed"]),
+	},
+	interrupt: {
+		recovery: new Set(["pending", "already-pending", "direct", "handoff-recorded", "failed"]),
+		abort: new Set(["abort-requested", "no-active-context", "failed"]),
+	},
+	"crew-intake": {
+		persistence: new Set(["persisted", "already-persisted", "failed"]),
+		handoff: new Set(["offered", "handoff-recorded", "cancelled", "failed"]),
+	},
+};
+
+const PAYLOAD_REQUIRED_MATRIX: Record<string, ReadonlySet<string>> = {
+	"follow-up/delivery": new Set(["direct", "queued", "offline", "failed"]),
+	"redirect/delivery": new Set(["redirected", "offline", "failed"]),
+	"member-request/delivery": new Set(["direct", "queued", "offline", "failed"]),
+	"member-response/delivery": new Set(["direct", "queued", "offline", "failed"]),
+	"member-inbox/persistence": new Set(["persisted", "already-persisted", "failed"]),
+	"crew-intake/persistence": new Set(["persisted", "already-persisted", "failed"]),
+	"interrupt/recovery": new Set(["pending", "already-pending", "direct", "handoff-recorded", "failed"]),
+	"crew-broadcast/broadcast-summary": new Set(["complete", "partial", "no-recipients", "failed"]),
+};
 const CANONICAL_KEYS = [
 	...REQUIRED,
 	"actorKind",
@@ -84,6 +135,10 @@ function closedFields(entry: MessageLogEntry): void {
 	if (Object.keys(entry).some((key) => !REQUIRED.includes(key as never) && !optional.has(key)))
 		throw new Error("unknown-message-log-field");
 }
+function payloadContract(surface: string, stage: string, outcome: string): boolean {
+	return PAYLOAD_REQUIRED_MATRIX[`${surface}/${stage}`]?.has(outcome) ?? false;
+}
+
 function scalarFields(entry: MessageLogEntry): void {
 	if (
 		!/^entry-[0-9a-f]{64}$/.test(String(entry.id)) ||
@@ -92,8 +147,17 @@ function scalarFields(entry: MessageLogEntry): void {
 		throw new Error("invalid-message-log-id");
 	if (typeof entry.occurredAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(entry.occurredAt))
 		throw new Error("invalid-message-log-timestamp");
+	const occurredAt = new Date(entry.occurredAt);
+	if (Number.isNaN(occurredAt.getTime()) || occurredAt.toISOString() !== entry.occurredAt)
+		throw new Error("invalid-message-log-timestamp");
 	if (typeof entry.semanticFingerprint !== "string" || !/^[0-9a-f]{64}$/.test(entry.semanticFingerprint))
 		throw new Error("invalid-message-log-fingerprint");
+}
+
+function validateLifecycleContract(entry: MessageLogEntry): void {
+	const allowedOutcomes = SURFACE_STAGE_OUTCOME[String(entry.surface)]?.[String(entry.stage)];
+	if (!allowedOutcomes || !allowedOutcomes.has(String(entry.outcome)))
+		throw new Error("invalid-message-log-surface-stage-outcome");
 }
 function operationFields(entry: MessageLogEntry): void {
 	const operation = entry.operation as any;
@@ -235,9 +299,14 @@ function payloadCount(payload: any): boolean {
 				payload.instructionCount === payload.instructions.length;
 }
 function payloadFields(entry: MessageLogEntry): void {
-	const payload = entry.payload as any;
-	if (!payloadShape(payload) || !payloadTexts(payload) || !payloadCount(payload))
-		throw new Error("invalid-message-log-payload");
+	const requiresPayload = payloadContract(String(entry.surface), String(entry.stage), String(entry.outcome));
+	if (requiresPayload) {
+		const payload = entry.payload as any;
+		if (payload === null || !payloadShape(payload) || !payloadTexts(payload) || !payloadCount(payload))
+			throw new Error("invalid-message-log-payload");
+		return;
+	}
+	if (entry.payload !== null) throw new Error("invalid-message-log-payload");
 }
 function captureFields(entry: MessageLogEntry): void {
 	const capture = entry.capture as any;
@@ -250,9 +319,15 @@ function captureFields(entry: MessageLogEntry): void {
 		typeof capture.endpointId !== "string" ||
 		typeof capture.epochId !== "string" ||
 		!Number.isSafeInteger(capture.attemptSequence) ||
+		capture.attemptSequence < 1 ||
 		typeof capture.capturedAt !== "string"
 	)
 		throw new Error("invalid-message-log-capture");
+	const capturedAt = new Date(capture.capturedAt);
+	if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/.test(capture.capturedAt))
+		throw new Error("invalid-message-log-timestamp");
+	if (Number.isNaN(capturedAt.getTime()) || capturedAt.toISOString() !== capture.capturedAt)
+		throw new Error("invalid-message-log-timestamp");
 }
 function nestedFields(entry: MessageLogEntry): void {
 	operationFields(entry);
@@ -270,6 +345,7 @@ export function validateMessageLogEntry(entry: MessageLogEntry): void {
 		(entry.outcome === "failed" ? typeof entry.errorCode !== "string" : entry.errorCode !== null)
 	)
 		throw new Error("invalid-message-log-schema");
+	validateLifecycleContract(entry);
 	closedFields(entry);
 	scalarFields(entry);
 	nestedFields(entry);

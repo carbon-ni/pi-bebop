@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { canonicalMessageLogEntryBytes, validateMessageLogEntry, type MessageLogEntry } from "../domain/index.ts";
@@ -34,7 +35,7 @@ type MessageLogStoreFs = {
 	readFile: (filePath: string) => Promise<Buffer>;
 	writeFile: (
 		filePath: string,
-		data: Uint8Array,
+		data: string | Uint8Array,
 		options?: {
 			flag?: string;
 		},
@@ -43,6 +44,7 @@ type MessageLogStoreFs = {
 	rename: (oldPath: string, newPath: string) => Promise<void>;
 	open: (filePath: string, flags: string) => Promise<{ close: () => Promise<void> }>;
 	unlink: (filePath: string) => Promise<void>;
+	realpath: (filePath: string) => Promise<string>;
 };
 
 const defaultFs: MessageLogStoreFs = {
@@ -55,10 +57,16 @@ const defaultFs: MessageLogStoreFs = {
 	rename: (oldPath, newPath) => fs.rename(oldPath, newPath),
 	open: (filePath, flags) => fs.open(filePath, flags),
 	unlink: (filePath) => fs.unlink(filePath),
+	realpath: (filePath) => fs.realpath(filePath),
 };
 
 function isCode(error: unknown, code: string): boolean {
 	return typeof error === "object" && error !== null && "code" in error && error.code === code;
+}
+
+function inside(parent: string, child: string): boolean {
+	const relative = path.relative(parent, child);
+	return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
 function makeDependencies(fsOverrides?: Partial<MessageLogStoreFs>): MessageLogStoreFs {
@@ -70,25 +78,70 @@ function makeDependencies(fsOverrides?: Partial<MessageLogStoreFs>): MessageLogS
 		rename: fsOverrides?.rename ?? defaultFs.rename,
 		open: fsOverrides?.open ?? defaultFs.open,
 		unlink: fsOverrides?.unlink ?? defaultFs.unlink,
+		realpath: fsOverrides?.realpath ?? defaultFs.realpath,
 	};
 }
 
-function checkAccess(
+async function checkAccess(
 	options: Pick<MessageLogStoreOptions, "manifestPath" | "projectRoot" | "isProjectTrusted">,
-): string {
+	io: MessageLogStoreFs,
+): Promise<{ readonly logDir: string; readonly trustedManifestDir: string; readonly trustedLogDir: string }> {
 	if (!options.isProjectTrusted())
 		throw new MessageLogStoreError("untrusted-project", "message log requires a trusted project");
 	const manifestPath = path.resolve(options.manifestPath);
 	const projectRoot = path.resolve(options.projectRoot);
-	if (!isTrustedCrewManifestPath(manifestPath, projectRoot)) {
+	if (!isTrustedCrewManifestPath(manifestPath, projectRoot))
+		throw new MessageLogStoreError("untrusted-path", "message log is not in a trusted crew layout");
+	let trustedProjectRoot: string;
+	let trustedManifestDir: string;
+	try {
+		trustedProjectRoot = await io.realpath(projectRoot);
+		trustedManifestDir = await io.realpath(path.dirname(manifestPath));
+	} catch {
 		throw new MessageLogStoreError("untrusted-path", "message log is not in a trusted crew layout");
 	}
-	return path.join(path.dirname(manifestPath), "message-log");
+	if (!inside(trustedProjectRoot, trustedManifestDir))
+		throw new MessageLogStoreError("untrusted-path", "message log is not in a trusted crew layout");
+	const trustedLogDir = path.join(trustedManifestDir, "message-log");
+	return {
+		logDir: path.join(path.dirname(manifestPath), "message-log"),
+		trustedManifestDir,
+		trustedLogDir,
+	};
 }
 
 function asLockError(error: unknown): never {
 	if (error instanceof MessageLogStoreError) throw error;
 	throw new MessageLogStoreError("write-failed", "message log lock could not be acquired");
+}
+
+let lockSequence = 0;
+
+function createLockOwner(now: () => number): string {
+	return createHash("sha256").update(`${process.pid}|${now()}|${lockSequence++}`).digest("hex");
+}
+
+function ownershipMismatch(path: string): never {
+	throw new MessageLogStoreError("lock-conflict", "message log lock ownership changed");
+}
+
+async function verifyLockOwner(
+	pathToLock: string,
+	owner: string,
+	io: MessageLogStoreFs,
+	handle: { close: () => Promise<void> },
+): Promise<void> {
+	try {
+		const written = (await io.readFile(pathToLock)).toString("utf8");
+		if (written !== owner) ownershipMismatch(pathToLock);
+	} catch (error) {
+		if (!isCode(error, "ENOENT")) {
+			if (isCode(error, "EINVAL") || isCode(error, "ENOENT")) ownershipMismatch(pathToLock);
+		}
+		ownershipMismatch(pathToLock);
+	} finally {
+		await handle.close().catch(() => undefined);
+	}
 }
 
 async function acquireLock(
@@ -100,14 +153,23 @@ async function acquireLock(
 ): Promise<() => Promise<void>> {
 	while (true) {
 		let release: null | (() => Promise<void>) = null;
+		let owner: string | undefined;
 		try {
 			const handle = await io.open(lockPath, "wx");
+			owner = createLockOwner(now);
+			try {
+				await io.writeFile(lockPath, owner);
+			} catch (error) {
+				await handle.close().catch(() => undefined);
+				asLockError(error);
+			}
 			release = async () => {
-				await handle.close();
+				await verifyLockOwner(lockPath, owner as string, io, handle);
 				await io.unlink(lockPath).catch(() => undefined);
 			};
 			return release;
 		} catch (error) {
+			if (error instanceof MessageLogStoreError) throw error;
 			if (!isCode(error, "EEXIST")) {
 				asLockError(error);
 			}
@@ -117,6 +179,21 @@ async function acquireLock(
 	}
 }
 
+function validateLogBoundary(logDir: string, trustedLogDir: string, io: MessageLogStoreFs): Promise<string> {
+	return io
+		.realpath(logDir)
+		.then((resolved) => {
+			if (resolved !== trustedLogDir)
+				throw new MessageLogStoreError("untrusted-path", "message log is not in a trusted crew layout");
+			return resolved;
+		})
+		.catch((error) => {
+			if (isCode(error, "ENOENT")) return logDir;
+			if (error instanceof MessageLogStoreError) throw error;
+			throw new MessageLogStoreError("write-failed", "message log path could not be resolved");
+		});
+}
+
 export function createMessageLogStore(options: MessageLogStoreOptions) {
 	const io = makeDependencies(options.fs);
 	const now = options.now ?? (() => Date.now());
@@ -124,7 +201,7 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 		options.sleep ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
 	return {
 		async append(entry: MessageLogEntry): Promise<void> {
-			const logDir = checkAccess(options);
+			const { logDir, trustedLogDir } = await checkAccess(options, io);
 			try {
 				validateMessageLogEntry(entry);
 			} catch {
@@ -132,6 +209,7 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			}
 			const bytes = canonicalMessageLogEntryBytes(entry);
 			await io.mkdir(logDir, { recursive: true });
+			await validateLogBoundary(logDir, trustedLogDir, io);
 			const fileFor = (id: string) => path.join(logDir, `${id}.json`);
 			const lock = path.join(logDir, ".lock");
 			const deadline = now() + 2000;
@@ -170,9 +248,13 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			}
 		},
 		async read(id: string): Promise<Uint8Array | null> {
-			const logDir = checkAccess(options);
+			const { logDir, trustedLogDir } = await checkAccess(options, io);
 			if (!/^entry-[0-9a-f]{64}$/.test(id))
 				throw new MessageLogStoreError("invalid-entry", "message log entry id is invalid");
+			await validateLogBoundary(logDir, trustedLogDir, io).catch((error) => {
+				if (error instanceof MessageLogStoreError && error.code === "untrusted-path") throw error;
+				if (!isCode(error, "ENOENT")) throw error;
+			});
 			const target = path.join(logDir, `${id}.json`);
 			try {
 				return new Uint8Array(await io.readFile(target));

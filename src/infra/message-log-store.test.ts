@@ -1,6 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, open, readFile, rm, link, unlink, writeFile } from "node:fs/promises";
+import {
+	link,
+	mkdir,
+	mkdtemp,
+	open,
+	rename,
+	readFile,
+	realpath,
+	rm,
+	symlink,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { createMessageLogStore, MessageLogStoreError } from "./message-log-store.ts";
@@ -45,6 +57,7 @@ const entry = {
 async function makeFixture(layout: "bebop" | "crew" = "bebop") {
 	const root = await mkdtemp(`${tmpdir()}/message-log-`);
 	const manifestPath = path.join(root, ".pi", layout, "crew.json");
+	await mkdir(path.dirname(manifestPath), { recursive: true });
 	return {
 		root,
 		manifestPath,
@@ -99,6 +112,93 @@ test("lock contention is bounded and cleanup permits the next append", async () 
 	}
 });
 
+test("owner token protects lock release from ownership races", async () => {
+	const fixture = await makeFixture();
+	try {
+		const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+		await mkdir(messageLog, { recursive: true });
+		const lockPath = path.join(messageLog, ".lock");
+		const target = path.join(messageLog, `${entry.id}.json`);
+		let tampered = false;
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: {
+				mkdir: async () => undefined,
+				readFile: async (filePath: string) => {
+					return readFile(filePath);
+				},
+				writeFile: async (
+					filePath: string,
+					data: Buffer | string | Uint8Array,
+					options?: { flag?: string },
+				) => {
+					await writeFile(filePath, data, options);
+				},
+				link: async (source: string, destination: string) => {
+					const result = await link(source, destination);
+					if (!tampered) {
+						tampered = true;
+						await rm(lockPath, { force: true });
+						await writeFile(lockPath, "foreign-owner", { encoding: "utf8" });
+					}
+					return result;
+				},
+				rename: async () => {
+					assert.fail("rename must never be used in message log publication path");
+				},
+				open: async (filePath: string, flags: string) => {
+					const handle = await open(filePath, flags);
+					return { close: async () => handle.close() };
+				},
+				unlink: async (filePath: string) => unlink(filePath),
+				realpath: async (filePath: string) => realpath(filePath),
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => {
+				assert.ok(error instanceof MessageLogStoreError);
+				assert.equal(error.code, "lock-conflict");
+				return true;
+			},
+		);
+		assert.equal(await readFile(target, "utf8"), new TextDecoder().decode(canonicalMessageLogEntryBytes(entry)));
+		assert.equal(await readFile(lockPath, "utf8"), "foreign-owner");
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("trusted layout rejects symlink-escaped manifest directories", async () => {
+	const fixture = await makeFixture();
+	const outside = await mkdtemp(`${tmpdir()}/message-log-escape-`);
+	const messageLog = path.join(fixture.root, ".pi", "bebop");
+	await rm(messageLog, { recursive: true, force: true });
+	const safeExternal = path.join(outside, ".pi", "bebop");
+	await mkdir(safeExternal, { recursive: true });
+	await symlink(safeExternal, messageLog, "dir");
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => {
+				assert.ok(error instanceof MessageLogStoreError);
+				assert.equal(error.code, "untrusted-path");
+				return true;
+			},
+		);
+	} finally {
+		await rm(outside, { recursive: true, force: true });
+		await fixture.cleanup();
+	}
+});
+
 test("append is idempotent when a target file races publication", async () => {
 	const fixture = await makeFixture();
 	try {
@@ -138,6 +238,7 @@ test("append is idempotent when a target file races publication", async () => {
 			},
 			open: async (filePath: string, flags: string) => open(filePath, flags),
 			unlink,
+			realpath: async (filePath: string) => realpath(filePath),
 		};
 
 		const store = createMessageLogStore({
@@ -195,6 +296,10 @@ test("trusted layout and project checks run before filesystem calls", async () =
 		unlink: async () => {
 			calls.push("unlink");
 		},
+		realpath: async () => {
+			calls.push("realpath");
+			return "/tmp/project-root";
+		},
 	} satisfies Partial<unknown>;
 
 	const store = createMessageLogStore({
@@ -234,6 +339,10 @@ test("untrusted project fails before filesystem calls", async () => {
 		},
 		unlink: async () => {
 			calls.push("unlink");
+		},
+		realpath: async () => {
+			calls.push("realpath");
+			return "/tmp/project-root";
 		},
 	} satisfies Partial<unknown>;
 

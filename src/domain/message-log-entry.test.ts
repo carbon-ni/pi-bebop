@@ -85,4 +85,113 @@ test("message event canonical bytes require closed v1 envelope", () => {
 			}),
 		/invalid-message-log-payload/,
 	);
+	assert.throws(
+		() =>
+			canonicalMessageLogEntryBytes({
+				...entry,
+				stage: "persistence",
+				payload: null,
+			}),
+		/invalid-message-log-surface-stage-outcome/,
+	);
+	assert.throws(
+		() =>
+			canonicalMessageLogEntryBytes({
+				...entry,
+				stage: "handoff",
+				outcome: "redirected",
+				payload: { ...entry.payload },
+			}),
+		/invalid-message-log-surface-stage-outcome/,
+	);
+	assert.throws(
+		() =>
+			canonicalMessageLogEntryBytes({
+				...entry,
+				stage: "delivery",
+				outcome: "queued",
+				payload: null,
+			}),
+		/invalid-message-log-payload/,
+	);
+	assert.throws(
+		() => canonicalMessageLogEntryBytes({ ...entry, occurredAt: "2026-08-28 00:00:00Z" }),
+		/invalid-message-log-timestamp/,
+	);
+	assert.throws(
+		() =>
+			canonicalMessageLogEntryBytes({
+				...entry,
+				occurredAt: "2026-08-28T00:00:00.000+01:00",
+			}),
+		/invalid-message-log-timestamp/,
+	);
+	assert.throws(
+		() =>
+			canonicalMessageLogEntryBytes({
+				...entry,
+				capture: { ...entry.capture, capturedAt: "2026-08-28 00:00:00Z" },
+			}),
+		/invalid-message-log-timestamp/,
+	);
+	assert.throws(
+		() => canonicalMessageLogEntryBytes({ ...entry, operation: { ...entry.operation, lifecycleSequence: 0 } }),
+		/invalid-message-log-operation/,
+	);
+	assert.throws(
+		() => canonicalMessageLogEntryBytes({ ...entry, capture: { ...entry.capture, attemptSequence: 0 } }),
+		/invalid-message-log-capture/,
+	);
+});
+
+test("valid matrix cells keep payload shape contract", () => {
+	const entryWithNullPayload = {
+		version: 1,
+		kind: "message-event",
+		id: "entry-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		occurredAt: "2026-08-28T00:00:00.000Z",
+		surface: "member-inbox",
+		stage: "handoff",
+		outcome: "offered",
+		operation: {
+			id: "op-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			lifecycleSequence: 1,
+		},
+		payload: null,
+		errorCode: null,
+		capture: {
+			endpointId: "endpoint-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			epochId: "epoch-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+			attemptSequence: 1,
+			capturedAt: "2026-08-28T00:00:00.000Z",
+		},
+		semanticFingerprint: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+	};
+	assert.equal(canonicalMessageLogEntryBytes(entryWithNullPayload).length > 0, true);
+});
+
+test("invalid: non-payload stages require null payload", () => {
+	const memberInboxPersistence = {
+		version: 1,
+		kind: "message-event",
+		id: "entry-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		occurredAt: "2026-08-28T00:00:00.000Z",
+		surface: "member-inbox",
+		stage: "persistence",
+		outcome: "persisted",
+		operation: {
+			id: "op-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			lifecycleSequence: 1,
+		},
+		payload: null,
+		errorCode: null,
+		capture: {
+			endpointId: "endpoint-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			epochId: "epoch-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+			attemptSequence: 1,
+			capturedAt: "2026-08-28T00:00:00.000Z",
+		},
+		semanticFingerprint: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+	};
+	assert.throws(() => canonicalMessageLogEntryBytes(memberInboxPersistence), /invalid-message-log-payload/);
 });
