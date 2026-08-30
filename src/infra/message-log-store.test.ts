@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rm, link, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { createMessageLogStore, MessageLogStoreError } from "./message-log-store.ts";
 import { canonicalMessageLogEntryBytes } from "../domain/index.ts";
 
@@ -40,10 +41,25 @@ const entry = {
 	},
 	semanticFingerprint: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 };
-test("trusted message log append is replay-idempotent and rejects conflicts", async () => {
+
+async function makeFixture(layout: "bebop" | "crew" = "bebop") {
 	const root = await mkdtemp(`${tmpdir()}/message-log-`);
+	const manifestPath = path.join(root, ".pi", layout, "crew.json");
+	return {
+		root,
+		manifestPath,
+		cleanup: () => rm(root, { recursive: true, force: true }),
+	};
+}
+
+test("trusted message log append is replay-idempotent and rejects conflicts", async () => {
+	const fixture = await makeFixture();
 	try {
-		const store = createMessageLogStore({ root, isTrusted: () => true });
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+		});
 		await store.append(entry);
 		await store.append(entry);
 		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
@@ -52,18 +68,21 @@ test("trusted message log append is replay-idempotent and rejects conflicts", as
 			(e) => e instanceof MessageLogStoreError && e.code === "id-conflict",
 		);
 	} finally {
-		await rm(root, { recursive: true, force: true });
+		await fixture.cleanup();
 	}
 });
+
 test("lock contention is bounded and cleanup permits the next append", async () => {
-	const root = await mkdtemp(`${tmpdir()}/message-log-lock-`);
+	const fixture = await makeFixture();
 	try {
-		await mkdir(`${root}/message-log`, { recursive: true });
-		await writeFile(`${root}/message-log/.lock`, "foreign");
+		const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(`${messageLog}/.lock`, "foreign");
 		let clock = 0;
 		const store = createMessageLogStore({
-			root,
-			isTrusted: () => true,
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
 			now: () => clock,
 			sleep: async () => {
 				clock += 500;
@@ -73,17 +92,170 @@ test("lock contention is bounded and cleanup permits the next append", async () 
 			() => store.append(entry),
 			(e) => e instanceof MessageLogStoreError && e.code === "lock-conflict",
 		);
-		await rm(`${root}/message-log/.lock`);
+		await rm(`${messageLog}/.lock`);
 		await store.append(entry);
 	} finally {
-		await rm(root, { recursive: true, force: true });
+		await fixture.cleanup();
 	}
 });
 
-test("untrusted message log fails before IO", async () => {
-	const store = createMessageLogStore({ root: "/tmp/never-message-log", isTrusted: () => false });
+test("append is idempotent when a target file races publication", async () => {
+	const fixture = await makeFixture();
+	try {
+		const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+		await mkdir(messageLog, { recursive: true });
+		const bytes = canonicalMessageLogEntryBytes(entry);
+		const file = path.join(messageLog, `${entry.id}.json`);
+		let reads = 0;
+		let race = true;
+		const fs = {
+			mkdir: async () => undefined,
+			readFile: async (filePath: string) => {
+				if (filePath === file) {
+					reads += 1;
+					if (reads === 1) {
+						const miss: NodeJS.ErrnoException = new Error("missing");
+						miss.code = "ENOENT";
+						throw miss;
+					}
+				}
+				return readFile(filePath);
+			},
+			writeFile: (filePath: string, data: Uint8Array, options?: { flag?: string }) =>
+				writeFile(filePath, data, options),
+			link: async (source: string, destination: string) => {
+				if (destination === file && race) {
+					race = false;
+					await writeFile(file, bytes, { flag: "wx" });
+					const conflict: NodeJS.ErrnoException = new Error("exists");
+					conflict.code = "EEXIST";
+					throw conflict;
+				}
+				return link(source, destination);
+			},
+			rename: async () => {
+				assert.fail("rename must never be used in no-replace publication path");
+			},
+			open: async (filePath: string, flags: string) => open(filePath, flags),
+			unlink,
+		};
+
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs,
+		});
+
+		await store.append(entry);
+		assert.deepEqual(await store.read(entry.id), bytes);
+		assert.equal(race, false);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("trusted layout accepts both .pi/bebop and legacy .pi/crew manifests", async () => {
+	for (const layout of ["bebop", "crew"] as const) {
+		const fixture = await makeFixture(layout);
+		try {
+			const store = createMessageLogStore({
+				manifestPath: fixture.manifestPath,
+				projectRoot: fixture.root,
+				isProjectTrusted: () => true,
+			});
+			await store.append(entry);
+		} finally {
+			await fixture.cleanup();
+		}
+	}
+});
+
+test("trusted layout and project checks run before filesystem calls", async () => {
+	const calls: string[] = [];
+	const guardFs = {
+		mkdir: async () => {
+			calls.push("mkdir");
+			return undefined;
+		},
+		readFile: async () => {
+			calls.push("readFile");
+			return new Uint8Array();
+		},
+		writeFile: async () => {
+			calls.push("writeFile");
+		},
+		rename: async () => {
+			calls.push("rename");
+		},
+		open: async () => {
+			calls.push("open");
+			return { close: async () => undefined };
+		},
+		unlink: async () => {
+			calls.push("unlink");
+		},
+	} satisfies Partial<unknown>;
+
+	const store = createMessageLogStore({
+		manifestPath: "/tmp/other/.pi/legacy/crew.json",
+		projectRoot: "/tmp/project-root",
+		isProjectTrusted: () => true,
+		fs: guardFs as any,
+	});
+
 	await assert.rejects(
-		() => store.read("entry-1"),
-		(e) => e instanceof MessageLogStoreError && e.code === "untrusted-project",
+		() => store.append(entry),
+		(e) => e instanceof MessageLogStoreError && e.code === "untrusted-path",
 	);
+	assert.equal(calls.length, 0);
+});
+
+test("untrusted project fails before filesystem calls", async () => {
+	const calls: string[] = [];
+	const guardFs = {
+		mkdir: async () => {
+			calls.push("mkdir");
+			return undefined;
+		},
+		readFile: async () => {
+			calls.push("readFile");
+			return new Uint8Array();
+		},
+		writeFile: async () => {
+			calls.push("writeFile");
+		},
+		rename: async () => {
+			calls.push("rename");
+		},
+		open: async () => {
+			calls.push("open");
+			return { close: async () => undefined };
+		},
+		unlink: async () => {
+			calls.push("unlink");
+		},
+	} satisfies Partial<unknown>;
+
+	const fixture = await makeFixture();
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => false,
+			fs: guardFs as any,
+		});
+
+		await assert.rejects(
+			() => store.read(entry.id),
+			(error) => {
+				assert.ok(error instanceof MessageLogStoreError);
+				assert.equal(error.code, "untrusted-project");
+				return true;
+			},
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+	assert.equal(calls.length, 0);
 });

@@ -1,7 +1,7 @@
 ---
 id: TASK-0129
 title: Persist the trusted Crew Message Log
-status: todo
+status: doing
 depends_on: [TASK-0128]
 priority: high
 tags: [crew, messaging, evidence, storage, security, concurrency, retention, tdd]
