@@ -81,6 +81,34 @@ Pi 0.84.3 emits extension terminal handlers before its internal compaction clean
 
 This seam is accepted only with a real Pi 0.84.3 host test proving the post-event task runs after compaction provider work and that no deferred coordination handoff is lost or duplicated.
 
+## Feasibility freeze
+
+Production implementation is frozen at code baseline `a696ff7` until the three feasibility rows below have one clean exact-hash evidence report and independent QA verdict. Evidence tests, host fixtures, source ratchets, and reports may change; product delivery logic may not expand during the freeze.
+
+If **F2** fails because Pi 0.84.3 cannot expose durable typed handoff evidence before provider execution, stop TASK-0140 implementation. Upstream Pi code changes are not allowed in TASK-0140. Product must revise the guarantee or extension architecture using Pi 0.84.3's existing public API; otherwise mark TASK-0140 blocked. Do not approximate the guarantee with timing, in-memory state, or green unit tests.
+
+| ID | Invariant | Required evidence | Owner | Pass rule |
+| --- | --- | --- | --- | --- |
+| F1 | Receiver persists exact envelope before deferred acknowledgement | Deterministic persistence-delay/failure fixture across every acknowledging surface | Dave; Kelly verifies | No success or wake before awaited durable append; failure returns bounded error and owns nothing |
+| F2 | Pi provides durable typed handoff evidence before provider/model consumption | Real Pi 0.84.3 `AgentSessionRuntime` process-restart fixture with stable delivery ID and provider capture | Dave; Kelly verifies | Restart finds exact session evidence and reconciles `handing-off` without loss or replay; provider sees one delivery |
+| F3 | Every Bebop model-bound path crosses one gate | Mechanical source ratchet plus surface inventory for Follow-up, Redirect, Request/reminder, Response resume, Inbox/Broadcast/Intake/Crew, Interrupt recovery, Presence, and startup/control | Dave; Kelly verifies | No direct `pi.sendMessage` remains outside the sole adapter and each surface has one routing fixture |
+
+Mony owns the freeze. Any production edit invalidates the feasibility candidate. Mary issues the Product feasibility verdict only from Kelly's explicit verdict on the same clean full SHA and fresh watcher fingerprint.
+
+## Risk-ranked acceptance matrix
+
+After F1–F3 pass, implementation resumes against this bounded matrix. Rows identify the remaining directly affected dependency boundary; process artifacts never replace required host evidence.
+
+| ID | Risk boundary | Exact evidence target | Owner |
+| --- | --- | --- | --- |
+| R1 | Ack and compatibility | Exact text/bytes, code, visibility, disposition, turn/no-turn, plus unchanged non-compacting regression | Mary + Dave |
+| R2 | Lifecycle identity | Tagged generation tests and real-host success, failed/aborted, nested, stale-terminal, and new-start-during-drain cases | Dave + Kelly |
+| R3 | Durable recovery | Crash points before/after append, ack, `handing-off`, Pi evidence, completion; restart/reload/resume/fork/replacement isolation | Dave + Kelly |
+| R4 | Surface semantics | Request activation/channel loss, Inbox removal, Interrupt completion, Follow-up provenance, Response resume, Presence, startup/control | Dave + Kelly |
+| R5 | Concurrency and order | Cross-process ID reservation, reconfiguration barrier, global FIFO, no later direct overtake | Dave + Kelly |
+| R6 | Capacity and privacy | Exact 64/1,100,000/70,400,000 boundaries and no gate/journal metadata leakage | Kelly |
+| R7 | Frozen final verdict | Full SHA, clean fingerprint, matrix delta, focused/full/host commands, fresh watcher, residual gaps | Mony + Kelly + Mary |
+
 ## Implementation plan
 
 1. Add red tests for direct delivery, compacting deferral, capacity, persistence, and crash points at one pure receiver-owned seam.
@@ -120,6 +148,7 @@ This seam is accepted only with a real Pi 0.84.3 host test proving the post-even
 - Changing Follow-up, Redirect, Request/Response, Inbox, Interrupt, or Crew authority semantics.
 - Treating compaction end as task completion, availability, acknowledgement, or response.
 - General-purpose scheduler, durable chat history, message dashboard, or productivity monitoring.
+- Any modification, fork, patch, or unpublished dependency change to upstream Pi.
 
 ## Assignment gate
 
