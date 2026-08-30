@@ -85,11 +85,13 @@ test("trusted message log append is replay-idempotent and rejects conflicts", as
 	}
 });
 
-test("append fsyncs new publication files", async () => {
+test("append fsyncs publication sequence", async () => {
 	const fixture = await makeFixture();
 	const syncCalls: string[] = [];
 	try {
 		const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+		const target = path.join(messageLog, `${entry.id}.json`);
+		const temp = `${target}.tmp-${process.pid}`;
 		await mkdir(messageLog, { recursive: true });
 		const store = createMessageLogStore({
 			manifestPath: fixture.manifestPath,
@@ -102,26 +104,33 @@ test("append fsyncs new publication files", async () => {
 					await writeFile(filePath, data, options);
 				},
 				link: async (source: string, destination: string) => {
+					syncCalls.push(`link:${destination}`);
 					return link(source, destination);
 				},
 				rename: async () => {
 					assert.fail("rename must never be used in message log publication path");
 				},
 				open: async (filePath: string, flags: string) => {
+					syncCalls.push(`open:${filePath}`);
 					const handle = await open(filePath, flags);
 					return { close: async () => handle.close() };
 				},
-				unlink: async (filePath: string) => unlink(filePath),
+				unlink: async (filePath: string) => {
+					syncCalls.push(`unlink:${filePath}`);
+					return unlink(filePath);
+				},
 				realpath: async (filePath: string) => realpath(filePath),
 				sync: async (filePath: string) => {
-					syncCalls.push(filePath);
+					syncCalls.push(`sync:${filePath}`);
 				},
 			},
 		});
 		await store.append(entry);
-		const target = path.join(messageLog, `${entry.id}.json`);
 		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
-		assert.deepEqual(syncCalls.sort(), [target, `${target}.tmp-${process.pid}`].sort());
+		assert.equal(
+			syncCalls.filter((line) => line.startsWith("sync:")).join(" -> "),
+			[`sync:${temp}`, `sync:${target}`, `sync:${messageLog}`].map((value) => value).join(" -> "),
+		);
 	} finally {
 		await fixture.cleanup();
 	}
@@ -153,6 +162,80 @@ test("lock contention is bounded and cleanup permits the next append", async () 
 		await fixture.cleanup();
 	}
 });
+test("sync failure before publish prevents publication", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const target = path.join(messageLog, `${entry.id}.json`);
+	await mkdir(messageLog, { recursive: true });
+	const ioError = new Error("fsync failure") as NodeJS.ErrnoException;
+	ioError.code = "EIO";
+	const failingSync = async (filePath: string) => {
+		if (filePath === `${target}.tmp-${process.pid}`) throw ioError;
+	};
+	const store = createMessageLogStore({
+		manifestPath: fixture.manifestPath,
+		projectRoot: fixture.root,
+		isProjectTrusted: () => true,
+		fs: {
+			sync: failingSync,
+		},
+	});
+	try {
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => {
+				assert.ok(error instanceof MessageLogStoreError);
+				assert.equal(error.code, "write-failed");
+				return true;
+			},
+		);
+		await assert.rejects(
+			() => readFile(target),
+			(error) => (error as NodeJS.ErrnoException).code === "ENOENT",
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("sync failure after publish rollbacks target file", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const target = path.join(messageLog, `${entry.id}.json`);
+	await mkdir(messageLog, { recursive: true });
+	const targetSyncFailure = new Error("fsync target failure") as NodeJS.ErrnoException;
+	targetSyncFailure.code = "EIO";
+	const failingSync = async (filePath: string) => {
+		if (filePath === target || filePath === messageLog) {
+			if (filePath === target) throw targetSyncFailure;
+		}
+	};
+	const store = createMessageLogStore({
+		manifestPath: fixture.manifestPath,
+		projectRoot: fixture.root,
+		isProjectTrusted: () => true,
+		fs: {
+			sync: failingSync,
+		},
+	});
+	try {
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => {
+				assert.ok(error instanceof MessageLogStoreError);
+				assert.equal(error.code, "write-failed");
+				return true;
+			},
+		);
+		await assert.rejects(
+			() => readFile(target),
+			(error) => (error as NodeJS.ErrnoException).code === "ENOENT",
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
 test("owner token protects lock release from ownership races", async () => {
 	const fixture = await makeFixture();
 	try {

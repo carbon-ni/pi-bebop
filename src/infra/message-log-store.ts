@@ -45,7 +45,7 @@ type MessageLogStoreFs = {
 	open: (filePath: string, flags: string) => Promise<{ close: () => Promise<void> }>;
 	unlink: (filePath: string) => Promise<void>;
 	realpath: (filePath: string) => Promise<string>;
-	sync?: (filePath: string) => Promise<void>;
+	sync: (filePath: string) => Promise<void>;
 };
 
 const defaultFs: MessageLogStoreFs = {
@@ -60,11 +60,16 @@ const defaultFs: MessageLogStoreFs = {
 	unlink: (filePath) => fs.unlink(filePath),
 	realpath: (filePath) => fs.realpath(filePath),
 	sync: async (filePath) => {
-		const handle = await fs.open(filePath, "r+");
 		try {
-			await handle.sync();
-		} finally {
-			await handle.close();
+			const handle = await fs.open(filePath, "r");
+			try {
+				await handle.sync();
+			} finally {
+				await handle.close();
+			}
+		} catch (error) {
+			// macOS does not permit opening directories for fsync; the file sync remains mandatory.
+			if (!isCode(error, "EISDIR")) throw error;
 		}
 	},
 };
@@ -204,6 +209,65 @@ function validateLogBoundary(logDir: string, trustedLogDir: string, io: MessageL
 		});
 }
 
+function asWriteError(error: unknown): never {
+	if (error instanceof MessageLogStoreError) throw error;
+	if (error instanceof Error) throw new MessageLogStoreError("write-failed", error.message);
+	throw new MessageLogStoreError("write-failed", "message log publication failed");
+}
+
+async function publishEntry(temp: string, target: string, bytes: Uint8Array, io: MessageLogStoreFs): Promise<void> {
+	try {
+		try {
+			await io.sync(temp);
+		} catch (error) {
+			asWriteError(error);
+		}
+		try {
+			await io.link(temp, target);
+		} catch (error) {
+			if (isCode(error, "EEXIST")) {
+				const existing = await io.readFile(target);
+				if (Buffer.compare(existing, Buffer.from(bytes)) !== 0)
+					throw new MessageLogStoreError("id-conflict", "message log entry identity conflict");
+				return;
+			}
+			asWriteError(error);
+		}
+		try {
+			await io.sync(target);
+			await io.sync(path.dirname(target));
+		} catch (error) {
+			await io.unlink(target).catch(() => undefined);
+			asWriteError(error);
+		}
+	} finally {
+		await io.unlink(temp).catch(() => undefined);
+	}
+}
+
+async function appendLocked(
+	entry: MessageLogEntry,
+	bytes: Uint8Array,
+	logDir: string,
+	io: MessageLogStoreFs,
+): Promise<void> {
+	if (!/^entry-[0-9a-f]{64}$/.test(String(entry.id)))
+		throw new MessageLogStoreError("invalid-entry", "message log entry id is invalid");
+	const target = path.join(logDir, `${entry.id}.json`);
+	try {
+		const existing = await io.readFile(target);
+		if (Buffer.compare(existing, Buffer.from(bytes)) !== 0)
+			throw new MessageLogStoreError("id-conflict", "message log entry identity conflict");
+		return;
+	} catch (error) {
+		if (error instanceof MessageLogStoreError) throw error;
+		if (!isCode(error, "ENOENT")) throw error;
+	}
+	const temp = `${target}.tmp-${process.pid}`;
+	await io.writeFile(temp, bytes, { flag: "wx" });
+	await publishEntry(temp, target, bytes, io);
+}
+
 export function createMessageLogStore(options: MessageLogStoreOptions) {
 	const io = makeDependencies(options.fs);
 	const now = options.now ?? (() => Date.now());
@@ -220,41 +284,11 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			const bytes = canonicalMessageLogEntryBytes(entry);
 			await io.mkdir(logDir, { recursive: true });
 			await validateLogBoundary(logDir, trustedLogDir, io);
-			const fileFor = (id: string) => path.join(logDir, `${id}.json`);
 			const lock = path.join(logDir, ".lock");
 			const deadline = now() + 2000;
 			const release = await acquireLock(lock, io, deadline, now, sleep);
 			try {
-				if (!/^entry-[0-9a-f]{64}$/.test(String(entry.id)))
-					throw new MessageLogStoreError("invalid-entry", "message log entry id is invalid");
-				const target = fileFor(String(entry.id));
-				try {
-					const existing = await io.readFile(target);
-					if (Buffer.compare(existing, Buffer.from(bytes)) !== 0)
-						throw new MessageLogStoreError("id-conflict", "message log entry identity conflict");
-					return;
-				} catch (error) {
-					if (error instanceof MessageLogStoreError) throw error;
-					if (!isCode(error, "ENOENT")) throw error;
-				}
-				const temp = `${target}.tmp-${process.pid}`;
-				await io.writeFile(temp, bytes, { flag: "wx" });
-				await io.sync?.(temp).catch(() => undefined);
-				try {
-					await io.link(temp, target);
-					await io.sync?.(target).catch(() => undefined);
-				} catch (error) {
-					if (isCode(error, "EEXIST")) {
-						const existing = await io.readFile(target);
-						if (Buffer.compare(existing, Buffer.from(bytes)) !== 0)
-							throw new MessageLogStoreError("id-conflict", "message log entry identity conflict");
-						return;
-					}
-					if (error instanceof Error) throw new MessageLogStoreError("write-failed", error.message);
-					throw new MessageLogStoreError("write-failed", "message log publication failed");
-				} finally {
-					await io.unlink(temp).catch(() => undefined);
-				}
+				await appendLocked(entry, bytes, logDir, io);
 			} finally {
 				await release();
 			}
