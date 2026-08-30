@@ -28,7 +28,7 @@ test("public coordination surfaces omit compaction and journal metadata end to e
 	assertPublic(wait.responses[0], "wait-state");
 
 	const presence: unknown[] = [];
-			emitCrewPresenceActivity(
+	emitCrewPresenceActivity(
 		[{ type: "joined", member: { identity: "mary", name: "Mary", role: "po" } }],
 		{
 			members: [{ identity: "mary", name: "Mary", role: "po" }],
