@@ -10,6 +10,11 @@ import {
 	type Model,
 	type Provider,
 } from "@earendil-works/pi-ai";
+import { sendRpcCommand } from "../infra/rpc-client.ts";
+import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
+import { createMemberMessageCoordinator } from "../application/member-message.ts";
+import { createSocketState, handleCommand } from "./control-runtime.ts";
+import { registerSendFollowUpTool } from "../tools/send-follow-up.ts";
 import { createModelDeliveryAdapter } from "./compaction-delivery.ts";
 import {
 	createAgentSession,
@@ -133,6 +138,7 @@ async function createSession(events: string[], releases: Array<Promise<void>>) {
 	});
 	return {
 		session,
+		sessionManager,
 		cleanup: async () => {
 			session.dispose();
 			await rm(cwd, { recursive: true, force: true });
@@ -218,4 +224,93 @@ test("TASK-0145: baseline and busy Follow-up both preserve host lifecycle orderi
 		busyEvents.filter((event) => event.startsWith("provider-")),
 		["provider-start-0", "provider-done-0", "provider-start-1", "provider-done-1"],
 	);
+});
+
+test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "bebop-follow-up-rpc-"));
+	const targetSocket = path.join(root, "target.sock");
+	const targetEvents: string[] = [];
+	let releaseCurrent!: () => void;
+	let releaseFollowUp!: () => void;
+	const currentRelease = new Promise<void>((resolve) => (releaseCurrent = resolve));
+	const followUpRelease = new Promise<void>((resolve) => (releaseFollowUp = resolve));
+	const target = await createSession(targetEvents, [currentRelease, followUpRelease]);
+	const targetState = createSocketState();
+	targetState.context = {
+		hasUI: false,
+		sessionManager: target.sessionManager,
+		isIdle: () => target.session.isIdle,
+		isProjectTrusted: () => true,
+	} as never;
+	const targetPi = {
+		sendMessage: (message: unknown, options: unknown) => {
+			void target.session.sendCustomMessage(message as never, options as never);
+		},
+	};
+	const server = await createRpcServer(targetSocket, (command, socket) =>
+		handleCommand(targetPi as never, targetState, command, socket),
+	);
+	t.after(async () => {
+		await closeRpcServer(server);
+		await target.cleanup();
+		await rm(root, { recursive: true, force: true });
+	});
+
+	let turnEnds = 0;
+	const received: unknown[] = [];
+	target.session.subscribe((event) => {
+		if (event.type === "turn_end") turnEnds += 1;
+		if (event.type === "message_start" && event.message.role === "custom") received.push(event.message);
+	});
+	const currentTurn = target.session.prompt("current turn");
+	await pumpUntil(targetEvents, "provider-start-0");
+
+	const senderState = createSocketState();
+	senderState.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: path.join(root, ".pi", "bebop", "crew.json"),
+			socketPath: path.join(root, "sender.sock"),
+			member: { name: "Sender", role: "lead", socketPath: path.join(root, "sender.sock") },
+			manifest: {
+				members: [
+					{ name: "Sender", role: "lead", socketPath: path.join(root, "sender.sock") },
+					{ name: "Target", role: "qa", socketPath: targetSocket },
+				],
+			},
+		}),
+	} as never;
+	const tools: Array<{ name: string; execute: (id: string, params: unknown) => Promise<unknown> }> = [];
+	registerSendFollowUpTool({ registerTool: (tool) => tools.push(tool as never) } as never, senderState, {
+		transport: {
+			send: (endpoint, command, options) =>
+				sendRpcCommand(endpoint, command, {
+					signal: options.signal,
+					classifyLostAck: options.classifyLostAck,
+				}),
+		},
+		resolveEndpoint: async (socketPath) => socketPath,
+		coordinator: createMemberMessageCoordinator(),
+	});
+	const followUpTool = tools.find((tool) => tool.name === "send_follow_up");
+	assert.ok(followUpTool);
+	const acknowledgement = (await followUpTool.execute("rpc-call", {
+		member: "Target",
+		message: "queued update",
+		instructions: ["keep FIFO"],
+	})) as { details: { disposition: string } };
+	assert.equal(acknowledgement.details.disposition, "queued");
+	assert.deepEqual(
+		targetEvents,
+		["provider-start-0"],
+		"accepted RPC Follow-up does not compete with the active turn",
+	);
+
+	releaseCurrent();
+	await pumpUntil(targetEvents, "provider-start-1");
+	assert.equal(turnEnds, 1, "the active turn ends before queued Follow-up delivery");
+	releaseFollowUp();
+	await target.session.waitForIdle();
+	assert.equal(received.length, 1, "the RPC Follow-up is delivered once");
+	assert.equal((received[0] as { content: string }).content.includes("queued update"), true);
+	await currentTurn;
 });
