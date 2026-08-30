@@ -157,6 +157,98 @@ test("TASK-0144: terminal Request outcome cancels its requester reminder", async
 	assert.equal(timers[0]!.cancelled, true);
 });
 
+test("TASK-0144: Response, offline, timeout, abort, and channel loss cancel reminders before deadline", async () => {
+	const cases = [
+		{
+			name: "Response",
+			finish: (emit: (update: any) => void) =>
+				emit({
+					kind: "response",
+					requestId: "request-1",
+					member: { name: "qa", role: "reviewer" },
+					message: "Done",
+					instructions: [],
+				}),
+		},
+		{
+			name: "offline",
+			finish: (emit: (update: any) => void) =>
+				emit({ kind: "offline", requestId: "request-1", member: { name: "qa", role: "reviewer" } }),
+		},
+		{
+			name: "channel loss",
+			finish: (emit: (update: any) => void) =>
+				emit({ kind: "offline", requestId: "request-1", member: { name: "qa", role: "reviewer" } }),
+		},
+	] as const;
+	for (const scenario of cases) {
+		const timers: Array<{ callback: () => void; cancelled: boolean }> = [];
+		const reminders: unknown[] = [];
+		const { flow, emit } = setup({
+			onRequesterReminder: (updates) => reminders.push(...updates),
+			setTimeout: (callback) => {
+				const timer = { callback, cancelled: false };
+				timers.push(timer);
+				return timer as never;
+			},
+			clearTimeout: (handle) => {
+				(handle as unknown as { cancelled: boolean }).cancelled = true;
+			},
+		});
+		await flow.sendMemberRequest({ membership, member: "qa", message: scenario.name });
+		scenario.finish(emit);
+		timers[0]!.callback();
+		assert.deepEqual(reminders, [], `${scenario.name} before deadline emits no requester reminder`);
+		assert.equal(timers[0]!.cancelled, true, `${scenario.name} cancels the exact reminder timer`);
+	}
+
+	const timeoutTimers: Array<{ callback: () => void; cancelled: boolean }> = [];
+	const timeoutReminders: unknown[] = [];
+	const timeout = setup({
+		onRequesterReminder: (updates) => timeoutReminders.push(...updates),
+		setTimeout: (callback) => {
+			const timer = { callback, cancelled: false };
+			timeoutTimers.push(timer);
+			return timer as never;
+		},
+		clearTimeout: (handle) => {
+			(handle as unknown as { cancelled: boolean }).cancelled = true;
+		},
+	});
+	const timeoutEmit = timeout.emit;
+	await timeout.flow.sendMemberRequest({
+		membership,
+		member: "qa",
+		message: "timeout",
+		timeoutSeconds: 1,
+		maxWaitSeconds: 301,
+	});
+	timeoutEmit({ kind: "idle", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
+	timeoutTimers[2]!.callback();
+	timeoutTimers[0]!.callback();
+	assert.deepEqual(timeoutReminders, [], "Request timeout before the reminder deadline emits no reminder");
+	assert.equal(timeoutTimers[0]!.cancelled, true);
+
+	const abortTimers: Array<{ callback: () => void; cancelled: boolean }> = [];
+	const abortReminders: unknown[] = [];
+	const aborted = setup({
+		onRequesterReminder: (updates) => abortReminders.push(...updates),
+		setTimeout: (callback) => {
+			const timer = { callback, cancelled: false };
+			abortTimers.push(timer);
+			return timer as never;
+		},
+		clearTimeout: (handle) => {
+			(handle as unknown as { cancelled: boolean }).cancelled = true;
+		},
+	});
+	await aborted.flow.sendMemberRequest({ membership, member: "qa", message: "abort" });
+	aborted.flow.cancelAllOutbound();
+	abortTimers[0]!.callback();
+	assert.deepEqual(abortReminders, [], "abort before the reminder deadline emits no reminder");
+	assert.equal(abortTimers[0]!.cancelled, true);
+});
+
 test("TASK-0144: lifecycle cancellation removes every requester reminder", async () => {
 	const timers: Array<{ callback: () => void; cancelled: boolean }> = [];
 	let sequence = 0;
