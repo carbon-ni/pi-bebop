@@ -2,7 +2,7 @@
 id: TASK-0144
 title: Run asynchronous Request conversations with cancellable reminders
 status: todo
-depends_on: [TASK-0140]
+depends_on: []
 priority: high
 tags: [member-request, reminder, async, coordination, tdd]
 ---
@@ -145,7 +145,8 @@ wait_for_request_outcome() -> all-settled
 
 ## Risks
 
-- Requester reminder is new model-bound surface and must cross TASK-0140 gate.
+- Requester reminder must use the current centralized model-delivery adapter;
+  this task does not reopen or wait for TASK-0140's full recovery matrix.
 - Busy Requester delivery can distract from active work. Queue it for next turn
   and batch same-turn reminders.
 - `all-settled` intentionally changes empty-wait API from error to success.

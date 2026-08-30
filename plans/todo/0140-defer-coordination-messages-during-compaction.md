@@ -1,10 +1,10 @@
 ---
 id: TASK-0140
 title: Defer coordination messages during compaction
-status: doing
+status: todo
 depends_on: [TASK-0143]
-priority: high
-tags: [messaging, compaction, coordination, lifecycle, tdd]
+priority: low
+tags: [messaging, compaction, coordination, lifecycle, tdd, paused]
 ---
 
 # Defer coordination messages during compaction
@@ -18,6 +18,17 @@ Bebop can submit model-bound coordination messages while recipient Pi is compact
 Add one receiver-owned **Compaction Delivery Gate**. System accepts coordination messages into bounded pending delivery while recipient compacts. After compaction, it hands them to Pi once during normal operation and uses an explicit at-least-once recovery contract after an ambiguous process crash. Senders do not poll, retry, inspect compaction, or coordinate release.
 
 Compaction delay is delivery scheduling only. It does not change message meaning, mode, correlation, priority, attribution, or authority.
+
+## Priority decision
+
+Product paused and deprioritized this task on 30 August 2026. The work had grown
+large enough to block higher-value Request coordination changes. Preserve the
+implementation and evidence, but do not continue QA, remediation, or closure
+without explicit reprioritization. This pause is not Product acceptance and does
+not move the task to done.
+
+TASK-0144 no longer depends on this task. It may use the current centralized
+model-delivery adapter without reopening TASK-0140's full recovery matrix.
 
 ## Scope
 
