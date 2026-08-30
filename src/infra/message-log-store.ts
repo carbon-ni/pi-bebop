@@ -45,6 +45,7 @@ type MessageLogStoreFs = {
 	open: (filePath: string, flags: string) => Promise<{ close: () => Promise<void> }>;
 	unlink: (filePath: string) => Promise<void>;
 	realpath: (filePath: string) => Promise<string>;
+	sync?: (filePath: string) => Promise<void>;
 };
 
 const defaultFs: MessageLogStoreFs = {
@@ -58,6 +59,14 @@ const defaultFs: MessageLogStoreFs = {
 	open: (filePath, flags) => fs.open(filePath, flags),
 	unlink: (filePath) => fs.unlink(filePath),
 	realpath: (filePath) => fs.realpath(filePath),
+	sync: async (filePath) => {
+		const handle = await fs.open(filePath, "r+");
+		try {
+			await handle.sync();
+		} finally {
+			await handle.close();
+		}
+	},
 };
 
 function isCode(error: unknown, code: string): boolean {
@@ -79,6 +88,7 @@ function makeDependencies(fsOverrides?: Partial<MessageLogStoreFs>): MessageLogS
 		open: fsOverrides?.open ?? defaultFs.open,
 		unlink: fsOverrides?.unlink ?? defaultFs.unlink,
 		realpath: fsOverrides?.realpath ?? defaultFs.realpath,
+		sync: fsOverrides?.sync ?? defaultFs.sync,
 	};
 }
 
@@ -229,8 +239,10 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 				}
 				const temp = `${target}.tmp-${process.pid}`;
 				await io.writeFile(temp, bytes, { flag: "wx" });
+				await io.sync?.(temp).catch(() => undefined);
 				try {
 					await io.link(temp, target);
+					await io.sync?.(target).catch(() => undefined);
 				} catch (error) {
 					if (isCode(error, "EEXIST")) {
 						const existing = await io.readFile(target);
