@@ -194,7 +194,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			if (consumeFailure(entry.id)) return;
 			await deliveryJournal.markHandingOff(entry.id);
 			send(
-				(replay ? replayMessage(entry.message) : decorateMessage(entry.message, entry.id)) as never,
+				decorateMessage(replay ? replayMessage(entry.message) : entry.message, entry.id) as never,
 				entry.delivery as never,
 			);
 			handedOff = true;

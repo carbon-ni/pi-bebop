@@ -524,7 +524,7 @@ test("model delivery replays an ambiguously handed-off envelope with bounded pro
 				envelope: {
 					id: "delivery-1",
 					bytes: 32,
-					message: { customType: "crew", content: "hello", details: { deliveryId: "delivery-1" } },
+					message: { customType: "crew", content: "hello", details: { source: "original" } },
 					delivery: { triggerTurn: true },
 					metadata: { deliveryId: "delivery-1" },
 				},
