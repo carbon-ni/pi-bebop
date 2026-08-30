@@ -1,7 +1,7 @@
 ---
 id: TASK-0144
 title: Run asynchronous Request conversations with cancellable reminders
-status: in-progress
+status: doing
 depends_on: []
 priority: high
 tags: [member-request, reminder, async, coordination, tdd]
