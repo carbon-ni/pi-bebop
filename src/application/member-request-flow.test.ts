@@ -157,6 +157,27 @@ test("TASK-0144: terminal Request outcome cancels its requester reminder", async
 	assert.equal(timers[0]!.cancelled, true);
 });
 
+test("TASK-0144: lifecycle cancellation removes every requester reminder", async () => {
+	const timers: Array<{ callback: () => void; cancelled: boolean }> = [];
+	let sequence = 0;
+	const { flow } = setup({
+		createRequestId: () => `request-${++sequence}`,
+		setTimeout: (callback) => {
+			const timer = { callback, cancelled: false };
+			timers.push(timer);
+			return timer as never;
+		},
+		clearTimeout: (handle) => {
+			(handle as unknown as { cancelled: boolean }).cancelled = true;
+		},
+	});
+	await flow.sendMemberRequest({ membership, member: "qa", message: "Review A" });
+	await flow.sendMemberRequest({ membership, member: "qa", message: "Review B" });
+	flow.cancelAllOutbound();
+	assert.equal(flow.registry.outboundCount(), 0);
+	assert.equal(timers.filter((timer) => timer.cancelled).length, 4);
+});
+
 test("pre-accept failure cleans request while lost acknowledgement closes as outcome-unknown", async () => {
 	const failed = setup({
 		transport: {

@@ -427,6 +427,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		cancelCrewMemberIdleCommand(state, "session-shutdown");
+		state.memberRequestFlow?.cancelAllOutbound();
 		inboxBridge.invalidate();
 		const context = state.context;
 		// Close acceptance and reconcile handoffs before releasing receiver ownership.

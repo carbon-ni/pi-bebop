@@ -228,6 +228,11 @@ export class MemberRequestFlow {
 		this.finishRequest(requestId);
 	}
 
+	/** Cancel every active outbound Request during shutdown/lifecycle teardown. */
+	cancelAllOutbound(): void {
+		for (const requestId of this.registry.outboundRequestIds()) this.cancelRequest(requestId);
+	}
+
 	waitForRequestOutcome(onUpdate: (update: RequestOutcomeEvent) => void) {
 		return this.registry.waitForUpdate(onUpdate);
 	}

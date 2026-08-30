@@ -448,6 +448,9 @@ export class RequestOutcomeRegistry {
 	bufferedCount(): number {
 		return this.buffered.length;
 	}
+	outboundRequestIds(): string[] {
+		return [...this.outbound.keys()];
+	}
 	outboundCount(): number {
 		return this.outbound.size;
 	}
