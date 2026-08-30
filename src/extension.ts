@@ -172,6 +172,7 @@ export default function (pi: ExtensionAPI) {
 		});
 		await interruptFlow.recoverPending();
 	};
+	let yieldRuntime: YieldingWaitRuntime | undefined;
 	state.memberRequestFlow = new MemberRequestFlow({
 		transport: {
 			open: (endpoint, command, options) =>
@@ -200,24 +201,30 @@ export default function (pi: ExtensionAPI) {
 				{ triggerTurn: true, deliverAs: "followUp" },
 			);
 		},
+		onRequesterReminder: (reminders, parked) => {
+			if (!parked) yieldRuntime?.deliverReminders(reminders);
+		},
 	});
 	// TASK-0077: one shared pending-wait registry + resume delivery for the
 	// yielding coordination waits. The registry survives the run; a terminal
 	// lifecycle delivery resolves the oldest matching parked wait exactly once
 	// and emits one crew-wait-resume message that wakes the agent later.
-	const yieldRuntime = new YieldingWaitRuntime({
+	yieldRuntime = new YieldingWaitRuntime({
 		registry: new YieldingWaitRegistry(),
 		deliver: (message) => {
 			const isIdle = state.context?.isIdle?.() === true;
 			const customMessage = {
-				customType: WAIT_RESUME_MESSAGE_TYPE,
+				customType: message.customType,
 				content: message.content,
 				details: { wait: message.details },
 				display: true,
 			};
 			// TASK-0081: wake only after the gate hands the resume to Pi.
-			const waitId = String((message.details as { waitId?: string }).waitId ?? "");
-			const notifyHandoff = () => notifyAcceptedMessage(state, `wait-resume-${waitId}`);
+			const waitId = (message.details as { waitId?: unknown }).waitId;
+			const notifyHandoff =
+				typeof waitId === "string" && waitId.length > 0
+					? () => notifyAcceptedMessage(state, `wait-resume-${waitId}`)
+					: undefined;
 			const deliveryOptions = isIdle
 				? { triggerTurn: true }
 				: { triggerTurn: true, deliverAs: message.deliverAs };

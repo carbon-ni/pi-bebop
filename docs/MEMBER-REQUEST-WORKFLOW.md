@@ -77,7 +77,8 @@ A QA request that needs a verdict is a Member request, not a Follow-up:
 # Requester (e.g. a developer):
 send_member_request({ member: "Kelly", message: "QA the TASK-0076 changes and report a verdict or blocker" })
 ... no immediate coordination action remains ...
-wait_for_request_outcome()   # requester-side, returns the QA verdict or offline/timeout
+wait_for_request_outcome()   # requester-side, yields until Response/offline/timeout or a 180s reminder
+# optional: send_follow_up(...) then wait_for_request_outcome() again
 
 # Responder (Kelly): the inbound message is visibly marked [member request]
 # with the opaque Request ID; she does the QA work, then:
@@ -107,14 +108,19 @@ route is never public input.
 wait_for_request_outcome()
 ```
 
-No arguments. It returns the oldest terminal outbound Request outcome. It does
-not poll and does not return Presence, Member Status, Broadcast, Inbox,
+No arguments. It yields and resumes with the oldest outbound Request event:
+Response, Offline, Timeout, or one nonterminal `still-pending` reminder at
+exactly 180 seconds after acceptance. A reminder preserves the Request and
+includes only its opaque ID, target display identity, age, and bounded guidance;
+it never sends anything to the target. Each accepted Request has one reminder
+with no recurrence. The result includes `pending_count`, which changes only on
+terminal outcomes. When no outbound Request or buffered event remains, it
+returns normal `all-settled` with `pending_count: 0`.
+
+It does not poll and does not return Presence, Member Status, Broadcast, Inbox,
 or unrelated Crew activity. It is requester-side only: call it after you sent
 `send_member_request`, never to handle an inbound Member request or an ordinary
-message. When no pending outbound Member request exists, it fails immediately
-with `no-pending-member-requests` and recovery guidance (respond to any inbound
-request, send a new request, or continue ready work). Waiting is only
-appropriate when no immediate coordination action remains.
+message.
 
 ## Request outcomes
 
@@ -131,13 +137,13 @@ received—not completion, correctness, verification, ownership, or task success
 ### Awaiting Response (nonterminal, internal)
 
 The responder's first post-context idle is a nonterminal, internal signal, never
-an outcome. It arms the source's bounded Response grace, queues the responder's
-one-time reminder with the original Request ID, and preserves the parked
-outbound slot; the Request stays nonterminal until a terminal outcome arrives.
-A Response delivered before the grace, during the reminder, or during the grace
-window always wins. The reminder is queued before the idle notification so a
-broken channel never loses it, and is inert once the Request is terminal. A
-Response after the grace window is rejected as already-terminal.
+an outcome. It arms the source's bounded Response grace and queues the
+responder's one-time reminder. Separately, the requester receives one
+`still-pending` reminder exactly 180 seconds after accepted delivery if the
+Request remains active. That reminder preserves the outbound slot and does not
+reset any deadline. The requester may send an ordinary Follow-up, continue
+other work, and wait again. A Response before the Request terminal always wins;
+reminders never create a new Request, infer progress, or message the target.
 
 ### Offline
 
@@ -164,8 +170,9 @@ retracts accepted work and does not prove work stopped, failed, or completed.
 2. Requests return after acceptance; one slow Member does not block delegation.
 3. When no immediate coordination action remains, call
    `wait_for_request_outcome`.
-4. Handle the oldest Request outcome and assign newly ready work.
-5. Repeat until no ready work or pending Member requests remain.
+4. Handle the oldest Request event; a reminder may be followed by an ordinary
+   `send_follow_up`.
+5. Repeat until `wait_for_request_outcome` returns `all-settled`.
 
 Outcomes may arrive out of assignment order; opaque Request IDs preserve
 correlation. In the same synchronous-handler boundary the priority is

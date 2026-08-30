@@ -3,6 +3,7 @@ import {
 	validateYieldingWaitTerminal,
 	type YieldingWaitKind,
 	type YieldingWaitTerminal,
+	type RequestOutcomeReminder,
 } from "../domain/index.ts";
 
 export const WAIT_RESUME_MESSAGE_TYPE = "crew-wait-resume";
@@ -109,6 +110,8 @@ export class YieldingWaitRuntime {
 		const waitId = resolved.value.id;
 		const kind = resolved.value.kind;
 		const response = validated.value.response;
+		const reminder = validated.value.reminder;
+		const pendingCount = validated.value.pending_count;
 		// TASK-0080-fix: a correlated Response carries its FULL payload into the
 		// resume content (message + ordered instructions) so the requester resumes
 		// with the responder's actual answer, never a bare outcome marker.
@@ -116,7 +119,9 @@ export class YieldingWaitRuntime {
 			? `\nResponse: ${response.message}\nInstructions:\n${response.instructions
 					.map((item, index) => `${index + 1}. ${item}`)
 					.join("\n")}`
-			: "";
+			: reminder
+				? `\nReminder: ${reminder.member.name} (${reminder.member.role}) is still pending after ${reminder.ageSeconds}s.`
+				: "";
 		this.queued.set(waitId, kind);
 		this.publish({ type: WAIT_RESUME_QUEUED, waitId, kind });
 		this.deliver({
@@ -128,6 +133,8 @@ export class YieldingWaitRuntime {
 				target: validated.value.target,
 				outcome: validated.value.outcome,
 				...(response === undefined ? {} : { response }),
+				...(reminder === undefined ? {} : { reminder }),
+				...(pendingCount === undefined ? {} : { pending_count: pendingCount }),
 				observedAt: validated.value.observedAt,
 			},
 			deliverAs: this.isRunIdle() ? "steer" : "followUp",
@@ -182,6 +189,29 @@ export class YieldingWaitRuntime {
 		const ids = this.registry.allIds();
 		for (const id of ids) this.cancel(id);
 		return ids;
+	}
+
+	/** Queue requester-only reminders when no wait is parked, preserving FIFO. */
+	deliverReminders(reminders: readonly RequestOutcomeReminder[]): void {
+		if (reminders.length === 0) return;
+		const summary = reminders
+			.map(
+				(reminder) =>
+					`Request ${reminder.requestId} for ${reminder.member.name} (${reminder.member.role}) is still pending after ${reminder.ageSeconds}s`,
+			)
+			.join("\n");
+		this.deliver({
+			customType: WAIT_RESUME_MESSAGE_TYPE,
+			content: `[request reminder]\n${summary}\nConsider an ordinary Follow-up if useful; no reminder is sent to the target.`,
+			details: {
+				requestReminders: reminders.map((reminder) => ({ ...reminder, member: { ...reminder.member } })),
+			},
+			deliverAs: this.isRunIdle() ? "steer" : "followUp",
+		});
+	}
+
+	deliverReminder(reminder: RequestOutcomeReminder): void {
+		this.deliverReminders([reminder]);
 	}
 
 	queuedCount(): number {

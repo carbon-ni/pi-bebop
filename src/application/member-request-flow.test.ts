@@ -101,6 +101,37 @@ test("TASK-0144: requester reminder starts at accepted delivery and stays nonter
 	assert.equal(flow.registry.outboundCount(), 1, "a reminder never settles the Request");
 });
 
+test("TASK-0144: terminal outcome discards an undelivered reminder but remains buffered", async () => {
+	let now = 1_000;
+	const timers: Array<{ callback: () => void; cancelled: boolean }> = [];
+	const { flow, emit } = setup({
+		now: () => now,
+		setTimeout: (callback) => {
+			const timer = { callback, cancelled: false };
+			timers.push(timer);
+			return timer as never;
+		},
+		clearTimeout: (handle) => {
+			(handle as unknown as { cancelled: boolean }).cancelled = true;
+		},
+	});
+	await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
+	now += 180_000;
+	timers[0]!.callback();
+	emit({
+		kind: "response",
+		requestId: "request-1",
+		member: { name: "qa", role: "reviewer" },
+		message: "Done",
+		instructions: [],
+	});
+	assert.equal(flow.registry.bufferedCount(), 1, "stale reminder is removed; terminal remains");
+	const waited = flow.waitForRequestOutcome(() => undefined);
+	assert.equal(waited.ok, true);
+	if (waited.ok) assert.equal(waited.kind, "update");
+	if (waited.ok && waited.kind === "update") assert.equal(waited.update.kind, "response");
+});
+
 test("TASK-0144: terminal Request outcome cancels its requester reminder", async () => {
 	const timers: Array<{ callback: () => void; cancelled: boolean }> = [];
 	const { flow, emit } = setup({

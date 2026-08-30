@@ -176,16 +176,16 @@ export function registerWaitForRequestOutcomeTool(
 		name: "wait_for_request_outcome",
 		label: "Wait for Request Outcome",
 		description:
-			"Requester-side: yield the run and resume with the oldest terminal outbound Request outcome of a Member request you successfully sent: Response, offline, timeout(response-after-idle), or timeout(max-wait). The tool returns a deterministic 'yielded, waiting' result immediately; the terminal outcome arrives in a later turn as a crew-wait-resume message, never while this run stays busy. Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. It does not poll, monitor, or return unrelated Crew activity, and never proves completion, correctness, progress, or availability.",
+			"Requester-side: yield the run and resume with the oldest outbound Request event: a correlated Response/offline/timeout or one nonterminal still-pending reminder after 180 seconds. The tool returns a deterministic 'yielded, waiting' result immediately; events arrive in later turns as a crew-wait-resume message, never while this run stays busy. Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. A settled queue returns all-settled normally. It does not poll, monitor, or return unrelated Crew activity, and never proves completion, correctness, progress, or availability.",
 		parameters: emptyParameters,
 		async execute(_id, _params, signal) {
 			try {
 				const flow = flowFor(state);
 				if (!flow.hasPendingRequestOutcome())
-					return failure(
-						"no-pending-member-requests",
-						"No pending outbound Member request from you. If you received a Member request, respond with respond_to_member_request; otherwise send a new send_member_request or continue ready work.",
-					);
+					return success("All outbound Member requests are settled", {
+						outcome: "all-settled",
+						pending_count: 0,
+					});
 
 				// Yield: park the one-shot wait and return immediately; the pump
 				// (shared, survives the run) forwards terminal outcomes to the
@@ -216,9 +216,12 @@ export function registerWaitForRequestOutcomeTool(
 							target: update.requestId,
 							outcome: outcomeMarker(update),
 							observedAt: Date.now(),
+							pending_count: flow.pendingRequestCount(),
 							...(update.kind === "response"
 								? { response: { message: update.message, instructions: update.instructions } }
-								: {}),
+								: update.kind === "still-pending"
+									? { reminder: { member: update.member, ageSeconds: update.ageSeconds } }
+									: {}),
 						});
 						queueMicrotask(pump);
 					});
@@ -229,6 +232,7 @@ export function registerWaitForRequestOutcomeTool(
 							target: waiting.update.requestId,
 							outcome: outcomeMarker(waiting.update),
 							observedAt: Date.now(),
+							pending_count: flow.pendingRequestCount(),
 							...(waiting.update.kind === "response"
 								? {
 										response: {
@@ -236,7 +240,14 @@ export function registerWaitForRequestOutcomeTool(
 											instructions: waiting.update.instructions,
 										},
 									}
-								: {}),
+								: waiting.update.kind === "still-pending"
+									? {
+											reminder: {
+												member: waiting.update.member,
+												ageSeconds: waiting.update.ageSeconds,
+											},
+										}
+									: {}),
 						});
 						queueMicrotask(pump);
 					}

@@ -18,6 +18,52 @@ function setup(runIdle = true) {
 	return { registry, runtime, delivered };
 }
 
+test("TASK-0144: requester reminder is one nonterminal followUp/steer delivery", () => {
+	const { runtime, delivered } = setup(false);
+	runtime.deliverReminder({
+		kind: "still-pending",
+		requestId: "request-1",
+		member: { name: "Kelly", role: "reviewer" },
+		ageSeconds: 180,
+	});
+	assert.equal(delivered.length, 1);
+	assert.equal(delivered[0]!.deliverAs, "followUp");
+	assert.match(delivered[0]!.content, /request-1.*Kelly.*180s/);
+	assert.deepEqual(delivered[0]!.details, {
+		requestReminders: [
+			{
+				kind: "still-pending",
+				requestId: "request-1",
+				member: { name: "Kelly", role: "reviewer" },
+				ageSeconds: 180,
+			},
+		],
+	});
+});
+
+test("TASK-0144: parked requester wait resumes on one nonterminal reminder and preserves it", () => {
+	const { runtime, delivered, registry } = setup(true);
+	assert.equal(runtime.park({ kind: "request-outcome", target: "request-1", deadlineAt: deadline }).ok, true);
+	assert.equal(
+		runtime.resolve({
+			kind: "request-outcome",
+			target: "request-1",
+			outcome: "still-pending",
+			observedAt: 181_000,
+			pending_count: 1,
+			reminder: { member: { name: "Kelly", role: "reviewer" }, ageSeconds: 180 },
+		}),
+		true,
+	);
+	assert.equal(registry.pendingCount(), 0);
+	assert.match(delivered[0]!.content, /still-pending/);
+	assert.match(delivered[0]!.content, /Reminder: Kelly \(reviewer\)/);
+	assert.deepEqual((delivered[0]!.details as { reminder?: unknown }).reminder, {
+		member: { name: "Kelly", role: "reviewer" },
+		ageSeconds: 180,
+	});
+});
+
 test("TASK-0077: park + terminal resolves exactly once and delivers one steer resume when idle", () => {
 	const { registry, runtime, delivered } = setup(true);
 	const parked = runtime.park({ kind: "member-idle", target: "Kelly", deadlineAt: deadline });

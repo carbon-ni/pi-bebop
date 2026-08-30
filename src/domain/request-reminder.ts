@@ -6,7 +6,9 @@ export interface RequestReminderSchedulerDependencies {
 	readonly setTimeout?: (callback: () => void, delayMs: number) => unknown;
 	readonly clearTimeout?: (handle: unknown) => void;
 	readonly now?: () => number;
-	readonly onReminder: (reminder: RequestOutcomeReminder) => void;
+	readonly onReminder?: (reminder: RequestOutcomeReminder) => void;
+	/** Optional same-turn batch hook; reminders retain acceptance order. */
+	readonly onReminders?: (reminders: readonly RequestOutcomeReminder[]) => void;
 }
 
 interface ReminderEntry {
@@ -58,17 +60,24 @@ export class RequestReminderScheduler {
 		const entry = this.entries.get(requestId);
 		if (!entry || entry.reminded) return;
 		const dueAt = entry.acceptedAt + REQUEST_REMINDER_DELAY_MS;
-		if (this.now() < dueAt) {
-			entry.handle = this.setTimeout(() => this.fire(requestId), dueAt - this.now());
+		const now = this.now();
+		if (now < dueAt) {
+			entry.handle = this.setTimeout(() => this.fire(requestId), dueAt - now);
 			return;
 		}
-		entry.handle = undefined;
-		entry.reminded = true;
-		this.dependencies.onReminder({
-			kind: "still-pending",
-			requestId: entry.requestId,
-			member: { ...entry.member },
-			ageSeconds: Math.max(0, Math.floor((this.now() - entry.acceptedAt) / 1000)),
-		});
+		const reminders: RequestOutcomeReminder[] = [];
+		for (const candidate of this.entries.values()) {
+			if (candidate.reminded || candidate.acceptedAt + REQUEST_REMINDER_DELAY_MS > now) continue;
+			candidate.handle = undefined;
+			candidate.reminded = true;
+			reminders.push({
+				kind: "still-pending",
+				requestId: candidate.requestId,
+				member: { ...candidate.member },
+				ageSeconds: Math.max(0, Math.floor((now - candidate.acceptedAt) / 1000)),
+			});
+		}
+		if (this.dependencies.onReminders) this.dependencies.onReminders(reminders);
+		else for (const reminder of reminders) this.dependencies.onReminder?.(reminder);
 	}
 }

@@ -426,10 +426,23 @@ export class RequestOutcomeRegistry {
 		);
 	}
 
+	/** Drop an undelivered reminder when its Request becomes terminal. */
+	discardReminder(requestId: string): void {
+		for (let index = this.buffered.length - 1; index >= 0; index--) {
+			if (
+				this.buffered[index]!.update.kind === "still-pending" &&
+				this.buffered[index]!.update.requestId === requestId
+			)
+				this.buffered.splice(index, 1);
+		}
+	}
+
 	/** Publish a one-shot requester reminder without changing terminal state. */
-	publishReminder(reminder: RequestOutcomeReminder): void {
-		if (!this.outbound.has(reminder.requestId)) return;
+	publishReminder(reminder: RequestOutcomeReminder): boolean {
+		if (!this.outbound.has(reminder.requestId)) return false;
+		const parked = this.waiter !== undefined;
 		this.publish(reminder);
+		return parked;
 	}
 
 	bufferedCount(): number {

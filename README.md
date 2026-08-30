@@ -93,7 +93,7 @@ Read [Crew init](docs/CREW-INIT.md) for the full layout and conflict rules.
 | `send_to_inbox` | Keep a message for an offline member. | Bebop persists one Inbox item. |
 | `send_member_request` | Require one correlated answer. | Bebop returns a request ID after acceptance. |
 | `respond_to_member_request` | Answer an active member request. | Bebop sends one correlated response. |
-| `wait_for_request_outcome` | Wait after you sent a member request. | Bebop returns its oldest terminal request outcome. |
+| `wait_for_request_outcome` | Yield after you sent a member request. | Bebop resumes with the oldest Response/offline/timeout or one 180-second still-pending reminder; settled requests return `all-settled`. |
 | `interrupt_member` | Stop harmful or invalid active work. | Bebop requests an abort and sends recovery guidance. |
 | `broadcast_to_crew` | Share one constraint with other members. | Bebop persists one Inbox item for each recipient. |
 | `send_to_crew` | Send a durable letter to another local crew. | Bebop persists it for that crew contact. |

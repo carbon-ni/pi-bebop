@@ -22,12 +22,25 @@ export interface YieldingWaitTerminal {
 	 * (the requester resumes with the FULL terminal outcome, never a bare marker).
 	 */
 	readonly response?: { readonly message: string; readonly instructions: readonly string[] };
+	/** Nonterminal requester reminder metadata; exclusive to still-pending. */
+	readonly reminder?: {
+		readonly member: { readonly name: string; readonly role: string };
+		readonly ageSeconds: number;
+	};
+	/** Number of outbound Requests remaining after this event. */
+	readonly pending_count?: number;
 }
 
 const MEMBER_IDLE_OUTCOMES = new Set(["became-idle", "already-idle", "offline", "timeout"]);
 // TASK-0080: idle-without-response is removed from the public union; timeout
 // carries an explicit reason marker in the terminal outcome.
-const REQUEST_OUTCOME_OUTCOMES = new Set(["response", "offline", "timeout:max-wait", "timeout:response-after-idle"]);
+const REQUEST_OUTCOME_OUTCOMES = new Set([
+	"response",
+	"offline",
+	"timeout:max-wait",
+	"timeout:response-after-idle",
+	"still-pending",
+]);
 
 export type TerminalValidationResult =
 	| { readonly ok: true; readonly value: YieldingWaitTerminal }
@@ -69,6 +82,31 @@ export function validateYieldingWaitTerminal(input: unknown): TerminalValidation
 	if (typeof observedAt !== "number" || !Number.isFinite(observedAt))
 		return { ok: false, code: "invalid-observed-at" };
 	const response = (input as { response?: unknown }).response;
+	const reminder = (input as { reminder?: unknown }).reminder;
+	const pendingCount = (input as { pending_count?: unknown }).pending_count;
+	if (
+		pendingCount !== undefined &&
+		(typeof pendingCount !== "number" || !Number.isInteger(pendingCount) || pendingCount < 0)
+	)
+		return { ok: false, code: "invalid-response" };
+	if (kind === "request-outcome" && outcome === "still-pending") {
+		if (typeof reminder !== "object" || reminder === null) return { ok: false, code: "invalid-response" };
+		const member = (reminder as { member?: unknown }).member;
+		const ageSeconds = (reminder as { ageSeconds?: unknown }).ageSeconds;
+		if (
+			typeof member !== "object" ||
+			member === null ||
+			typeof (member as { name?: unknown }).name !== "string" ||
+			typeof (member as { role?: unknown }).role !== "string" ||
+			typeof ageSeconds !== "number" ||
+			!Number.isFinite(ageSeconds) ||
+			ageSeconds < 0
+		)
+			return { ok: false, code: "invalid-response" };
+		if (response !== undefined) return { ok: false, code: "invalid-response" };
+	} else if (reminder !== undefined) {
+		return { ok: false, code: "invalid-response" };
+	}
 	if (kind === "request-outcome" && outcome === "response") {
 		if (typeof response !== "object" || response === null) return { ok: false, code: "invalid-response" };
 		const message = (response as { message?: unknown }).message;

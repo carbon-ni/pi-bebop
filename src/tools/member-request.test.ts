@@ -55,7 +55,7 @@ test("coordination tools are distinct from accepted-only follow-up vocabulary", 
 	assert.equal(tools.get("send_member_request")!.label, "Send Member Request");
 	assert.equal(tools.get("respond_to_member_request")!.label, "Respond to Member Request");
 	assert.equal(tools.get("wait_for_request_outcome")!.label, "Wait for Request Outcome");
-	assert.match(tools.get("wait_for_request_outcome")!.description, /oldest terminal outbound Request outcome/i);
+	assert.match(tools.get("wait_for_request_outcome")!.description, /oldest outbound Request event/i);
 	assert.match(tools.get("wait_for_request_outcome")!.description, /does not poll/i);
 	assert.equal(
 		[...tools.keys()].some(
@@ -104,17 +104,14 @@ test("flow acquisition failures use actionable envelope", async () => {
 	assert.doesNotMatch(JSON.stringify(result.details), /Crew coordination is not initialized|Error:/i);
 });
 
-test("TASK-0076: empty wait fails with no-pending-member-requests and self-correcting recovery guidance", async () => {
+test("TASK-0144: empty wait completes normally with an all-settled result", async () => {
 	const { tools, state, pi, yieldRuntime } = setup();
 	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.isError, true);
-	assert.equal(result.details.error, "no-pending-member-requests");
-	const actionable = result.details.actionableError as { code: string; message: string };
-	assert.equal(actionable.code, result.details.error);
-	assert.equal(result.content[0]?.text, actionable.message);
-	assert.doesNotMatch(JSON.stringify(result.details), /Error:|stack|private\.sock/i);
-	assert.match(String(result.content[0]?.text ?? ""), /respond_to_member_request|send a new|continue/);
+	assert.equal(result.isError, undefined);
+	assert.equal(result.details.outcome, "all-settled");
+	assert.equal(result.details.pending_count, 0);
+	assert.match(String(result.content[0]?.text ?? ""), /settled/i);
 });
 
 test("TASK-0077: abort cancels the parked wait and never resumes; request state survives", async () => {
@@ -135,12 +132,12 @@ test("TASK-0077: abort cancels the parked wait and never resumes; request state 
 	assert.equal(delivered.length, 0, "aborted wait must never resume");
 });
 
-test("empty wait fails immediately and never starts a polling loop", async () => {
+test("TASK-0144: repeated empty wait remains a normal all-settled result", async () => {
 	const { tools, state, pi, yieldRuntime } = setup();
 	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.isError, true);
-	assert.equal(result.details.error, "no-pending-member-requests");
+	assert.equal(result.isError, undefined);
+	assert.equal(result.details.outcome, "all-settled");
 });
 
 test("TASK-0080-fix: the wait tool forwards the FULL Response (message + ordered instructions) to the resume", async () => {

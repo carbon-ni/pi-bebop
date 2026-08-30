@@ -47,7 +47,7 @@ wait_for_request_outcome() -> all-settled
 - [x] Added a pure one-shot requester reminder scheduler with fake-clock coverage at 179,999ms and 180,000ms.
 - [x] Registered the scheduler at accepted delivery and cancelled it on terminal Request cleanup.
 - [x] Added nonterminal `still-pending` Request events that preserve the outbound Request.
-- [ ] Connect reminders to requester-only yielding delivery and complete the async outcome loop.
+- [x] Connected reminders to requester-only yielding delivery and completed the async outcome loop; empty queues return `all-settled`.
 
 ## Contract
 
@@ -100,23 +100,23 @@ wait_for_request_outcome() -> all-settled
 
 ## Acceptance criteria
 
-- [ ] Fake clock proves trigger at accepted delivery, pending at 179,999ms, and
+- [x] Fake clock proves trigger at accepted delivery, pending at 179,999ms, and
       one Requester reminder at exact 180,000ms.
 - [ ] Response, offline, Request timeout, abort, and channel loss before
       deadline cancel exact trigger and emit no reminder.
-- [ ] Timer-first then terminal-before-handoff tombstones reminder; terminal
-      remains available once.
+- [x] Timer-first then terminal-before-handoff discards an undelivered reminder;
+      terminal remains available once.
 - [ ] Reminder-after-handoff then later Response produces one reminder followed
       by one terminal outcome without loss or duplicate.
-- [ ] Parked wait resolves with `still-pending`; Request stays pending and next
+- [x] Parked wait resolves with `still-pending`; Request stays pending and next
       wait can receive terminal outcome.
-- [ ] Without parked wait, idle Requester gets one reminder turn and busy
+- [x] Without parked wait, idle Requester gets one reminder turn and busy
       Requester gets next-turn delivery, never steer.
-- [ ] Two simultaneous deadlines batch deterministically and wake Requester
+- [x] Two simultaneous deadlines batch deterministically and wake Requester
       once.
 - [ ] Multiple-Request test proves B Response cancels only B trigger while A
       reminder/outcome remains live.
-- [ ] `pending_count` changes only on terminal outcomes. At zero,
+- [x] `pending_count` changes only on terminal outcomes. At zero,
       `all-settled` is success.
 - [ ] Ordinary requester Follow-up after reminder does not create/replace a
       Request, reset trigger, or imply correlation.

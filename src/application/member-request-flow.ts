@@ -40,7 +40,7 @@ export interface MemberRequestFlowDependencies {
 	/** TASK-0080: queued exactly once at the target's first post-context idle. */
 	readonly onFirstIdleReminder?: (requestId: string, requester: MemberRequestMember) => void;
 	/** Requester-side reminder, fired once at acceptedAt + 180 seconds. */
-	readonly onRequesterReminder?: (reminder: RequestOutcomeReminder) => void;
+	readonly onRequesterReminder?: (reminders: readonly RequestOutcomeReminder[], parked: boolean) => void;
 }
 export interface SendMemberRequestInput {
 	readonly membership: CrewMembership | null;
@@ -83,9 +83,10 @@ export class MemberRequestFlow {
 			setTimeout: this.setTimer,
 			clearTimeout: this.clearTimer,
 			now: this.now,
-			onReminder: (reminder) => {
-				this.registry.publishReminder(reminder);
-				this.dependencies.onRequesterReminder?.(reminder);
+			onReminders: (reminders) => {
+				let parked = false;
+				for (const reminder of reminders) parked = this.registry.publishReminder(reminder) || parked;
+				this.dependencies.onRequesterReminder?.(reminders, parked);
 			},
 		});
 	}
@@ -204,6 +205,7 @@ export class MemberRequestFlow {
 
 	private finishRequest(requestId: string): void {
 		this.reminderScheduler.cancel(requestId);
+		this.registry.discardReminder(requestId);
 		// TASK-0080: clear both Response timers (hard:<id>, grace:<id>) plus any
 		// legacy single-key timer, exactly once; a leaked timer would otherwise
 		// keep the event loop alive long after the request is terminal.
@@ -233,6 +235,10 @@ export class MemberRequestFlow {
 	/** TASK-0077: true when a Request outcome is already pending or buffered. */
 	hasPendingRequestOutcome(): boolean {
 		return this.registry.hasPendingOutcome();
+	}
+
+	pendingRequestCount(): number {
+		return this.registry.outboundCount();
 	}
 
 	registerInboundRequest(input: {

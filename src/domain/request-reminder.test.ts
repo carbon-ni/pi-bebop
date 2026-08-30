@@ -41,6 +41,20 @@ test("request reminder fires once at exactly acceptedAt plus 180 seconds", () =>
 	assert.equal(reminders.length, 1);
 });
 
+test("same-turn due reminders batch in acceptance order", () => {
+	const clock = fakeClock();
+	const batches: string[][] = [];
+	const scheduler = new RequestReminderScheduler({
+		...clock,
+		onReminders: (reminders) => batches.push(reminders.map((reminder) => reminder.requestId)),
+	});
+	scheduler.register("request-a", { name: "Dave", role: "developer" });
+	scheduler.register("request-b", { name: "Kelly", role: "reviewer" });
+	clock.advance(REQUEST_REMINDER_DELAY_MS);
+	clock.timers[0]!.callback();
+	assert.deepEqual(batches, [["request-a", "request-b"]]);
+});
+
 test("terminal cancellation removes the exact reminder and emits nothing", () => {
 	const clock = fakeClock();
 	const reminders: unknown[] = [];
