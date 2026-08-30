@@ -64,6 +64,9 @@ export interface CompactionDeliveryGate {
 	pendingCount(): number;
 	pendingBytes(): number;
 	resetPending(): void;
+	/** Hold model delivery behind a replay-blocked journal head. */
+	hold(): void;
+	isHeld(): boolean;
 	isCompacting(): boolean;
 }
 
@@ -74,6 +77,7 @@ export function createCompactionDeliveryGate(options: CompactionDeliveryGateOpti
 	let pendingBytes = 0;
 	let nextGeneration = 0;
 	const activeGenerations: number[] = [];
+	let held = false;
 
 	const isValidEntry = (entry: CompactionDeliveryEnvelope): boolean =>
 		typeof entry.id === "string" &&
@@ -86,9 +90,9 @@ export function createCompactionDeliveryGate(options: CompactionDeliveryGateOpti
 	const isClosed = (): boolean => activeGenerations.length > 0;
 
 	const drain = async (generation: number): Promise<void> => {
-		if (isClosed() || generation !== nextGeneration) return;
+		if (isClosed() || held || generation !== nextGeneration) return;
 		while (pending.length > 0) {
-			if (isClosed() || generation !== nextGeneration) return;
+			if (isClosed() || held || generation !== nextGeneration) return;
 			const entry = pending.shift()!;
 			pendingIds.delete(entry.id);
 			pendingBytes -= entry.bytes;
@@ -116,7 +120,7 @@ export function createCompactionDeliveryGate(options: CompactionDeliveryGateOpti
 
 		accept(entry: CompactionDeliveryEnvelope): CompactionDeliveryResult {
 			if (!isValidEntry(entry)) return { disposition: "invalid" };
-			if (!isClosed() && pending.length === 0) {
+			if (!isClosed() && !held && pending.length === 0) {
 				options.deliver(entry);
 				return { disposition: "direct" };
 			}
@@ -136,7 +140,12 @@ export function createCompactionDeliveryGate(options: CompactionDeliveryGateOpti
 			pendingBytes = 0;
 			nextGeneration++;
 			activeGenerations.length = 0;
+			held = false;
 		},
+		hold(): void {
+			held = true;
+		},
+		isHeld: () => held,
 		isCompacting: isClosed,
 	};
 }

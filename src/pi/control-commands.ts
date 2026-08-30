@@ -37,6 +37,7 @@ export type ControlCommandDeps = {
 	refreshStatus?: () => void;
 	refreshPresence?: () => void | Promise<void>;
 	stopPresence?: () => void | Promise<void>;
+	gracefulShutdownDelivery?: () => void | Promise<void>;
 	syncSessionName?: (membership: Membership | null) => void | Promise<void>;
 	activateAgreementRevision?: (
 		revisionId: string,
@@ -415,6 +416,7 @@ export function registerSessionControlCommand(
 						return;
 					}
 					const previousMembership = membership.getMembership();
+					await deps.gracefulShutdownDelivery?.();
 					const result = await membership.leave();
 					if ("error" in result) notify(ctx, `Crew leave failed: ${result.error.message}`, "error");
 					else {
@@ -448,7 +450,10 @@ export function registerSessionControlCommand(
 					const previousMembership = membership?.getMembership();
 					await releaseMembershipBeforeCleanup({
 						hasMembership: Boolean(previousMembership),
-						leave: async () => membership!.leave(),
+						leave: async () => {
+							await deps.gracefulShutdownDelivery?.();
+							return membership!.leave();
+						},
 						cleanup: async () => {
 							await deps.syncSessionName?.(null);
 							await deps.disableControlServer(state, ctx);

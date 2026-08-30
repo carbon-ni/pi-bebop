@@ -13,8 +13,11 @@ import {
 	type CompactionDeliveryJournal,
 } from "../infra/compaction-delivery-journal.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
+import { reportActionableError } from "./actionable-error-output.ts";
 
 type ModelDeliveryResult = CompactionDeliveryResult & { readonly deferred?: boolean };
+
+const REPLAY_PREFIX = "[replayed after ambiguous restart; possible duplicate]\n\n";
 
 function parseDeliveryNumber(id: string): number {
 	const match = /^delivery-(\d+)$/.exec(id);
@@ -62,6 +65,7 @@ export interface ModelDeliveryAdapter {
 		hasSessionEvidence?: (deliveryId: string) => Promise<boolean> | boolean,
 		waitForSessionEvidence?: (deliveryId: string) => Promise<boolean> | boolean,
 		isLiveRequest?: (requestId: string) => Promise<boolean> | boolean,
+		onReplayBlocked?: () => void,
 	) => Promise<void>;
 	readonly sendAndWait: (
 		message: unknown,
@@ -69,6 +73,7 @@ export interface ModelDeliveryAdapter {
 	) => Promise<ModelDeliveryResult>;
 	readonly compactionStarted: () => number;
 	readonly compactionEnded: (generation: number) => boolean;
+	readonly gracefulShutdown?: () => Promise<void>;
 }
 
 /** Configure receiver-owned persistence for the current trusted membership. */
@@ -94,7 +99,16 @@ export async function configureModelDeliveryJournal(
 		} while (Date.now() < deadline);
 		return false;
 	};
-	await adapter.configureJournal(journal, hasEvidence, waitForEvidence, isLiveRequest);
+	await adapter.configureJournal(journal, hasEvidence, waitForEvidence, isLiveRequest, () => {
+		reportActionableError(context, {
+			code: "unexpected-failure",
+			operation: "Crew compaction delivery recovery",
+			reason: "an ambiguous delivery replay is blocked pending explicit recovery",
+			recovery: [
+				"inspect the receiver's delivery state and retry after explicit operator recovery is available.",
+			],
+		});
+	});
 }
 
 /** Composition-root adapter: every Bebop model delivery crosses this gate. */
@@ -103,12 +117,15 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 	let journal: CompactionDeliveryJournal | undefined;
 	let journalGeneration = 0;
 	let waitForSessionEvidence: ((deliveryId: string) => Promise<boolean> | boolean) | undefined;
+	let hasSessionEvidence: ((deliveryId: string) => Promise<boolean> | boolean) | undefined;
 	let isLiveRequest: ((requestId: string) => Promise<boolean> | boolean) | undefined;
+	let accepting = true;
 	const delivered = new Map<string, { success?: () => void; failure?: () => void }>();
 	const deferredIds = new Set<string>();
 	const persisted = new Map<string, Promise<void>>();
 	const failed = new Set<string>();
 	const deferredJournals = new Map<string, CompactionDeliveryJournal>();
+	const replayIds = new Set<string>();
 	const allocatedIds = new Set<string>();
 	const inFlightDeliveries = new Set<Promise<void>>();
 	let configurationTail = Promise.resolve();
@@ -135,13 +152,35 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		if (callback === "failure") failed.add(id);
 		persisted.delete(id);
 		deferredJournals.delete(id);
+		replayIds.delete(id);
 		const callbacks = delivered.get(id);
 		callbacks?.[callback]?.();
 		delivered.delete(id);
 	};
+	const replayMessage = (message: unknown): unknown => {
+		if (typeof message !== "object" || message === null || Array.isArray(message)) return message;
+		const source = message as Record<string, unknown>;
+		const content = source.content;
+		const replayContent =
+			typeof content === "string"
+				? `${REPLAY_PREFIX}${content}`
+				: Array.isArray(content)
+					? [{ type: "text", text: REPLAY_PREFIX }, ...content]
+					: content;
+		const details = source.details;
+		return {
+			...source,
+			content: replayContent,
+			details: {
+				...(typeof details === "object" && details !== null && !Array.isArray(details) ? details : {}),
+				deliveryReplay: { kind: "ambiguous-restart", possibleDuplicate: true },
+			},
+		};
+	};
 	const deliverPersisted = async (
 		entry: CompactionDeliveryEnvelope,
 		deliveryJournal: CompactionDeliveryJournal,
+		replay: boolean,
 	): Promise<void> => {
 		let handedOff = false;
 		try {
@@ -154,7 +193,10 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			await (persisted.get(entry.id) ?? Promise.resolve());
 			if (consumeFailure(entry.id)) return;
 			await deliveryJournal.markHandingOff(entry.id);
-			send(decorateMessage(entry.message, entry.id) as never, entry.delivery as never);
+			send(
+				(replay ? replayMessage(entry.message) : decorateMessage(entry.message, entry.id)) as never,
+				entry.delivery as never,
+			);
 			handedOff = true;
 			const evidenceSeen = waitForSessionEvidence ? await waitForSessionEvidence(entry.id) : true;
 			if (evidenceSeen) {
@@ -170,9 +212,10 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		}
 	};
 	const deliverEntry = async (entry: CompactionDeliveryEnvelope): Promise<void> => {
-		if (consumeFailure(entry.id)) return;
+		if (consumeFailure(entry.id) || gate.isHeld()) return;
 		const deliveryJournal = deferredJournals.get(entry.id) ?? journal;
-		if (deliveryJournal && deferredIds.has(entry.id)) return deliverPersisted(entry, deliveryJournal);
+		if (deliveryJournal && deferredIds.has(entry.id))
+			return deliverPersisted(entry, deliveryJournal, replayIds.has(entry.id));
 		try {
 			send(entry.message as never, entry.delivery as never);
 			finish(entry.id, "success");
@@ -196,14 +239,14 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		schedule: (task) => setImmediate(task),
 		deliver,
 	});
+	const hasDeferredWork = (): boolean => gate.isCompacting() || gate.isHeld() || gate.pendingCount() > 0;
 	const sendDurably = async (
 		message: unknown,
 		options: Readonly<Record<string, unknown>> = {},
 		onDelivered?: () => void,
 		onFailed?: () => void,
 	): Promise<ModelDeliveryResult> => {
-		if (!journal || (!gate.isCompacting() && gate.pendingCount() === 0))
-			return sendModel(message, options, onDelivered, onFailed);
+		if (!journal || !hasDeferredWork()) return sendModel(message, options, onDelivered, onFailed);
 		let activeJournal: CompactionDeliveryJournal | undefined;
 		let reservedId: string | undefined;
 		do {
@@ -241,6 +284,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		reservedId?: string,
 		journalOverride?: CompactionDeliveryJournal,
 	): CompactionDeliveryResult => {
+		if (!accepting) return { disposition: "invalid" };
 		const id = reservedId ?? `delivery-${++nextId}`;
 		allocatedIds.add(id);
 		nextId = Math.max(nextId, parseDeliveryNumber(id));
@@ -251,24 +295,30 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			return { disposition: "invalid" };
 		}
 		const envelope = { id, bytes, message, delivery: options, metadata: { deliveryId: id } };
-		const shouldPersist = gate.isCompacting() || gate.pendingCount() > 0;
+		const shouldPersist = hasDeferredWork();
 		if (onDelivered || onFailed) delivered.set(id, { success: onDelivered, failure: onFailed });
 		const result = gate.accept(envelope);
 		const deliveryJournal = journalOverride ?? journal;
 		if (result.disposition === "deferred" && shouldPersist && deliveryJournal) {
 			deferredIds.add(id);
 			deferredJournals.set(id, deliveryJournal);
-			persisted.set(
-				id,
-				deliveryJournal.append(envelope, Date.now()).then(
-					() => {
-						onPersisted?.();
-					},
-					() => {
-						onPersistenceFailed?.();
-						finish(id, "failure");
-					},
-				),
+			const persistence = deliveryJournal.append(envelope, Date.now()).then(
+				() => {
+					onPersisted?.();
+				},
+				() => {
+					onPersistenceFailed?.();
+					finish(id, "failure");
+				},
+			);
+			persisted.set(id, persistence);
+			void persistence.then(
+				() => {
+					if (persisted.get(id) === persistence) persisted.delete(id);
+				},
+				() => {
+					if (persisted.get(id) === persistence) persisted.delete(id);
+				},
 			);
 		}
 		if (result.disposition === "invalid" || result.disposition === "capacity-exceeded") delivered.delete(id);
@@ -298,9 +348,10 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 			}),
 		configureJournal: async (
 			nextJournal,
-			hasSessionEvidence = async () => false,
+			nextHasSessionEvidence = async () => false,
 			nextWaitForSessionEvidence,
 			nextIsLiveRequest,
+			onReplayBlocked,
 		) => {
 			const previousConfiguration = configurationTail;
 			let releaseConfiguration!: () => void;
@@ -312,7 +363,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 				while (inFlightDeliveries.size > 0 || persisted.size > 0)
 					await Promise.all([...inFlightDeliveries, ...persisted.values()]);
 				if (nextJournal) {
-					await nextJournal.reconcile(hasSessionEvidence);
+					await nextJournal.reconcile(nextHasSessionEvidence);
 					const pending = await nextJournal.listPending();
 					const persistedNextId = nextJournal.nextSequence ? (await nextJournal.nextSequence()) - 1 : 0;
 					gate.resetPending();
@@ -322,12 +373,19 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 						persistedNextId,
 						...pending.map((record) => parseDeliveryNumber(record.id)),
 					);
+					accepting = true;
+					hasSessionEvidence = nextHasSessionEvidence;
 					waitForSessionEvidence = nextWaitForSessionEvidence;
 					isLiveRequest = nextIsLiveRequest;
 					deferredIds.clear();
 					deferredJournals.clear();
+					replayIds.clear();
 					persisted.clear();
 					failed.clear();
+					if (pending.some((record) => record.state === "replay-blocked")) {
+						gate.hold();
+						onReplayBlocked?.();
+					}
 					for (const record of pending) {
 						allocatedIds.add(record.id);
 						const requestId = requestIdForReplay(record.envelope);
@@ -337,6 +395,7 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 						}
 						deferredIds.add(record.id);
 						deferredJournals.set(record.id, nextJournal);
+						if (record.state === "handing-off" && record.replayAttempts === 1) replayIds.add(record.id);
 						gate.accept(record.envelope);
 					}
 					return;
@@ -344,9 +403,11 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 				gate.resetPending();
 				journal = undefined;
 				waitForSessionEvidence = undefined;
+				hasSessionEvidence = undefined;
 				isLiveRequest = undefined;
 				deferredIds.clear();
 				deferredJournals.clear();
+				replayIds.clear();
 				persisted.clear();
 				failed.clear();
 			} finally {
@@ -355,5 +416,14 @@ export function createModelDeliveryAdapter(send: ExtensionAPI["sendMessage"]): M
 		},
 		compactionStarted: () => gate.compactionStarted(),
 		compactionEnded: (generation) => gate.compactionEnded(generation),
+		gracefulShutdown: async () => {
+			accepting = false;
+			gate.hold();
+			journalGeneration += 1;
+			while (inFlightDeliveries.size > 0 || persisted.size > 0)
+				await Promise.all([...inFlightDeliveries, ...persisted.values()]);
+			if (journal?.reconcileGracefully && hasSessionEvidence)
+				await journal.reconcileGracefully(hasSessionEvidence);
+		},
 	};
 }

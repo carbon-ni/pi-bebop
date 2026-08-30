@@ -88,6 +88,21 @@ test("capacity rejects newest entry atomically", () => {
 	assert.equal(scheduled.length, 0);
 });
 
+test("a replay-blocked head holds later entries until explicit recovery", () => {
+	const sent: string[] = [];
+	const gate = createCompactionDeliveryGate({
+		maxEntries: 4,
+		maxBytes: 100,
+		schedule: (task) => task(),
+		deliver: (entry) => sent.push(entry.id),
+	});
+	gate.hold();
+	assert.deepEqual(gate.accept(envelope("blocked", 1)), { disposition: "deferred" });
+	assert.deepEqual(gate.accept(envelope("later", 1)), { disposition: "deferred" });
+	assert.equal(gate.isHeld(), true);
+	assert.deepEqual(sent, []);
+});
+
 test("a new compaction before the post-event task keeps the queue pending", () => {
 	const { gate, scheduled, delivered } = setup();
 	const generation = gate.compactionStarted();

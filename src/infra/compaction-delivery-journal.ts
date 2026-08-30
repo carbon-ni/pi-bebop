@@ -9,7 +9,7 @@ export const COMPACTION_DELIVERY_MAX_ENTRIES = 64;
 export const COMPACTION_DELIVERY_MAX_ENTRY_BYTES = 1_100_000;
 export const COMPACTION_DELIVERY_MAX_BYTES = 70_400_000;
 
-type JournalState = "pending" | "handing-off";
+export type CompactionDeliveryJournalState = "pending" | "handing-off" | "replay-blocked";
 
 export interface CompactionDeliveryRecord {
 	readonly version: typeof COMPACTION_DELIVERY_JOURNAL_VERSION;
@@ -17,7 +17,8 @@ export interface CompactionDeliveryRecord {
 	readonly sequence: number;
 	readonly acceptedAt: number;
 	readonly bytes: number;
-	readonly state: JournalState;
+	readonly state: CompactionDeliveryJournalState;
+	readonly replayAttempts: 0 | 1;
 	readonly envelope: CompactionDeliveryEnvelope;
 }
 
@@ -170,21 +171,39 @@ function isValidDeliveryIdentity(record: Record<string, unknown>): boolean {
 	return record.version === 1 && typeof record.id === "string" && record.id.length > 0;
 }
 
-function isValidDeliveryRecord(record: unknown): record is CompactionDeliveryRecord {
-	if (!isRecord(record)) return false;
-	const validIdentity = isValidDeliveryIdentity(record);
-	const sequence = record.sequence;
-	const acceptedAt = record.acceptedAt;
-	const validSequence = typeof sequence === "number" && Number.isSafeInteger(sequence) && sequence > 0;
-	const validTime = typeof acceptedAt === "number" && Number.isSafeInteger(acceptedAt);
-	const validState = record.state === "pending" || record.state === "handing-off";
+function isValidReplayState(record: Record<string, unknown>): boolean {
+	const validState =
+		record.state === "pending" || record.state === "handing-off" || record.state === "replay-blocked";
+	const replayAttempts = record.replayAttempts;
+	const validReplayAttempts = replayAttempts === undefined || replayAttempts === 0 || replayAttempts === 1;
+	return validState && validReplayAttempts && (record.state !== "replay-blocked" || replayAttempts === 1);
+}
+
+function isValidRecordBytes(record: Record<string, unknown>): boolean {
 	const bytes = record.bytes;
-	const validBytes =
+	return (
 		typeof bytes === "number" &&
 		Number.isSafeInteger(bytes) &&
 		bytes >= 0 &&
-		bytes <= COMPACTION_DELIVERY_MAX_ENTRY_BYTES;
-	return validIdentity && validSequence && validTime && validState && validBytes && isValidDeliveryEnvelope(record);
+		bytes <= COMPACTION_DELIVERY_MAX_ENTRY_BYTES
+	);
+}
+
+function isValidDeliveryRecord(record: unknown): record is CompactionDeliveryRecord {
+	if (!isRecord(record)) return false;
+	const sequence = record.sequence;
+	const acceptedAt = record.acceptedAt;
+	return (
+		isValidDeliveryIdentity(record) &&
+		typeof sequence === "number" &&
+		Number.isSafeInteger(sequence) &&
+		sequence > 0 &&
+		typeof acceptedAt === "number" &&
+		Number.isSafeInteger(acceptedAt) &&
+		isValidReplayState(record) &&
+		isValidRecordBytes(record) &&
+		isValidDeliveryEnvelope(record)
+	);
 }
 
 function parseJournal(value: unknown): JournalFile {
@@ -206,7 +225,9 @@ function parseJournal(value: unknown): JournalFile {
 	return {
 		version: 1,
 		nextSequence: Number.isSafeInteger(value.nextSequence) ? Number(value.nextSequence) : records.length + 1,
-		records: [...records].sort((a, b) => a.sequence - b.sequence),
+		records: [...records]
+			.map((record) => ({ ...record, replayAttempts: record.replayAttempts ?? 0 }) as CompactionDeliveryRecord)
+			.sort((a, b) => a.sequence - b.sequence),
 	};
 }
 
@@ -220,6 +241,8 @@ export interface CompactionDeliveryJournal {
 	readonly markHandingOff: (id: string) => Promise<void>;
 	readonly markDelivered: (id: string) => Promise<void>;
 	readonly reconcile: (hasSessionEvidence: (id: string) => Promise<boolean> | boolean) => Promise<void>;
+	/** Graceful receiver shutdown: retain ambiguous handoffs without replay. */
+	readonly reconcileGracefully?: (hasSessionEvidence: (id: string) => Promise<boolean> | boolean) => Promise<void>;
 }
 
 export async function openTrustedCompactionDeliveryJournal(options: {
@@ -344,6 +367,7 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 					acceptedAt,
 					bytes: envelope.bytes,
 					state: "pending",
+					replayAttempts: 0,
 					envelope,
 				};
 				await write({
@@ -354,7 +378,7 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 				return record;
 			}, true),
 		// Handoff records remain visible until Pi evidence confirms delivery;
-		// reconciliation deliberately returns both pending and handing-off rows.
+		// reconciliation deliberately returns pending, handing-off, and blocked rows.
 		listPending: () => transact(async () => (await read()).records),
 		markHandingOff: (id) =>
 			transact(async () => {
@@ -377,8 +401,30 @@ export async function openTrustedCompactionDeliveryJournal(options: {
 				const journal = await read();
 				const records: CompactionDeliveryRecord[] = [];
 				for (const record of journal.records) {
-					if (record.state === "handing-off" && (await hasEvidence(record.id))) continue;
-					records.push(record.state === "handing-off" ? { ...record, state: "pending" } : record);
+					if (record.state !== "handing-off") {
+						records.push(record);
+						continue;
+					}
+					if (await hasEvidence(record.id)) continue;
+					if (record.replayAttempts === 0) {
+						records.push({ ...record, replayAttempts: 1 });
+						continue;
+					}
+					records.push({ ...record, state: "replay-blocked" });
+				}
+				await write({ ...journal, records });
+			}, true),
+		reconcileGracefully: (hasEvidence) =>
+			transact(async () => {
+				const journal = await read();
+				const records: CompactionDeliveryRecord[] = [];
+				for (const record of journal.records) {
+					if (record.state !== "handing-off") {
+						records.push(record);
+						continue;
+					}
+					if (await hasEvidence(record.id)) continue;
+					records.push({ ...record, state: "replay-blocked", replayAttempts: 1 });
 				}
 				await write({ ...journal, records });
 			}, true),

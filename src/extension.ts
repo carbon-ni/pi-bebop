@@ -361,6 +361,7 @@ export default function (pi: ExtensionAPI) {
 			refreshStatus: () => refreshIntrayStatus(state),
 			refreshPresence,
 			stopPresence,
+			gracefulShutdownDelivery: () => state.modelDelivery?.gracefulShutdown?.(),
 			syncSessionName: async (membership) => {
 				sessionNameController.syncMembership(membership);
 				await (membership
@@ -423,6 +424,12 @@ export default function (pi: ExtensionAPI) {
 		cancelCrewMemberIdleCommand(state, "session-shutdown");
 		inboxBridge.invalidate();
 		const context = state.context;
+		// Close acceptance and reconcile handoffs before releasing receiver ownership.
+		try {
+			await state.modelDelivery?.gracefulShutdown?.();
+		} catch {
+			reportLifecycleFailure(context);
+		}
 		// its suspension via the cancelled events and no work is resumed.
 		yieldRuntime.cancelAll();
 		await releaseMembershipBeforeCleanup({

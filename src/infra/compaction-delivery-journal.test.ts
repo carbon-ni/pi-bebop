@@ -112,7 +112,7 @@ test("journal writers in separate instances retain both records under the filesy
 	await fs.rm(root, { recursive: true, force: true });
 });
 
-test("journal reconciliation requeues an unacknowledged handoff", async () => {
+test("journal reconciliation reserves one replay for an evidence-absent handoff", async () => {
 	const memory = memoryDeps();
 	const journal = await openTrustedCompactionDeliveryJournal({
 		manifestPath: "/project/.pi/bebop/crew.json",
@@ -124,5 +124,48 @@ test("journal reconciliation requeues an unacknowledged handoff", async () => {
 	await journal.append(envelope("a"), 1);
 	await journal.markHandingOff("a");
 	await journal.reconcile(() => false);
-	assert.equal((await journal.listPending())[0].state, "pending");
+	assert.deepEqual((await journal.listPending())[0], {
+		version: 1,
+		id: "a",
+		sequence: 1,
+		acceptedAt: 1,
+		bytes: 32,
+		state: "handing-off",
+		replayAttempts: 1,
+		envelope: envelope("a"),
+	});
+});
+
+test("journal graceful reconciliation blocks an evidence-absent handoff without reserving a replay", async () => {
+	const memory = memoryDeps();
+	const journal = await openTrustedCompactionDeliveryJournal({
+		manifestPath: "/project/.pi/bebop/crew.json",
+		projectRoot: "/project",
+		isProjectTrusted: () => true,
+		memberName: "Dave",
+		deps: memory.deps,
+	});
+	await journal.append(envelope("a"), 1);
+	await journal.markHandingOff("a");
+	await journal.reconcileGracefully!(() => false);
+	const record = (await journal.listPending())[0];
+	assert.equal(record.state, "replay-blocked");
+	assert.equal(record.replayAttempts, 1);
+});
+
+test("journal blocks a second evidence-absent reconciliation after the replay reservation", async () => {
+	const memory = memoryDeps();
+	const journal = await openTrustedCompactionDeliveryJournal({
+		manifestPath: "/project/.pi/bebop/crew.json",
+		projectRoot: "/project",
+		isProjectTrusted: () => true,
+		memberName: "Dave",
+		deps: memory.deps,
+	});
+	await journal.append(envelope("a"), 1);
+	await journal.markHandingOff("a");
+	await journal.reconcile(() => false);
+	await journal.reconcile(() => false);
+	assert.equal((await journal.listPending())[0].state, "replay-blocked");
+	assert.equal((await journal.listPending())[0].replayAttempts, 1);
 });

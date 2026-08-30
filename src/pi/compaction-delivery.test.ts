@@ -498,6 +498,146 @@ test("model delivery resumes durable IDs after an adapter restart", async () => 
 	assert.deepEqual(ids, ["delivery-1", "delivery-2"]);
 });
 
+test("model delivery replays an ambiguously handed-off envelope with bounded provenance", async () => {
+	const sent: any[] = [];
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: 2,
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			replayAttempts: 0 as const,
+			envelope,
+		}),
+		listPending: async () => [
+			{
+				version: 1 as const,
+				id: "delivery-1",
+				sequence: 1,
+				acceptedAt: 1,
+				bytes: 32,
+				state: "handing-off" as const,
+				replayAttempts: 1 as const,
+				envelope: {
+					id: "delivery-1",
+					bytes: 32,
+					message: { customType: "crew", content: "hello", details: { deliveryId: "delivery-1" } },
+					delivery: { triggerTurn: true },
+					metadata: { deliveryId: "delivery-1" },
+				},
+			},
+		],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter((message) => sent.push(message));
+	await adapter.configureJournal(journal);
+	const generation = adapter.compactionStarted();
+	adapter.compactionEnded(generation);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(sent.length, 1);
+	assert.equal(sent[0].content, "[replayed after ambiguous restart; possible duplicate]\n\nhello");
+	assert.deepEqual(sent[0].details.deliveryReplay, {
+		kind: "ambiguous-restart",
+		possibleDuplicate: true,
+	});
+	assert.equal(sent[0].details.deliveryId, "delivery-1");
+});
+
+test("model delivery keeps a replay-blocked head from reaching Pi", async () => {
+	const sent: unknown[] = [];
+	const appended: string[] = [];
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => {
+			appended.push(envelope.id);
+			return {
+				version: 1 as const,
+				id: envelope.id,
+				sequence: 2,
+				acceptedAt: 1,
+				bytes: envelope.bytes,
+				state: "pending" as const,
+				replayAttempts: 0 as const,
+				envelope,
+			};
+		},
+		listPending: async () => [
+			{
+				version: 1 as const,
+				id: "delivery-1",
+				sequence: 1,
+				acceptedAt: 1,
+				bytes: 32,
+				state: "replay-blocked" as const,
+				replayAttempts: 1 as const,
+				envelope: {
+					id: "delivery-1",
+					bytes: 32,
+					message: { customType: "crew", content: "blocked" },
+					delivery: { triggerTurn: true },
+					metadata: { deliveryId: "delivery-1" },
+				},
+			},
+		],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter((message) => sent.push(message));
+	let blockedNotified = 0;
+	await adapter.configureJournal(journal, undefined, undefined, undefined, () => blockedNotified++);
+	const generation = adapter.compactionStarted();
+	adapter.compactionEnded(generation);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(sent, []);
+	assert.equal(blockedNotified, 1);
+	assert.deepEqual(await adapter.sendDurably({ customType: "crew", content: "later" }), {
+		disposition: "deferred",
+		deferred: true,
+	});
+	assert.deepEqual(appended, ["delivery-2"]);
+});
+
+test("model delivery graceful shutdown closes acceptance without replaying queued work", async () => {
+	const sent: unknown[] = [];
+	let gracefullyReconciled = 0;
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: 1,
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			replayAttempts: 0 as const,
+			envelope,
+		}),
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+		reconcileGracefully: async () => {
+			gracefullyReconciled++;
+		},
+	};
+	const adapter = createModelDeliveryAdapter((message) => sent.push(message));
+	await adapter.configureJournal(journal, async () => false);
+	const generation = adapter.compactionStarted();
+	assert.deepEqual(adapter.send({ customType: "crew", content: "queued" }), { disposition: "deferred" });
+	await adapter.gracefulShutdown!();
+	assert.equal(gracefullyReconciled, 1);
+	assert.deepEqual(adapter.compactionEnded(generation), true);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(sent, []);
+	assert.deepEqual(adapter.send({ customType: "crew", content: "after shutdown" }), { disposition: "invalid" });
+});
+
 test("model delivery resolves sendAndWait only after deferred handoff", async () => {
 	const sent: unknown[] = [];
 	const adapter = createModelDeliveryAdapter((message, options) => sent.push({ message, options }));
