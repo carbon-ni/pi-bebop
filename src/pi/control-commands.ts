@@ -416,7 +416,7 @@ export function registerSessionControlCommand(
 						return;
 					}
 					const previousMembership = membership.getMembership();
-					await deps.gracefulShutdownDelivery?.();
+					if (previousMembership) await deps.gracefulShutdownDelivery?.();
 					const result = await membership.leave();
 					if ("error" in result) notify(ctx, `Crew leave failed: ${result.error.message}`, "error");
 					else {
