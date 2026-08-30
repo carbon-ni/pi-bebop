@@ -1,7 +1,7 @@
 ---
 id: TASK-0140
 title: Defer coordination messages during compaction
-status: todo
+status: doing
 depends_on: [TASK-0143]
 priority: high
 tags: [messaging, compaction, coordination, lifecycle, tdd]
