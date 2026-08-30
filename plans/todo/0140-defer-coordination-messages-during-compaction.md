@@ -1,8 +1,8 @@
 ---
 id: TASK-0140
 title: Defer coordination messages during compaction
-status: doing
-depends_on: []
+status: todo
+depends_on: [TASK-0143]
 priority: high
 tags: [messaging, compaction, coordination, lifecycle, tdd]
 ---
@@ -95,6 +95,12 @@ If **F2** fails because Pi 0.84.3 cannot expose durable typed handoff evidence b
 
 Mony owns the freeze. Any production edit invalidates the feasibility candidate. Mary issues the Product feasibility verdict only from Kelly's explicit verdict on the same clean full SHA and fresh watcher fingerprint.
 
+### Feasibility verdict
+
+Exact clean evidence commit `1c91fdaead3298e9d72ccc1caf98997ddaba7628`: **F1 PASS, F2 BLOCK, F3 PASS**. Kelly independently confirmed watcher gen1143 fingerprint `35875274d1a7` PASS and the F2 public-API limitation. Pi 0.84.3 exposes no durable flush acknowledgement between typed session handoff and provider consumption; the host fixture proves ordering only.
+
+Production implementation is stopped. TASK-0140 now depends on TASK-0143 selecting an honest extension-only crash-window guarantee. No code change, green test, or timing assumption may override this Product BLOCK.
+
 ## Risk-ranked acceptance matrix
 
 After F1–F3 pass, implementation resumes against this bounded matrix. Rows identify the remaining directly affected dependency boundary; process artifacts never replace required host evidence.
@@ -150,10 +156,10 @@ After F1–F3 pass, implementation resumes against this bounded matrix. Rows ide
 - General-purpose scheduler, durable chat history, message dashboard, or productivity monitoring.
 - Any modification, fork, patch, or unpublished dependency change to upstream Pi.
 
-## Assignment gate
+## Resume gate
 
-TASK-0121 is closed. The product boundaries above are locked, but this plan remains unassigned until the Lead explicitly reviews this update and assigns one owner. Updating the plan does not authorize implementation.
+TASK-0121 remains closed. TASK-0140 is Product-blocked on TASK-0143. Resume only after the revised crash-window guarantee is copied into this plan, explicitly accepted by Product, independently reviewed by QA, and assigned by the Lead. Retain one implementation owner and exact-hash QA through closure.
 
 ## Notes
 
-This task touches the Pi composition root, messaging acknowledgement timing, Request activation, Inbox ownership, lifecycle events, and durable storage. Keep one implementation owner and require independent exact-hash QA before closure.
+This task touches the Pi composition root, messaging acknowledgement timing, Request activation, Inbox ownership, lifecycle events, and durable storage. The current evidence-only source ratchet remains useful, but F2 prevents the original exactly-once contract from closing without redesign.
