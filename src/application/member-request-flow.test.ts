@@ -157,7 +157,7 @@ test("TASK-0144: terminal Request outcome cancels its requester reminder", async
 	assert.equal(timers[0]!.cancelled, true);
 });
 
-test("TASK-0144: Response, offline, timeout, abort, and channel loss cancel reminders before deadline", async () => {
+test("TASK-0144: Response, offline, timeout, and abort cancel reminders before deadline", async () => {
 	const cases = [
 		{
 			name: "Response",
@@ -172,11 +172,6 @@ test("TASK-0144: Response, offline, timeout, abort, and channel loss cancel remi
 		},
 		{
 			name: "offline",
-			finish: (emit: (update: any) => void) =>
-				emit({ kind: "offline", requestId: "request-1", member: { name: "qa", role: "reviewer" } }),
-		},
-		{
-			name: "channel loss",
 			finish: (emit: (update: any) => void) =>
 				emit({ kind: "offline", requestId: "request-1", member: { name: "qa", role: "reviewer" } }),
 		},
@@ -202,12 +197,18 @@ test("TASK-0144: Response, offline, timeout, abort, and channel loss cancel remi
 		assert.equal(timers[0]!.cancelled, true, `${scenario.name} cancels the exact reminder timer`);
 	}
 
-	const timeoutTimers: Array<{ callback: () => void; cancelled: boolean }> = [];
+	const timeoutTimers: Array<{
+		callback: () => void;
+		cancelled: boolean;
+		delay: number;
+		phase: "accepted" | "idle";
+	}> = [];
 	const timeoutReminders: unknown[] = [];
+	let timeoutPhase: "accepted" | "idle" = "accepted";
 	const timeout = setup({
 		onRequesterReminder: (updates) => timeoutReminders.push(...updates),
-		setTimeout: (callback) => {
-			const timer = { callback, cancelled: false };
+		setTimeout: (callback, delay) => {
+			const timer = { callback, cancelled: false, delay, phase: timeoutPhase };
 			timeoutTimers.push(timer);
 			return timer as never;
 		},
@@ -223,11 +224,16 @@ test("TASK-0144: Response, offline, timeout, abort, and channel loss cancel remi
 		timeoutSeconds: 1,
 		maxWaitSeconds: 301,
 	});
+	timeoutPhase = "idle";
 	timeoutEmit({ kind: "idle", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
-	timeoutTimers[2]!.callback();
-	timeoutTimers[0]!.callback();
+	const graceTimer = timeoutTimers.find((timer) => timer.delay === 1_000 && timer.phase === "idle");
+	const reminderTimer = timeoutTimers.find((timer) => timer.delay === 180_000);
+	assert.ok(graceTimer);
+	assert.ok(reminderTimer);
+	graceTimer.callback();
+	reminderTimer.callback();
 	assert.deepEqual(timeoutReminders, [], "Request timeout before the reminder deadline emits no reminder");
-	assert.equal(timeoutTimers[0]!.cancelled, true);
+	assert.equal(reminderTimer.cancelled, true);
 
 	const abortTimers: Array<{ callback: () => void; cancelled: boolean }> = [];
 	const abortReminders: unknown[] = [];
@@ -247,6 +253,45 @@ test("TASK-0144: Response, offline, timeout, abort, and channel loss cancel remi
 	abortTimers[0]!.callback();
 	assert.deepEqual(abortReminders, [], "abort before the reminder deadline emits no reminder");
 	assert.equal(abortTimers[0]!.cancelled, true);
+});
+
+test("TASK-0144: transport channel close cancels its reminder before deadline", async () => {
+	let closeChannel!: () => void;
+	const timers: Array<{ callback: () => void; cancelled: boolean; delay: number }> = [];
+	const reminders: unknown[] = [];
+	const { flow } = setup({
+		onRequesterReminder: (updates) => reminders.push(...updates),
+		transport: {
+			open: async (_endpoint, _command, options) => {
+				let closed = false;
+				closeChannel = () => {
+					if (closed) return;
+					closed = true;
+					options.onUpdate({
+						kind: "offline",
+						requestId: "request-1",
+						member: { name: "qa", role: "reviewer" },
+					});
+				};
+				return { close: () => undefined };
+			},
+			respond: async () => undefined,
+		},
+		setTimeout: (callback, delay) => {
+			const timer = { callback, cancelled: false, delay };
+			timers.push(timer);
+			return timer as never;
+		},
+		clearTimeout: (handle) => {
+			(handle as unknown as { cancelled: boolean }).cancelled = true;
+		},
+	});
+	await flow.sendMemberRequest({ membership, member: "qa", message: "channel" });
+	closeChannel();
+	const reminderTimer = timers.find((timer) => timer.delay === 180_000)!;
+	reminderTimer.callback();
+	assert.deepEqual(reminders, [], "channel close before deadline emits no requester reminder");
+	assert.equal(reminderTimer.cancelled, true, "channel close cancels the exact reminder timer");
 });
 
 test("TASK-0144: lifecycle cancellation removes every requester reminder", async () => {
