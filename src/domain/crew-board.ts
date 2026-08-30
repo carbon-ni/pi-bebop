@@ -162,7 +162,7 @@ function validateLink(link: CrewPostLink | null | undefined): CrewPostLink | nul
 }
 export function validateBoardAppendInput(input: BoardAppendInput): void {
 	safeText(input.operationId, "operation-id", MAX_BOARD_OPERATION_ID_BYTES);
-	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(input.operationId))
+	if (!/^[A-Za-z0-9][A-Za-z0-9._:|+-]{0,127}$/.test(input.operationId))
 		fail("invalid-operation-id", "operation id grammar is invalid");
 	safeAuthor(input.author?.name);
 	safeAuthor(input.author?.role);

@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Value } from "@sinclair/typebox/value";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -13,6 +16,7 @@ import type { SocketState } from "../pi/control-runtime.ts";
 import { parseCrewManifest } from "../domain/index.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
 import type { BoardReadResult, CrewPost } from "../domain/index.ts";
+import { openTrustedCrewBoardStore } from "../infra/crew-board-store.ts";
 
 const manifestPath = "/project/.pi/bebop/crew.json";
 const manifest = parseCrewManifest(
@@ -36,14 +40,18 @@ const empty = {
 	quarantinedThisRead: 0,
 	corruptCountTruncated: false,
 };
-function setup(register: (pi: ExtensionAPI, state: SocketState, deps: never) => void, deps: unknown) {
+function setup(
+	register: (pi: ExtensionAPI, state: SocketState, deps: never) => void,
+	deps: unknown,
+	localState: SocketState = state,
+) {
 	let tool: any;
 	const pi = {
 		registerTool(value: unknown) {
 			tool = value;
 		},
 	} as unknown as ExtensionAPI;
-	register(pi, state, deps as never);
+	register(pi, localState, deps as never);
 	return tool;
 }
 
@@ -196,6 +204,63 @@ test("Board mapper preserves known store outcomes and rejects raw codes", () => 
 	for (const code of ["untrusted-path", "invalid-read", "capacity-exceeded", "lock-conflict", "write-failed"])
 		assert.equal(normalizeCrewBoardErrorCode(code), code);
 	assert.equal(normalizeCrewBoardErrorCode("password-secret"), "board-failed");
+});
+
+test("realistic Pi tool call IDs remain valid for Mary and Mony append while read succeeds", async (t) => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-board-tool-id-"));
+	t.after(() => fs.rm(root, { recursive: true, force: true }));
+	const manifestPath = path.join(root, ".pi", "bebop", "crew.json");
+	await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+	const manifest = parseCrewManifest(
+		{
+			version: 1,
+			members: [
+				{ name: "Mary", role: "po", socket: "sockets/mary.sock" },
+				{ name: "Mony", role: "lead", socket: "sockets/mony.sock" },
+			],
+		},
+		manifestPath,
+	);
+	await fs.writeFile(
+		manifestPath,
+		JSON.stringify({
+			version: 1,
+			members: manifest.members.map((member) => ({
+				name: member.name,
+				role: member.role,
+				socket: path.relative(path.dirname(manifestPath), member.socketPath),
+			})),
+		}),
+	);
+
+	for (const member of manifest.members) {
+		const current: Membership = {
+			manifestPath,
+			socketPath: member.socketPath,
+			globalSocketPath: path.join(root, `${member.name}.global.sock`),
+			member,
+			manifest,
+		};
+		const state = { membershipRuntime: { getMembership: () => current } } as never as SocketState;
+		const dependencies = {
+			isProjectTrusted: () => true,
+			getCurrentMembership: () => current,
+			openStore: openTrustedCrewBoardStore,
+		};
+		const append = setup(registerLeaveCrewPostTool, dependencies, state);
+		const read = setup(registerReadCrewBoardTool, dependencies, state);
+		const before = await read.execute("read", {});
+		assert.equal(before.isError, undefined, `${member.name} can read with active Membership`);
+		const result = await append.execute(`call_${member.name}|fc_realistic`, {
+			message: `append from ${member.name}`,
+		});
+		assert.equal(
+			result.isError,
+			undefined,
+			`${member.name} Pi tool call ID must be accepted: ${JSON.stringify(result.details)}`,
+		);
+		assert.equal(result.details.persisted, true);
+	}
 });
 
 test("registered Board tools sanitize all known and unknown store failures", async () => {

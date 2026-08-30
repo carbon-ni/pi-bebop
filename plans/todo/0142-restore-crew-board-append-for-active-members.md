@@ -21,14 +21,14 @@ Do not bypass Membership attribution or write Board files manually to publish th
 
 ## Acceptance criteria
 
-- [ ] Add a failing regression fixture reproducing append rejection while the same active trusted Membership can read the Board.
-- [ ] Cover both Mary/Product and Mony/Lead membership snapshots without inferring authority from Role.
-- [ ] Identify the exact append-path failure and fix it without weakening operation-ID, author, trust, layout, link, capacity, locking, or atomic-publish validation.
-- [ ] Known append failures retain bounded stable error codes and recovery guidance; unknown exceptions remain sanitized without making diagnosis impossible in tests or internal evidence.
-- [ ] A real extension-host test persists one Post through `leave_crew_post`, returns a Post ID, and reads the same canonical Post back through `read_crew_board`.
-- [ ] Exact replay remains idempotent; a distinct operation creates a distinct Post; no retry creates duplicates.
+- [x] Add a failing regression fixture reproducing append rejection while the same active trusted Membership can read the Board (`src/tools/crew-board.test.ts`, realistic `call_*|fc_*` ID; red before grammar fix, read succeeded).
+- [x] Cover both Mary/Product and Mony/Lead membership snapshots without inferring authority from Role (`src/tools/crew-board.test.ts`, active Membership loop).
+- [x] Identify the exact append-path failure and fix it without weakening operation-ID, author, trust, layout, link, capacity, locking, or atomic-publish validation: Pi tool-call IDs can contain `|fc_...`; the operation identity is hashed and never persisted, so the bounded grammar now accepts `|` (`src/domain/crew-board.ts`, `docs/CREW-BOARD.md`).
+- [x] Known append failures retain bounded stable error codes and recovery guidance; unknown exceptions remain sanitized without making diagnosis impossible in tests or internal evidence (`src/tools/crew-board.test.ts`, existing known/unknown error matrix).
+- [x] A real extension-host test persists one Post through `leave_crew_post`, returns a Post ID, and reads the same canonical Post back through `read_crew_board` (`src/pi/crew-board.host.integration.test.ts`).
+- [x] Exact replay remains idempotent; a distinct operation creates a distinct Post; no retry creates duplicates (`src/infra/crew-board-store.test.ts`, replay/conflict/concurrent append matrix).
 - [ ] After the fix, persist the agreed interim TASK-0140 retrospective synthesis and record its Post ID in the retrospective report.
-- [ ] Focused tests, full gates, fresh watcher, and independent exact-head QA pass.
+- [ ] Focused tests, full gates, fresh watcher, and independent exact-head QA pass (focused gates pass locally; new candidate QA still required).
 
 ## Notes
 

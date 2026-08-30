@@ -31,7 +31,8 @@ test("redacts deterministic message credentials and rejects sensitive references
 	assert.throws(() => createBoardPost(input({ references: ["token:abcdef"] }), 1, 1, scope), /sensitive/);
 });
 
-test("rejects unsafe links, duplicate references, invalid operation, and oversized message", () => {
+test("accepts Pi tool-call IDs and rejects unsafe links, duplicate references, invalid operation, and oversized message", () => {
+	assert.doesNotThrow(() => createBoardPost(input({ operationId: "call_tool|fc_suffix" }), 1, 1, scope));
 	assert.throws(() => createBoardPost(input({ link: { relation: "disputes", postId: "x" } }), 1, 1, scope), /link/);
 	assert.throws(() => createBoardPost(input({ references: ["TASK-1", "TASK-1"] }), 1, 1, scope), /unique/);
 	assert.throws(() => createBoardPost(input({ operationId: "../bad" }), 1, 1, scope), /operation/);

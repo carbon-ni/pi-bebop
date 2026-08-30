@@ -163,7 +163,7 @@ Kinds are never counted, ranked, scored, sentiment-analysed, or aggregated per M
 
 ## Append operation identity and idempotency
 
-Every append requires an infrastructure-supplied `operationId`; it is not a public Member argument. It is 1–128 ASCII characters matching `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`. Pi tool execution uses its stable tool-call identity; a slash/other adapter creates one injected invocation identity before calling the application operation. Tests inject it. A new human/tool invocation normally has a new identity even when text repeats.
+Every append requires an infrastructure-supplied `operationId`; it is not a public Member argument. It is 1–128 ASCII characters matching `^[A-Za-z0-9][A-Za-z0-9._:|+-]{0,127}$`; the pipe is accepted because Pi tool-call identities can include a `|fc_...` suffix. Pi tool execution uses its stable tool-call identity; a slash/other adapter creates one injected invocation identity before calling the application operation. Tests inject it. A new human/tool invocation normally has a new identity even when text repeats.
 
 The uniqueness scope is one active-layout Board for as long as its Post is retained. Derivation is:
 
