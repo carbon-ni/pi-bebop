@@ -1,7 +1,7 @@
 ---
 id: TASK-0144
 title: Run asynchronous Request conversations with cancellable reminders
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [member-request, reminder, async, coordination, tdd]
@@ -102,8 +102,8 @@ wait_for_request_outcome() -> all-settled
 
 - [x] Fake clock proves trigger at accepted delivery, pending at 179,999ms, and
       one Requester reminder at exact 180,000ms.
-- [ ] Response, offline, Request timeout, abort, and channel loss before
-      deadline cancel exact trigger and emit no reminder.
+- [x] Response, offline, Request timeout, abort, and channel loss before
+      deadline cancel exact trigger and emit no reminder (`src/application/member-request-flow.test.ts`, exact transport-close and named-timeout coverage in accepted SHA `0dfd775`).
 - [x] Timer-first then terminal-before-handoff discards an undelivered reminder;
       terminal remains available once.
 - [x] Reminder-after-handoff then later Response produces one reminder followed
@@ -135,9 +135,11 @@ wait_for_request_outcome() -> all-settled
       preserve clear requester/responder affordances (`src/tools/member-request.ts`).
 - [x] Tool descriptions, `README.md`, `docs/MEMBER-REQUEST-WORKFLOW.md`, `UL.md`,
       renderers, and package inventory teach async loop and fixed reminder (documented surfaces and package inventory checks).
-- [ ] Focused fake-clock/real-runtime tests, typecheck, formatting, architecture
+- [x] Focused fake-clock/real-runtime tests, typecheck, formatting, architecture
       and package checks, full suite, coverage/risk gate, and fresh watcher pass
-      on one clean exact SHA.
+      on one clean exact SHA (`0dfd775`; Kelly detached exact-SHA PASS; Funzzy
+      gen1494 `make all` PASS; coverage 76.13% lines / 85.42% branches /
+      72.52% functions).
 
 ## Constraints
 
