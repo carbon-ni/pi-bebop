@@ -1,7 +1,7 @@
 ---
 id: TASK-0144
 title: Run asynchronous Request conversations with cancellable reminders
-status: todo
+status: in-progress
 depends_on: []
 priority: high
 tags: [member-request, reminder, async, coordination, tdd]
@@ -41,6 +41,13 @@ wait_for_request_outcome()                              # wait for next event
 ...
 wait_for_request_outcome() -> all-settled
 ```
+
+## Implementation progress
+
+- [x] Added a pure one-shot requester reminder scheduler with fake-clock coverage at 179,999ms and 180,000ms.
+- [x] Registered the scheduler at accepted delivery and cancelled it on terminal Request cleanup.
+- [x] Added nonterminal `still-pending` Request events that preserve the outbound Request.
+- [ ] Connect reminders to requester-only yielding delivery and complete the async outcome loop.
 
 ## Contract
 

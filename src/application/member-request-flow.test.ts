@@ -67,6 +67,65 @@ test("request registers before endpoint/open and returns accepted without waitin
 	assert.equal(flow.registry.resolveOffline("request-1").ok, true);
 });
 
+test("TASK-0144: requester reminder starts at accepted delivery and stays nonterminal", async () => {
+	let now = 1_000;
+	const timers: Array<{ callback: () => void; delay: number }> = [];
+	const { flow } = setup({
+		now: () => now,
+		setTimeout: (callback, delay) => {
+			const timer = { callback, delay };
+			timers.push(timer);
+			return timer as never;
+		},
+		clearTimeout: () => undefined,
+	});
+	await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
+	assert.equal(timers[0]?.delay, 180_000);
+	now += 179_999;
+	timers[0]!.callback();
+	assert.equal(flow.registry.bufferedCount(), 0);
+	now += 1;
+	timers[timers.length - 1]!.callback();
+	const waited = flow.waitForRequestOutcome(() => {
+		throw new Error("reminder is buffered before the requester waits");
+	});
+	assert.equal(waited.ok, true);
+	if (waited.ok) {
+		assert.deepEqual(waited.update, {
+			kind: "still-pending",
+			requestId: "request-1",
+			member: { name: "qa", role: "reviewer" },
+			ageSeconds: 180,
+		});
+	}
+	assert.equal(flow.registry.outboundCount(), 1, "a reminder never settles the Request");
+});
+
+test("TASK-0144: terminal Request outcome cancels its requester reminder", async () => {
+	const timers: Array<{ callback: () => void; cancelled: boolean }> = [];
+	const { flow, emit } = setup({
+		setTimeout: (callback) => {
+			const timer = { callback, cancelled: false };
+			timers.push(timer);
+			return timer as never;
+		},
+		clearTimeout: (handle) => {
+			(handle as unknown as { cancelled: boolean }).cancelled = true;
+		},
+	});
+	await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
+	emit({
+		kind: "response",
+		requestId: "request-1",
+		member: { name: "qa", role: "reviewer" },
+		message: "Done",
+		instructions: [],
+	});
+	timers[0]!.callback();
+	assert.equal(flow.registry.bufferedCount(), 1, "only the terminal Response remains buffered");
+	assert.equal(timers[0]!.cancelled, true);
+});
+
 test("pre-accept failure cleans request while lost acknowledgement closes as outcome-unknown", async () => {
 	const failed = setup({
 		transport: {

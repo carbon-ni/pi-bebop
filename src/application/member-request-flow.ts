@@ -7,10 +7,12 @@ import {
 import { RpcProtocolError } from "../infra/rpc-client.ts";
 import {
 	RequestOutcomeRegistry,
+	RequestReminderScheduler,
 	DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
 	DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
 	MEMBER_REQUEST_ACCEPT_DEADLINE_MS,
-	type RequestOutcome,
+	type RequestOutcomeEvent,
+	type RequestOutcomeReminder,
 	type MemberRequestInbound,
 	type MemberRequestMember,
 } from "../domain/index.ts";
@@ -37,6 +39,8 @@ export interface MemberRequestFlowDependencies {
 	readonly clearTimeout?: (handle: ReturnType<typeof globalThis.setTimeout>) => void;
 	/** TASK-0080: queued exactly once at the target's first post-context idle. */
 	readonly onFirstIdleReminder?: (requestId: string, requester: MemberRequestMember) => void;
+	/** Requester-side reminder, fired once at acceptedAt + 180 seconds. */
+	readonly onRequesterReminder?: (reminder: RequestOutcomeReminder) => void;
 }
 export interface SendMemberRequestInput {
 	readonly membership: CrewMembership | null;
@@ -68,12 +72,22 @@ export class MemberRequestFlow {
 	private readonly createRequestId: () => string;
 	private readonly setTimer: (callback: () => void, delayMs: number) => ReturnType<typeof globalThis.setTimeout>;
 	private readonly clearTimer: (handle: ReturnType<typeof globalThis.setTimeout>) => void;
+	private readonly reminderScheduler: RequestReminderScheduler;
 
 	constructor(private readonly dependencies: MemberRequestFlowDependencies) {
 		this.now = dependencies.now ?? Date.now;
 		this.createRequestId = dependencies.createRequestId ?? defaultRequestId;
 		this.setTimer = dependencies.setTimeout ?? ((callback, delay) => globalThis.setTimeout(callback, delay));
 		this.clearTimer = dependencies.clearTimeout ?? ((handle) => globalThis.clearTimeout(handle));
+		this.reminderScheduler = new RequestReminderScheduler({
+			setTimeout: this.setTimer,
+			clearTimeout: this.clearTimer,
+			now: this.now,
+			onReminder: (reminder) => {
+				this.registry.publishReminder(reminder);
+				this.dependencies.onRequesterReminder?.(reminder);
+			},
+		});
 	}
 
 	async sendMemberRequest(input: SendMemberRequestInput): Promise<SendMemberRequestAccepted> {
@@ -147,6 +161,9 @@ export class MemberRequestFlow {
 			const acceptedOutcome = this.registry.acceptOutbound(requestId);
 			if (acceptedOutcome.ok === false) throw new Error(acceptedOutcome.code);
 			accepted = true;
+			// TASK-0144: requester reminder starts exactly at accepted delivery,
+			// independently for each opaque Request ID.
+			this.reminderScheduler.register(requestId, { name: target.name, role: target.role }, this.now());
 			// TASK-0080: hard safety starts exactly once at accepted delivery.
 			const hardTimer = this.setTimer(() => {
 				this.resolveTerminal(requestId, "max-wait");
@@ -186,6 +203,7 @@ export class MemberRequestFlow {
 	}
 
 	private finishRequest(requestId: string): void {
+		this.reminderScheduler.cancel(requestId);
 		// TASK-0080: clear both Response timers (hard:<id>, grace:<id>) plus any
 		// legacy single-key timer, exactly once; a leaked timer would otherwise
 		// keep the event loop alive long after the request is terminal.
@@ -208,7 +226,7 @@ export class MemberRequestFlow {
 		this.finishRequest(requestId);
 	}
 
-	waitForRequestOutcome(onUpdate: (update: RequestOutcome) => void) {
+	waitForRequestOutcome(onUpdate: (update: RequestOutcomeEvent) => void) {
 		return this.registry.waitForUpdate(onUpdate);
 	}
 

@@ -32,6 +32,13 @@ export interface MemberRequestMember {
 	readonly role: string;
 }
 
+export interface RequestOutcomeReminder {
+	readonly kind: "still-pending";
+	readonly requestId: string;
+	readonly member: MemberRequestMember;
+	readonly ageSeconds: number;
+}
+
 export interface RequestOutcomeResponse {
 	readonly kind: "response";
 	readonly requestId: string;
@@ -52,6 +59,7 @@ export interface RequestOutcomeTimeout {
 	readonly reason: "max-wait" | "response-after-idle";
 }
 export type RequestOutcome = RequestOutcomeResponse | RequestOutcomeOffline | RequestOutcomeTimeout;
+export type RequestOutcomeEvent = RequestOutcome | RequestOutcomeReminder;
 /** Mechanical terminal union (no idle-without-response since TASK-0080). */
 export type RequestOutcomeMechanical = RequestOutcomeOffline | RequestOutcomeTimeout;
 
@@ -88,7 +96,7 @@ interface MutableInbound extends MemberRequestInbound {
 
 export type RequestOutcomeOperation<T> = { ok: true; value: T } | { ok: false; code: RequestOutcomeFailureCode };
 export type RequestOutcomeWaitResult =
-	| { ok: true; kind: "update"; update: RequestOutcome }
+	| { ok: true; kind: "update"; update: RequestOutcomeEvent }
 	| { ok: true; kind: "waiting"; cancel: () => void }
 	| { ok: false; code: "already-waiting" | "no-pending-requests" };
 
@@ -115,9 +123,9 @@ export class RequestOutcomeRegistry {
 	private readonly inboundTerminal = new Map<string, "response">();
 	private readonly tombstoneOrder: string[] = [];
 	private readonly inboundTombstoneOrder: string[] = [];
-	private readonly buffered: Array<{ readonly update: RequestOutcome; readonly sequence: number }> = [];
+	private readonly buffered: Array<{ readonly update: RequestOutcomeEvent; readonly sequence: number }> = [];
 	private sequence = 0;
-	private waiter: ((update: RequestOutcome) => void) | undefined;
+	private waiter: ((update: RequestOutcomeEvent) => void) | undefined;
 
 	registerOutbound(input: {
 		readonly requestId: string;
@@ -379,13 +387,13 @@ export class RequestOutcomeRegistry {
 		}
 	}
 
-	waitForUpdate(onUpdate: (update: RequestOutcome) => void): RequestOutcomeWaitResult {
+	waitForUpdate(onUpdate: (update: RequestOutcomeEvent) => void): RequestOutcomeWaitResult {
 		const next = this.buffered.shift();
 		if (next) return { ok: true, kind: "update", update: next.update };
 		if (this.outbound.size === 0) return { ok: false, code: "no-pending-requests" };
 		if (this.waiter) return { ok: false, code: "already-waiting" };
 		let active = true;
-		const callback = (update: RequestOutcome) => {
+		const callback = (update: RequestOutcomeEvent) => {
 			if (!active) return;
 			active = false;
 			this.waiter = undefined;
@@ -403,7 +411,7 @@ export class RequestOutcomeRegistry {
 		};
 	}
 
-	private publish(update: RequestOutcome): void {
+	private publish(update: RequestOutcomeEvent): void {
 		if (this.waiter) {
 			const waiter = this.waiter;
 			this.waiter = undefined;
@@ -416,6 +424,12 @@ export class RequestOutcomeRegistry {
 			(left, right) =>
 				left.sequence - right.sequence || left.update.requestId.localeCompare(right.update.requestId),
 		);
+	}
+
+	/** Publish a one-shot requester reminder without changing terminal state. */
+	publishReminder(reminder: RequestOutcomeReminder): void {
+		if (!this.outbound.has(reminder.requestId)) return;
+		this.publish(reminder);
 	}
 
 	bufferedCount(): number {
