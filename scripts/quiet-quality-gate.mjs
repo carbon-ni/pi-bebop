@@ -7,15 +7,25 @@ export const QUALITY_COMMANDS = [
 	["npm", ["test"]],
 ];
 
+const MAX_FAILURE_OUTPUT_CHARACTERS = 12_000;
+
 function runCommand(command, args) {
 	return spawnSync(command, args, {
 		cwd: process.cwd(),
 		encoding: "utf8",
+		maxBuffer: 10 * 1024 * 1024,
 	});
 }
 
+function boundedOutput(output) {
+	if (output.length <= MAX_FAILURE_OUTPUT_CHARACTERS) return output;
+	return `[earlier output omitted; showing final ${MAX_FAILURE_OUTPUT_CHARACTERS} characters]\n${output.slice(
+		-MAX_FAILURE_OUTPUT_CHARACTERS,
+	)}`;
+}
+
 function failureDetails(command, args, result) {
-	const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+	const output = boundedOutput([result.stdout, result.stderr].filter(Boolean).join("\n").trim());
 	const reason = result.error?.message ?? (output || `exit status ${result.status ?? "unknown"}`);
 	return `${command} ${args.join(" ")} failed\n${reason}\n`;
 }

@@ -59,3 +59,18 @@ test("prints false and failing command output without running later commands", (
 	assert.deepEqual(captured.standard, ["false\n"]);
 	assert.deepEqual(captured.error, ["lint  failed\ntype error\n"]);
 });
+
+test("bounds failure output to preserve agent context", () => {
+	const captured = output();
+	const failureOutput = `${"a".repeat(12_001)}final error`;
+
+	runQualityGate({
+		commands: [["test", []]],
+		run: () => ({ status: 1, stdout: failureOutput, stderr: "" }),
+		...captured,
+	});
+
+	assert.match(captured.error[0], /^test  failed\n\[earlier output omitted/);
+	assert.match(captured.error[0], /final error\n$/);
+	assert.ok(captured.error[0].length < 12_100);
+});
