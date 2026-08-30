@@ -332,6 +332,77 @@ test("model delivery persists and acknowledges a deferred handoff", async () => 
 	);
 });
 
+test("mixed model-bound surfaces retain FIFO payloads, options, and correlation metadata", async () => {
+	const sent: Array<{ message: any; options: unknown }> = [];
+	const journal = {
+		filePath: "/tmp/compaction.json",
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: Number(envelope.id.split("-")[1]),
+			acceptedAt: 1,
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			envelope,
+		}),
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	const adapter = createModelDeliveryAdapter((message, options) => sent.push({ message, options }));
+	await adapter.configureJournal(journal);
+	const fixtures = [
+		["follow-up", { triggerTurn: true, deliverAs: "followUp" }],
+		["redirect", { triggerTurn: true, deliverAs: "steer" }],
+		["request", { triggerTurn: true }],
+		["request-reminder", { triggerTurn: true, deliverAs: "followUp" }],
+		["response-resume", { triggerTurn: true, deliverAs: "steer" }],
+		["inbox", { triggerTurn: true, deliverAs: "followUp" }],
+		["broadcast", { triggerTurn: true }],
+		["intake", { triggerTurn: true }],
+		["crew-letter", { triggerTurn: true }],
+		["interrupt-recovery", { triggerTurn: true }],
+		["presence", { triggerTurn: false }],
+		["control-response", { triggerTurn: false }],
+	] as const;
+	const originals = fixtures.map(([surface]) => ({
+		customType: "crew",
+		content: `${surface} content`,
+		details: {
+			surface,
+			messagePayload: { content: `${surface} payload`, instructions: [`${surface} instruction`] },
+			correlation: `${surface}-correlation`,
+		},
+	}));
+	const generation = adapter.compactionStarted();
+	for (let index = 0; index < originals.length; index += 1) {
+		assert.deepEqual(await adapter.sendDurably(originals[index], fixtures[index][1]), {
+			disposition: "deferred",
+			deferred: true,
+		});
+	}
+	assert.deepEqual(sent, []);
+	assert.equal(adapter.compactionEnded(generation), true);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(
+		sent.map(({ message }) => message.details.surface),
+		fixtures.map(([surface]) => surface),
+	);
+	assert.deepEqual(
+		sent.map(({ options }) => options),
+		fixtures.map(([, options]) => options),
+	);
+	for (let index = 0; index < originals.length; index += 1) {
+		assert.deepEqual(sent[index].message.content, originals[index].content);
+		assert.deepEqual(sent[index].message.details.messagePayload, originals[index].details.messagePayload);
+		assert.deepEqual(sent[index].message.details.correlation, originals[index].details.correlation);
+		assert.equal(sent[index].message.details.deliveryId, `delivery-${index + 1}`);
+		assert.equal(originals[index].details.deliveryId, undefined);
+	}
+});
+
 test("model delivery drains journal-backed messages in FIFO handoff order", async () => {
 	const sent: string[] = [];
 	const journal = {
