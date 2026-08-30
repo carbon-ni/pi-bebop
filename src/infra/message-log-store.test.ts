@@ -357,6 +357,66 @@ test("trusted layout and project checks run before filesystem calls", async () =
 	assert.equal(calls.length, 0);
 });
 
+test("read missing entry does not mutate filesystem", async () => {
+	const calls: string[] = [];
+	const callsFs = {
+		mkdir: async () => {
+			calls.push("mkdir");
+			throw new Error("no mkdir expected");
+		},
+		readFile: async () => {
+			calls.push("readFile");
+			const error: NodeJS.ErrnoException = new Error("ENOENT");
+			error.code = "ENOENT";
+			throw error;
+		},
+		writeFile: async () => {
+			calls.push("writeFile");
+			throw new Error("no write expected");
+		},
+		link: async () => {
+			calls.push("link");
+			throw new Error("no link expected");
+		},
+		rename: async () => {
+			calls.push("rename");
+			throw new Error("no rename expected");
+		},
+		open: async () => {
+			calls.push("open");
+			throw new Error("no open expected");
+		},
+		unlink: async () => {
+			calls.push("unlink");
+			throw new Error("no unlink expected");
+		},
+		realpath: async (filePath: string) => {
+			calls.push(`realpath:${filePath}`);
+			if (filePath === "/tmp/project-root") return "/tmp/project-root";
+			if (filePath.endsWith("/.pi/bebop")) return "/tmp/project-root/.pi/bebop";
+			if (filePath.endsWith("/entry-does-not-exist.json")) return "/tmp/entry-does-not-exist.json";
+			if (filePath.endsWith("/message-log")) {
+				const error: NodeJS.ErrnoException = new Error("ENOENT");
+				error.code = "ENOENT";
+				throw error;
+			}
+			if (filePath.endsWith(".pi/bebop/crew.json")) return "/tmp/project-root/.pi/bebop/crew.json";
+			return filePath;
+		},
+	} satisfies Partial<unknown>;
+
+	const store = createMessageLogStore({
+		manifestPath: "/tmp/project-root/.pi/bebop/crew.json",
+		projectRoot: "/tmp/project-root",
+		isProjectTrusted: () => true,
+		fs: callsFs as any,
+	});
+
+	const missing = await store.read("entry-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+	assert.equal(missing, null);
+	assert.equal(calls.includes("mkdir"), false);
+});
+
 test("untrusted project fails before filesystem calls", async () => {
 	const calls: string[] = [];
 	const guardFs = {
