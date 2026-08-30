@@ -17,6 +17,53 @@ test("member request rejects an unjoined runtime", async () => {
 	assert.equal((c.responses[0] as any).error, "not-joined");
 });
 
+test("deferred member request stays invisible until the gate hands it off", async () => {
+	const c = handlerContext();
+	c.state.membershipRuntime = { getMembership: () => joinedMembership() } as never;
+	c.state.context!.isProjectTrusted = () => true;
+	let delivered!: () => void;
+	let accepted = false;
+	let notified = false;
+	c.state.memberRequestFlow = {
+		registerInboundRequest: () => undefined,
+		acceptInboundRequest: () => {
+			accepted = true;
+		},
+		removeInboundRequest: () => undefined,
+		registry: { failBeforeAcceptance: () => undefined },
+	} as never;
+	c.notifyAcceptedMessage = () => {
+		notified = true;
+	};
+	c.state.modelDelivery = {
+		sendDurably: async (_message: unknown, _options: unknown, onDelivered: () => void) => {
+			delivered = onDelivered;
+			return { disposition: "deferred", deferred: true };
+		},
+	} as never;
+	await handleMemberRequest(
+		{
+			type: "member_request",
+			requestId: "deferred-request",
+			payload: { content: "x", instructions: [], origin: { kind: "crew", name: "Mary", role: "po" } },
+			timeoutSeconds: 1,
+			id: "1",
+		},
+		c,
+	);
+	assert.equal(c.responses.length, 0);
+	assert.equal(accepted, false);
+	assert.equal(notified, false);
+	delivered();
+	assert.equal(accepted, true);
+	assert.equal(notified, true);
+	assert.deepEqual((c.responses[0] as any).data, {
+		accepted: true,
+		requestId: "deferred-request",
+		member: { name: "Dave", role: "dev" },
+	});
+});
+
 test("member request registers and acknowledges a configured crew origin", async () => {
 	const c = handlerContext();
 	c.state.membershipRuntime = { getMembership: () => joinedMembership() } as never;
