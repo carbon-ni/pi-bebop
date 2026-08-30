@@ -201,14 +201,8 @@ export default function (pi: ExtensionAPI) {
 				{ triggerTurn: true, deliverAs: "followUp" },
 			);
 		},
-		onRequesterReminder: (reminders, parked) => {
-			if (!parked) yieldRuntime?.deliverReminders(reminders);
-		},
+		onRequesterReminder: (reminders, parked) => !parked && yieldRuntime?.deliverReminders(reminders),
 	});
-	// TASK-0077: one shared pending-wait registry + resume delivery for the
-	// yielding coordination waits. The registry survives the run; a terminal
-	// lifecycle delivery resolves the oldest matching parked wait exactly once
-	// and emits one crew-wait-resume message that wakes the agent later.
 	yieldRuntime = new YieldingWaitRuntime({
 		registry: new YieldingWaitRegistry(),
 		deliver: (message) => {
