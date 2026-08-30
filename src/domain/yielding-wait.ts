@@ -61,6 +61,58 @@ const validResponseInstructions = (instructions: unknown): boolean =>
 	instructions.length <= MAX_RESPONSE_INSTRUCTIONS &&
 	instructions.every((item) => typeof item === "string" && item.trim().length > 0);
 
+type TerminalErrorCode =
+	| "invalid-kind"
+	| "invalid-target"
+	| "invalid-outcome"
+	| "invalid-observed-at"
+	| "invalid-response";
+
+const invalidResponse = (): TerminalErrorCode => "invalid-response";
+
+function validatePendingCount(value: unknown): TerminalErrorCode | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number") return invalidResponse();
+	if (!Number.isInteger(value)) return invalidResponse();
+	if (value < 0) return invalidResponse();
+	return undefined;
+}
+
+function validateReminder(
+	kind: unknown,
+	outcome: unknown,
+	response: unknown,
+	reminder: unknown,
+): TerminalErrorCode | undefined {
+	if (kind === "request-outcome" && outcome === "still-pending") {
+		if (typeof reminder !== "object" || reminder === null) return invalidResponse();
+		const member = (reminder as { member?: unknown }).member;
+		const ageSeconds = (reminder as { ageSeconds?: unknown }).ageSeconds;
+		if (typeof member !== "object" || member === null) return invalidResponse();
+		if (typeof (member as { name?: unknown }).name !== "string") return invalidResponse();
+		if (typeof (member as { role?: unknown }).role !== "string") return invalidResponse();
+		if (typeof ageSeconds !== "number" || !Number.isFinite(ageSeconds)) return invalidResponse();
+		if (ageSeconds < 0) return invalidResponse();
+		if (response !== undefined) return invalidResponse();
+		return undefined;
+	}
+	if (reminder !== undefined) return invalidResponse();
+	return undefined;
+}
+
+function validateResponse(kind: unknown, outcome: unknown, response: unknown): TerminalErrorCode | undefined {
+	if (kind === "request-outcome" && outcome === "response") {
+		if (typeof response !== "object" || response === null) return invalidResponse();
+		const message = (response as { message?: unknown }).message;
+		if (typeof message !== "string" || message.trim().length === 0) return invalidResponse();
+		const instructions = (response as { instructions?: unknown }).instructions;
+		if (instructions !== undefined && !validResponseInstructions(instructions)) return invalidResponse();
+		return undefined;
+	}
+	if (response !== undefined) return invalidResponse();
+	return undefined;
+}
+
 /**
  * TASK-0077: terminal payload gate. Only well-formed terminal outcomes for the
  * wait kind may consume a parked wait and emit a resume; malformed or
@@ -83,41 +135,12 @@ export function validateYieldingWaitTerminal(input: unknown): TerminalValidation
 		return { ok: false, code: "invalid-observed-at" };
 	const response = (input as { response?: unknown }).response;
 	const reminder = (input as { reminder?: unknown }).reminder;
-	const pendingCount = (input as { pending_count?: unknown }).pending_count;
-	if (
-		pendingCount !== undefined &&
-		(typeof pendingCount !== "number" || !Number.isInteger(pendingCount) || pendingCount < 0)
-	)
-		return { ok: false, code: "invalid-response" };
-	if (kind === "request-outcome" && outcome === "still-pending") {
-		if (typeof reminder !== "object" || reminder === null) return { ok: false, code: "invalid-response" };
-		const member = (reminder as { member?: unknown }).member;
-		const ageSeconds = (reminder as { ageSeconds?: unknown }).ageSeconds;
-		if (
-			typeof member !== "object" ||
-			member === null ||
-			typeof (member as { name?: unknown }).name !== "string" ||
-			typeof (member as { role?: unknown }).role !== "string" ||
-			typeof ageSeconds !== "number" ||
-			!Number.isFinite(ageSeconds) ||
-			ageSeconds < 0
-		)
-			return { ok: false, code: "invalid-response" };
-		if (response !== undefined) return { ok: false, code: "invalid-response" };
-	} else if (reminder !== undefined) {
-		return { ok: false, code: "invalid-response" };
-	}
-	if (kind === "request-outcome" && outcome === "response") {
-		if (typeof response !== "object" || response === null) return { ok: false, code: "invalid-response" };
-		const message = (response as { message?: unknown }).message;
-		if (typeof message !== "string" || message.trim().length === 0) return { ok: false, code: "invalid-response" };
-		const instructions = (response as { instructions?: unknown }).instructions;
-		if (instructions !== undefined && !validResponseInstructions(instructions))
-			return { ok: false, code: "invalid-response" };
-	} else if (response !== undefined) {
-		// The correlated Response payload is exclusive to the "response" outcome.
-		return { ok: false, code: "invalid-response" };
-	}
+	const pendingError = validatePendingCount((input as { pending_count?: unknown }).pending_count);
+	if (pendingError !== undefined) return { ok: false, code: pendingError };
+	const reminderError = validateReminder(kind, outcome, response, reminder);
+	if (reminderError !== undefined) return { ok: false, code: reminderError };
+	const responseError = validateResponse(kind, outcome, response);
+	if (responseError !== undefined) return { ok: false, code: responseError };
 	return { ok: true, value: input as YieldingWaitTerminal };
 }
 
