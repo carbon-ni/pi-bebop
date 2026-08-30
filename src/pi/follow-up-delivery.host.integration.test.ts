@@ -15,6 +15,7 @@ import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createMemberMessageCoordinator } from "../application/member-message.ts";
 import { createSocketState, handleCommand } from "./control-runtime.ts";
 import { registerSendFollowUpTool } from "../tools/send-follow-up.ts";
+import bebopExtension from "../extension.ts";
 import { createModelDeliveryAdapter } from "./compaction-delivery.ts";
 import {
 	createAgentSession,
@@ -102,7 +103,11 @@ async function pumpUntil(events: readonly string[], expected: string, maxTicks =
 	throw new Error(`missing lifecycle event: ${expected}`);
 }
 
-async function createSession(events: string[], releases: Array<Promise<void>>) {
+async function createSession(
+	events: string[],
+	releases: Array<Promise<void>>,
+	extensionFactories: Array<(pi: never) => void> = [],
+) {
 	const cwd = await mkdtemp(path.join(os.tmpdir(), "bebop-follow-up-cwd-"));
 	const agentDir = await mkdtemp(path.join(os.tmpdir(), "bebop-follow-up-agent-"));
 	const provider = createProvider(events, releases);
@@ -120,7 +125,7 @@ async function createSession(events: string[], releases: Array<Promise<void>>) {
 		cwd,
 		agentDir,
 		settingsManager: settings,
-		extensionFactories: [],
+		extensionFactories,
 		systemPromptOverride: () => "Follow-up host fixture.",
 	});
 	await resourceLoader.reload();
@@ -234,7 +239,7 @@ test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) 
 	let releaseFollowUp!: () => void;
 	const currentRelease = new Promise<void>((resolve) => (releaseCurrent = resolve));
 	const followUpRelease = new Promise<void>((resolve) => (releaseFollowUp = resolve));
-	const target = await createSession(targetEvents, [currentRelease, followUpRelease]);
+	const target = await createSession(targetEvents, [currentRelease, followUpRelease], [bebopExtension as never]);
 	const targetState = createSocketState();
 	targetState.context = {
 		hasUI: false,
