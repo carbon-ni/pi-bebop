@@ -1,7 +1,7 @@
 ---
 id: TASK-0143
 title: Redesign compaction delivery guarantee within Pi public APIs
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [messaging, compaction, product, feasibility, determinism]
@@ -47,17 +47,19 @@ At-most-once was rejected because it can silently discard acknowledged coordinat
 
 ## Acceptance criteria
 
-- [ ] Verify the public Pi 0.84.3 API boundary and feasibility evidence without modifying, forking, patching, or replacing upstream Pi.
-- [ ] Select one explicit loss/duplicate/recovery contract for the handoff crash window; document why the rejected alternatives are worse for Crew coordination.
-- [ ] Define guarantees separately for normal in-process delivery, graceful restart, process crash before Pi handoff, and ambiguous crash during/after Pi handoff.
-- [ ] Preserve the existing persisted-only deferred acknowledgement meaning; it must not claim model delivery or exactly-once processing.
-- [ ] Define stable delivery-ID, immutable envelope, replay counter/state, exact replay provenance, Inbox/Request/Interrupt behavior, FIFO ordering, and bounded `replay-blocked` operator outcome under the selected contract.
-- [ ] Deterministic recovery tests map `pending` to first handoff, evidence-present `handing-off` to completion, evidence-absent attempts 0 to one persisted replay reservation, and evidence-absent attempts 1 to `replay-blocked`, including crashes before and during replay invocation.
-- [ ] Graceful lifecycle tests close acceptance and reconcile without replay; interruption before reconciliation is tested as process-crash recovery.
-- [ ] Update TASK-0140 Desired outcome, Delivery contract, journal reconciliation, acceptance matrix, tests, and Ubiquitous Language so no exactly-once claim exceeds public evidence.
-- [ ] Obtain explicit Product acceptance and independent QA review of the revised contract before TASK-0140 production implementation resumes.
+- [x] Verify the public Pi 0.84.3 API boundary and feasibility evidence without modifying, forking, patching, or replacing upstream Pi.
+- [x] Select one explicit loss/duplicate/recovery contract for the handoff crash window; document why the rejected alternatives are worse for Crew coordination.
+- [x] Define guarantees separately for normal in-process delivery, graceful restart, process crash before Pi handoff, and ambiguous crash during/after Pi handoff.
+- [x] Preserve the existing persisted-only deferred acknowledgement meaning; it must not claim model delivery or exactly-once processing.
+- [x] Define stable delivery-ID, immutable envelope, replay counter/state, exact replay provenance, Inbox/Request/Interrupt behavior, FIFO ordering, and bounded `replay-blocked` operator outcome under the selected contract.
+- [x] Deterministic recovery test requirements map `pending` to first handoff, evidence-present `handing-off` to completion, evidence-absent attempts 0 to one persisted replay reservation, and evidence-absent attempts 1 to `replay-blocked`, including crashes before and during replay invocation.
+- [x] Graceful lifecycle test requirements close acceptance and reconcile without replay; interruption before reconciliation is covered as process-crash recovery.
+- [x] Update TASK-0140 Desired outcome, Delivery contract, journal reconciliation, acceptance matrix, tests, and Ubiquitous Language so no exactly-once claim exceeds public evidence.
+- [x] Obtain explicit Product acceptance and independent QA review of the revised contract before TASK-0140 production implementation resumes.
 
 ## Notes
 
 Feasibility result: F1 PASS, F2 BLOCK, F3 PASS at exact clean `1c91fdaead3298e9d72ccc1caf98997ddaba7628`; watcher gen1143 fingerprint `35875274d1a7` PASS. `npm run verify:package` separately failed and does not affect the F2 impossibility finding.
+
+Product accepts the bounded extension-only contract at exact clean `b84c9204a01dbd893a0d0a2e604edcd263b17401`. Kelly independently returned **ACCEPT** for that exact SHA with watcher generation 1162 PASS. This closes contract selection only; TASK-0140 implementation still requires explicit Lead reassignment and exact-head implementation QA.
 
