@@ -14,29 +14,40 @@ type ChildResult = { readonly lines: readonly string[]; readonly code: number | 
 
 function runChild(mode: string, root: string, killOn?: RegExp): Promise<ChildResult> {
 	return new Promise((resolve, reject) => {
-		const process = spawn(path.join(projectRoot, "node_modules", ".bin", "tsx"), [child, mode], {
-			cwd: projectRoot,
-			env: { ...globalThis.process.env, COMPACTION_CRASH_ROOT: root },
-			stdio: ["ignore", "pipe", "pipe"],
-		});
+		const childProcess = spawn(
+			process.execPath,
+			[
+				"--require",
+				path.join(projectRoot, "node_modules", "tsx", "dist", "preflight.cjs"),
+				"--import",
+				`file://${path.join(projectRoot, "node_modules", "tsx", "dist", "loader.mjs")}`,
+				child,
+				mode,
+			],
+			{
+				cwd: projectRoot,
+				env: { ...globalThis.process.env, COMPACTION_CRASH_ROOT: root },
+				stdio: ["ignore", "pipe", "pipe"],
+			},
+		);
 		const lines: string[] = [];
 		let stderr = "";
 		let killed = false;
 		let buffer = "";
-		process.stdout.on("data", (chunk: Buffer) => {
+		childProcess.stdout.on("data", (chunk: Buffer) => {
 			buffer += chunk.toString();
 			for (const line of buffer.split("\n").slice(0, -1)) {
 				lines.push(line);
 				if (!killed && killOn?.test(line)) {
 					killed = true;
-					process.kill("SIGKILL");
+					childProcess.kill("SIGKILL");
 				}
 			}
 			buffer = buffer.split("\n").at(-1) ?? "";
 		});
-		process.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
-		process.once("error", reject);
-		process.once("close", (code, signal) => {
+		childProcess.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+		childProcess.once("error", reject);
+		childProcess.once("close", (code, signal) => {
 			if (stderr && !killed) reject(new Error(stderr));
 			else resolve({ lines, code, signal });
 		});
@@ -87,6 +98,26 @@ test("real process crash/restart preserves pending work and bounds ambiguous rep
 	const blocked = await runChild("recover-blocked", root);
 	assert.doesNotMatch(blocked.lines.join("\n"), /sent:/);
 	assert.match(recordsLine(blocked), /"state":"replay-blocked","replayAttempts":1/);
+
+	const crashRoot = await mkdtemp(path.join(os.tmpdir(), "bebop-compaction-crash-window-"));
+	t.after(() => rm(crashRoot, { recursive: true, force: true }));
+	const crashHandoff = await runChild("crash-after-handoff", crashRoot, /^ready-after-handoff$/);
+	assert.equal(crashHandoff.signal, "SIGKILL");
+	const crashAfterPi = await runChild("crash-after-pi", crashRoot);
+	assert.equal(crashAfterPi.signal, "SIGKILL");
+	assert.match(crashAfterPi.lines.find((line) => line.startsWith("sent:")) ?? "", /replayed after ambiguous restart/);
+	assert.equal((await (await journalAt(crashRoot)).listPending())[0]?.replayAttempts, 1);
+	const crashBlocked = await runChild("recover-blocked", crashRoot);
+	assert.doesNotMatch(crashBlocked.lines.join("\n"), /sent:/);
+	assert.match(recordsLine(crashBlocked), /"state":"replay-blocked","replayAttempts":1/);
+
+	const evidenceCrashRoot = await mkdtemp(path.join(os.tmpdir(), "bebop-compaction-evidence-window-"));
+	t.after(() => rm(evidenceCrashRoot, { recursive: true, force: true }));
+	const evidenceHandoff = await runChild("crash-after-handoff", evidenceCrashRoot, /^ready-after-handoff$/);
+	assert.equal(evidenceHandoff.signal, "SIGKILL");
+	const crashAfterEvidence = await runChild("crash-after-evidence", evidenceCrashRoot);
+	assert.equal(crashAfterEvidence.signal, "SIGKILL");
+	assert.equal((await (await journalAt(evidenceCrashRoot)).listPending())[0]?.state, "handing-off");
 });
 
 test("real process restart reconciles evidence-present handoff without replay", async (t) => {

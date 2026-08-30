@@ -24,18 +24,19 @@ const envelope = {
 	metadata: { deliveryId: "delivery-crash-1" },
 };
 
-const linger = (): Promise<never> => new Promise(() => undefined);
+const linger = (): Promise<never> => new Promise(() => setInterval(() => undefined, 1_000));
 const sent: unknown[] = [];
 const adapter = createModelDeliveryAdapter((message) => {
 	sent.push(message);
 	console.log(`sent:${JSON.stringify(message)}`);
+	if (mode === "crash-after-pi") process.kill(process.pid, "SIGKILL");
 });
 const evidenced = mode === "recover-evidenced";
-await adapter.configureJournal(
-	journal,
-	() => evidenced,
-	() => mode !== "recover-replay",
-);
+const waitForEvidence = () => {
+	if (mode === "crash-after-evidence") process.kill(process.pid, "SIGKILL");
+	return mode !== "recover-replay";
+};
+await adapter.configureJournal(journal, () => evidenced, waitForEvidence);
 
 if (mode === "crash-before-append") {
 	console.log("ready-before-append");
@@ -53,19 +54,19 @@ if (mode === "crash-after-handoff") {
 	await linger();
 }
 if (mode === "recover-pending") {
-	await new Promise((resolve) => setTimeout(resolve, 50));
+	await new Promise((resolve) => setTimeout(resolve, 500));
 	console.log(`recovered-pending:${sent.length}`);
 }
 if (mode === "recover-replay") {
-	await new Promise((resolve) => setTimeout(resolve, 50));
+	await new Promise((resolve) => setTimeout(resolve, 500));
 	console.log(`recovered-replay:${sent.length}`);
 }
 if (mode === "recover-evidenced") {
-	await new Promise((resolve) => setTimeout(resolve, 50));
+	await new Promise((resolve) => setTimeout(resolve, 500));
 	console.log(`recovered-evidenced:${sent.length}`);
 }
 if (mode === "recover-blocked") {
-	await new Promise((resolve) => setTimeout(resolve, 50));
+	await new Promise((resolve) => setTimeout(resolve, 500));
 	console.log(`recovered-blocked:${sent.length}`);
 }
 
