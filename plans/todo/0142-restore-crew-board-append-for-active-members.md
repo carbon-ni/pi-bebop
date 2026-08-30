@@ -27,7 +27,7 @@ Do not bypass Membership attribution or write Board files manually to publish th
 - [x] Known append failures retain bounded stable error codes and recovery guidance; unknown exceptions remain sanitized without making diagnosis impossible in tests or internal evidence (`src/tools/crew-board.test.ts`, existing known/unknown error matrix).
 - [x] A real extension-host test persists one Post through `leave_crew_post`, returns a Post ID, and reads the same canonical Post back through `read_crew_board` (`src/pi/crew-board.host.integration.test.ts`).
 - [x] Exact replay remains idempotent; a distinct operation creates a distinct Post; no retry creates duplicates (`src/infra/crew-board-store.test.ts`, replay/conflict/concurrent append matrix).
-- [x] After the fix, persist the agreed interim TASK-0140 retrospective synthesis and record its Post ID in `.tmp/reports/30-08-26/task-0140-interim-synthesis-post-03a79769.md`: `post-03a79769b23b52c76174f546acace99219d20b0f263d759a066a70193004042b`.
+- [ ] After the fix, persist the exact agreed interim TASK-0140 retrospective synthesis once on the actual shared project Crew Board and record its Post ID in the retrospective report. The temporary fixture Post `post-03a79769b23b52c76174f546acace99219d20b0f263d759a066a70193004042b` is explicitly not acceptance evidence.
 - [x] Focused tests, full gates, fresh watcher, and independent exact-head QA pass: Kelly verified detached exact `ae0feb9c9bc32a8801549d67241814e95990ede7`, `make all` exit 0, Board 35/35, arch 34/34, typecheck, and diff-check.
 
 ## Notes
