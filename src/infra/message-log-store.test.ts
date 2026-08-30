@@ -72,6 +72,7 @@ test("trusted message log append is replay-idempotent and rejects conflicts", as
 			manifestPath: fixture.manifestPath,
 			projectRoot: fixture.root,
 			isProjectTrusted: () => true,
+			fs: { sync: async () => undefined },
 		});
 		await store.append(entry);
 		await store.append(entry);
@@ -127,10 +128,8 @@ test("append fsyncs publication sequence", async () => {
 		});
 		await store.append(entry);
 		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
-		assert.equal(
-			syncCalls.filter((line) => line.startsWith("sync:")).join(" -> "),
-			[`sync:${temp}`, `sync:${target}`, `sync:${messageLog}`].map((value) => value).join(" -> "),
-		);
+		const publicationTrace = syncCalls.filter((line) => line === `link:${target}` || line.startsWith("sync:"));
+		assert.deepEqual(publicationTrace, [`sync:${temp}`, `link:${target}`, `sync:${target}`, `sync:${messageLog}`]);
 	} finally {
 		await fixture.cleanup();
 	}
@@ -147,6 +146,7 @@ test("lock contention is bounded and cleanup permits the next append", async () 
 			manifestPath: fixture.manifestPath,
 			projectRoot: fixture.root,
 			isProjectTrusted: () => true,
+			fs: { sync: async () => undefined },
 			now: () => clock,
 			sleep: async () => {
 				clock += 500;
@@ -226,6 +226,36 @@ test("sync failure after publish rollbacks target file", async () => {
 				assert.equal(error.code, "write-failed");
 				return true;
 			},
+		);
+		await assert.rejects(
+			() => readFile(target),
+			(error) => (error as NodeJS.ErrnoException).code === "ENOENT",
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("directory sync failure rolls back target and reports write-failed", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const target = path.join(messageLog, `${entry.id}.json`);
+	await mkdir(messageLog, { recursive: true });
+	const directorySyncFailure = new Error("directory fsync failure") as NodeJS.ErrnoException;
+	directorySyncFailure.code = "EIO";
+	const sync = async (filePath: string) => {
+		if (filePath === messageLog) throw directorySyncFailure;
+	};
+	const store = createMessageLogStore({
+		manifestPath: fixture.manifestPath,
+		projectRoot: fixture.root,
+		isProjectTrusted: () => true,
+		fs: { sync },
+	});
+	try {
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
 		);
 		await assert.rejects(
 			() => readFile(target),
@@ -388,6 +418,7 @@ test("trusted layout accepts both .pi/bebop and legacy .pi/crew manifests", asyn
 				manifestPath: fixture.manifestPath,
 				projectRoot: fixture.root,
 				isProjectTrusted: () => true,
+				fs: { sync: async () => undefined },
 			});
 			await store.append(entry);
 		} finally {

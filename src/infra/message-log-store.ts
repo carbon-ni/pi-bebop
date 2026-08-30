@@ -60,16 +60,11 @@ const defaultFs: MessageLogStoreFs = {
 	unlink: (filePath) => fs.unlink(filePath),
 	realpath: (filePath) => fs.realpath(filePath),
 	sync: async (filePath) => {
+		const handle = await fs.open(filePath, "r");
 		try {
-			const handle = await fs.open(filePath, "r");
-			try {
-				await handle.sync();
-			} finally {
-				await handle.close();
-			}
-		} catch (error) {
-			// macOS does not permit opening directories for fsync; the file sync remains mandatory.
-			if (!isCode(error, "EISDIR")) throw error;
+			await handle.sync();
+		} finally {
+			await handle.close();
 		}
 	},
 };
