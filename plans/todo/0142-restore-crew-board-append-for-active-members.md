@@ -1,7 +1,7 @@
 ---
 id: TASK-0142
 title: Restore Crew Board append for active Members
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, board, collaboration, regression, tdd]
