@@ -159,7 +159,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 		const interruptId = `interrupt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 		const abortRequested = !surface.isIdle();
 
-		// 1. Persist pending evidence BEFORE any abort (crash-safe: reload sees pending-without-handed-off).
+		// 1. Persist pending evidence BEFORE any abort; reload sees pending-without-handed-off.
 		persist(
 			evidenceRecord("pending", {
 				interruptId,

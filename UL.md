@@ -162,9 +162,10 @@ Each Crew Broadcast recipient receives own Inbox item through normal Follow-up
 Inbox item is removed only after durable session evidence records its Handoff
 Bebop hands Inbox item to Pi as normal Follow-up without managing recipient workflow
 Compaction Delivery Gate persists deferred ownership before acknowledgement and never exposes compaction to sender
-Restart resumes pending delivery as first Handoff without replay provenance
-Ambiguous handoff can produce one automatic Delivery replay with same Delivery ID and possible-duplicate provenance
-Second ambiguous recovery becomes replay-blocked and never calls Pi automatically again
+Process restart resumes pending delivery as first Handoff without replay provenance
+Ambiguous handoff can reserve and invoke at most one automatic Delivery replay with same Delivery ID and possible-duplicate provenance
+Evidence-absent restart after replay reservation becomes replay-blocked before delivery and never calls Pi automatically again
+Graceful lifecycle closes acceptance and reconciles evidence before relinquishing receiver; it never performs ambiguous replay
 Presence observes Member endpoint; it does not prove availability
 Member Status reads Presence and live Activity without triggering target turn
 Offline Member Status marks Activity unavailable rather than stale
