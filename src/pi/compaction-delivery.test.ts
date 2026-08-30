@@ -403,6 +403,28 @@ test("mixed model-bound surfaces retain FIFO payloads, options, and correlation 
 	}
 });
 
+test("public delivery outcomes expose no gate or journal metadata", async () => {
+	const adapter = createModelDeliveryAdapter(() => undefined);
+	const generation = adapter.compactionStarted();
+	const sensitiveMessage = {
+		customType: "crew",
+		content: "private payload marker",
+		details: {
+			messagePayload: {
+				content: "private instructions marker",
+				origin: { kind: "crew", name: "private-origin" },
+			},
+			crewRequestId: "private-correlation",
+			socketPath: "/private/socket",
+		},
+	};
+	const outcome = adapter.send(sensitiveMessage, { triggerTurn: true });
+	assert.deepEqual(outcome, { disposition: "deferred" });
+	assert.doesNotMatch(JSON.stringify(outcome), /private|delivery|compaction|socket/i);
+	assert.equal(adapter.compactionEnded(generation), true);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+});
+
 test("model delivery drains journal-backed messages in FIFO handoff order", async () => {
 	const sent: string[] = [];
 	const journal = {

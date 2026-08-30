@@ -263,3 +263,106 @@ test("Pi 0.84.3 host drains deferred delivery after a failed compaction terminal
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.deepEqual(events, ["before", "provider-start", "failed-terminal", "send"]);
 });
+
+test("Pi 0.84.3 host preserves nested, stale-terminal, and new-start drain barriers", async (t) => {
+	const cwd = await mkdtemp(path.join(os.tmpdir(), "bebop-compaction-barrier-cwd-"));
+	const agentDir = await mkdtemp(path.join(os.tmpdir(), "bebop-compaction-barrier-agent-"));
+	t.after(async () => {
+		await rm(cwd, { recursive: true, force: true });
+		await rm(agentDir, { recursive: true, force: true });
+	});
+	const events: string[] = [];
+	let adapter: ReturnType<typeof createModelDeliveryAdapter>;
+	let firstSent = false;
+	adapter = createModelDeliveryAdapter((message) => {
+		const content = (message as { content?: string }).content ?? "";
+		events.push(`send:${content}`);
+		if (!firstSent) {
+			firstSent = true;
+			const nested = adapter.compactionStarted();
+			queueMicrotask(() => {
+				assert.equal(adapter.compactionEnded(nested), true);
+			});
+		}
+	});
+	const journal = {
+		filePath: path.join(agentDir, "delivery.json"),
+		append: async (envelope: any) => ({
+			version: 1 as const,
+			id: envelope.id,
+			sequence: Number(envelope.id.split("-").at(-1)),
+			acceptedAt: Date.now(),
+			bytes: envelope.bytes,
+			state: "pending" as const,
+			envelope,
+		}),
+		listPending: async () => [],
+		markHandingOff: async () => undefined,
+		markDelivered: async () => undefined,
+		reconcile: async () => undefined,
+	};
+	await adapter.configureJournal(journal);
+	let outer = 0;
+	let inner = 0;
+	const extension = {
+		name: "bebop-compaction-barrier-host-probe",
+		factory: (pi: ExtensionAPI) => {
+			pi.on("session_before_compact", async () => {
+				events.push("before");
+				outer = adapter.compactionStarted();
+				inner = adapter.compactionStarted();
+				assert.equal(adapter.compactionEnded(outer), false);
+				await adapter.sendDurably({ customType: "probe", content: "first" }, { triggerTurn: true });
+				await adapter.sendDurably({ customType: "probe", content: "second" }, { triggerTurn: true });
+			});
+			pi.on("session_compact", () => {
+				events.push("terminal");
+				assert.equal(adapter.compactionEnded(inner), true);
+				assert.equal(adapter.compactionEnded(outer), true);
+			});
+		},
+	};
+	const settings = SettingsManager.inMemory({
+		compaction: { enabled: true, reserveTokens: 100, keepRecentTokens: 100 },
+		retry: { enabled: false },
+	});
+	const modelRuntime = await ModelRuntime.create({
+		authPath: path.join(agentDir, "auth.json"),
+		modelsStorePath: path.join(agentDir, "models-store.json"),
+		refreshOnCreate: false,
+	});
+	modelRuntime.registerNativeProvider(createProviderFor(events));
+	const loader = new DefaultResourceLoader({
+		cwd,
+		agentDir,
+		settingsManager: settings,
+		extensionFactories: [extension],
+		systemPromptOverride: () => "Compaction barrier host probe.",
+	});
+	await loader.reload();
+	const sessionManager = SessionManager.inMemory(cwd);
+	for (let index = 0; index < 200; index += 1) {
+		sessionManager.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "message ".repeat(30) }],
+			timestamp: Date.now(),
+		} as never);
+		sessionManager.appendMessage(assistantMessage("answer ".repeat(30)));
+	}
+	const { session } = await createAgentSession({
+		cwd,
+		agentDir,
+		model,
+		modelRuntime,
+		thinkingLevel: "off",
+		noTools: "all",
+		resourceLoader: loader,
+		sessionManager,
+		settingsManager: settings,
+	});
+	t.after(() => session.dispose());
+	await session.compact();
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(events, ["before", "provider-start", "provider-done", "terminal", "send:first", "send:second"]);
+});
