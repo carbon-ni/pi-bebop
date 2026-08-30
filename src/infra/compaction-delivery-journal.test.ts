@@ -3,7 +3,13 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { openTrustedCompactionDeliveryJournal } from "./compaction-delivery-journal.ts";
+import {
+	COMPACTION_DELIVERY_MAX_ENTRIES,
+	COMPACTION_DELIVERY_MAX_ENTRY_BYTES,
+	COMPACTION_DELIVERY_MAX_BYTES,
+	CompactionDeliveryJournalError,
+	openTrustedCompactionDeliveryJournal,
+} from "./compaction-delivery-journal.ts";
 
 const envelope = (id: string) => ({
 	id,
@@ -68,6 +74,57 @@ test("journal rejects unserializable records with a bounded error", async () => 
 	const message: Record<string, unknown> = {};
 	message.self = message;
 	await assert.rejects(() => journal.append({ ...envelope("bad"), message }, 1), { code: "invalid-record" });
+});
+
+test("journal enforces exact entry, count, and aggregate capacity boundaries atomically", async () => {
+	const memory = memoryDeps();
+	const journal = await openTrustedCompactionDeliveryJournal({
+		manifestPath: "/project/.pi/bebop/crew.json",
+		projectRoot: "/project",
+		isProjectTrusted: () => true,
+		memberName: "Dave",
+		deps: memory.deps,
+	});
+	await journal.append({ ...envelope("max-entry"), bytes: COMPACTION_DELIVERY_MAX_ENTRY_BYTES }, 1);
+	assert.equal((await journal.listPending()).length, 1);
+	await assert.rejects(
+		() => journal.append({ ...envelope("over-entry"), bytes: COMPACTION_DELIVERY_MAX_ENTRY_BYTES + 1 }, 2),
+		(error: unknown) => error instanceof CompactionDeliveryJournalError && error.code === "capacity-exceeded",
+	);
+	const countJournal = await openTrustedCompactionDeliveryJournal({
+		manifestPath: "/project/.pi/bebop/crew.json",
+		projectRoot: "/project",
+		isProjectTrusted: () => true,
+		memberName: "Count",
+		deps: memory.deps,
+	});
+	for (let index = 0; index < COMPACTION_DELIVERY_MAX_ENTRIES; index += 1)
+		await countJournal.append({ ...envelope(`count-${index}`), bytes: 1 }, index + 1);
+	await assert.rejects(
+		() => countJournal.append({ ...envelope("count-over"), bytes: 1 }, 100),
+		(error: unknown) => error instanceof CompactionDeliveryJournalError && error.code === "capacity-exceeded",
+	);
+	assert.equal((await countJournal.listPending()).length, COMPACTION_DELIVERY_MAX_ENTRIES);
+	const aggregateJournal = await openTrustedCompactionDeliveryJournal({
+		manifestPath: "/project/.pi/bebop/crew.json",
+		projectRoot: "/project",
+		isProjectTrusted: () => true,
+		memberName: "Aggregate",
+		deps: memory.deps,
+	});
+	const perRecord = COMPACTION_DELIVERY_MAX_BYTES / COMPACTION_DELIVERY_MAX_ENTRIES;
+	for (let index = 0; index < COMPACTION_DELIVERY_MAX_ENTRIES; index += 1)
+		await aggregateJournal.append({ ...envelope(`aggregate-${index}`), bytes: perRecord }, index + 1);
+	assert.equal(
+		(await aggregateJournal.listPending()).reduce((total, record) => total + record.bytes, 0),
+		COMPACTION_DELIVERY_MAX_BYTES,
+	);
+	assert.equal((await aggregateJournal.listPending()).length, COMPACTION_DELIVERY_MAX_ENTRIES);
+	await assert.rejects(
+		() => aggregateJournal.append({ ...envelope("aggregate-over"), bytes: 1 }, 100),
+		(error: unknown) => error instanceof CompactionDeliveryJournalError && error.code === "capacity-exceeded",
+	);
+	assert.equal((await aggregateJournal.listPending()).length, COMPACTION_DELIVERY_MAX_ENTRIES);
 });
 
 test("journal reconciliation removes a handoff with session evidence", async () => {

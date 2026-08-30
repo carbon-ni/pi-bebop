@@ -32,6 +32,25 @@ test("send acknowledges a valid escaped payload and delivers it", async () => {
 	assert.match((c.responses[0] as any).data.deliveryId, /^delivery-test-id$/);
 });
 
+test("deferred queued acknowledgement is exact and does not expose compaction", async () => {
+	const c = handlerContext({ contextIsCompacting: () => true });
+	let notified = false;
+	c.notifyAcceptedMessage = () => {
+		notified = true;
+	};
+	c.state.modelDelivery = {
+		sendDurably: async () => ({ disposition: "deferred", deferred: true }),
+	} as never;
+	await handleSend({ type: "send", payload: { content: "deferred" }, id: "deferred-1" }, c);
+	assert.deepEqual((c.responses[0] as any).data, {
+		deliveryId: "delivery-test-id",
+		disposition: "queued",
+		deferred: true,
+	});
+	assert.equal(notified, false);
+	assert.doesNotMatch(JSON.stringify(c.responses[0]), /compaction/i);
+});
+
 test("busy ordinary Follow-up acknowledges queued, seeds deliveryId, and records acceptance", async () => {
 	const c = handlerContext({ id: "q1" });
 	c.ctx.isIdle = () => false;

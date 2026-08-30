@@ -43,6 +43,15 @@ test("defers during compaction and drains once after the terminal task", () => {
 	assert.equal(gate.pendingCount(), 0);
 });
 
+test("failed terminal drains only after the matching compaction depth closes", () => {
+	const { gate, scheduled, delivered } = setup();
+	const generation = gate.compactionStarted();
+	gate.accept(envelope("failed"));
+	assert.equal(gate.compactionEnded(generation), true);
+	scheduled.shift()!();
+	assert.deepEqual(delivered, ["failed"]);
+});
+
 test("nested compaction requires matching depth and current generation before drain", () => {
 	const { gate, scheduled, delivered } = setup();
 	const outer = gate.compactionStarted();
@@ -101,6 +110,28 @@ test("a replay-blocked head holds later entries until explicit recovery", () => 
 	assert.deepEqual(gate.accept(envelope("later", 1)), { disposition: "deferred" });
 	assert.equal(gate.isHeld(), true);
 	assert.deepEqual(sent, []);
+});
+
+test("a new compaction during drain stops before the next entry", () => {
+	const scheduled: Array<() => void> = [];
+	const delivered: string[] = [];
+	let gate!: ReturnType<typeof createCompactionDeliveryGate>;
+	gate = createCompactionDeliveryGate({
+		maxEntries: 4,
+		maxBytes: 100,
+		schedule: (task) => scheduled.push(task),
+		deliver: (entry) => {
+			delivered.push(entry.id);
+			if (entry.id === "first") gate.compactionStarted();
+		},
+	});
+	const generation = gate.compactionStarted();
+	gate.accept(envelope("first"));
+	gate.accept(envelope("second"));
+	gate.compactionEnded(generation);
+	scheduled.shift()!();
+	assert.deepEqual(delivered, ["first"]);
+	assert.equal(gate.pendingCount(), 1);
 });
 
 test("a new compaction before the post-event task keeps the queue pending", () => {
