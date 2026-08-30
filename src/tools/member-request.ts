@@ -76,7 +76,7 @@ function failure(code: string, _message: string): ActionableToolResult {
 		operation: "member_request",
 		reason:
 			safeCode === "no-pending-member-requests"
-				? "no pending request; respond_to_member_request requires a new request"
+				? "no pending outbound request; send_member_request starts a new request"
 				: "the member request operation was rejected",
 		recovery: ["verify the request target and state, then retry the tool."],
 	});

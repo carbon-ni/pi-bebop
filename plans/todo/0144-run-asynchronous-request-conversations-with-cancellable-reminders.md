@@ -106,34 +106,35 @@ wait_for_request_outcome() -> all-settled
       deadline cancel exact trigger and emit no reminder.
 - [x] Timer-first then terminal-before-handoff discards an undelivered reminder;
       terminal remains available once.
-- [ ] Reminder-after-handoff then later Response produces one reminder followed
-      by one terminal outcome without loss or duplicate.
+- [x] Reminder-after-handoff then later Response produces one reminder followed
+      by one terminal outcome without loss or duplicate (`src/pi/member-request-affordance.integration.test.ts`, TASK-0144 acceptance).
 - [x] Parked wait resolves with `still-pending`; Request stays pending and next
       wait can receive terminal outcome.
 - [x] Without parked wait, idle Requester gets one reminder turn and busy
       Requester gets next-turn delivery, never steer.
 - [x] Two simultaneous deadlines batch deterministically and wake Requester
       once.
-- [ ] Multiple-Request test proves B Response cancels only B trigger while A
-      reminder/outcome remains live.
+- [x] Multiple-Request test proves B Response cancels only B trigger while A
+      reminder/outcome remains live (`src/pi/member-request-affordance.integration.test.ts`, TASK-0144 acceptance).
 - [x] `pending_count` changes only on terminal outcomes. At zero,
       `all-settled` is success.
-- [ ] Ordinary requester Follow-up after reminder does not create/replace a
-      Request, reset trigger, or imply correlation.
-- [ ] New Member Request after Response receives new ID and independent trigger;
-      no automatic conversation loop exists.
-- [ ] Shutdown/clear/abort removes timer/listener handles without leaks.
-- [ ] Requester reminder crosses shared Compaction Delivery Gate; terminal
-      tombstone prevents stale handoff.
-- [ ] Reminder/model/UI output exposes no socket, session, manifest, callback
-      route, gate, queue, timer handle, or inferred target state.
-- [ ] Real multi-runtime Pi test sends at least two Requests, yields source run,
+- [x] Ordinary requester Follow-up after reminder does not create/replace a
+      Request, reset trigger, or imply correlation (`src/pi/member-request-affordance.integration.test.ts`, TASK-0144 acceptance).
+- [x] New Member Request after Response receives new ID and independent trigger;
+      no automatic conversation loop exists (`src/pi/member-request-affordance.integration.test.ts`, TASK-0144 acceptance).
+- [x] Shutdown/clear/abort removes timer/listener handles without leaks (`src/application/member-request-flow.test.ts`, TASK-0144 lifecycle cancellation; `src/tools/member-request.test.ts`, abort).
+- [x] Requester reminder crosses shared Compaction Delivery Gate; terminal
+      tombstone prevents stale handoff (`src/pi/compaction-delivery.test.ts`, mixed model-bound surfaces; `src/application/member-request-flow.test.ts`, terminal reminder discard).
+- [x] Reminder/model/UI output exposes no socket, session, manifest, callback
+      route, gate, queue, timer handle, or inferred target state (`src/pi/wait-resume.test.ts`, TASK-0144 reminder delivery; `src/pi/compaction-delivery.test.ts`, public delivery outcomes).
+- [x] Real multi-runtime Pi test sends at least two Requests, yields source run,
       returns early Response for one, reminds Requester for slow one, permits an
-      ordinary Follow-up, returns later Response, then returns `all-settled`.
-- [ ] Remove false text `respond_to_member_request requires a new request` and
-      preserve clear requester/responder affordances.
-- [ ] Tool descriptions, `README.md`, `docs/MEMBER-REQUEST-WORKFLOW.md`, `UL.md`,
-      renderers, and package inventory teach async loop and fixed reminder.
+      ordinary Follow-up, returns later Response, then returns `all-settled`
+      (`src/pi/member-request-affordance.integration.test.ts`, TASK-0144 acceptance).
+- [x] Remove false text `respond_to_member_request requires a new request` and
+      preserve clear requester/responder affordances (`src/tools/member-request.ts`).
+- [x] Tool descriptions, `README.md`, `docs/MEMBER-REQUEST-WORKFLOW.md`, `UL.md`,
+      renderers, and package inventory teach async loop and fixed reminder (documented surfaces and package inventory checks).
 - [ ] Focused fake-clock/real-runtime tests, typecheck, formatting, architecture
       and package checks, full suite, coverage/risk gate, and fresh watcher pass
       on one clean exact SHA.
