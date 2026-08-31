@@ -10,6 +10,7 @@ export type MessageLogStoreErrorCode =
 	| "id-conflict"
 	| "lock-conflict"
 	| "invalid-entry"
+	| "capacity-exceeded"
 	| "write-failed";
 export class MessageLogStoreError extends Error {
 	constructor(
@@ -125,6 +126,7 @@ function asLockError(error: unknown): never {
 	throw new MessageLogStoreError("write-failed", "message log lock could not be acquired");
 }
 
+const MAX_EVENT_BYTES = 64 * 1024;
 let lockSequence = 0;
 
 function createLockOwner(now: () => number): string {
@@ -277,6 +279,8 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 				throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
 			}
 			const bytes = canonicalMessageLogEntryBytes(entry);
+			if (bytes.byteLength > MAX_EVENT_BYTES)
+				throw new MessageLogStoreError("capacity-exceeded", "message log entry exceeds capacity");
 			await io.mkdir(logDir, { recursive: true });
 			await validateLogBoundary(logDir, trustedLogDir, io);
 			const lock = path.join(logDir, ".lock");

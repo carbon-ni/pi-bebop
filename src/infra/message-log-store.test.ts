@@ -86,6 +86,28 @@ test("trusted message log append is replay-idempotent and rejects conflicts", as
 	}
 });
 
+test("rejects canonical entries over the 64 KiB per-event capacity before publication", async () => {
+	const fixture = await makeFixture();
+	const oversized = { ...entry, summary: "x".repeat(65_000) };
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: { sync: async () => undefined },
+		});
+		await assert.rejects(
+			() => store.append(oversized),
+			(error) => error instanceof MessageLogStoreError && error.code === "capacity-exceeded",
+		);
+		await assert.rejects(() =>
+			readFile(path.join(fixture.root, ".pi", "bebop", "message-log", `${entry.id}.json`)),
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
 test("append fsyncs publication sequence", async () => {
 	const fixture = await makeFixture();
 	const syncCalls: string[] = [];
