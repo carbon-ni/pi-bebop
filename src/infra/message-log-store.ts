@@ -218,6 +218,27 @@ function asWriteError(error: unknown): never {
 	throw new MessageLogStoreError("write-failed", "message log publication failed");
 }
 
+function validateStoredEntry(id: string, bytes: Uint8Array): void {
+	if (bytes.byteLength > MAX_EVENT_BYTES)
+		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
+	let parsed: MessageLogEntry;
+	try {
+		parsed = JSON.parse(Buffer.from(bytes).toString("utf8")) as MessageLogEntry;
+		validateMessageLogEntry(parsed);
+	} catch {
+		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
+	}
+	if (parsed.id !== id) throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
+	let canonical: Uint8Array;
+	try {
+		canonical = canonicalMessageLogEntryBytes(parsed);
+	} catch {
+		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
+	}
+	if (Buffer.compare(Buffer.from(bytes), Buffer.from(canonical)) !== 0)
+		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
+}
+
 async function publishEntry(temp: string, target: string, bytes: Uint8Array, io: MessageLogStoreFs): Promise<void> {
 	try {
 		try {
@@ -309,9 +330,12 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			});
 			const target = path.join(logDir, `${id}.json`);
 			try {
-				return new Uint8Array(await io.readFile(target));
+				const bytes = new Uint8Array(await io.readFile(target));
+				validateStoredEntry(id, bytes);
+				return bytes;
 			} catch (error) {
 				if (isCode(error, "ENOENT")) return null;
+				if (error instanceof MessageLogStoreError) throw error;
 				throw new MessageLogStoreError("write-failed", "message log read failed");
 			}
 		},

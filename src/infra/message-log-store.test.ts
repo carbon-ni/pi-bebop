@@ -108,6 +108,28 @@ test("rejects canonical entries over the 64 KiB per-event capacity before public
 	}
 });
 
+test("reports malformed persisted bytes without mutating them", async () => {
+	const fixture = await makeFixture();
+	const target = path.join(fixture.root, ".pi", "bebop", "message-log", `${entry.id}.json`);
+	const malformed = Buffer.from('{"version":1}\n');
+	try {
+		await mkdir(path.dirname(target), { recursive: true });
+		await writeFile(target, malformed);
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+		});
+		await assert.rejects(
+			() => store.read(entry.id),
+			(error) => error instanceof MessageLogStoreError && error.code === "invalid-entry",
+		);
+		assert.deepEqual(await readFile(target), malformed);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
 test("uses the injected hash seam for lock ownership tokens", async () => {
 	const fixture = await makeFixture();
 	const hashInputs: string[] = [];
