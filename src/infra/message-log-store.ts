@@ -328,7 +328,12 @@ async function readCorruptEntry(
 	}
 	if (!Number.isSafeInteger(size) || size < 0 || size > MAX_QUARANTINE_BYTES - quarantineBytes)
 		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
-	const bytes = new Uint8Array(await io.readFile(source));
+	let bytes: Uint8Array;
+	try {
+		bytes = new Uint8Array(await io.readFile(source));
+	} catch {
+		throw new MessageLogStoreError("write-failed", "message log scan failed");
+	}
 	if (bytes.byteLength > MAX_QUARANTINE_BYTES - quarantineBytes)
 		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
 	if (bytes.byteLength > MAX_EVENT_BYTES) return bytes;
