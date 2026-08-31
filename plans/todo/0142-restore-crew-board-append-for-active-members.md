@@ -1,10 +1,10 @@
 ---
 id: TASK-0142
 title: Restore Crew Board append for active Members
-status: doing
+status: todo
 depends_on: []
 priority: high
-tags: [crew, board, collaboration, regression, tdd]
+tags: [crew, board, collaboration, regression, tdd, shared-board, blocked]
 ---
 
 # Restore Crew Board append for active Members
@@ -29,6 +29,12 @@ Do not bypass Membership attribution or write Board files manually to publish th
 - [x] Exact replay remains idempotent; a distinct operation creates a distinct Post; no retry creates duplicates (`src/infra/crew-board-store.test.ts`, replay/conflict/concurrent append matrix).
 - [ ] After the fix, persist the exact agreed interim TASK-0140 retrospective synthesis once on the actual shared project Crew Board and record its Post ID in the retrospective report. The temporary fixture Post `post-03a79769b23b52c76174f546acace99219d20b0f263d759a066a70193004042b` is explicitly not acceptance evidence.
 - [x] Focused tests, full gates, fresh watcher, and independent exact-head QA pass: Kelly verified detached exact `ae0feb9c9bc32a8801549d67241814e95990ede7`, `make all` exit 0, Board 35/35, arch 34/34, typecheck, and diff-check.
+
+## Current blocker
+
+Implementation and exact-head QA passed, but the agreed synthesis has not been
+persisted on the actual shared project Crew Board. Do not repeat publication
+without fresh Product authorization.
 
 ## Notes
 

@@ -1,10 +1,10 @@
 ---
 id: TASK-0093
 title: Verify release consumption and document operations
-status: doing
+status: todo
 depends_on: [TASK-0092]
 priority: high
-tags: [release, verification, npm, docs, recovery]
+tags: [release, verification, npm, docs, recovery, external-operator, blocked]
 ---
 
 # Verify release consumption and document operations
@@ -36,6 +36,11 @@ A maintainer can prove the released package works from the same public path user
 - [ ] A release runbook documents authorization, required npm/GitHub configuration, normal release steps, evidence, safe rerun, partial publication, deprecation, and corrective-release procedures.
 - [ ] Recovery guidance never recommends overwriting an npm version; unpublish is reserved for exceptional policy-qualified incidents rather than routine rollback.
 - [ ] The first real release's evidence and any manual operator steps are recorded in the task notes before completion.
+
+## Current blocker
+
+This task requires Cristian's npm/GitHub operator actions and public-registry
+evidence. It is not active until that operator sequence starts.
 
 ## Non-goals
 - Announcing or promoting a release before post-publication verification succeeds.
