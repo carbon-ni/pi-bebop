@@ -11,8 +11,6 @@ Coordinate exact ownership, timing, independent verification, and integration ev
 
 ## Expectation
 - You coordinate the crew, don't code.
-- You only coordinate the QA and Dev;
-- You ask PO for next tasks and priorities, as well as product directions;
 - Ensure each member is working and have the necessary context.
 
 ## Escalation

@@ -108,25 +108,43 @@ test("rejects canonical entries over the 64 KiB per-event capacity before public
 	}
 });
 
-test("reports malformed persisted bytes without mutating them", async () => {
-	const fixture = await makeFixture();
-	const target = path.join(fixture.root, ".pi", "bebop", "message-log", `${entry.id}.json`);
-	const malformed = Buffer.from('{"version":1}\n');
-	try {
-		await mkdir(path.dirname(target), { recursive: true });
-		await writeFile(target, malformed);
-		const store = createMessageLogStore({
-			manifestPath: fixture.manifestPath,
-			projectRoot: fixture.root,
-			isProjectTrusted: () => true,
-		});
-		await assert.rejects(
-			() => store.read(entry.id),
-			(error) => error instanceof MessageLogStoreError && error.code === "invalid-entry",
-		);
-		assert.deepEqual(await readFile(target), malformed);
-	} finally {
-		await fixture.cleanup();
+test("reports malformed, oversized, noncanonical, and mismatched persisted bytes without mutation", async () => {
+	const persistedCases: ReadonlyArray<readonly [string, Buffer]> = [
+		["malformed", Buffer.from('{"version":1}\n')],
+		["oversized", Buffer.alloc(65_537, 120)],
+		["noncanonical", Buffer.from(`${JSON.stringify(entry)}\n`)],
+		[
+			"mismatched-id",
+			Buffer.from(
+				canonicalMessageLogEntryBytes({
+					...entry,
+					id: "entry-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+				}),
+			),
+		],
+	];
+	for (const [label, persisted] of persistedCases) {
+		const fixture = await makeFixture();
+		const target = path.join(fixture.root, ".pi", "bebop", "message-log", `${entry.id}.json`);
+		try {
+			await mkdir(path.dirname(target), { recursive: true });
+			await writeFile(target, persisted);
+			const store = createMessageLogStore({
+				manifestPath: fixture.manifestPath,
+				projectRoot: fixture.root,
+				isProjectTrusted: () => true,
+			});
+			await assert.rejects(
+				() => store.read(entry.id),
+				(error) => {
+					assert.equal(error instanceof MessageLogStoreError, true, label);
+					return error instanceof MessageLogStoreError && error.code === "invalid-entry";
+				},
+			);
+			assert.deepEqual(await readFile(target), persisted, label);
+		} finally {
+			await fixture.cleanup();
+		}
 	}
 });
 
