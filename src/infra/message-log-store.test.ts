@@ -172,6 +172,36 @@ test("quarantines a malformed artifact before publishing its replacement", async
 	}
 });
 
+test("fails closed when scanning a corrupt artifact cannot read it", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const target = path.join(messageLog, `${entry.id}.json`);
+	const malformed = Buffer.from('{"version":1}\n');
+	try {
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(target, malformed);
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: {
+				readFile: async (filePath) => {
+					if (filePath === target) throw Object.assign(new Error("read failed"), { code: "EIO" });
+					return readFile(filePath);
+				},
+				sync: async () => undefined,
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
+		);
+		assert.deepEqual(await readFile(target), malformed);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
 test("fails closed when quarantine file capacity is full", async () => {
 	const fixture = await makeFixture();
 	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
