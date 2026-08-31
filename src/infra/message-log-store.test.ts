@@ -148,6 +148,84 @@ test("reports malformed, oversized, noncanonical, and mismatched persisted bytes
 	}
 });
 
+test("quarantines a malformed artifact before publishing its replacement", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const target = path.join(messageLog, `${entry.id}.json`);
+	const malformed = Buffer.from('{"version":1}\n');
+	const quarantineName = `artifact-${"a".repeat(64)}.bin`;
+	try {
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(target, malformed);
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			hash: () => "a".repeat(64),
+			fs: { sync: async () => undefined },
+		});
+		await store.append(entry);
+		assert.deepEqual(Buffer.from(await readFile(target)), Buffer.from(canonicalMessageLogEntryBytes(entry)));
+		assert.deepEqual(Buffer.from(await readFile(path.join(messageLog, "quarantine", quarantineName))), malformed);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("fails closed when quarantine file capacity is full", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const quarantineDir = path.join(messageLog, "quarantine");
+	const target = path.join(messageLog, `${entry.id}.json`);
+	const malformed = Buffer.from('{"version":1}\n');
+	try {
+		await mkdir(quarantineDir, { recursive: true });
+		await writeFile(target, malformed);
+		await Promise.all(
+			Array.from({ length: 256 }, (_, index) =>
+				writeFile(path.join(quarantineDir, `artifact-${index}.bin`), Buffer.from([index % 256])),
+			),
+		);
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: { sync: async () => undefined },
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "capacity-exceeded",
+		);
+		assert.deepEqual(Buffer.from(await readFile(target)), malformed);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("fails closed before publication when the bounded scan overflows", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const files = Array.from({ length: 50_001 }, (_, index) => `entry-${index.toString(16).padStart(64, "0")}.json`);
+	try {
+		await mkdir(messageLog, { recursive: true });
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: {
+				readdir: async (directory) => (directory === messageLog ? files : []),
+				sync: async () => undefined,
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "capacity-exceeded",
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
 test("uses the injected hash seam for lock ownership tokens", async () => {
 	const fixture = await makeFixture();
 	const hashInputs: string[] = [];

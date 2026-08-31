@@ -35,6 +35,8 @@ export interface MessageLogStoreOptions {
 type MessageLogStoreFs = {
 	mkdir: (directory: string, options: { recursive: true }) => Promise<void>;
 	readFile: (filePath: string) => Promise<Buffer>;
+	readdir: (directory: string) => Promise<string[]>;
+	stat: (filePath: string) => Promise<{ readonly size: number }>;
 	writeFile: (
 		filePath: string,
 		data: string | Uint8Array,
@@ -55,6 +57,11 @@ const defaultFs: MessageLogStoreFs = {
 		await fs.mkdir(directory, { recursive: true });
 	},
 	readFile: (filePath) => fs.readFile(filePath),
+	readdir: (directory) => fs.readdir(directory),
+	stat: async (filePath) => {
+		const result = await fs.stat(filePath);
+		return { size: result.size };
+	},
 	writeFile: (filePath, data, options) => fs.writeFile(filePath, data, options),
 	link: (existingPath, destinationPath) => fs.link(existingPath, destinationPath),
 	rename: (oldPath, newPath) => fs.rename(oldPath, newPath),
@@ -84,6 +91,8 @@ function makeDependencies(fsOverrides?: Partial<MessageLogStoreFs>): MessageLogS
 	return {
 		mkdir: fsOverrides?.mkdir ?? defaultFs.mkdir,
 		readFile: fsOverrides?.readFile ?? defaultFs.readFile,
+		readdir: fsOverrides?.readdir ?? defaultFs.readdir,
+		stat: fsOverrides?.stat ?? defaultFs.stat,
 		writeFile: fsOverrides?.writeFile ?? defaultFs.writeFile,
 		link: fsOverrides?.link ?? defaultFs.link,
 		rename: fsOverrides?.rename ?? defaultFs.rename,
@@ -128,6 +137,9 @@ function asLockError(error: unknown): never {
 }
 
 const MAX_EVENT_BYTES = 64 * 1024;
+const MAX_SCAN_RECORDS = 50_000;
+const MAX_QUARANTINE_FILES = 256;
+const MAX_QUARANTINE_BYTES = 16 * 1024 * 1024;
 let lockSequence = 0;
 
 function defaultHash(value: string): string {
@@ -239,6 +251,125 @@ function validateStoredEntry(id: string, bytes: Uint8Array): void {
 		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
 }
 
+function isEntryFile(fileName: string): boolean {
+	return /^entry-[0-9a-f]{64}\.json$/.test(fileName);
+}
+
+function quarantineName(hash: (value: string) => string, bytes: Uint8Array): string {
+	const digest = hash(Buffer.from(bytes).toString("base64"));
+	if (!/^[0-9a-f]{64}$/.test(digest)) throw new MessageLogStoreError("write-failed", "message log quarantine failed");
+	return `artifact-${digest}.bin`;
+}
+
+async function quarantineArtifact(
+	source: string,
+	bytes: Uint8Array,
+	quarantineDir: string,
+	io: MessageLogStoreFs,
+	hash: (value: string) => string,
+): Promise<void> {
+	const destination = path.join(quarantineDir, quarantineName(hash, bytes));
+	let linked = false;
+	try {
+		try {
+			await io.link(source, destination);
+			linked = true;
+		} catch (error) {
+			if (!isCode(error, "EEXIST")) throw error;
+			const existing = await io.readFile(destination);
+			if (Buffer.compare(existing, Buffer.from(bytes)) !== 0)
+				throw new MessageLogStoreError("write-failed", "message log quarantine failed");
+		}
+		await io.sync(destination);
+		await io.sync(quarantineDir);
+		await io.unlink(source);
+		await io.sync(path.dirname(source));
+	} catch (error) {
+		if (linked) await io.unlink(destination).catch(() => undefined);
+		if (error instanceof MessageLogStoreError) throw error;
+		throw new MessageLogStoreError("write-failed", "message log quarantine failed");
+	}
+}
+
+async function readDirectoryOrEmpty(directory: string, io: MessageLogStoreFs): Promise<string[] | undefined> {
+	try {
+		return await io.readdir(directory);
+	} catch (error) {
+		if (isCode(error, "ENOENT")) return undefined;
+		throw new MessageLogStoreError("write-failed", "message log scan failed");
+	}
+}
+
+async function measureQuarantine(quarantineDir: string, files: string[], io: MessageLogStoreFs): Promise<number> {
+	if (files.length > MAX_QUARANTINE_FILES)
+		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
+	let total = 0;
+	for (const file of files) {
+		const size = (await io.stat(path.join(quarantineDir, file))).size;
+		if (!Number.isSafeInteger(size) || size < 0 || size > MAX_QUARANTINE_BYTES - total)
+			throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
+		total += size;
+	}
+	return total;
+}
+
+async function readCorruptEntry(
+	source: string,
+	id: string,
+	quarantineBytes: number,
+	io: MessageLogStoreFs,
+): Promise<Uint8Array | undefined> {
+	let size: number;
+	try {
+		size = (await io.stat(source)).size;
+	} catch (error) {
+		if (isCode(error, "ENOENT")) return undefined;
+		throw new MessageLogStoreError("write-failed", "message log scan failed");
+	}
+	if (!Number.isSafeInteger(size) || size < 0 || size > MAX_QUARANTINE_BYTES - quarantineBytes)
+		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
+	const bytes = new Uint8Array(await io.readFile(source));
+	if (bytes.byteLength > MAX_QUARANTINE_BYTES - quarantineBytes)
+		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
+	if (bytes.byteLength > MAX_EVENT_BYTES) return bytes;
+	try {
+		validateStoredEntry(id, bytes);
+		return undefined;
+	} catch (error) {
+		if (error instanceof MessageLogStoreError && error.code === "invalid-entry") return bytes;
+		throw error;
+	}
+}
+
+async function quarantineCorruptEntries(
+	logDir: string,
+	trustedLogDir: string,
+	io: MessageLogStoreFs,
+	hash: (value: string) => string,
+): Promise<void> {
+	const files = await readDirectoryOrEmpty(logDir, io);
+	if (!files) return;
+	const entryFiles = files.filter(isEntryFile);
+	if (entryFiles.length > MAX_SCAN_RECORDS)
+		throw new MessageLogStoreError("capacity-exceeded", "message log scan exceeds capacity");
+	const quarantineDir = path.join(logDir, "quarantine");
+	const quarantinedFiles = (await readDirectoryOrEmpty(quarantineDir, io)) ?? [];
+	let quarantineBytes = await measureQuarantine(quarantineDir, quarantinedFiles, io);
+	let quarantinedCount = quarantinedFiles.length;
+	for (const file of entryFiles) {
+		const bytes = await readCorruptEntry(path.join(logDir, file), file.slice(0, -5), quarantineBytes, io);
+		if (!bytes) continue;
+		if (quarantinedCount >= MAX_QUARANTINE_FILES)
+			throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
+		await io.mkdir(quarantineDir, { recursive: true });
+		if ((await io.realpath(quarantineDir)) !== path.join(trustedLogDir, "quarantine"))
+			throw new MessageLogStoreError("untrusted-path", "message log is not in a trusted crew layout");
+		await quarantineArtifact(path.join(logDir, file), bytes, quarantineDir, io, hash);
+		quarantineBytes += bytes.byteLength;
+		quarantinedCount += 1;
+	}
+}
+
 async function publishEntry(temp: string, target: string, bytes: Uint8Array, io: MessageLogStoreFs): Promise<void> {
 	try {
 		try {
@@ -273,8 +404,11 @@ async function appendLocked(
 	entry: MessageLogEntry,
 	bytes: Uint8Array,
 	logDir: string,
+	trustedLogDir: string,
 	io: MessageLogStoreFs,
+	hash: (value: string) => string,
 ): Promise<void> {
+	await quarantineCorruptEntries(logDir, trustedLogDir, io, hash);
 	if (!/^entry-[0-9a-f]{64}$/.test(String(entry.id)))
 		throw new MessageLogStoreError("invalid-entry", "message log entry id is invalid");
 	const target = path.join(logDir, `${entry.id}.json`);
@@ -315,7 +449,7 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			const deadline = now() + 2000;
 			const release = await acquireLock(lock, io, deadline, now, sleep, hash);
 			try {
-				await appendLocked(entry, bytes, logDir, io);
+				await appendLocked(entry, bytes, logDir, trustedLogDir, io, hash);
 			} finally {
 				await release();
 			}
