@@ -27,6 +27,7 @@ export interface MessageLogStoreOptions {
 	readonly projectRoot: string;
 	readonly isProjectTrusted: () => boolean;
 	readonly fs?: Partial<MessageLogStoreFs>;
+	readonly hash?: (value: string) => string;
 	readonly now?: () => number;
 	readonly sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -129,8 +130,12 @@ function asLockError(error: unknown): never {
 const MAX_EVENT_BYTES = 64 * 1024;
 let lockSequence = 0;
 
-function createLockOwner(now: () => number): string {
-	return createHash("sha256").update(`${process.pid}|${now()}|${lockSequence++}`).digest("hex");
+function defaultHash(value: string): string {
+	return createHash("sha256").update(value).digest("hex");
+}
+
+function createLockOwner(now: () => number, hash: (value: string) => string): string {
+	return hash(`${process.pid}|${now()}|${lockSequence++}`);
 }
 
 function ownershipMismatch(path: string): never {
@@ -162,13 +167,14 @@ async function acquireLock(
 	deadlineAt: number,
 	now: () => number,
 	sleep: (milliseconds: number) => Promise<void>,
+	hash: (value: string) => string,
 ): Promise<() => Promise<void>> {
 	while (true) {
 		let release: null | (() => Promise<void>) = null;
 		let owner: string | undefined;
 		try {
 			const handle = await io.open(lockPath, "wx");
-			owner = createLockOwner(now);
+			owner = createLockOwner(now, hash);
 			try {
 				await io.writeFile(lockPath, owner);
 			} catch (error) {
@@ -268,6 +274,7 @@ async function appendLocked(
 export function createMessageLogStore(options: MessageLogStoreOptions) {
 	const io = makeDependencies(options.fs);
 	const now = options.now ?? (() => Date.now());
+	const hash = options.hash ?? defaultHash;
 	const sleep =
 		options.sleep ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
 	return {
@@ -285,7 +292,7 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			await validateLogBoundary(logDir, trustedLogDir, io);
 			const lock = path.join(logDir, ".lock");
 			const deadline = now() + 2000;
-			const release = await acquireLock(lock, io, deadline, now, sleep);
+			const release = await acquireLock(lock, io, deadline, now, sleep, hash);
 			try {
 				await appendLocked(entry, bytes, logDir, io);
 			} finally {

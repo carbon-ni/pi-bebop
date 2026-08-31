@@ -108,6 +108,35 @@ test("rejects canonical entries over the 64 KiB per-event capacity before public
 	}
 });
 
+test("uses the injected hash seam for lock ownership tokens", async () => {
+	const fixture = await makeFixture();
+	const hashInputs: string[] = [];
+	let lockOwner: string | undefined;
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			hash: (value) => {
+				hashInputs.push(value);
+				return "stable-owner";
+			},
+			fs: {
+				sync: async () => undefined,
+				writeFile: async (filePath, data, options) => {
+					if (filePath.endsWith("/.lock")) lockOwner = String(data);
+					return writeFile(filePath, data, options);
+				},
+			},
+		});
+		await store.append(entry);
+		assert.equal(hashInputs.length, 1);
+		assert.equal(lockOwner, "stable-owner");
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
 test("append fsyncs publication sequence", async () => {
 	const fixture = await makeFixture();
 	const syncCalls: string[] = [];
