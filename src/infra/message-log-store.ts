@@ -326,7 +326,7 @@ async function readCorruptEntry(
 		if (isCode(error, "ENOENT")) return undefined;
 		throw new MessageLogStoreError("write-failed", "message log scan failed");
 	}
-	if (!Number.isSafeInteger(size) || size < 0 || size > MAX_QUARANTINE_BYTES - quarantineBytes)
+	if (!Number.isSafeInteger(size) || size < 0 || size > MAX_QUARANTINE_BYTES)
 		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
 	let bytes: Uint8Array;
 	try {
@@ -334,15 +334,32 @@ async function readCorruptEntry(
 	} catch {
 		throw new MessageLogStoreError("write-failed", "message log scan failed");
 	}
+	if (bytes.byteLength <= MAX_EVENT_BYTES) {
+		try {
+			validateStoredEntry(id, bytes);
+			return undefined;
+		} catch (error) {
+			if (!(error instanceof MessageLogStoreError) || error.code !== "invalid-entry") throw error;
+		}
+	}
 	if (bytes.byteLength > MAX_QUARANTINE_BYTES - quarantineBytes)
 		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
-	if (bytes.byteLength > MAX_EVENT_BYTES) return bytes;
+	return bytes;
+}
+
+async function validateQuarantineBoundary(
+	quarantineDir: string,
+	trustedLogDir: string,
+	io: MessageLogStoreFs,
+): Promise<void> {
 	try {
-		validateStoredEntry(id, bytes);
-		return undefined;
+		const resolved = await io.realpath(quarantineDir);
+		if (resolved !== path.join(trustedLogDir, "quarantine"))
+			throw new MessageLogStoreError("untrusted-path", "message log is not in a trusted crew layout");
 	} catch (error) {
-		if (error instanceof MessageLogStoreError && error.code === "invalid-entry") return bytes;
-		throw error;
+		if (isCode(error, "ENOENT")) return;
+		if (error instanceof MessageLogStoreError) throw error;
+		throw new MessageLogStoreError("write-failed", "message log path could not be resolved");
 	}
 }
 
@@ -358,6 +375,7 @@ async function quarantineCorruptEntries(
 	if (entryFiles.length > MAX_SCAN_RECORDS)
 		throw new MessageLogStoreError("capacity-exceeded", "message log scan exceeds capacity");
 	const quarantineDir = path.join(logDir, "quarantine");
+	await validateQuarantineBoundary(quarantineDir, trustedLogDir, io);
 	const quarantinedFiles = (await readDirectoryOrEmpty(quarantineDir, io)) ?? [];
 	let quarantineBytes = await measureQuarantine(quarantineDir, quarantinedFiles, io);
 	let quarantinedCount = quarantinedFiles.length;
@@ -367,8 +385,7 @@ async function quarantineCorruptEntries(
 		if (quarantinedCount >= MAX_QUARANTINE_FILES)
 			throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
 		await io.mkdir(quarantineDir, { recursive: true });
-		if ((await io.realpath(quarantineDir)) !== path.join(trustedLogDir, "quarantine"))
-			throw new MessageLogStoreError("untrusted-path", "message log is not in a trusted crew layout");
+		await validateQuarantineBoundary(quarantineDir, trustedLogDir, io);
 		await quarantineArtifact(path.join(logDir, file), bytes, quarantineDir, io, hash);
 		quarantineBytes += bytes.byteLength;
 		quarantinedCount += 1;

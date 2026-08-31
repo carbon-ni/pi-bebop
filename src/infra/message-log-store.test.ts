@@ -7,6 +7,7 @@ import {
 	open,
 	rename,
 	readFile,
+	readdir,
 	realpath,
 	rm,
 	symlink,
@@ -167,6 +168,65 @@ test("quarantines a malformed artifact before publishing its replacement", async
 		await store.append(entry);
 		assert.deepEqual(Buffer.from(await readFile(target)), Buffer.from(canonicalMessageLogEntryBytes(entry)));
 		assert.deepEqual(Buffer.from(await readFile(path.join(messageLog, "quarantine", quarantineName))), malformed);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("rejects a quarantine symlink before enumerating outside the trusted log", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const quarantineDir = path.join(messageLog, "quarantine");
+	const outsideDir = path.join(fixture.root, "outside");
+	const target = path.join(messageLog, `${entry.id}.json`);
+	const malformed = Buffer.from('{"version":1}\n');
+	let quarantineEnumerated = false;
+	try {
+		await mkdir(messageLog, { recursive: true });
+		await mkdir(outsideDir, { recursive: true });
+		await writeFile(target, malformed);
+		await symlink(outsideDir, quarantineDir, "dir");
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: {
+				readdir: async (directory) => {
+					if (directory === quarantineDir) quarantineEnumerated = true;
+					return readdir(directory);
+				},
+				sync: async () => undefined,
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "untrusted-path",
+		);
+		assert.equal(quarantineEnumerated, false);
+		assert.deepEqual(await readFile(target), malformed);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("preserves healthy entries when quarantine byte capacity is full", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const quarantineDir = path.join(messageLog, "quarantine");
+	const existing = path.join(messageLog, `${entry.id}.json`);
+	const nextEntry = { ...entry, id: "entry-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
+	try {
+		await mkdir(quarantineDir, { recursive: true });
+		await writeFile(existing, canonicalMessageLogEntryBytes(entry));
+		await writeFile(path.join(quarantineDir, "artifact-full.bin"), Buffer.alloc(16 * 1024 * 1024));
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: { sync: async () => undefined },
+		});
+		await store.append(nextEntry);
+		assert.deepEqual(await store.read(nextEntry.id), canonicalMessageLogEntryBytes(nextEntry));
 	} finally {
 		await fixture.cleanup();
 	}
