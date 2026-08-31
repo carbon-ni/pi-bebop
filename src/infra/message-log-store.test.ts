@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -408,7 +409,11 @@ test("quarantines oversized, noncanonical, and ID-mismatched artifacts", async (
 		});
 		await store.append(entry);
 		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
-		assert.equal((await readdir(path.join(messageLog, "quarantine"))).length, artifacts.length);
+		const expectedNames = artifacts.map(([, bytes]) => {
+			const digest = createHash("sha256").update(Buffer.from(bytes).toString("base64")).digest("hex");
+			return `artifact-${digest}.bin`;
+		});
+		assert.deepEqual((await readdir(path.join(messageLog, "quarantine"))).sort(), expectedNames.sort());
 	} finally {
 		await fixture.cleanup();
 	}
