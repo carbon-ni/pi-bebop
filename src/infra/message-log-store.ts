@@ -137,6 +137,8 @@ function asLockError(error: unknown): never {
 }
 
 const MAX_EVENT_BYTES = 64 * 1024;
+/** Maximum aggregate canonical bytes retained by the trusted log. */
+export const MAX_MESSAGE_LOG_BYTES = 64 * 1024 * 1024;
 const MAX_SCAN_RECORDS = 50_000;
 const MAX_QUARANTINE_FILES = 256;
 const MAX_QUARANTINE_BYTES = 16 * 1024 * 1024;
@@ -443,6 +445,22 @@ async function appendLocked(
 		if (error instanceof MessageLogStoreError) throw error;
 		if (!isCode(error, "ENOENT")) throw error;
 	}
+	const files = await readDirectoryOrEmpty(logDir, io);
+	const entryFiles = (files ?? []).filter(isEntryFile);
+	let retainedBytes = 0;
+	for (const file of entryFiles) {
+		try {
+			const size = (await io.stat(path.join(logDir, file))).size;
+			if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MESSAGE_LOG_BYTES - retainedBytes)
+				throw new MessageLogStoreError("capacity-exceeded", "message log exceeds capacity");
+			retainedBytes += size;
+		} catch (error) {
+			if (error instanceof MessageLogStoreError) throw error;
+			throw new MessageLogStoreError("write-failed", "message log scan failed");
+		}
+	}
+	if (bytes.byteLength > MAX_MESSAGE_LOG_BYTES - retainedBytes)
+		throw new MessageLogStoreError("capacity-exceeded", "message log exceeds capacity");
 	const temp = `${target}.tmp-${process.pid}`;
 	await io.writeFile(temp, bytes, { flag: "wx" });
 	await publishEntry(temp, target, bytes, io);

@@ -17,7 +17,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { createMessageLogStore, MessageLogStoreError } from "./message-log-store.ts";
+import { createMessageLogStore, MAX_MESSAGE_LOG_BYTES, MessageLogStoreError } from "./message-log-store.ts";
 import { canonicalMessageLogEntryBytes } from "../domain/index.ts";
 
 const entry = {
@@ -493,6 +493,34 @@ test("fails closed for invalid hash and quarantine filesystem failures", async (
 		} finally {
 			await fixture.cleanup();
 		}
+	}
+});
+
+test("rejects a trusted append when aggregate retained bytes reach capacity", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const existingId = "entry-" + "a".repeat(64);
+	const nextEntry = { ...entry, id: "entry-" + "b".repeat(64) };
+	let statCalls = 0;
+	try {
+		await mkdir(messageLog, { recursive: true });
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: {
+				readdir: async (directory) => (directory === messageLog ? [`${existingId}.json`] : []),
+				stat: async () => ({ size: statCalls++ <= 1 ? canonicalMessageLogEntryBytes({ ...entry, id: existingId }).byteLength : MAX_MESSAGE_LOG_BYTES }),
+				readFile: async (filePath) => {
+					if (filePath.endsWith(".lock")) return readFile(filePath);
+					return Buffer.from(canonicalMessageLogEntryBytes({ ...entry, id: path.basename(filePath, ".json") }));
+				},
+				sync: async () => undefined,
+			},
+		});
+		await assert.rejects(() => store.append(nextEntry), (error) => error instanceof MessageLogStoreError && error.code === "capacity-exceeded");
+	} finally {
+		await fixture.cleanup();
 	}
 });
 
