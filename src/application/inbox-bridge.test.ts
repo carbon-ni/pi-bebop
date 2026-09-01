@@ -133,6 +133,17 @@ describe("offer lifecycle", () => {
 		assert.equal(harness.openCount, 0);
 	});
 
+	test("busy recipient keeps durable item pending until an idle boundary", async () => {
+		let idle = false;
+		const harness = makeBridge({ isAuthoritativelyIdle: () => idle });
+		harness.bridge.establish(ownership);
+		harness.store.items.push(item(1));
+		assert.deepEqual(await harness.bridge.attemptOffer(), { offered: false, reason: "busy" });
+		assert.equal(harness.offered.length, 0);
+		idle = true;
+		assert.deepEqual(await harness.bridge.attemptOffer(), { offered: true, itemId: "inbox-1-abc" });
+	});
+
 	test("offers the oldest item once as follow-up after establish", async () => {
 		const harness = makeBridge();
 		harness.store.items.push(item(0), item(1));

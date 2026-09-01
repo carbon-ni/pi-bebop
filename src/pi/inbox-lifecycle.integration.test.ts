@@ -7,7 +7,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import { enqueueMemberInboxMessage } from "../application/member-inbox-message.ts";
+import { submitCrewBroadcast } from "../application/crew-broadcast.ts";
 import { createInboxBridgeController, ownershipFromMembership } from "./inbox-bridge-runtime.ts";
+import { createInboxTerminalOfferCallbacks, registerInboxTerminalOfferHandlers } from "./inbox-terminal-handlers.ts";
+import { handleSend } from "./command-handlers/send.ts";
+import { handlerContext } from "./command-handlers/test-support.ts";
 import { SESSION_MESSAGE_TYPE, type InboxItem, type MessagePayload } from "../domain/index.ts";
 import type { SocketState } from "./control-runtime.ts";
 
@@ -55,7 +59,7 @@ async function makeCrew(name?: string) {
 		members,
 		name,
 		async cleanup() {
-			await fs.rm(root, { recursive: true, force: true });
+			await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 10 });
 		},
 	};
 }
@@ -78,6 +82,24 @@ function membershipFor(crew: Awaited<ReturnType<typeof makeCrew>>, memberName: s
 			presence: { notifications: true },
 		},
 	};
+}
+
+async function flushAutomaticTrigger(): Promise<void> {
+	await new Promise((resolve) => setImmediate(resolve));
+}
+
+function allOfferedContent(sent: Array<Record<string, unknown>>): string[] {
+	return sent
+		.filter((message) => (message.details as any)?.inbox)
+		.map((message) => JSON.parse(message.content as string).content as string);
+}
+
+async function waitForOffers(
+	sent: Array<Record<string, unknown>>,
+	count: number,
+	waitForDelivery: () => Promise<void>,
+): Promise<void> {
+	while (sent.filter((message) => (message.details as any)?.inbox).length < count) await waitForDelivery();
 }
 
 interface SessionHarness {
@@ -158,6 +180,156 @@ async function enqueueFor(
 	);
 	return outcome;
 }
+
+test(
+	"production lifecycle harness: hint and terminal events hand off FIFO exactly once",
+	{ timeout: 5000 },
+	async (t) => {
+		const crew = await makeCrew();
+		t.after(crew.cleanup);
+		await enqueueFor(crew, "lead", "developer", "first");
+		await enqueueFor(crew, "lead", "developer", "second");
+		const membership = membershipFor(crew, "developer");
+		const entries: Array<Record<string, unknown>> = [];
+		const sent: Array<Record<string, unknown>> = [];
+		let resolveDelivery: (() => void) | undefined;
+		const waitForDelivery = () =>
+			new Promise<void>((resolve) => {
+				resolveDelivery = resolve;
+			});
+		let idle = true;
+		let compacting = false;
+		const context = {
+			isIdle: () => idle,
+			isCompacting: () => compacting,
+			sessionManager: { getEntries: () => entries },
+			isProjectTrusted: () => true,
+		};
+		const pi = {
+			sendMessage: (message: Record<string, unknown>) => {
+				sent.push(message);
+				resolveDelivery?.();
+				resolveDelivery = undefined;
+				entries.push({ type: "custom_message", customType: message.customType, details: message.details });
+			},
+			appendEntry: (customType: string, data?: unknown) => entries.push({ customType, data }),
+		} as unknown as ExtensionAPI;
+		const state = {
+			context,
+			membershipRuntime: { getMembership: () => membership },
+		} as unknown as SocketState;
+		const bridge = createInboxBridgeController(pi, state);
+		bridge.establish(ownershipFromMembership(membership) as never);
+		let hintAttempt: Promise<unknown> | undefined;
+		state.onInboxHint = () => {
+			hintAttempt = bridge.attemptOffer();
+			return hintAttempt;
+		};
+		const handlers = new Map<string, (...args: any[]) => void>();
+		registerInboxTerminalOfferHandlers(
+			{ on: (name: string, handler: (...args: any[]) => void) => handlers.set(name, handler) } as never,
+			createInboxTerminalOfferCallbacks({
+				emitSettled: () => undefined,
+				offer: () => bridge.attemptOffer(),
+			}),
+		);
+		const inbound = handlerContext({
+			state,
+			ctx: context as never,
+			contextIsCompacting: () => compacting,
+		});
+		inbound.state.modelDelivery = {
+			sendDurably: async (message: unknown) => {
+				pi.sendMessage(message as never);
+				return { disposition: "direct" };
+			},
+		} as never;
+		await handleSend(
+			{
+				type: "send",
+				delivery: "follow_up",
+				id: "hint",
+				payload: { content: "[inbox] durable inbox item" },
+			} as never,
+			inbound,
+		);
+		await waitForOffers(sent, 1, waitForDelivery);
+		const firstOffer = sent.find((message) => (message.details as any)?.inbox)!;
+		const firstId = (firstOffer.details as any).inbox.itemId as string;
+		assert.match(firstId, /^inbox-0-/);
+		assert.match(firstOffer.content as string, /first/);
+		idle = false;
+		handlers.get("agent_settled")?.({}, context);
+		await flushAutomaticTrigger();
+		assert.equal(sent.filter((message) => (message.details as any)?.inbox).length, 1);
+		idle = true;
+		handlers.get("agent_settled")?.({}, context);
+		await waitForOffers(sent, 2, waitForDelivery);
+		const offeredIds = sent
+			.filter((message) => (message.details as any)?.inbox)
+			.map((message) => (message.details as any).inbox.itemId);
+		assert.equal(offeredIds.length, 2);
+		assert.notEqual(offeredIds[0], offeredIds[1]);
+		assert.equal(new Set(offeredIds).size, 2);
+		assert.match(allOfferedContent(sent)[0], /first/);
+		assert.match(allOfferedContent(sent)[1], /second/);
+		await enqueueFor(crew, "lead", "developer", "third");
+		compacting = true;
+		handlers.get("session_compact")?.({}, context);
+		handlers.get("session_compact_failed")?.({}, context);
+		await flushAutomaticTrigger();
+		assert.equal(sent.filter((message) => (message.details as any)?.inbox).length, 2);
+		compacting = false;
+		handlers.get("session_compact_failed")?.({}, context);
+		await waitForOffers(sent, 3, waitForDelivery);
+		const allOffered = sent.filter((message) => (message.details as any)?.inbox);
+		assert.equal(new Set(allOffered.map((message) => (message.details as any).inbox.itemId)).size, 3);
+		assert.deepEqual(allOfferedContent(sent).slice(0, 3), ["first", "second", "third"]);
+		const broadcastHints: string[] = [];
+		const broadcast = await submitCrewBroadcast(
+			{ membership: membershipFor(crew, "lead") as never, message: "broadcast fourth", now: 4 },
+			{
+				isProjectTrusted: () => true,
+				openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
+				notifyRecipient: async (recipient) => {
+					broadcastHints.push(recipient.name);
+					await handleSend(
+						{
+							type: "send",
+							delivery: "follow_up",
+							id: "broadcast-hint",
+							payload: { content: "[inbox] durable inbox item" },
+						} as never,
+						inbound,
+					);
+				},
+			},
+		);
+		assert.equal(broadcast.ok, true);
+		assert.deepEqual(broadcastHints, ["developer"]);
+		await waitForOffers(sent, 4, waitForDelivery);
+		await enqueueFor(crew, "lead", "developer", "fourth");
+		await Promise.all([
+			handleSend(
+				{
+					type: "send",
+					delivery: "follow_up",
+					id: "hint-race",
+					payload: { content: "[inbox] durable inbox item" },
+				} as never,
+				inbound,
+			),
+			(async () => {
+				await handlers.get("agent_settled")?.({}, context);
+			})(),
+		]);
+		await hintAttempt;
+		await waitForOffers(sent, 5, waitForDelivery);
+		const raceOffers = sent.filter((message) => (message.details as any)?.inbox);
+		assert.equal(new Set(raceOffers.map((message) => (message.details as any).inbox.itemId)).size, 5);
+		assert.equal(raceOffers.length, 5);
+	},
+);
 
 test("offline enqueue reaches a later-joining peer as one follow-up, then the item is removed on evidence", async (t) => {
 	const crew = await makeCrew();

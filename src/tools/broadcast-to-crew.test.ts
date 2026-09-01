@@ -25,6 +25,8 @@ type RegisteredTool = {
 function setup(
 	membership: unknown | (() => unknown),
 	openStoreImpl: (() => Promise<unknown>) | undefined = undefined,
+	notifyRecipient?: (recipient: unknown) => Promise<void>,
+	sendHint?: (...args: any[]) => Promise<unknown>,
 ): RegisteredTool {
 	let registeredTool: RegisteredTool | undefined;
 	const pi = {
@@ -34,10 +36,17 @@ function setup(
 	} as unknown as ExtensionAPI;
 	const getMembership = typeof membership === "function" ? (membership as () => unknown) : () => membership;
 	const state = { membershipRuntime: { getMembership } } as never as SocketState;
+	if (openStoreImpl || notifyRecipient || sendHint)
+		state.broadcastStoreDependencies = {
+			isProjectTrusted: () => true,
+			openStore: openStoreImpl as never,
+			notifyRecipient,
+		} as never;
 	registerBroadcastToCrewTool(pi, state, {
 		isProjectTrusted: () => true,
 		// @ts-expect-error partial store for registration contract test
 		openStore: openStoreImpl,
+		sendHint: sendHint as never,
 	});
 	assert.ok(registeredTool);
 	return registeredTool!;
@@ -73,6 +82,43 @@ const membership = {
 };
 
 describe("broadcast_to_crew tool", () => {
+	test("public tool persists before notifying each recipient and retains writes on hint failure", async () => {
+		const order: string[] = [];
+		const store = {
+			enqueueWithId: async (_payload: unknown, _now: number, id: string) => {
+				order.push(`persist:${id}`);
+				return { item: { id } };
+			},
+			peekOldest: async () => null,
+			list: async () => [],
+			count: async () => 0,
+			remove: async () => ({ removed: true }),
+			cancel: async () => ({ removed: true }),
+		} as never;
+		const tool = setup(
+			membership,
+			async () => store,
+			undefined,
+			async (endpoint: string, command: any, options: any) => {
+				order.push(`hint:${command.payload.origin.name}`);
+				assert.equal(endpoint, "/project/.pi/bebop/sockets/Bob.sock");
+				assert.equal(options.timeout, 1000);
+				assert.equal(command.type, "send");
+				assert.equal(command.delivery, "follow_up");
+				assert.equal(
+					command.payload.content,
+					"[inbox] You have a new durable inbox item. Check your inbox when available.",
+				);
+				assert.deepEqual(command.payload.instructions, ["Check your crew inbox for pending items"]);
+				assert.deepEqual(command.payload.origin, { kind: "crew", name: "Tony", role: "lead" });
+				throw new Error("offline");
+			},
+		);
+		const result = await tool.execute("call", { message: "hello" });
+		assert.equal((result.details as { persisted: number }).persisted, 1);
+		assert.deepEqual(order, ["persist:broadcast-4cabbbef-ebcba174", "hint:Tony"]);
+	});
+
 	test("partial failure uses canonical envelope and keeps summary structured", () => {
 		const result = createBroadcastPartialError({
 			broadcastId: "b-1",

@@ -67,6 +67,8 @@ export interface BroadcastMembership {
 }
 
 export interface BroadcastStoreDependencies {
+	/** Best-effort notification after each durable recipient copy. */
+	readonly notifyRecipient?: (recipient: BroadcastMember) => Promise<void>;
 	readonly isProjectTrusted: () => boolean;
 	readonly openStore: (options: {
 		readonly manifestPath: string;
@@ -153,6 +155,8 @@ export async function submitCrewBroadcast(
 			continue;
 		}
 		await persistOne(recipient, dependencies, payload, request, dispositions);
+		if (["persisted", "already-persisted"].includes(dispositions.at(-1)?.status ?? ""))
+			await dependencies.notifyRecipient?.(recipient.member).catch(() => undefined);
 		if (dispositions.at(-1)?.code === "idempotency-conflict") {
 			for (const remaining of snapshot.recipients.slice(dispositions.length)) {
 				dispositions.push({

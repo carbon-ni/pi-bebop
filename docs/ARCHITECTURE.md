@@ -298,3 +298,7 @@ bundled CLI with no registry IO). `npm pack` produces the installable
 same `dist/cli/main.js` the test suite executes directly. Publication to npm is
 never assumed: a documented install must be verifiable locally, and `npm view
 pi-bebop` must succeed for any claimed published version.
+
+## Durable Inbox idle offers
+
+After `send_to_inbox` or `broadcast_to_crew` persists an item, the recipient may receive a best-effort Inbox hint. The recipient-owned bridge offers only the oldest pending item at an authoritative idle boundary; busy or compacting work is unchanged, and offline items remain durable until restore. Evidence reconciliation runs before idle gating, automatic offering respects pause, and failed notifications never roll back persistence.

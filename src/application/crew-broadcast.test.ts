@@ -36,6 +36,7 @@ interface MakeOpts {
 	enqueued: Map<string, FakeInbox>;
 	failedSockets?: Set<string>;
 	abortSignal?: AbortSignal;
+	notified?: string[];
 }
 
 function makeDeps(opts: MakeOpts) {
@@ -73,7 +74,13 @@ function makeDeps(opts: MakeOpts) {
 			cancel: async () => ({ removed: true }),
 		} as MemberInboxStore;
 	};
-	return { openStore };
+	return {
+		isProjectTrusted: () => true,
+		openStore,
+		notifyRecipient: async (recipient: { name: string }) => {
+			opts.notified?.push(recipient.name);
+		},
+	};
 }
 
 function makeMembership(crew: Crew, senderName: string) {
@@ -404,6 +411,38 @@ describe("submitCrewBroadcast", () => {
 		if (!a.ok || !b.ok) return;
 		assert.equal((a as { broadcastId: string }).broadcastId, (b as { broadcastId: string }).broadcastId);
 		for (const inbox of enqueued.values()) assert.equal(inbox.items.length, 1, "no dupes under concurrency");
+	});
+
+	test("notifies each recipient only after its durable copy is persisted", async () => {
+		const { crew } = makeCrew();
+		const enqueued = new Map<string, FakeInbox>();
+		const notified: string[] = [];
+		const deps = makeDeps({ crew, enqueued, notified });
+		const result = await submitCrewBroadcast(
+			{ membership: makeMembership(crew, "Bob"), message: "hi", now: 1 },
+			deps,
+		);
+		assert.equal(result.ok, true);
+		assert.deepEqual(notified, ["Tony", "Mary", "Kelly"]);
+		assert.equal(enqueued.get("Mary")?.items.length, 1);
+	});
+
+	test("notification failure does not roll back durable persistence", async () => {
+		const { crew } = makeCrew();
+		const enqueued = new Map<string, FakeInbox>();
+		const { openStore } = makeDeps({ crew, enqueued });
+		const result = await submitCrewBroadcast(
+			{ membership: makeMembership(crew, "Bob"), message: "hi", now: 1 },
+			{
+				isProjectTrusted: () => true,
+				openStore,
+				notifyRecipient: async () => {
+					throw new Error("offline");
+				},
+			},
+		);
+		assert.equal(result.ok, true);
+		assert.equal(enqueued.get("Mary")?.items.length, 1);
 	});
 
 	test("empty instructions is equivalent to absent", async () => {

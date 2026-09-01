@@ -2,9 +2,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { MessagePayloadSchema } from "../domain/index.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
-import { submitCrewBroadcast } from "../application/crew-broadcast.ts";
+import { submitCrewBroadcast, type BroadcastStoreDependencies } from "../application/crew-broadcast.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 import { actionableToolError } from "./actionable-tool-result.ts";
+import { sendRpcCommand } from "../infra/rpc-client.ts";
 
 /**
  * broadcast_to_crew — durable, non-interrupting fan-out to every other member.
@@ -78,17 +79,46 @@ type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: bo
 export function registerBroadcastToCrewTool(
 	pi: ExtensionAPI,
 	state: SocketState,
-	dependencies: { isProjectTrusted: () => boolean },
+	dependencies: {
+		isProjectTrusted: () => boolean;
+		notifyRecipient?: (recipient: { socketPath: string; name: string; role: string }) => Promise<void>;
+		sendHint?: typeof sendRpcCommand;
+		openStore?: BroadcastStoreDependencies["openStore"];
+	},
 ): void {
 	pi.registerTool({
 		name: "broadcast_to_crew",
 		label: "Broadcast To Crew",
 		description:
-			"Durably send one non-interrupting message to every other configured crew member, in manifest order, whether they are online or not. Each recipient later receives it as a normal follow-up; it never interrupts or redirects active work and the sender is excluded. Use for shared team-wide information (for example an API contract change or a global constraint), not for work that should have a single owner — for a targeted message use send_follow_up or send_to_inbox for the specific member instead. No live delivery or response is implied; if a recipient's inbox is full that recipient is reported as failed, and retrying the same broadcast is safe and idempotent.",
+			"Durably send one non-interrupting message to every other configured crew member, in manifest order, whether they are online or not. Each recipient later receives it as a normal follow-up at its authoritative idle boundary; it never interrupts or redirects active work and the sender is excluded. Use for shared team-wide information (for example an API contract change or a global constraint), not for work that should have a single owner — for a targeted message use send_follow_up or send_to_inbox for the specific member instead. No live delivery or response is implied; if a recipient's inbox is full that recipient is reported as failed, and retrying the same broadcast is safe and idempotent.",
 		parameters,
 		async execute(_toolCallId, params): Promise<ToolResult> {
 			const membership = (state.membershipRuntime?.getMembership() ?? null) as never;
 			try {
+				const notifyRecipient =
+					state.broadcastStoreDependencies?.notifyRecipient ??
+					dependencies.notifyRecipient ??
+					(async (recipient: { socketPath: string; name: string; role: string }) => {
+						if (!membership) return;
+						await (dependencies.sendHint ?? sendRpcCommand)(
+							recipient.socketPath,
+							{
+								type: "send",
+								payload: {
+									content:
+										"[inbox] You have a new durable inbox item. Check your inbox when available.",
+									instructions: ["Check your crew inbox for pending items"],
+									origin: {
+										kind: "crew",
+										name: (membership as { member: { name: string; role: string } }).member.name,
+										role: (membership as { member: { name: string; role: string } }).member.role,
+									},
+								},
+								delivery: "follow_up",
+							},
+							{ timeout: 1000 },
+						);
+					});
 				const result = await submitCrewBroadcast(
 					{
 						membership,
@@ -97,18 +127,23 @@ export function registerBroadcastToCrewTool(
 						now: Date.now(),
 					},
 					{
+						...state.broadcastStoreDependencies,
 						isProjectTrusted: dependencies.isProjectTrusted,
-						openStore: async (options) =>
-							openTrustedMemberInboxStore({
-								manifestPath: options.manifestPath,
-								projectRoot: options.projectRoot,
-								isProjectTrusted: options.isProjectTrusted,
-								member: {
-									name: options.member.name,
-									role: options.member.role,
-									socketPath: options.member.socketPath,
-								},
-							}),
+						notifyRecipient,
+						openStore:
+							state.broadcastStoreDependencies?.openStore ??
+							dependencies.openStore ??
+							(async (options) =>
+								openTrustedMemberInboxStore({
+									manifestPath: options.manifestPath,
+									projectRoot: options.projectRoot,
+									isProjectTrusted: options.isProjectTrusted,
+									member: {
+										name: options.member.name,
+										role: options.member.role,
+										socketPath: options.member.socketPath,
+									},
+								})),
 					},
 				);
 

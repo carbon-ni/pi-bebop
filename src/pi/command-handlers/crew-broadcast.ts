@@ -42,15 +42,32 @@ export async function handleCrewBroadcast(
 	context: RpcHandlerContext,
 ): Promise<void> {
 	const membership = context.state.membershipRuntime?.getMembership() ?? null;
-	const dependencies = context.state.broadcastStoreDependencies ?? {
-		isProjectTrusted: () => context.state.context?.isProjectTrusted?.() === true,
-		openStore: async (options) =>
-			openTrustedMemberInboxStore({
-				manifestPath: options.manifestPath,
-				projectRoot: options.projectRoot,
-				isProjectTrusted: options.isProjectTrusted,
-				member: options.member,
-			}),
+	const notifyRecipient = async (recipient: { socketPath: string; name: string; role: string }) => {
+		await sendRpcCommand(
+			recipient.socketPath,
+			{
+				type: "send",
+				payload: {
+					content: "[inbox] You have a new durable inbox item. Check your inbox when available.",
+					instructions: ["Check your crew inbox for pending items"],
+					origin: {
+						kind: "crew",
+						name: membership.member.name,
+						role: membership.member.role,
+					},
+				},
+				delivery: "follow_up",
+			},
+			{ timeout: 1000 },
+		);
+	};
+	const dependencies = {
+		...(context.state.broadcastStoreDependencies ?? {
+			isProjectTrusted: () => context.state.context?.isProjectTrusted?.() === true,
+			openStore: async (options: Parameters<typeof openTrustedMemberInboxStore>[0]) =>
+				openTrustedMemberInboxStore(options),
+		}),
+		notifyRecipient: context.state.broadcastStoreDependencies?.notifyRecipient ?? notifyRecipient,
 	};
 	const controller = new AbortController();
 	const onDisconnect = () => controller.abort();

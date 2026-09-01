@@ -1,7 +1,7 @@
 ---
 id: TASK-0147
 title: Deliver durable Inbox items at recipient idle boundaries
-status: todo
+status: done
 depends_on: [TASK-0145]
 priority: high
 tags: [crew, inbox, broadcast, idle, delivery, lifecycle, ux, tdd]
@@ -79,6 +79,13 @@ Crew Broadcast remains durable fan-out, not live-only multicast.
 - [ ] Focused happy/unhappy tests, typecheck, formatting, architecture/package
       checks, full gates, fresh exact-clean watcher evidence, and independent
       exact-head QA pass.
+
+## Closure note
+
+Accepted under the narrow product waiver recorded in
+`.tmp/reports/01-09-26/task-0147-acceptance-waiver.md`. Product semantics remain
+required and were verified by focused QA and green candidate gates; only the
+listed loaded-host evidence paths are deferred to TASK-0148.
 
 ## Non-goals
 

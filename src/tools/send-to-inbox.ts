@@ -47,7 +47,7 @@ export function registerSendToInboxTool(
 		name: "send_to_inbox",
 		label: "Send To Inbox",
 		description:
-			"Persist a durable inbox message for a crew member. Unlike send_follow_up (delivered when the peer finishes current work) or redirect_member (redirects active work), this stores the message durably; the recipient reads it after startup, restore, or explicit rejoin, even if offline now. Success means persisted, never delivered or completed. Requires joined membership; the recipient may be offline.",
+			"Persist a durable inbox message for a crew member. A best-effort hint may wake the recipient, but the item is offered only at the recipient's authoritative idle boundary as one normal Follow-up. Unlike send_follow_up or redirect_member, it survives recipient offline/restart. Success means persisted, never read or completed. Requires joined membership; the recipient may be offline.",
 		parameters,
 		async execute(_toolCallId, params) {
 			const membership = state.membershipRuntime?.getMembership() ?? null;

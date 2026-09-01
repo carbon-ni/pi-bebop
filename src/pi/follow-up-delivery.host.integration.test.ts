@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -13,7 +13,10 @@ import {
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { createMemberMessageCoordinator } from "../application/member-message.ts";
+import { enqueueMemberInboxMessage } from "../application/member-inbox-message.ts";
+import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import { registerSendFollowUpTool } from "../tools/send-follow-up.ts";
+import { registerBroadcastToCrewTool } from "../tools/broadcast-to-crew.ts";
 import bebopExtension from "../extension.ts";
 import { createSocketState } from "./control-runtime.ts";
 import { createModelDeliveryAdapter } from "./compaction-delivery.ts";
@@ -95,6 +98,20 @@ function createProvider(events: string[], releases: Array<Promise<void>>): Provi
 	});
 }
 
+async function waitForPath(filePath: string, maxTicks = 100): Promise<void> {
+	for (let tick = 0; tick < maxTicks; tick += 1) {
+		if (
+			await access(filePath).then(
+				() => true,
+				() => false,
+			)
+		)
+			return;
+		await new Promise<void>((resolve) => setImmediate(resolve));
+	}
+	throw new Error(`missing path: ${filePath}`);
+}
+
 async function pumpUntil(events: readonly string[], expected: string, maxTicks = 100): Promise<void> {
 	for (let tick = 0; tick < maxTicks; tick += 1) {
 		if (events.includes(expected)) return;
@@ -154,6 +171,91 @@ async function createSession(
 		},
 	};
 }
+
+test("TASK-0147: loaded extension Broadcast hint reaches joined target Inbox bridge", async (t) => {
+	const events: string[] = [];
+	let releaseBusy!: () => void;
+	const busyRelease = new Promise<void>((resolve) => (releaseBusy = resolve));
+	const target = await createSession(events, [busyRelease], [bebopExtension as never]);
+	const targetSocket = path.join(target.cwd, ".pi", "bebop", "sockets", "target.sock");
+	await mkdir(path.dirname(targetSocket), { recursive: true });
+	await writeFile(
+		path.join(target.cwd, ".pi", "bebop", "crew.json"),
+		JSON.stringify({
+			version: 1,
+			members: [
+				{ name: "Target", role: "qa", socket: "sockets/target.sock" },
+				{ name: "Sender", role: "lead", socket: "sockets/sender.sock" },
+			],
+		}),
+	);
+	target.settings.setProjectTrusted(true);
+	(target.extensionsResult as unknown as { runtime: { flagValues: Map<string, unknown> } }).runtime.flagValues.set(
+		"crew",
+		true,
+	);
+	await target.session.bindExtensions({});
+	await target.session.prompt("/crew join .pi/bebop/sockets/target.sock");
+	await waitForPath(targetSocket);
+	t.after(async () => {
+		await target.session.prompt("/crew stop").catch(() => undefined);
+		await target.cleanup();
+	});
+	const received: any[] = [];
+	target.session.subscribe((event) => {
+		if (event.type === "message_start" && event.message.role === "custom") {
+			received.push(event.message);
+			if (event.message.details?.inbox) events.push("inbox-offer");
+		}
+	});
+	const busyTurn = target.session.prompt("busy target turn");
+	await pumpUntil(events, "provider-start-0");
+	const liveTargetSocket = await realpath(targetSocket);
+	const membership = {
+		manifestPath: path.join(target.cwd, ".pi", "bebop", "crew.json"),
+		socketPath: path.join(target.cwd, ".pi", "bebop", "sockets", "sender.sock"),
+		member: {
+			name: "Sender",
+			role: "lead",
+			socket: "sockets/sender.sock",
+			socketPath: path.join(target.cwd, ".pi", "bebop", "sockets", "sender.sock"),
+		},
+		manifest: {
+			version: 1,
+			presence: { notifications: true },
+			members: [
+				{ name: "Target", role: "qa", socket: "sockets/target.sock", socketPath: targetSocket },
+				{
+					name: "Sender",
+					role: "lead",
+					socket: "sockets/sender.sock",
+					socketPath: path.join(target.cwd, ".pi", "bebop", "sockets", "sender.sock"),
+				},
+			],
+		},
+	};
+	const senderState = createSocketState();
+	senderState.membershipRuntime = { getMembership: () => membership as never } as never;
+	const tools: Array<{ name: string; execute: (id: string, params: unknown) => Promise<any> }> = [];
+	registerBroadcastToCrewTool({ registerTool: (tool) => tools.push(tool as never) } as never, senderState, {
+		isProjectTrusted: () => true,
+		openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
+		sendHint: (endpoint, command, options) => sendRpcCommand(liveTargetSocket, command, options),
+	});
+	const broadcastTool = tools.find((tool) => tool.name === "broadcast_to_crew");
+	assert.ok(broadcastTool);
+	const broadcast = await broadcastTool.execute("broadcast-call", { message: "broadcast lifecycle" });
+	assert.equal((broadcast.details as { persisted: number }).persisted, 1, JSON.stringify(broadcast));
+	releaseBusy();
+	await busyTurn;
+	await target.session.waitForIdle();
+	await pumpUntil(events, "inbox-offer");
+	const offers = received.filter((message) => message.details?.inbox);
+	assert.equal(offers.length, 1);
+	assert.match(offers[0].details.inbox.itemId, /^broadcast-/);
+	assert.equal(offers[0].details.messagePayload.content, "broadcast lifecycle");
+	assert.deepEqual(offers[0].details.messagePayload.origin, { kind: "crew", name: "Sender", role: "lead" });
+});
 
 test("TASK-0145: baseline and busy Follow-up both preserve host lifecycle ordering", async (t) => {
 	const baselineEvents: string[] = [];

@@ -56,6 +56,8 @@ function setup(entries: Array<Record<string, unknown>> = [], initialPending: Inb
 		context: {
 			sessionManager: { getEntries: () => entries },
 			isProjectTrusted: () => true,
+			isIdle: () => true,
+			isCompacting: () => false,
 		},
 		membershipRuntime: { getMembership: () => null },
 		modelDelivery: {
@@ -100,6 +102,37 @@ function setup(entries: Array<Record<string, unknown>> = [], initialPending: Inb
 	});
 	return { state, sent, entries, appendEntries, pending, removed, controller };
 }
+
+describe("runtime idle boundary", () => {
+	test("hint and settled triggers race to one idle offer", async () => {
+		const harness = setup([], [item(1)]);
+		harness.state.membershipRuntime = { getMembership: () => membershipFixture() } as never;
+		harness.controller.establish(ownershipFromMembership(membershipFixture()) as never);
+		const first = harness.controller.attemptOffer();
+		const second = harness.controller.attemptOffer();
+		const outcomes = await Promise.all([first, second]);
+		assert.equal(outcomes.filter((outcome) => outcome.offered).length, 1);
+		assert.equal(harness.sent.length, 1);
+	});
+
+	test("busy and compacting recipients retain offers until settled idle", async () => {
+		const harness = setup([], [item(1)]);
+		harness.state.membershipRuntime = { getMembership: () => membershipFixture() } as never;
+		harness.controller.establish(ownershipFromMembership(membershipFixture()) as never);
+		const context = harness.state.context as unknown as { isIdle: () => boolean; isCompacting: () => boolean };
+		context.isIdle = () => false;
+		assert.deepEqual(await harness.controller.attemptOffer(), { offered: false, reason: "busy" });
+		assert.equal(harness.sent.length, 0);
+		context.isCompacting = () => true;
+		assert.deepEqual(await harness.controller.attemptOffer(), { offered: false, reason: "busy" });
+		// Simulate both successful and failed compaction terminal paths: only
+		// after the target reports non-compacting + idle may the offer proceed.
+		context.isCompacting = () => false;
+		context.isIdle = () => true;
+		assert.equal((await harness.controller.attemptOffer()).offered, true);
+		assert.equal(harness.sent.length, 1);
+	});
+});
 
 describe("collectInboxEvidence", () => {
 	test("collects stable item ids from typed session message details", () => {

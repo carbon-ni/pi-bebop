@@ -86,21 +86,21 @@ Read [Crew init](docs/CREW-INIT.md) for the full layout and conflict rules.
 
 ## Choose a communication tool
 
-| Tool | Use | Result |
-| --- | --- | --- |
-| `send_follow_up` | Send normal information. | The target accepts a live non-interrupting message. |
-| `redirect_member` | Change the target's next model step. | The target receives a live steer. It does not abort work. |
-| `send_to_inbox` | Keep a message for an offline member. | Bebop persists one Inbox item. |
-| `send_member_request` | Require one correlated answer. | Bebop returns a request ID after acceptance. |
-| `respond_to_member_request` | Answer an active member request. | Bebop sends one correlated response. |
-| `wait_for_request_outcome` | Yield after you sent a member request. | Bebop resumes with the oldest Response/offline/timeout or one 180-second still-pending reminder; settled requests return `all-settled`. |
-| `interrupt_member` | Stop harmful or invalid active work. | Bebop requests an abort and sends recovery guidance. |
-| `broadcast_to_crew` | Share one constraint with other members. | Bebop persists one Inbox item for each recipient. |
-| `send_to_crew` | Send a durable letter to another local crew. | Bebop persists it for that crew contact. |
-| `get_member_status` | Check one member's mechanical state. | Bebop returns a bounded status snapshot. |
-| `wait_for_member_idle` | Wait for one member to settle. | Bebop returns an idle, offline, timeout, or message result. |
-| `read_crew_board` | Read shared pull-based context. | Bebop returns a bounded page of Crew Posts. |
-| `leave_crew_post` | Keep a reusable note for the crew. | Bebop persists an attributed Crew Post. |
+| Tool                        | Use                                          | Result                                                                                                                                  |
+| --------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `send_follow_up`            | Send normal information.                     | The target accepts a live non-interrupting message.                                                                                     |
+| `redirect_member`           | Change the target's next model step.         | The target receives a live steer. It does not abort work.                                                                               |
+| `send_to_inbox`             | Keep a message for an offline member.        | Bebop persists one Inbox item; a best-effort hint is offered only at the recipient's idle boundary as a normal Follow-up.               |
+| `send_member_request`       | Require one correlated answer.               | Bebop returns a request ID after acceptance.                                                                                            |
+| `respond_to_member_request` | Answer an active member request.             | Bebop sends one correlated response.                                                                                                    |
+| `wait_for_request_outcome`  | Yield after you sent a member request.       | Bebop resumes with the oldest Response/offline/timeout or one 180-second still-pending reminder; settled requests return `all-settled`. |
+| `interrupt_member`          | Stop harmful or invalid active work.         | Bebop requests an abort and sends recovery guidance.                                                                                    |
+| `broadcast_to_crew`         | Share one constraint with other members.     | Bebop persists one Inbox item for each recipient; hints are best-effort and idle-boundary delivery is automatic.                        |
+| `send_to_crew`              | Send a durable letter to another local crew. | Bebop persists it for that crew contact.                                                                                                |
+| `get_member_status`         | Check one member's mechanical state.         | Bebop returns a bounded status snapshot.                                                                                                |
+| `wait_for_member_idle`      | Wait for one member to settle.               | Bebop returns an idle, offline, timeout, or message result.                                                                             |
+| `read_crew_board`           | Read shared pull-based context.              | Bebop returns a bounded page of Crew Posts.                                                                                             |
+| `leave_crew_post`           | Keep a reusable note for the crew.           | Bebop persists an attributed Crew Post.                                                                                                 |
 
 Accepted means that a live endpoint acknowledged delivery. Persisted means that
 Bebop stored data. Neither result means that work is complete or approved.

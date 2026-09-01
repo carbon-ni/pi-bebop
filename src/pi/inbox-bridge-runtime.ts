@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { renderMessagePayload, SESSION_MESSAGE_TYPE, type InboxItem, type InboxOffering } from "../domain/index.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import {
@@ -9,7 +9,7 @@ import {
 	type InboxBridgeOwnership,
 	type OfferingStateStore,
 } from "../application/inbox-bridge.ts";
-import { notifyAcceptedMessage, type SocketState } from "./control-runtime.ts";
+import { contextIsCompacting, notifyAcceptedMessage, type SocketState } from "./control-runtime.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
 import { createModelDeliveryAdapter } from "./compaction-delivery.ts";
 
@@ -124,6 +124,17 @@ export function createInboxBridgeController(
 			return true;
 		},
 		offeringState,
+		// Test doubles without Pi's compaction API retain historical behavior;
+		// real runtimes expose it and get the authoritative idle gate.
+		isAuthoritativelyIdle: () => {
+			const context = state.context;
+			if (
+				!context ||
+				typeof (context as ExtensionContext & { isCompacting?: unknown }).isCompacting !== "function"
+			)
+				return true;
+			return context.isIdle?.() === true && !contextIsCompacting(context);
+		},
 	};
 
 	return createInboxBridge(bridgeDependencies);

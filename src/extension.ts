@@ -7,6 +7,7 @@ import type {
 	SessionCompactEvent,
 } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
+import { createInboxTerminalOfferCallbacks, registerInboxTerminalOfferHandlers } from "./pi/inbox-terminal-handlers.ts";
 import {
 	renderCrewPresence,
 	renderCrewRosterEntry,
@@ -241,7 +242,9 @@ export default function (pi: ExtensionAPI) {
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);
 	registerSendToInboxTool(pi, state);
 	registerSendToCrewTool(pi, state);
-	registerBroadcastToCrewTool(pi, state, { isProjectTrusted: () => state.context?.isProjectTrusted?.() === true });
+	registerBroadcastToCrewTool(pi, state, {
+		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+	});
 	registerInterruptMemberTool(pi, state);
 	const memberStatusTransport = createMemberStatusTransport();
 	registerGetMemberStatusTool(pi, state, memberStatusTransport);
@@ -412,7 +415,6 @@ export default function (pi: ExtensionAPI) {
 		sessionNameController.observeChange(event.name);
 		void refreshSessionAliases(state, ctx);
 	});
-
 	pi.on("before_agent_start", async (event) => {
 		const membership = state.membershipRuntime?.getMembership();
 		if (!membership) return;
@@ -460,15 +462,6 @@ export default function (pi: ExtensionAPI) {
 		void inboxBridge.attemptOffer();
 	});
 
-	// One-shot member idle waits complete ONLY from Pi `agent_settled` (TASK-0051).
-	// `agent_end` and `turn_end` are intentionally ignored: retry, compaction,
-	// and queued continuation work must be exhausted before `became-idle`.
-	pi.on("agent_settled", (_event, ctx) => {
-		emitIdleSettled(state, ctx);
-		// TASK-0080: the outcome turn of any started resume settled -> emit
-		// wait-resume-settled once per waitId; unrelated settles publish nothing.
-		yieldRuntime.markSettled();
-	});
 	// TASK-0080: a run started while resumes were queued -> those resumes
 	// entered model context (the OUTCOME TURN); emit wait-resume-started per id.
 	pi.on("agent_start", () => {
@@ -484,9 +477,6 @@ export default function (pi: ExtensionAPI) {
 		event: SessionCompactEvent | { readonly reason: string; readonly willRetry: boolean },
 		ctx: ExtensionContext,
 	) => {
-		// Pi emits a distinct terminal event object, so object identity cannot
-		// correlate it with `session_before_compact`. Terminal callbacks are
-		// ordered with their starts; consume the oldest matching lifecycle tag.
 		const first = compactionGenerations[0];
 		const generation =
 			first && first.reason === event.reason && first.willRetry === event.willRetry
@@ -495,6 +485,15 @@ export default function (pi: ExtensionAPI) {
 		if (generation !== undefined) state.modelDelivery?.compactionEnded(generation);
 		emitIdleSettled(state, ctx);
 	};
-	pi.on("session_compact" as never, onCompactionTerminal as never);
-	pi.on("session_compact_failed" as never, onCompactionTerminal as never);
+	registerInboxTerminalOfferHandlers(
+		pi,
+		createInboxTerminalOfferCallbacks({
+			emitSettled: (ctx) => emitIdleSettled(state, ctx),
+			offer: async () => {
+				await inboxBridge.attemptOffer();
+			},
+			markSettled: () => yieldRuntime.markSettled(),
+			onCompaction: onCompactionTerminal,
+		}),
+	);
 }

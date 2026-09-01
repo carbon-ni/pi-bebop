@@ -41,9 +41,11 @@ export interface InboxBridgeDependencies {
 	readonly listEvidence: () => readonly string[];
 	readonly offerItem: (item: InboxItem) => Promise<boolean>;
 	readonly offeringState: OfferingStateStore;
+	/** Optional recipient-owned settled/idle guard for automatic offers. */
+	readonly isAuthoritativelyIdle?: () => boolean;
 }
 
-export type InboxOfferSkipReason = "not-joined" | "paused" | "no-items" | "outstanding" | "failed";
+export type InboxOfferSkipReason = "not-joined" | "paused" | "no-items" | "outstanding" | "busy" | "failed";
 
 export type InboxOfferOutcome =
 	| { readonly offered: true; readonly itemId: string }
@@ -103,6 +105,8 @@ export function createInboxBridge(dependencies: InboxBridgeDependencies): InboxB
 				if (!stillPending || evidence.has(outstanding)) outstanding = null;
 			}
 			if (dependencies.offeringState.read() === "paused") return { offered: false, reason: "paused" };
+			if (dependencies.isAuthoritativelyIdle && !dependencies.isAuthoritativelyIdle())
+				return { offered: false, reason: "busy" };
 			if (outstanding) return { offered: false, reason: "outstanding" };
 			const oldest = await store.peekOldest();
 			if (!oldest) return { offered: false, reason: "no-items" };

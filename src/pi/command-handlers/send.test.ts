@@ -11,6 +11,25 @@ test("send rejects an invalid structured payload", async () => {
 	assert.equal((c.responses[0] as any).error, "Invalid structured message payload");
 });
 
+test("inbox hint dispatches the recipient bridge callback before delivery", async () => {
+	const c = handlerContext();
+	let hints = 0;
+	c.state.onInboxHint = () => {
+		hints += 1;
+	};
+	c.pi.sendMessage = (() => undefined) as never;
+	await handleSend(
+		{
+			type: "send",
+			payload: { content: "[inbox] You have a new durable inbox item. Check your inbox when available." },
+			id: "hint-1",
+		} as never,
+		c,
+	);
+	assert.equal(hints, 1);
+	assert.equal((c.responses[0] as any).data.disposition, "direct");
+});
+
 test("send acknowledges a valid escaped payload and delivers it", async () => {
 	const c = handlerContext();
 	const sent: unknown[] = [];
