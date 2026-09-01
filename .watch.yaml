@@ -18,8 +18,9 @@ on:
         - .bebop-build-*/**
         - "**/*.log"
 
+# Jobs share the build output and test process resources; run gates sequentially.
 execution:
-    concurrency: 2
+    concurrency: 1
     output: show-on-failure
 
 hooks:
