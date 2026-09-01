@@ -510,15 +510,22 @@ test("rejects a trusted append when aggregate retained bytes reach capacity", as
 			isProjectTrusted: () => true,
 			fs: {
 				readdir: async (directory) => (directory === messageLog ? [`${existingId}.json`] : []),
-				stat: async () => ({ size: statCalls++ <= 1 ? canonicalMessageLogEntryBytes({ ...entry, id: existingId }).byteLength : MAX_MESSAGE_LOG_BYTES }),
+				stat: async () => ({
+					size: statCalls++ < 2 ? MAX_MESSAGE_LOG_BYTES / 2 : MAX_MESSAGE_LOG_BYTES,
+				}),
 				readFile: async (filePath) => {
 					if (filePath.endsWith(".lock")) return readFile(filePath);
-					return Buffer.from(canonicalMessageLogEntryBytes({ ...entry, id: path.basename(filePath, ".json") }));
+					return Buffer.from(
+						canonicalMessageLogEntryBytes({ ...entry, id: path.basename(filePath, ".json") }),
+					);
 				},
 				sync: async () => undefined,
 			},
 		});
-		await assert.rejects(() => store.append(nextEntry), (error) => error instanceof MessageLogStoreError && error.code === "capacity-exceeded");
+		await assert.rejects(
+			() => store.append(nextEntry),
+			(error) => error instanceof MessageLogStoreError && error.code === "capacity-exceeded",
+		);
 	} finally {
 		await fixture.cleanup();
 	}
