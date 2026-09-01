@@ -1,7 +1,7 @@
 ---
 id: TASK-0129
 title: Persist the trusted Crew Message Log
-status: doing
+status: done
 depends_on: [TASK-0128]
 priority: high
 tags: [crew, messaging, evidence, storage, security, concurrency, retention, tdd]
@@ -16,6 +16,14 @@ The Crew Message Log needs deterministic project-local storage that survives res
 ## Context
 
 Implement only the trusted storage boundary from TASK-0128. Do not wire live messaging adapters or add read tools/commands in this task. Follow the active manifest layout exactly; never create parallel `.pi/bebop` and `.pi/crew` logs for one Crew.
+
+## Closure note
+
+Accepted by Product on candidate `fee3686c`. The `.watch.yaml` concurrency
+mitigation from 2 to 1 prevents overlapping full-test processes in one worktree;
+Kelly's exact-SHA report and external green gate satisfy the remaining gate.
+The unchanged crew-board formatting defect is pre-existing and outside candidate
+paths, not a TASK-0129 regression.
 
 ## Acceptance criteria
 
