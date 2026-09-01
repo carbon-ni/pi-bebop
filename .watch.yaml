@@ -18,7 +18,7 @@ on:
         - .bebop-build-*/**
         - "**/*.log"
 
-# Jobs share the build output and test process resources; run gates sequentially.
+# Full test/build gates are serialized per worktree; lint remains independently safe.
 execution:
     concurrency: 1
     output: show-on-failure
