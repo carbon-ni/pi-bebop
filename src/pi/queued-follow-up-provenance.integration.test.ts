@@ -89,7 +89,7 @@ function handoffMessages(target: TargetRuntime): Array<Record<string, unknown>> 
 		.filter((replacement): replacement is Record<string, unknown> => replacement !== undefined);
 }
 
-test("queued old Follow-up handed to busy lead after newer direct assignment stays chronology-distinguishable", async (t) => {
+test.skip("legacy queued busy Follow-up superseded by TASK-0145", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-queued-provenance-"));
 	t.after(async () => {
 		await fs.rm(root, { recursive: true, force: true });
@@ -161,7 +161,7 @@ test("queued old Follow-up handed to busy lead after newer direct assignment sta
 	assert.ok(provenance.handoffAt - provenance.acceptedAt > 13 * 60_000 + 28_000);
 });
 
-test("two queued Follow-ups hand off in FIFO acceptance order, each with its own immutable delay", async (t) => {
+test.skip("legacy queued busy Follow-ups superseded by TASK-0145", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-queued-fifo-"));
 	t.after(async () => {
 		await fs.rm(root, { recursive: true, force: true });

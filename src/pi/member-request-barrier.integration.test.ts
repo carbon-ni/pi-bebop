@@ -49,7 +49,7 @@ async function targetRuntime(
 	state.context = {
 		hasUI: false,
 		sessionManager: { getSessionId: () => self.name, getSessionName: () => null, getEntries: () => [] },
-		isIdle: () => false,
+		isIdle: () => true,
 		isProjectTrusted: () => true,
 	} as never;
 	const reminders: string[] = [];

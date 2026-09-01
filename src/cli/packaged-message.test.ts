@@ -43,7 +43,7 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 	const targetMessages: string[] = [];
 	const targetEntries: unknown[] = [];
 	const sourceEntries: unknown[] = [];
-	let targetIdle = false;
+	let targetIdle = true;
 	let targetAbortCount = 0;
 
 	const targetState = createSocketState();
@@ -264,7 +264,7 @@ test("packaged CLI delivers follow-up and redirect end to end with accepted disp
 	const followData = JSON.parse(followUp.stdout);
 	assert.equal(followData.status, "accepted");
 	assert.equal(followData.data.member.name, "Kelly");
-	assert.equal(followData.data.disposition, "queued");
+	assert.equal(followData.data.disposition, "direct");
 	assert.match(followData.data.deliveryId, /^delivery-/);
 
 	const redirect = await packagedMessage(sessions.root, [
@@ -281,7 +281,7 @@ test("packaged CLI delivers follow-up and redirect end to end with accepted disp
 	assert.equal(redirect.code, 0, redirect.stdout);
 	const redirectData = JSON.parse(redirect.stdout);
 	assert.equal(redirectData.status, "accepted");
-	assert.equal(redirectData.data.disposition, "steered");
+	assert.equal(redirectData.data.disposition, "direct");
 
 	// The target session received both structured messages in order.
 	assert.equal(sessions.targetMessages.length, 2);

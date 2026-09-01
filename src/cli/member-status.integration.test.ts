@@ -98,7 +98,7 @@ test("member status CLI maps a remote rejection over the real wire to exit 1 wit
 			type: "response",
 			command: "member_status_target",
 			success: false,
-			error: "unknown-member",
+			error: "target-busy",
 			id: command.id,
 		});
 	});
@@ -124,7 +124,7 @@ test("member status CLI maps a remote rejection over the real wire to exit 1 wit
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind !== "result") throw new Error("expected result");
 	assert.equal(outcome.result.ok, false);
-	assert.equal(outcome.result.error?.code, "unknown-member");
+	assert.equal(outcome.result.error?.code, "target-busy");
 	assert.equal(writeOutcome(new PassThrough(), outcome), 1);
 });
 

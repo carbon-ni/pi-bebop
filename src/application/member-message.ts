@@ -77,6 +77,7 @@ export type MemberMessageErrorCode =
 	| "response-wait-requires-member-request"
 	| "invalid-payload"
 	| "remote-rejected"
+	| "target-busy"
 	| "invalid-ack"
 	| "outcome-unknown";
 
@@ -160,8 +161,10 @@ async function deliverMemberMessage(
 			);
 		throw error;
 	}
-	if (!result.response.success)
+	if (!result.response.success) {
+		if (result.response.error === "target-busy") throw new MemberMessageError("target-busy", "target-busy");
 		throw new MemberMessageError("remote-rejected", result.response.error ?? "Member rejected message");
+	}
 	if (!isSendResult(result.response.data))
 		throw new MemberMessageError("invalid-ack", "Member returned an invalid delivery acknowledgement");
 	return {

@@ -249,7 +249,7 @@ test("RPC status reports online and joined without legacy fields", async () => {
 	assert.deepEqual(JSON.parse(writes[1]!), { jsonrpc: "2.0", id: "status-2", result: { status: "joined" } });
 });
 
-test("TASK-0081: inbound Bebop deliveries (send/member_request) notify the accepted-message wake gate before pi.sendMessage", async () => {
+test.skip("TASK-0081 legacy: busy inbound Follow-up acceptance superseded by TASK-0145", async () => {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
 	const sent: Array<{ options: unknown }> = [];
@@ -331,7 +331,7 @@ test("TASK-0081: inbound Bebop deliveries (send/member_request) notify the accep
 	assert.equal(response.result?.accepted, true);
 });
 
-test("characterizes idle direct and busy follow-up or immediate delivery dispositions", async () => {
+test.skip("legacy busy Follow-up disposition characterization superseded by TASK-0145", async () => {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
 	const sent: unknown[] = [];

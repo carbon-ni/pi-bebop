@@ -83,9 +83,23 @@ export function writeResponse(socket: RpcSocket, response: RpcCommandResponse): 
 		writeWireResponse(socket, response.id, method, response.data);
 		return;
 	}
-	const durableCommand = response.command === "member_inbox_send" || response.command === "crew_broadcast";
 	const error = response.error ?? "Internal error";
-	writeWireError(socket, response.id, RPC_ERROR.internal, error, durableCommand ? { code: error } : undefined);
+	const actionableCodes = new Set([
+		"target-busy",
+		"remote-rejected",
+		"invalid-ack",
+		"outcome-unknown",
+		"offline",
+		"unknown-member",
+		"ambiguous-member",
+		"self-send",
+		"untrusted-project",
+	]);
+	const durableCommand = response.command === "member_inbox_send" || response.command === "crew_broadcast";
+	const includeCode = durableCommand || actionableCodes.has(error);
+	// Only stable actionable codes belong in error.data; human protocol errors
+	// remain message-only for wire compatibility.
+	writeWireError(socket, response.id, RPC_ERROR.internal, error, includeCode ? { code: error } : undefined);
 }
 export function writeEvent(socket: RpcSocket, event: RpcTurnEndNotification): void {
 	const notification = buildTurnEndNotification(

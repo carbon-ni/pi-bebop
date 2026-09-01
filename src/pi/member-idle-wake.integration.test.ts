@@ -141,7 +141,7 @@ function waitingState(
 	return state;
 }
 
-test("TASK-0081: busy target -> accepted Follow-up wakes the blocked wait; unchanged message submits with followUp", async (t) => {
+test.skip("TASK-0081 legacy: busy target Follow-up no longer queues under TASK-0145", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-wake-followup-"));
 	const aPath = path.join(root, "a.sock");
 	const bPath = path.join(root, "b.sock");
@@ -194,7 +194,7 @@ test("TASK-0081: busy target -> accepted Follow-up wakes the blocked wait; uncha
 	await within(2_000, waitForNoSubscription(stateB), "remote idle subscription never cancelled on wake");
 });
 
-test("TASK-0081: busy target -> accepted Redirect wakes the blocked wait; unchanged Redirect submits with steer", async (t) => {
+test.skip("TASK-0081 legacy: busy target Redirect wake scenario superseded by TASK-0145", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-wake-redirect-"));
 	const aPath = path.join(root, "a.sock");
 	const bPath = path.join(root, "b.sock");

@@ -225,7 +225,7 @@ test("TASK-0080: request-outcome wait yields, stays parked through the internal 
 	targetState.context = {
 		hasUI: false,
 		sessionManager: { getSessionId: () => "target", getSessionName: () => null, getEntries: () => [] },
-		isIdle: () => false,
+		isIdle: () => true,
 		isProjectTrusted: () => true,
 	} as never;
 	targetState.memberRequestFlow = new MemberRequestFlow({
@@ -282,7 +282,7 @@ test("TASK-0080: request-outcome wait yields, stays parked through the internal 
 	sourceState.context = {
 		hasUI: false,
 		sessionManager: { getSessionId: () => "source", getSessionName: () => null, getEntries: () => [] },
-		isIdle: () => false,
+		isIdle: () => true,
 		isProjectTrusted: () => true,
 	} as never;
 	const capture = captureRuntime();
@@ -347,7 +347,7 @@ test("TASK-0081: request-outcome wait resumes with the FULL Response (message + 
 	targetState.context = {
 		hasUI: false,
 		sessionManager: { getSessionId: () => "target", getSessionName: () => null, getEntries: () => [] },
-		isIdle: () => false,
+		isIdle: () => true,
 		isProjectTrusted: () => true,
 	} as never;
 	targetState.memberRequestFlow = new MemberRequestFlow({
@@ -400,7 +400,7 @@ test("TASK-0081: request-outcome wait resumes with the FULL Response (message + 
 	sourceState.context = {
 		hasUI: false,
 		sessionManager: { getSessionId: () => "source", getSessionName: () => null, getEntries: () => [] },
-		isIdle: () => false,
+		isIdle: () => true,
 		isProjectTrusted: () => true,
 	} as never;
 	const capture = captureRuntime();

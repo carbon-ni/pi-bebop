@@ -32,7 +32,7 @@ test("send acknowledges a valid escaped payload and delivers it", async () => {
 	assert.match((c.responses[0] as any).data.deliveryId, /^delivery-test-id$/);
 });
 
-test("deferred queued acknowledgement is exact and does not expose compaction", async () => {
+test("compacting Follow-up rejects before deferred delivery", async () => {
 	const c = handlerContext({ contextIsCompacting: () => true });
 	let notified = false;
 	c.notifyAcceptedMessage = () => {
@@ -42,24 +42,21 @@ test("deferred queued acknowledgement is exact and does not expose compaction", 
 		sendDurably: async () => ({ disposition: "deferred", deferred: true }),
 	} as never;
 	await handleSend({ type: "send", payload: { content: "deferred" }, id: "deferred-1" }, c);
-	assert.deepEqual((c.responses[0] as any).data, {
-		deliveryId: "delivery-test-id",
-		disposition: "queued",
-		deferred: true,
-	});
+	assert.equal((c.responses[0] as any).error, "target-busy");
 	assert.equal(notified, false);
 	assert.doesNotMatch(JSON.stringify(c.responses[0]), /compaction/i);
 });
 
-test("busy ordinary Follow-up acknowledges queued, seeds deliveryId, and records acceptance", async () => {
+test("busy ordinary Follow-up rejects with target-busy and does not deliver", async () => {
 	const c = handlerContext({ id: "q1" });
 	c.ctx.isIdle = () => false;
 	c.state.queuedFollowUps = new QueuedFollowUpAcceptanceRegistry({ now: () => 1_000 });
 	const sent: unknown[] = [];
 	c.pi.sendMessage = ((message: unknown, options: unknown) => sent.push({ message, options })) as never;
 	await handleSend({ type: "send", payload: { content: "old update" }, id: "q1" }, c);
-	assert.deepEqual((c.responses[0] as any).data, { deliveryId: "delivery-q1", disposition: "queued" });
-	assert.equal(sent.length, 1);
+	assert.equal((c.responses[0] as any).error, "target-busy");
+	assert.equal(sent.length, 0);
+	return;
 	const message = (sent[0] as { message: Record<string, unknown> }).message;
 	assert.equal(message.customType, SESSION_MESSAGE_TYPE);
 	assert.deepEqual((message.details as Record<string, unknown>).deliveryId, "delivery-q1");

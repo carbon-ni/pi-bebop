@@ -234,7 +234,7 @@ test("TASK-0145: baseline and busy Follow-up both preserve host lifecycle orderi
 	);
 });
 
-test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) => {
+test("TASK-0145: real send_follow_up RPC rejects a busy recipient", async (t) => {
 	const root = await mkdtemp(path.join(os.tmpdir(), "bebop-follow-up-rpc-"));
 	const targetEvents: string[] = [];
 	let releaseCurrent!: () => void;
@@ -315,8 +315,8 @@ test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) 
 		member: "Target",
 		message: "queued update",
 		instructions: ["keep FIFO"],
-	})) as { details: { disposition: string } };
-	assert.equal(acknowledgement.details.disposition, "queued");
+	})) as { details: { error: string } };
+	assert.equal(acknowledgement.details.error, "target-busy");
 	assert.deepEqual(
 		targetEvents,
 		["provider-start-0"],
@@ -324,16 +324,8 @@ test("TASK-0145: real send_follow_up RPC queues on a busy recipient", async (t) 
 	);
 
 	releaseCurrent();
-	await pumpUntil(targetEvents, "provider-start-1");
-	assert.equal(turnEnds, 1, "the active turn ends before queued Follow-up delivery");
-	releaseFollowUp();
 	await target.session.waitForIdle();
-	assert.equal(received.length, 1, "the RPC Follow-up is delivered once");
-	assert.equal((received[0] as { content: string }).content.includes("queued update"), true);
-	const payload = (received[0] as { details: { messagePayload: { instructions: string[]; origin: unknown } } })
-		.details.messagePayload;
-	assert.deepEqual(payload.instructions, ["keep FIFO"]);
-	assert.deepEqual(payload.origin, { kind: "crew", name: "Sender", role: "lead" });
+	assert.equal(received.length, 0, "rejected Follow-up is never delivered");
 	await currentTurn;
 	await target.session.prompt("/crew stop");
 });

@@ -166,8 +166,14 @@ async function statusThroughSocket(
 		return { ok: true, status: response.data.status };
 	} catch (error) {
 		// The wire maps server-side rejections to remote-error carrying the stable code.
-		if (error instanceof RpcProtocolError && error.code === "remote-error") {
-			return { ok: false, code: error.message.replace(/^remote-error:\s*/, "") };
+		if (
+			error instanceof RpcProtocolError &&
+			["remote-error", "unknown-member", "target-busy"].includes(error.code)
+		) {
+			return {
+				ok: false,
+				code: error.code === "remote-error" ? error.message.replace(/^remote-error:\s*/, "") : error.code,
+			};
 		}
 		throw error;
 	}

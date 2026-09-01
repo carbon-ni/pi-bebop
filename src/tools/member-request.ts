@@ -59,6 +59,7 @@ const REQUEST_ERROR_CODES = new Set([
 	"response-expired",
 	"outcome-unknown",
 	"request-failed",
+	"target-busy",
 	"self-send",
 	"timeout",
 	"unknown-member",
@@ -77,8 +78,15 @@ function failure(code: string, _message: string): ActionableToolResult {
 		reason:
 			safeCode === "no-pending-member-requests"
 				? "no pending outbound request; send_member_request starts a new request"
-				: "the member request operation was rejected",
-		recovery: ["verify the request target and state, then retry the tool."],
+				: safeCode === "target-busy"
+					? "target is busy; use redirect_member for urgent changes or send_to_inbox for durable delivery"
+					: "the member request operation was rejected",
+		recovery:
+			safeCode === "target-busy"
+				? [
+						"use redirect_member for an urgent next-step change, or send_to_inbox for durable non-interrupting delivery",
+					]
+				: ["verify the request target and state, then retry the tool."],
 	});
 }
 function flowFor(state: SocketState): MemberRequestFlow {

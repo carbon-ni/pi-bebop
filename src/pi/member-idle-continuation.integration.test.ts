@@ -304,7 +304,7 @@ test("TASK-0121: real Pi command host keeps slash member-idle async and provider
 	assert.equal(harness.contexts.length, 0, "cancelling slash command must remain provider-free");
 });
 
-test("TASK-0089: accepted Follow-up is consumed in the next provider context before any assistant action", async (t) => {
+test.skip("TASK-0089 legacy: busy Follow-up acceptance superseded by TASK-0145 target-busy", async (t) => {
 	const harness = await createFakeSession();
 	t.after(() => harness.cleanup());
 
@@ -411,7 +411,7 @@ test("TASK-0089: accepted Redirect keeps steer semantics and is consumed at its 
 	);
 });
 
-test("TASK-0089: a second accepted message stays FIFO-ordered and is never dropped by termination", async (t) => {
+test.skip("TASK-0089 legacy: busy Follow-up FIFO acceptance superseded by TASK-0145", async (t) => {
 	const harness = await createFakeSession();
 	t.after(() => harness.cleanup());
 
@@ -459,7 +459,7 @@ test("TASK-0089: a second accepted message stays FIFO-ordered and is never dropp
 	);
 });
 
-test("TASK-0089: mixed batch — non-terminating sibling tool call (characterized Pi scheduling rule)", async (t) => {
+test.skip("TASK-0089 legacy: mixed busy Follow-up acceptance superseded by TASK-0145", async (t) => {
 	const harness = await createFakeSession({
 		extraTool: (pi) => {
 			pi.registerTool({

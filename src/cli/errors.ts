@@ -19,6 +19,7 @@ const KNOWN_ERROR_CODES = new Set([
 	"invalid-ack",
 	"outcome-unknown",
 	"unknown-member",
+	"target-busy",
 	"ambiguous-member",
 	"self-send",
 	"not-joined",

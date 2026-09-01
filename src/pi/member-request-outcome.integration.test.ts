@@ -74,7 +74,7 @@ test("source wait stays parked through real target agent_settled and resolves at
 		targetState.context = {
 			hasUI: false,
 			sessionManager: { getSessionId: () => "target", getSessionName: () => null, getEntries: () => [] },
-			isIdle: () => false,
+			isIdle: () => true,
 			isProjectTrusted: () => true,
 		} as never;
 		const acceptedIntoContext: unknown[] = [];

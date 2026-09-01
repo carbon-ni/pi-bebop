@@ -57,7 +57,7 @@ async function targetRuntime(
 	state.context = {
 		hasUI: false,
 		sessionManager: { getSessionId: () => "target", getSessionName: () => null, getEntries: () => [] },
-		isIdle: () => false,
+		isIdle: () => true,
 		isProjectTrusted: () => true,
 	} as never;
 	const acceptedIntoContext: Array<{ message: unknown; options: unknown }> = [];
@@ -213,10 +213,9 @@ test("TASK-0144 acceptance: two real runtimes preserve independent triggers thro
 	const requesterState = createSocketState();
 	requesterState.membershipRuntime = {
 		getMembership: () =>
-			joinedMembership(
-				{ name: "Tony", role: "lead", socketPath: requesterPath },
-				[{ name: "Kelly", role: "qa", socketPath: targetPath }],
-			),
+			joinedMembership({ name: "Tony", role: "lead", socketPath: requesterPath }, [
+				{ name: "Kelly", role: "qa", socketPath: targetPath },
+			]),
 	} as never;
 	requesterState.context = {
 		hasUI: false,
@@ -253,26 +252,25 @@ test("TASK-0144 acceptance: two real runtimes preserve independent triggers thro
 		},
 	});
 	const requesterServer = await createRpcServer(requesterPath, (command, socket) =>
-		handleCommand(
-			{ sendMessage: () => undefined } as never,
-			requesterState,
-			command,
-			socket,
-		),
+		handleCommand({ sendMessage: () => undefined } as never, requesterState, command, socket),
 	);
 	t.after(async () => {
 		await closeRpcServer(requesterServer);
 		await closeRpcServer(target.server);
 		await fs.rm(root, { recursive: true, force: true });
 	});
-	const membership = joinedMembership(
-		{ name: "Tony", role: "lead", socketPath: requesterPath },
-		[{ name: "Kelly", role: "qa", socketPath: targetPath }],
-	);
+	const membership = joinedMembership({ name: "Tony", role: "lead", socketPath: requesterPath }, [
+		{ name: "Kelly", role: "qa", socketPath: targetPath },
+	]);
 	const flow = requesterState.memberRequestFlow;
 	assert.ok(flow);
 	await Promise.all([
-		flow.sendMemberRequest({ membership, member: "Kelly", message: "A: compile the release evidence", maxWaitSeconds: 600 }),
+		flow.sendMemberRequest({
+			membership,
+			member: "Kelly",
+			message: "A: compile the release evidence",
+			maxWaitSeconds: 600,
+		}),
 		flow.sendMemberRequest({ membership, member: "Kelly", message: "B: check the docs link", maxWaitSeconds: 600 }),
 	]);
 	assert.equal(flow.registry.outboundCount(), 2);

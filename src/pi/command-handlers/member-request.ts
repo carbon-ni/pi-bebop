@@ -42,6 +42,10 @@ function isDeliveryFailure(disposition: string | undefined): boolean {
 	return disposition === "invalid" || disposition === "capacity-exceeded";
 }
 
+function isBusyTarget(context: RpcHandlerContext): boolean {
+	return !context.ctx.isIdle() || context.contextIsCompacting();
+}
+
 function isConfiguredOrigin(membership: Membership, origin: { name: string; role: string }): boolean {
 	const configured = membership.manifest.members.find(
 		(member) => member.name === origin.name && member.role === origin.role,
@@ -70,6 +74,12 @@ export async function handleMemberRequest(
 	}
 	if (!isConfiguredOrigin(membership, origin)) {
 		context.respond(false, command.type, undefined, "invalid-origin");
+		return;
+	}
+	// Reject transient requests before registration while the target is busy;
+	// this prevents a rejected request from creating any pending lifecycle.
+	if (isBusyTarget(context)) {
+		context.respond(false, command.type, undefined, "target-busy");
 		return;
 	}
 	try {

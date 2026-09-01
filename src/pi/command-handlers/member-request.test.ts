@@ -17,6 +17,31 @@ test("member request rejects an unjoined runtime", async () => {
 	assert.equal((c.responses[0] as any).error, "not-joined");
 });
 
+test("busy member request rejects before registering a pending request", async () => {
+	const c = handlerContext();
+	c.state.membershipRuntime = { getMembership: () => joinedMembership() } as never;
+	c.state.context!.isProjectTrusted = () => true;
+	c.ctx.isIdle = () => false;
+	let registered = false;
+	c.state.memberRequestFlow = {
+		registerInboundRequest: () => {
+			registered = true;
+		},
+	} as never;
+	await handleMemberRequest(
+		{
+			type: "member_request",
+			requestId: "busy-r",
+			payload: { content: "x", instructions: [], origin: { kind: "crew", name: "Mary", role: "po" } },
+			timeoutSeconds: 1,
+			id: "1",
+		} as never,
+		c,
+	);
+	assert.equal((c.responses[0] as any).error, "target-busy");
+	assert.equal(registered, false);
+});
+
 test("deferred member request stays invisible until the gate hands it off", async () => {
 	const c = handlerContext();
 	c.state.membershipRuntime = { getMembership: () => joinedMembership() } as never;

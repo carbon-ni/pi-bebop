@@ -65,10 +65,16 @@ export async function handleSend(
 		context.respond(false, "send", undefined, "Invalid structured message payload");
 		return;
 	}
-	if (isInboxHint(payload)) context.state.onInboxHint?.();
-	const message = renderFollowUpModelContent(payload);
 	const mode = command.delivery ?? "follow_up";
 	const isIdle = context.ctx.isIdle() && !context.contextIsCompacting();
+	// A transient Follow-up must never hide behind a busy target. The activity
+	// snapshot and delivery decision are made at this authoritative boundary.
+	if (!isIdle && mode === "follow_up") {
+		context.respond(false, "send", undefined, "target-busy");
+		return;
+	}
+	if (isInboxHint(payload)) context.state.onInboxHint?.();
+	const message = renderFollowUpModelContent(payload);
 	const disposition = isIdle ? "direct" : mode === "follow_up" ? "queued" : "steered";
 	const deliveryId = `delivery-${context.id}`;
 	const customMessage = {

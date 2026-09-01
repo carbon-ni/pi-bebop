@@ -47,6 +47,7 @@ const MEMBER_INTENT_ERROR_CODES = new Set([
 	"invalid-payload",
 	"offline",
 	"remote-rejected",
+	"target-busy",
 	"invalid-ack",
 	"outcome-unknown",
 	"aborted",
@@ -61,6 +62,7 @@ type MemberIntentErrorCode =
 	| "invalid-payload"
 	| "offline"
 	| "remote-rejected"
+	| "target-busy"
 	| "invalid-ack"
 	| "outcome-unknown"
 	| "aborted"
@@ -86,6 +88,8 @@ function errorReason(code: MemberIntentErrorCode): string {
 			return "Unknown member target";
 		case "not-joined":
 			return "Not joined to a crew";
+		case "target-busy":
+			return "target is busy; use redirect_member for urgent changes or send_to_inbox for durable delivery";
 		case "aborted":
 			return "the member message operation was aborted";
 		case "unexpected-failure":
