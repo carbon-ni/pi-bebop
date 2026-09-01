@@ -50,7 +50,7 @@ test("CI and local final verification invoke the canonical make all gate", () =>
 test("normal gates run only lint and tests through a quiet boolean gate", () => {
 	assert.match(makefile, /^all:\s+quiet-quality-gate$/m);
 	assert.match(makefile, /^quiet-quality-gate:$/m);
-	assert.match(preCommit, /^exec make all$/m);
+	assert.match(preCommit, /^exec npm test$/m);
 	assert.match(prePush, /^exec make all$/m);
 	assert.match(quietQualityGate, /\["npm", \["run", "lint"\]\]/);
 	assert.match(quietQualityGate, /\["npm", \["test"\]\]/);
