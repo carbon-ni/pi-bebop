@@ -37,3 +37,4 @@ pnpm-debug.log*
 .yarn/
 .pnpm-store/
 *.tgz
+dist.*
