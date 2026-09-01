@@ -1,13 +1,18 @@
 ---
 id: TASK-0148
 title: Add deterministic loaded-host Inbox lifecycle evidence
-status: todo
-depends_on: [TASK-0147]
+status: blocked
+depends_on: [TASK-0129, TASK-0147]
 priority: high
 tags: [crew, inbox, broadcast, lifecycle, integration, qa]
 ---
 
 # Add deterministic loaded-host Inbox lifecycle evidence
+
+## Blocked note
+
+Paused and unauthorized until TASK-0129 is fully accepted after its reopened
+core evidence-integrity criteria pass exact-head QA.
 
 ## Problem
 

@@ -1,7 +1,7 @@
 ---
 id: TASK-0129
 title: Persist the trusted Crew Message Log
-status: done
+status: doing
 depends_on: [TASK-0128]
 priority: high
 tags: [crew, messaging, evidence, storage, security, concurrency, retention, tdd]
@@ -24,6 +24,13 @@ mitigation from 2 to 1 prevents overlapping full-test processes in one worktree;
 Kelly's exact-SHA report and external green gate satisfy the remaining gate.
 The unchanged crew-board formatting defect is pre-existing and outside candidate
 paths, not a TASK-0129 regression.
+
+## Reopen note
+
+Product reopened this task after exact-SHA matrix QA found core evidence
+integrity gaps: age-retention/pruning metadata, lifecycle markers and checkpoint
+query, and volatile gap-ledger merge/persistence. Commit `993256f` recorded an
+incomplete closure and is not acceptance evidence for those criteria.
 
 ## Acceptance criteria
 
