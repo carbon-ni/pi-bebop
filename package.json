@@ -112,6 +112,7 @@
 		"src/infra/message-log-marker-store.ts",
 		"src/infra/message-log-retention.ts",
 		"src/infra/message-log-batch-store.ts",
+		"src/infra/message-log-recovery-store.ts",
 		"src/infra/git-branch.ts",
 		"src/infra/intray-config.ts",
 		"src/infra/intray-paths.ts",
