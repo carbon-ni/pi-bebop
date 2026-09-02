@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+set -eu
+
+check_name=$1
+shift
+
+output=$(mktemp "${TMPDIR:-/tmp}/githook.XXXXXX")
+cleanup() {
+  rm -f "$output"
+}
+trap cleanup EXIT HUP INT TERM
+
+printf 'Check:%s - running\n' "$check_name"
+
+if "$@" >"$output" 2>&1; then
+  printf 'Results: passed\n'
+  exit 0
+fi
+
+printf 'Results: failed\n' >&2
+cat "$output" >&2
+exit 1
