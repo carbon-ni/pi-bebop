@@ -2,7 +2,7 @@
 id: TASK-0130
 title: Capture Bebop messaging outcomes in the Crew Message Log
 status: todo
-depends_on: [TASK-0129]
+depends_on: [TASK-0129, TASK-0150]
 priority: high
 tags: [crew, messaging, evidence, application, lifecycle, integration, tdd]
 ---
