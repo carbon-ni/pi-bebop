@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { MessagePayloadSchema, type RequestOutcome } from "../domain/index.ts";
+import { formatRequestOutcome, MessagePayloadSchema, type RequestOutcome } from "../domain/index.ts";
 import { MemberMessageError } from "../application/member-message.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
@@ -53,21 +53,6 @@ function failure(code: string, message: string): ToolResult {
 function flowFor(state: SocketState): MemberRequestFlow {
 	if (!state.memberRequestFlow) throw new Error("Crew coordination is not initialized");
 	return state.memberRequestFlow;
-}
-
-function formatRequestOutcome(outcome: RequestOutcome): string {
-	const member = `${outcome.member.name} (${outcome.member.role})`;
-	if (outcome.kind === "response") {
-		const instructions = outcome.instructions.length
-			? `\nInstructions:\n${outcome.instructions.map((item, index) => `${index + 1}. ${item}`).join("\n")}`
-			: "";
-		return `Response received from ${member} for request ${outcome.requestId}: ${outcome.message}${instructions}`;
-	}
-	if (outcome.kind === "offline")
-		return `Member ${member} is offline for request ${outcome.requestId}. Recovery: consider reassigning or using send_to_inbox for durable delivery.`;
-	if (outcome.reason === "response-after-idle")
-		return `Member ${member} settled without a Response for request ${outcome.requestId}. Recovery: if an answer is still required, send a new send_member_request.`;
-	return `No Response arrived before the safety deadline for request ${outcome.requestId}. Recovery: consider checking Member Status, reassigning, using send_to_inbox, or using redirect_member when urgent.`;
 }
 
 type RequestOutcomeWait =
