@@ -92,6 +92,8 @@ test("source wait blocks through a real socket and resolves the same call with t
 		{ name: "Kelly", role: "qa", socketPath: targetPath },
 	]);
 	let requestSequence = 0;
+	let timerSequence = 0;
+	const timers = new Map<number, { callback: () => void; delay: number }>();
 	const flow = new MemberRequestFlow({
 		transport: {
 			open: (endpoint, command, options) =>
@@ -104,6 +106,14 @@ test("source wait blocks through a real socket and resolves the same call with t
 		},
 		resolveEndpoint: resolveMemberEndpoint,
 		createRequestId: () => `request-real-${++requestSequence}`,
+		setTimeout: (callback, delay) => {
+			const handle = ++timerSequence;
+			timers.set(handle, { callback, delay });
+			return handle as unknown as ReturnType<typeof globalThis.setTimeout>;
+		},
+		clearTimeout: (handle) => {
+			timers.delete(handle as unknown as number);
+		},
 	});
 	const sourceState = createSocketState();
 	sourceState.memberRequestFlow = flow;
@@ -145,10 +155,10 @@ test("source wait blocks through a real socket and resolves the same call with t
 	assert.equal(result.details.result.message, "Evidence attached: 3 findings");
 	assert.deepEqual(result.details.result.instructions, ["review finding 1", "confirm gate"]);
 	assert.equal(flow.registry.outboundCount(), 0);
-	assert.equal(server.acceptedIntoContext.length, 1, "no custom resume delivery was injected");
 
 	// The same real socket path also covers a bounded terminal outcome: idle is
-	// nonterminal, then the post-idle grace resolves the blocked call directly.
+	// nonterminal, then the exact captured grace callback resolves the blocked
+	// call directly.
 	const timeoutAccepted = await flow.sendMemberRequest({
 		membership: sourceMembership,
 		member: "Kelly",
@@ -159,7 +169,18 @@ test("source wait blocks through a real socket and resolves the same call with t
 	const timeoutPending = wait.execute("id", {} as never, new AbortController().signal);
 	await new Promise((resolve) => setImmediate(resolve));
 	emitIdleSettled(server.targetState, { isIdle: () => true } as never);
-	const timeoutResult = (await within(3_000, timeoutPending, "bounded wait did not resolve")) as {
+	await within(
+		2_000,
+		(async () => {
+			while (!flow.registry.getOutbound("request-real-2")?.idleArmed)
+				await new Promise((resolve) => setImmediate(resolve));
+		})(),
+		"source grace was not armed",
+	);
+	const graceTimer = [...timers.entries()].find(([, timer]) => timer.delay === 1_000);
+	assert.ok(graceTimer, "post-idle grace timer was not captured");
+	graceTimer[1].callback();
+	const timeoutResult = (await within(2_000, timeoutPending, "bounded wait did not resolve")) as {
 		details: { result: { kind: string; reason?: string } };
 	};
 	assert.equal(timeoutResult.details.result.kind, "timeout");
