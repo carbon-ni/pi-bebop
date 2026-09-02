@@ -149,11 +149,19 @@ experimental TASK-0144 requester-side `still-pending` wake/re-wait loop.
   `wait_for_member_idle`, or ordinary Follow-up behavior.
 - Proving that a Response is correct, complete, or verified.
 
+## Verification
+
+- Independent exact-head QA: watcher generation 43 passed `@agent-final` at
+  commit `64fe44c2f7102d88adf1e6d360752666c7cd2a89`, with a clean unchanged
+  worktree fingerprint.
+- Focused wait/request tests, formatting, typecheck, architecture/package checks,
+  and the full gate passed before closure.
+
 ## Evidence
 
-- Current tool result has `terminate: undefined`; Pi terminates post-tool
+- The pre-fix tool result had `terminate: undefined`; Pi terminates post-tool
   continuation only when every finalized batch result has `terminate: true`.
 - Current `dev` is terminal-only; experimental TASK-0144 contains the separate
   `still-pending` behavior and is not the contract for this task.
-- Real `pi-auto` has no consumer for Bebop's five wait events; current handshake
-  coverage uses only an in-file stub.
+- Real `pi-auto` had no consumer for Bebop's five wait events; the removed
+  in-repository handshake was only a test stub.
