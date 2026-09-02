@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
 set -eu
 
-exec npm test
+exec npm test --silent

@@ -45,7 +45,7 @@ hooks-check:
 	@test -x .githooks/pre-commit
 	@test -x .githooks/pre-push
 	@test -x .githooks/commit-msg
-	@grep -qx "exec npm test" .githooks/pre-commit
+	@grep -qx "exec npm test --silent" .githooks/pre-commit
 	@grep -qx "exec make all" .githooks/pre-push
 	@grep -q "Commit subject must start with" .githooks/commit-msg
 	@echo "Repository hooks configured: pre-commit runs npm test; pre-push runs make all; commit-msg is executable"
