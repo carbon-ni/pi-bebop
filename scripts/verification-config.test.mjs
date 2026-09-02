@@ -50,7 +50,9 @@ test("CI and local final verification invoke the canonical make all gate", () =>
 test("normal gates run only lint and tests through a quiet boolean gate", () => {
 	assert.match(makefile, /^all:\s+quiet-quality-gate$/m);
 	assert.match(makefile, /^quiet-quality-gate:$/m);
-	assert.match(preCommit, /^exec npm test --silent$/m);
+	assert.match(preCommit, /npm test --silent >"\$log" 2>&1/);
+	assert.match(preCommit, /Pre-commit tests passed/);
+	assert.match(preCommit, /cat "\$log" >&2/);
 	assert.match(prePush, /^exec make all$/m);
 	assert.match(quietQualityGate, /\["npm", \["run", "lint"\]\]/);
 	assert.match(quietQualityGate, /\["npm", \["test"\]\]/);
@@ -65,6 +67,7 @@ test("repository hooks have an explicit install and check path", () => {
 	assert.match(makefile, /^hooks-install:$/m);
 	assert.match(makefile, /git config core\.hooksPath \.githooks/);
 	assert.match(makefile, /^hooks-check:$/m);
+	assert.match(makefile, /npm test --silent/);
 	assert.match(makefile, /core\.hooksPath/);
 	for (const hook of ["pre-commit", "pre-push", "commit-msg"]) {
 		assert.match(makefile, new RegExp(`test -x \\.githooks/${hook}`));

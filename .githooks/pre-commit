@@ -1,4 +1,14 @@
 #!/usr/bin/env sh
 set -eu
 
-exec npm test --silent
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT HUP INT TERM
+
+if npm test --silent >"$log" 2>&1; then
+	printf '%s\n' 'Pre-commit tests passed.'
+else
+	status=$?
+	printf '%s\n' 'Pre-commit tests failed:' >&2
+	cat "$log" >&2
+	exit "$status"
+fi
