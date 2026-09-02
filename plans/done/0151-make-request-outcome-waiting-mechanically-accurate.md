@@ -1,7 +1,7 @@
 ---
 id: TASK-0151
 title: Make Request outcome waiting mechanically accurate
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [member-request, requester, wait, termination, timeout, coordination, ux]
