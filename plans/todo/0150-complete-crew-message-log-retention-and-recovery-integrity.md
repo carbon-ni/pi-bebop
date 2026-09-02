@@ -1,7 +1,7 @@
 ---
 id: TASK-0150
 title: Complete Crew Message Log retention and recovery integrity
-status: todo
+status: blocked
 depends_on: [TASK-0129]
 priority: high
 tags: [crew, messaging, evidence, retention, lifecycle, recovery, storage, tdd]
@@ -16,6 +16,12 @@ The accepted Crew Message Log store provides trusted atomic append and bounded c
 ## Context
 
 This is the explicit follow-up for TASK-0129 acceptance criteria deferred by Product after exact-SHA matrix QA of `1ca0a4bf`. Historical implementations on isolated TASK-0129 branches are reference material only; integrate reviewed behavior into the current store rather than treating unmerged commits or green unit tests as production evidence. TASK-0130 must not capture live outcomes until this task is complete.
+
+## Current disposition
+
+Parked and unaccepted while TASK-0148 is active. Preserve reference commits
+`593ac23` and `6fb567f` without expanding them. Resume only after TASK-0148
+exact-head QA PASS and closure, then obtain a fresh full-matrix QA round.
 
 ## Acceptance criteria
 
