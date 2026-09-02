@@ -172,7 +172,7 @@ async function createSession(
 	};
 }
 
-test("TASK-0147: loaded extension Broadcast hint reaches joined target Inbox bridge", async (t) => {
+test("TASK-0148: loaded extension Broadcast reaches busy joined host and hands off once after settlement", async (t) => {
 	const events: string[] = [];
 	let releaseBusy!: () => void;
 	const busyRelease = new Promise<void>((resolve) => (releaseBusy = resolve));
@@ -251,9 +251,14 @@ test("TASK-0147: loaded extension Broadcast hint reaches joined target Inbox bri
 	await target.session.waitForIdle();
 	await pumpUntil(events, "inbox-offer");
 	const offers = received.filter((message) => message.details?.inbox);
-	assert.equal(offers.length, 1);
+	assert.equal(offers.length, 1, "one persisted Broadcast item is handed off");
 	assert.match(offers[0].details.inbox.itemId, /^broadcast-/);
 	assert.equal(offers[0].details.messagePayload.content, "broadcast lifecycle");
+	assert.equal(
+		received.filter((message) => message.details?.messagePayload?.content === "broadcast lifecycle").length,
+		1,
+		"the loaded host does not duplicate the FIFO Follow-up",
+	);
 	assert.deepEqual(offers[0].details.messagePayload.origin, { kind: "crew", name: "Sender", role: "lead" });
 });
 
