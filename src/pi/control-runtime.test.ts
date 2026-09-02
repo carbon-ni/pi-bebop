@@ -106,12 +106,14 @@ test("status derives stopped, online, and joined from server and crew state", ()
 test("membership transitions refresh the footer online to joined to online", () => {
 	const state = createSocketState();
 	const statuses: string[] = [];
+	const keys: string[] = [];
 	state.server = {} as never;
 	state.context = {
 		hasUI: true,
 		sessionManager: { getSessionId: () => "session" },
 		ui: {
-			setStatus: (_key: string, value?: string) => {
+			setStatus: (key: string, value?: string) => {
+				keys.push(key);
 				if (value) statuses.push(value);
 			},
 			theme: { fg: (_color: string, value: string) => value },
@@ -126,6 +128,7 @@ test("membership transitions refresh the footer online to joined to online", () 
 	state.membershipRuntime = { getMembership: () => null } as never;
 	refreshIntrayStatus(state);
 	assert.deepEqual(statuses, ["online", "joined Mary (po)", "online"]);
+	assert.deepEqual(keys, ["pi-bebop", "pi-bebop", "pi-bebop"]);
 });
 
 test("same-session role switch replaces the displayed identity immediately", () => {
