@@ -1,7 +1,7 @@
 ---
 id: TASK-0151
 title: Make Request outcome waiting mechanically accurate
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [member-request, requester, wait, termination, timeout, coordination, ux]
@@ -97,23 +97,23 @@ experimental TASK-0144 requester-side `still-pending` wake/re-wait loop.
 
 ## Acceptance criteria
 
-- [ ] TDD proves the wait blocks the same tool call until a terminal outcome;
+- [x] TDD proves the wait blocks the same tool call until a terminal outcome;
       no immediate `terminate` result or later resume turn is created.
-- [ ] No pending outbound Request returns immediate nonterminating all-settled;
+- [x] No pending outbound Request returns immediate nonterminating all-settled;
       validation, lifecycle, and one-wait capacity failures are actionable.
-- [ ] Response, offline, response-after-idle timeout, and max-wait timeout each
+- [x] Response, offline, response-after-idle timeout, and max-wait timeout each
       resolve exactly once; malformed state cannot consume the waiter.
-- [ ] FIFO ordering and full Response message plus ordered instructions are
+- [x] FIFO ordering and full Response message plus ordered instructions are
       preserved in the direct result.
-- [ ] Timeout and offline results contain approved actionable recovery without
+- [x] Timeout and offline results contain approved actionable recovery without
       automatic side effects or inferred task state.
-- [ ] Abort and bounded safeguards release the blocking call while preserving
+- [x] Abort and bounded safeguards release the blocking call while preserving
       request state; only one local waiter is active.
-- [ ] Existing send/response behavior, timers, first-terminal arbitration,
+- [x] Existing send/response behavior, timers, first-terminal arbitration,
       privacy, and nonblocking delegation remain unchanged.
-- [ ] Remove yielding registry, `crew-wait-resume` Request delivery, old wait
+- [x] Remove yielding registry, `crew-wait-resume` Request delivery, old wait
       event constants/publication, AutoLoopStub tests, and stale `/auto` claims.
-- [ ] Focused unit/integration coverage, architecture/package checks, full gate,
+- [x] Focused unit/integration coverage, architecture/package checks, full gate,
       fresh watcher fingerprint, and independent exact-head QA pass.
 
 ## Constraints

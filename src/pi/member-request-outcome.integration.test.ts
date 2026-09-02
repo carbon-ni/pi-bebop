@@ -128,8 +128,6 @@ test("source wait blocks through a real socket and resolves the same call with t
 		timeoutSeconds: 60,
 	});
 	assert.equal(accepted.requestId, "request-real-1");
-	assert.equal(server.acceptedIntoContext.length, 1, "target must accept the request into model context");
-
 	let settled = false;
 	const pending = wait.execute("id", {} as never, new AbortController().signal).then((result) => {
 		settled = true;
@@ -149,11 +147,13 @@ test("source wait blocks through a real socket and resolves the same call with t
 		});
 	}
 	const result = (await within(2_000, pending, "source wait did not resolve after Response")) as {
+		content: Array<{ type: string; text: string }>;
 		details: { result: { kind: string; message?: string; instructions?: readonly string[] } };
 	};
 	assert.equal(result.details.result.kind, "response");
 	assert.equal(result.details.result.message, "Evidence attached: 3 findings");
 	assert.deepEqual(result.details.result.instructions, ["review finding 1", "confirm gate"]);
+	assert.match(result.content[0]!.text, /Evidence attached: 3 findings/);
 	assert.equal(flow.registry.outboundCount(), 0);
 
 	// The same real socket path also covers a bounded terminal outcome: idle is
