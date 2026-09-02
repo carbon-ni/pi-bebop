@@ -108,8 +108,9 @@ project socket paths.
 Bebop message releases the wait under its original delivery mode. A waking message is consumed immediately in the next model continuation;
 message-received never implies idle or completion. Call this coordination wait alone, not in a parallel tool batch, because its terminating
 result must be the only result in the batch. The bounded timeout is always the fallback.
-`wait_for_request_outcome` blocks the current tool call until the terminal
-outcome, so correlated Request outcome waits never deadlock.
+`wait_for_request_outcome` blocks the current tool call until a terminal
+outcome or bounded safeguard releases it; it does not guarantee another Member
+will respond.
 
 ## Boundaries
 

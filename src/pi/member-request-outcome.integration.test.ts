@@ -9,6 +9,7 @@ import { sendMemberRequest } from "../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, emitIdleSettled, handleCommand } from "./control-runtime.ts";
+import { registerWaitForRequestOutcomeTool } from "../tools/member-request.ts";
 
 /**
  * TASK-0075 real two-runtime lifecycle (not manual settle only).
@@ -20,14 +21,8 @@ import { createSocketState, emitIdleSettled, handleCommand } from "./control-run
  *
  * Target runtime: the real `createRpcServer` + real `handleCommand`
  * member_request path with a Pi stub whose `sendMessage` accepts the request
- * into model context; the target then reaches the real `agent_settled` path
- * (`emitIdleSettled`) without ever sending a Response.
- *
- * TASK-0080: idle is NONTERMINAL. The target's first post-context settle sends
- * the internal `member.request.idle` notification over the real channel, which
- * arms the source's post-idle grace. The source wait must stay parked through
- * the idle and resolve to `timeout(response-after-idle)` only when that grace
- * expires with no Response.
+ * into model context. The source tool call blocks until the target sends a
+ * full correlated Response over the real socket.
  */
 
 function joinedMembership(
@@ -42,14 +37,6 @@ function joinedMembership(
 	};
 }
 
-function waitForOutcome(flow: MemberRequestFlow): Promise<unknown> {
-	return new Promise((resolve) => {
-		const result = flow.waitForRequestOutcome((update) => resolve(update));
-		assert.equal(result.ok, true);
-		if (result.ok) assert.equal(result.kind, "waiting");
-	});
-}
-
 function within<T>(ms: number, promise: Promise<T>, message: string): Promise<T> {
 	let handle: ReturnType<typeof setTimeout> | undefined;
 	const deadline = new Promise<never>((_, reject) => {
@@ -58,7 +45,7 @@ function within<T>(ms: number, promise: Promise<T>, message: string): Promise<T>
 	return Promise.race([promise, deadline]).finally(() => clearTimeout(handle));
 }
 
-test("source wait stays parked through real target agent_settled and resolves at post-idle grace expiry", async (t) => {
+test("source wait blocks through a real socket and resolves the same call with the full Response", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-request-outcome-"));
 	const targetPath = path.join(root, "target.sock");
 	const sourcePath = path.join(root, "source.sock");
@@ -100,11 +87,11 @@ test("source wait stays parked through real target agent_settled and resolves at
 		return { targetState, acceptedIntoContext };
 	})();
 
-	// --- Source runtime: real flow + real RPC client, fake clock ---
+	// --- Source runtime: real flow + real RPC client ---
 	const sourceMembership = joinedMembership({ name: "Tony", role: "lead", socketPath: sourcePath }, [
 		{ name: "Kelly", role: "qa", socketPath: targetPath },
 	]);
-	const firedDeadlines: string[] = [];
+	let requestSequence = 0;
 	const flow = new MemberRequestFlow({
 		transport: {
 			open: (endpoint, command, options) =>
@@ -116,64 +103,65 @@ test("source wait stays parked through real target agent_settled and resolves at
 			respond: async (channel, update) => channel.send(update),
 		},
 		resolveEndpoint: resolveMemberEndpoint,
-		now: () => 1_000,
-		createRequestId: () => "request-real-1",
-		setTimeout: (callback, delayMs) => {
-			const handle = setTimeout(() => {
-				firedDeadlines.push("fired");
-				callback();
-			}, delayMs);
-			return handle;
-		},
-		clearTimeout: (handle) => clearTimeout(handle),
+		createRequestId: () => `request-real-${++requestSequence}`,
 	});
+	const sourceState = createSocketState();
+	sourceState.memberRequestFlow = flow;
+	const tools: Array<{ name: string; execute: (...args: never[]) => Promise<unknown> }> = [];
+	registerWaitForRequestOutcomeTool({ registerTool: (tool) => tools.push(tool as never) } as never, sourceState);
+	const wait = tools.find((tool) => tool.name === "wait_for_request_outcome")!;
 
 	const accepted = await flow.sendMemberRequest({
 		membership: sourceMembership,
 		member: "Kelly",
 		message: "Deliver X",
-		timeoutSeconds: 1,
+		timeoutSeconds: 60,
 	});
 	assert.equal(accepted.requestId, "request-real-1");
 	assert.equal(server.acceptedIntoContext.length, 1, "target must accept the request into model context");
 
-	const pending = waitForOutcome(flow);
-	// Target reaches the real agent_settled path without any Response: the
-	// internal member.request.idle notification arms the source grace.
-	emitIdleSettled(server.targetState, { isIdle: () => true } as never);
-
-	// Idle is NONTERMINAL: wait until the source grace is armed (slot alive),
-	// then the real grace deadline resolves the wait.
-	await within(
-		2_000,
-		(async () => {
-			for (;;) {
-				if (flow.registry.getOutbound("request-real-1")?.idleArmed) return;
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
-		})(),
-		"idle never armed the source grace",
-	);
-	assert.equal(flow.registry.outboundCount(), 1, "idle must be nonterminal: slot preserved");
-	assert.equal(server.acceptedIntoContext.length, 1);
-
-	const update = await within(
-		5_000,
-		pending,
-		"source wait stayed blocked after post-idle grace expiry without Response",
-	);
-	assert.deepEqual(update, {
-		kind: "timeout",
-		requestId: "request-real-1",
-		member: { name: "Kelly", role: "qa" },
-		reason: "response-after-idle",
+	let settled = false;
+	const pending = wait.execute("id", {} as never, new AbortController().signal).then((result) => {
+		settled = true;
+		return result;
 	});
-	// The terminal came from the post-idle grace (fired), not from acceptance.
-	assert.deepEqual(firedDeadlines, ["fired"]);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(settled, false, "the same tool call remains blocked while the request is active");
+
+	const inbound = server.targetState.memberRequestFlow!.registry.selectInbound("request-real-1");
+	assert.equal(inbound.ok, true);
+	if (inbound.ok) {
+		await server.targetState.memberRequestFlow!.respondToMemberRequest({
+			message: "Evidence attached: 3 findings",
+			instructions: ["review finding 1", "confirm gate"],
+			requestId: "request-real-1",
+			member: { name: "Kelly", role: "qa" },
+		});
+	}
+	const result = (await within(2_000, pending, "source wait did not resolve after Response")) as {
+		details: { result: { kind: string; message?: string; instructions?: readonly string[] } };
+	};
+	assert.equal(result.details.result.kind, "response");
+	assert.equal(result.details.result.message, "Evidence attached: 3 findings");
+	assert.deepEqual(result.details.result.instructions, ["review finding 1", "confirm gate"]);
 	assert.equal(flow.registry.outboundCount(), 0);
-	// Terminal exactly once: a second wait has nothing pending.
-	assert.deepEqual(
-		flow.waitForRequestOutcome(() => undefined),
-		{ ok: false, code: "no-pending-requests" },
-	);
+	assert.equal(server.acceptedIntoContext.length, 1, "no custom resume delivery was injected");
+
+	// The same real socket path also covers a bounded terminal outcome: idle is
+	// nonterminal, then the post-idle grace resolves the blocked call directly.
+	const timeoutAccepted = await flow.sendMemberRequest({
+		membership: sourceMembership,
+		member: "Kelly",
+		message: "Bounded evidence request",
+		timeoutSeconds: 1,
+	});
+	assert.equal(timeoutAccepted.requestId, "request-real-2");
+	const timeoutPending = wait.execute("id", {} as never, new AbortController().signal);
+	await new Promise((resolve) => setImmediate(resolve));
+	emitIdleSettled(server.targetState, { isIdle: () => true } as never);
+	const timeoutResult = (await within(3_000, timeoutPending, "bounded wait did not resolve")) as {
+		details: { result: { kind: string; reason?: string } };
+	};
+	assert.equal(timeoutResult.details.result.kind, "timeout");
+	assert.equal(timeoutResult.details.result.reason, "response-after-idle");
 });
