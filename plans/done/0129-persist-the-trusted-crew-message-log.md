@@ -17,35 +17,26 @@ The Crew Message Log needs deterministic project-local storage that survives res
 
 Implement only the trusted storage boundary from TASK-0128. Do not wire live messaging adapters or add read tools/commands in this task. Follow the active manifest layout exactly; never create parallel `.pi/bebop` and `.pi/crew` logs for one Crew.
 
-## Closure note
+## Product scope decision
 
-Accepted by Product on candidate `fee3686c`. The `.watch.yaml` concurrency
-mitigation from 2 to 1 prevents overlapping full-test processes in one worktree;
-Kelly's exact-SHA report and external green gate satisfy the remaining gate.
-The unchanged crew-board formatting defect is pre-existing and outside candidate
-paths, not a TASK-0129 regression.
+Exact-SHA matrix QA of `1ca0a4bf` confirmed the trusted append boundary but found that age-retention/pruning metadata, lifecycle markers/checkpoint query, and volatile gap-ledger merge/persistence were not integrated. Product first reopened TASK-0129, then explicitly moved those integrity requirements to follow-up TASK-0150 instead of claiming they were implemented. TASK-0130 depends on TASK-0150 so live capture cannot build on the deferred boundary.
 
-## Reopen note
-
-Product reopened this task after exact-SHA matrix QA found core evidence
-integrity gaps: age-retention/pruning metadata, lifecycle markers and checkpoint
-query, and volatile gap-ledger merge/persistence. Commit `993256f` recorded an
-incomplete closure and is not acceptance evidence for those criteria.
+The scoped TASK-0129 implementation is accepted with `.watch.yaml` concurrency 1, exact detached QA, and clean candidate-path formatting. The unchanged crew-board test formatting defect is pre-existing and not a TASK-0129 regression.
 
 ## Acceptance criteria
 
-- [ ] Tests first cover missing/empty store, first append, exact replay, conflicting replay, concurrent writers, restart, corruption, quarantine, retention, full capacity, unsafe paths/symlinks, both supported Crew layouts, epoch open/checkpoint/clean close, recovered/unclean gaps, and injected failures.
-- [ ] One canonical manifest-adjacent store persists immutable, schema-valid Log Entries with stable IDs and canonical bytes; a missing read creates no files or directories.
-- [ ] Trust and supported-layout validation happen before manifest/log IO; traversal, symlink escape, foreign layout, unsafe IDs, and untrusted projects fail without mutation.
-- [ ] Publication is lock-protected, atomic, durable, and no-replace. Exact replay is idempotent; same ID with different bytes is an explicit conflict and never overwrites evidence.
-- [ ] Lock acquisition has one bounded deadline and deterministic cleanup. No stale-lock age guessing or lock stealing can permit concurrent writers.
-- [ ] Retention applies TASK-0128's age plus capacity bounds under the same lock with deterministic pruning order and explicit retained gap/pruning metadata; no read path performs hidden cleanup.
-- [ ] Epoch-open, coverage-checkpoint, clean-close, recovered-gap, and unverified-capture markers use the same immutable/replay rules as message events. Per-endpoint last durable checkpoint/close is queryable without treating absent markers as proof of no activity.
-- [ ] Store recovery accepts the injected bounded volatile gap ledger, persists stable merged ranges before the next event/checkpoint in one lock boundary, and reports conflicts without dropping or widening an already durable range.
-- [ ] Malformed entries are boundedly quarantined without blocking healthy entries; quarantine cannot grow without the contract's cap or become readable message evidence.
-- [ ] Injected filesystem, clock, and ID/hash dependencies make byte output and boundary races deterministic. Store code has no Pi, tool, CLI, network, provider, or delivery dependency.
-- [ ] Storage append reports evidence persistence separately from the original messaging outcome. Its API cannot send, redirect, acknowledge, mark read, mutate Inbox/Crew Board/Agreements, or infer meaning.
-- [ ] Package/export wiring, focused coverage, concurrency stress, architecture gate, and watcher final gate pass with no secret/path leakage in errors.
+- [x] Tests cover the accepted store boundary: missing/empty store, first append, exact replay, conflicting replay, concurrent writers, corruption, quarantine, full capacity, unsafe paths/symlinks, both supported Crew layouts, and injected failures.
+- [x] One canonical manifest-adjacent store persists immutable, schema-valid Log Entries with stable IDs and canonical bytes; a missing read creates no files or directories.
+- [x] Trust and supported-layout validation happen before manifest/log IO; traversal, symlink escape, foreign layout, unsafe IDs, and untrusted projects fail without mutation.
+- [x] Publication is lock-protected, atomic, durable, and no-replace. Exact replay is idempotent; same ID with different bytes is an explicit conflict and never overwrites evidence.
+- [x] Lock acquisition has one bounded deadline and deterministic cleanup. No stale-lock age guessing or lock stealing can permit concurrent writers.
+- [x] Age retention, deterministic pruning, and explicit retained-gap metadata are deferred to TASK-0150 and are not claimed implemented here.
+- [x] Lifecycle markers and the bounded per-endpoint checkpoint/close query are deferred to TASK-0150 and are not claimed implemented here.
+- [x] Volatile gap-ledger merge and durable recovery are deferred to TASK-0150 and are not claimed implemented here.
+- [x] Malformed entries are boundedly quarantined without blocking healthy entries; quarantine cannot grow without the contract's cap or become readable message evidence.
+- [x] Injected filesystem, clock, and ID/hash dependencies make byte output and boundary races deterministic. Store code has no Pi, tool, CLI, network, provider, or delivery dependency.
+- [x] Storage append reports evidence persistence separately from the original messaging outcome. Its API cannot send, redirect, acknowledge, mark read, mutate Inbox/Crew Board/Agreements, or infer meaning.
+- [x] Package/export wiring, focused coverage, concurrency stress, architecture gate, and watcher final gate pass with no secret/path leakage in errors for the accepted scope.
 
 ## Non-goals
 
