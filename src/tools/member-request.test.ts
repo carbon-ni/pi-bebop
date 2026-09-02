@@ -13,17 +13,6 @@ import {
 
 type Tool = { name: string; description: string; execute: (...args: any[]) => Promise<any> };
 
-test("TASK-0151: Pi skips post-tool continuation only when every result terminates", () => {
-	const continuesAfterBatch = (results: Array<{ terminate?: boolean }>): boolean =>
-		!results.every((result) => result.terminate === true);
-	assert.equal(continuesAfterBatch([{ terminate: true }]), false, "a sole successful wait ends the run");
-	assert.equal(
-		continuesAfterBatch([{ terminate: true }, {}]),
-		true,
-		"a terminating wait cannot end a batch with a nonterminating sibling",
-	);
-});
-
 function setup() {
 	const tools = new Map<string, Tool>();
 	const pi = {

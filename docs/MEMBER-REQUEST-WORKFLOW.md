@@ -75,7 +75,7 @@ A QA request that needs a verdict is a Member request, not a Follow-up:
 # Requester (e.g. a developer):
 send_member_request({ member: "Kelly", message: "QA the TASK-0076 changes and report a verdict or blocker" })
 ... no immediate coordination action remains ...
-wait_for_request_outcome()   # requester-side, returns the QA verdict or offline/timeout
+wait_for_request_outcome()   # requester-side; ends this run; later terminal turn resumes
 
 # Responder (Kelly): the inbound message is visibly marked [member request]
 # with the opaque Request ID; she does the QA work, then:
@@ -105,9 +105,12 @@ route is never public input.
 wait_for_request_outcome()
 ```
 
-No arguments. It returns the oldest terminal outbound Request outcome. It does
-not poll and does not return Presence, Member Status, Broadcast, Inbox,
-or unrelated Crew activity. It is requester-side only: call it after you sent
+No arguments. It returns the oldest terminal outbound Request outcome. It
+ends the current run when a wait is successfully parked; call it alone because
+Pi only terminates a batch when every result terminates. A later terminal
+Response, offline, or bounded timeout starts a new outcome turn. It does not
+poll and does not return Presence, Member Status, Broadcast, Inbox, or
+unrelated Crew activity. It is requester-side only: call it after you sent
 `send_member_request`, never to handle an inbound Member request or an ordinary
 message. When no pending outbound Member request exists, it returns a normal
 `all-settled` success with `pending_count: 0` and does not end the run. Waiting
@@ -139,21 +142,24 @@ Response after the grace window is rejected as already-terminal.
 ### Offline
 
 The request channel disconnected before a Response. Correlated requests are
-transient. For delivery that must survive absence or restart, create a durable
-Inbox message instead.
+transient. Consider reassigning or using `send_to_inbox` for durable delivery.
+This does not prove the work failed or stopped.
 
 ### Timeout after idle
 
 The post-idle Response grace expired without a Response (default 120s). The
 responder was idle-awaiting-response and the one-time reminder had already been
-queued. Timeout never retracts accepted work and does not prove work stopped,
-failed, or completed.
+queued. If an answer is still required, send a new `send_member_request`.
+Timeout never retracts accepted work and does not prove work stopped, failed,
+or completed.
 
 ### Timeout max-wait
 
 The absolute accepted-request safety deadline (`max_wait_seconds`, default
-1800s) expired before any Response; it may truncate a late grace. Timeout never
-retracts accepted work and does not prove work stopped, failed, or completed.
+1800s) expired before any Response; it may truncate a late grace. Consider
+checking Member Status, reassigning, using `send_to_inbox`, or using
+`redirect_member` when urgent. Timeout never retracts accepted work and does
+not prove work stopped, failed, or completed.
 
 ## Parallel loop
 
@@ -181,3 +187,4 @@ same instant — never to a Response/idle boundary.
 - Member Idle Wait remains a mechanical timing primitive and never proves a
   Response, completion, progress, correctness, or availability.
 - Bebop never infers completion, quality, ownership, or integration.
+- `/auto` scheduling is outside Bebop's scope; Bebop does not pause or resume it.
