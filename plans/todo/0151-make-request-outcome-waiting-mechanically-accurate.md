@@ -29,7 +29,7 @@ Sending and waiting remain separate:
 ```text
 send_member_request()       # return after accepted delivery
 continue ready work         # optional parallel coordination
-wait_for_request_outcome()  # explicitly end this run and wait once
+wait_for_request_outcome()  # block this call until the terminal outcome
 ```
 
 `wait_for_request_outcome` blocks the same tool call until the oldest terminal
@@ -63,7 +63,7 @@ iteration policy remains outside Bebop.
 
 ### Terminal resume
 
-Only these terminal outcomes resume parked Requester:
+Only these terminal outcomes resolve the blocked Requester call:
 
 - correlated `Response`, preserving full message and ordered instructions;
 - `offline`;
