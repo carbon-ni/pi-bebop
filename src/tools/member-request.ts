@@ -39,10 +39,15 @@ const responseParameters = Type.Object(
 	{ additionalProperties: false },
 );
 const emptyParameters = Type.Object({}, { additionalProperties: false });
-type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean; details: unknown };
+type ToolResult = {
+	content: Array<{ type: "text"; text: string }>;
+	isError?: boolean;
+	details: unknown;
+	terminate?: boolean;
+};
 
-function success(text: string, details: unknown): ToolResult {
-	return { content: [{ type: "text", text }], details };
+function success(text: string, details: unknown, terminate = false): ToolResult {
+	return { content: [{ type: "text", text }], details, ...(terminate ? { terminate: true } : {}) };
 }
 function failure(code: string, message: string): ToolResult {
 	return { content: [{ type: "text", text: `${code}: ${message}` }], isError: true, details: { error: code } };
@@ -141,18 +146,15 @@ export function registerWaitForRequestOutcomeTool(
 		name: "wait_for_request_outcome",
 		label: "Wait for Request Outcome",
 		description:
-			"Requester-side: yield the run and resume with the oldest terminal outbound Request outcome of a Member request you successfully sent: Response, offline, timeout(response-after-idle), or timeout(max-wait). The tool returns a deterministic 'yielded, waiting' result immediately; the terminal outcome arrives in a later turn as a crew-wait-resume message, never while this run stays busy. Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. It does not poll, monitor, or return unrelated Crew activity, and never proves completion, correctness, progress, or availability.",
+			"Requester-side: explicitly end this run and resume in a later turn with the oldest terminal outbound Request outcome of a Member request you successfully sent: Response, offline, timeout(response-after-idle), or timeout(max-wait). Call this wait alone; under Pi batch semantics every sibling result must terminate. A successful park returns terminate:true immediately; the terminal outcome arrives later as a crew-wait-resume message, never while this run stays busy. Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. It does not poll, monitor, or return unrelated Crew activity, and never proves completion, correctness, progress, or availability.",
 		parameters: emptyParameters,
 		async execute(_id, _params, signal) {
-			const flow = flowFor(state);
 			try {
+				const flow = flowFor(state);
 				if (!flow.hasPendingRequestOutcome())
-					return failure(
-						"no-pending-member-requests",
-						"No pending outbound Member request from you. If you received a Member request, respond with respond_to_member_request; otherwise send a new send_member_request or continue ready work.",
-					);
+					return success("All outbound Member Request outcomes are settled.", { pending_count: 0 });
 
-				// Yield: park the one-shot wait and return immediately; the pump
+				// Park the one-shot wait and end the current run; the pump
 				// (shared, survives the run) forwards terminal outcomes to the
 				// runtime, which resumes the run later via crew-wait-resume.
 				const parked = yieldRuntime.park({
@@ -209,11 +211,12 @@ export function registerWaitForRequestOutcomeTool(
 				pump();
 
 				return success(
-					"Request outcome wait armed; run yielded. You will resume in a later turn with the terminal outcome.",
+					"Request outcome wait armed; this run ended. You will resume in a later turn with the terminal outcome.",
 					{
 						yielded: true,
 						wait: { kind: "request-outcome" },
 					},
+					true,
 				);
 			} catch {
 				return failure("wait-failed", "Could not wait for request outcome");

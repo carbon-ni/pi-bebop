@@ -3,7 +3,7 @@ import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createSocketState } from "../pi/control-runtime.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
-import { YieldingWaitRegistry } from "../domain/index.ts";
+import { MAX_YIELDING_WAITS, YieldingWaitRegistry } from "../domain/index.ts";
 import { YieldingWaitRuntime } from "../pi/wait-resume.ts";
 import {
 	registerSendMemberRequestTool,
@@ -12,6 +12,18 @@ import {
 } from "./member-request.ts";
 
 type Tool = { name: string; description: string; execute: (...args: any[]) => Promise<any> };
+
+test("TASK-0151: Pi skips post-tool continuation only when every result terminates", () => {
+	const continuesAfterBatch = (results: Array<{ terminate?: boolean }>): boolean =>
+		!results.every((result) => result.terminate === true);
+	assert.equal(continuesAfterBatch([{ terminate: true }]), false, "a sole successful wait ends the run");
+	assert.equal(
+		continuesAfterBatch([{ terminate: true }, {}]),
+		true,
+		"a terminating wait cannot end a batch with a nonterminating sibling",
+	);
+});
+
 function setup() {
 	const tools = new Map<string, Tool>();
 	const pi = {
@@ -29,12 +41,13 @@ function setup() {
 		},
 	});
 	const delivered: Array<{ content: string; deliverAs: string }> = [];
+	let waitSequence = 0;
 	const yieldRuntime = new YieldingWaitRuntime({
 		registry: new YieldingWaitRegistry(),
 		deliver: (message) => delivered.push({ content: message.content, deliverAs: message.deliverAs }),
 		isRunIdle: () => true,
 		now: () => 1_000,
-		createId: () => `wait-${delivered.length + 1}`,
+		createId: () => `wait-${waitSequence++}`,
 	});
 	return { tools, state, pi, yieldRuntime, delivered };
 }
@@ -85,13 +98,14 @@ test("TASK-0076: request tools make Requester/Responder roles structurally expli
 	assert.match(wait, /never handles inbound/i);
 });
 
-test("TASK-0076: empty wait fails with no-pending-member-requests and self-correcting recovery guidance", async () => {
+test("TASK-0151: empty wait succeeds as all-settled without terminating the run", async () => {
 	const { tools, state, pi, yieldRuntime } = setup();
 	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.isError, true);
-	assert.equal(result.details.error, "no-pending-member-requests");
-	assert.match(String(result.content[0]?.text ?? ""), /respond_to_member_request|send a new|continue/);
+	assert.equal(result.isError, undefined);
+	assert.equal(result.terminate, undefined, "all-settled success must not terminate the run");
+	assert.deepEqual(result.details, { pending_count: 0 });
+	assert.match(String(result.content[0]?.text ?? ""), /all.*settled/i);
 });
 
 test("TASK-0077: abort cancels the parked wait and never resumes; request state survives", async () => {
@@ -108,16 +122,46 @@ test("TASK-0077: abort cancels the parked wait and never resumes; request state 
 	const result = await pending;
 	assert.equal(result.isError, undefined, "yielded result, not an abort error");
 	assert.equal(result.details.yielded, true);
+	assert.equal(result.terminate, true, "a parked wait must terminate the current run");
 	assert.equal(state.memberRequestFlow!.registry.outboundCount(), 1, "request state preserved");
 	assert.equal(delivered.length, 0, "aborted wait must never resume");
 });
 
-test("empty wait fails immediately and never starts a polling loop", async () => {
+test("TASK-0151: all-settled wait does not create parked wait state", async () => {
 	const { tools, state, pi, yieldRuntime } = setup();
 	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(result.isError, undefined);
+	assert.equal(result.details.pending_count, 0);
+	assert.equal(yieldRuntime.queuedCount(), 0);
+	assert.equal(yieldRuntime.startedCount(), 0);
+});
+
+test("TASK-0151: lifecycle failure is actionable and nonterminating", async () => {
+	const { tools, state, pi, yieldRuntime } = setup();
+	state.memberRequestFlow = undefined;
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
+	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, true);
-	assert.equal(result.details.error, "no-pending-member-requests");
+	assert.equal(result.details.error, "wait-failed");
+	assert.equal(result.terminate, undefined);
+});
+
+test("TASK-0151: capacity rejection is actionable and nonterminating", async () => {
+	const { tools, state, pi, yieldRuntime } = setup();
+	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
+	state.memberRequestFlow!.registry.registerOutbound({
+		requestId: "active",
+		member: { name: "qa", role: "reviewer" },
+		now: 1_000,
+	});
+	for (let index = 0; index < MAX_YIELDING_WAITS; index += 1) {
+		assert.equal(yieldRuntime.park({ kind: "member-idle", target: `member-${index}`, sessionId: "s1" }).ok, true);
+	}
+	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "capacity");
+	assert.equal(result.terminate, undefined);
 });
 
 test("TASK-0080-fix: the wait tool forwards the FULL Response (message + ordered instructions) to the resume", async () => {
@@ -128,6 +172,7 @@ test("TASK-0080-fix: the wait tool forwards the FULL Response (message + ordered
 	registry.acceptOutbound("active");
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.details.yielded, true, "tool yields immediately");
+	assert.equal(result.terminate, true, "a successful sole wait terminates the current run");
 	assert.equal(delivered.length, 0);
 	// The responder's correlated Response arrives on the request channel.
 	registry.resolveResponse({
@@ -155,6 +200,7 @@ test("TASK-0080: buffered post-idle grace timeout resumes once via the runtime, 
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, undefined);
 	assert.equal(result.details.yielded, true, "tool yields immediately");
+	assert.equal(result.terminate, true, "a buffered terminal outcome still ends this run");
 	assert.equal(delivered.length, 1, "buffered outcome resumes exactly once");
 	assert.match(delivered[0]!.content, /timeout:response-after-idle/);
 	assert.equal(delivered[0]!.deliverAs, "steer");

@@ -93,6 +93,26 @@ test("TASK-0080-fix: a correlated Response carries its FULL message + ordered in
 	assert.equal(delivered.length, 1, "payload-less response must not consume the wait");
 });
 
+test("TASK-0151: terminal timeout and offline resumes include actionable recovery choices", () => {
+	const { runtime, delivered } = setup(true);
+	const expected = [
+		["offline", "reassigning", "send_to_inbox"],
+		["timeout:response-after-idle", "settled without a Response", "send a new send_member_request"],
+		["timeout:max-wait", "safety deadline", "Member Status", "send_to_inbox", "redirect_member"],
+	] as const;
+	for (const [index, [outcome, ...guidance]] of expected.entries()) {
+		assert.equal(
+			runtime.park({ kind: "request-outcome", target: `request-${index}`, deadlineAt: deadline }).ok,
+			true,
+		);
+		assert.equal(
+			runtime.resolve({ kind: "request-outcome", target: `request-${index}`, outcome, observedAt: 2_000 }),
+			true,
+		);
+		for (const phrase of guidance) assert.match(delivered[index]!.content, new RegExp(phrase, "i"));
+	}
+});
+
 test("TASK-0077: cancel removes the parked wait and terminal never resumes", () => {
 	const { registry, runtime, delivered } = setup(true);
 	assert.equal(runtime.park({ kind: "member-idle", target: "Kelly", deadlineAt: deadline }).ok, true);

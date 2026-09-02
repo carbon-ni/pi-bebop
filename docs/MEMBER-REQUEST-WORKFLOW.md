@@ -109,10 +109,9 @@ No arguments. It returns the oldest terminal outbound Request outcome. It does
 not poll and does not return Presence, Member Status, Broadcast, Inbox,
 or unrelated Crew activity. It is requester-side only: call it after you sent
 `send_member_request`, never to handle an inbound Member request or an ordinary
-message. When no pending outbound Member request exists, it fails immediately
-with `no-pending-member-requests` and recovery guidance (respond to any inbound
-request, send a new request, or continue ready work). Waiting is only
-appropriate when no immediate coordination action remains.
+message. When no pending outbound Member request exists, it returns a normal
+`all-settled` success with `pending_count: 0` and does not end the run. Waiting
+is only appropriate when no immediate coordination action remains.
 
 ## Request outcomes
 

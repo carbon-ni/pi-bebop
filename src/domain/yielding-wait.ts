@@ -90,7 +90,7 @@ export type YieldingWaitOperation<T> =
 /**
  * TASK-0077: pure one-shot pending-wait registry for yielding coordination
  * waits. A wait tool parks a pending wait here and returns immediately
- * (yielding the current Pi run); the runtime later resolves the oldest
+ * (ending the current Pi run); the runtime later resolves the oldest
  * matching pending wait exactly once per terminal lifecycle delivery and emits
  * one resume message. Callers own sockets, timers, Pi message delivery, and
  * cancellation on abort.
@@ -103,9 +103,8 @@ export class YieldingWaitRegistry {
 		if (input.id.trim() !== input.id || input.id.length === 0) return { ok: false, code: "invalid-wait" };
 		// TASK-0080: a semantic duplicate (same session + kind + target/request)
 		// is idempotent: it returns the EXISTING wait id and existing parked
-		// state, opening no second entry (and, upstream, no socket/timer and no
-		// shared event). Cancel-then-re-park creates a NEW wait id because the
-		// entry is gone by then.
+		// state, opening no second entry (and, upstream, no socket/timer).
+		// Cancel-then-re-park creates a NEW wait id because the entry is gone by then.
 		const existing = this.pending.find(
 			(entry) =>
 				entry.sessionId === input.sessionId && entry.kind === input.kind && entry.target === input.target,

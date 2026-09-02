@@ -7,17 +7,14 @@ import {
 
 export const WAIT_RESUME_MESSAGE_TYPE = "crew-wait-resume";
 
-/** TASK-0080: pinned shared event names (Bebop publishes, fire-and-forget). */
-export const WAIT_PARKED = "pi-bebop:wait-parked";
-export const WAIT_RESUME_QUEUED = "pi-bebop:wait-resume-queued";
-export const WAIT_RESUME_STARTED = "pi-bebop:wait-resume-started";
-export const WAIT_RESUME_SETTLED = "pi-bebop:wait-resume-settled";
-export const WAIT_CANCELLED = "pi-bebop:wait-cancelled";
-
-export interface WaitEvent {
-	readonly type: string;
-	readonly waitId: string;
-	readonly kind: YieldingWaitKind;
+function recoveryGuidance(kind: YieldingWaitKind, outcome: string): string {
+	if (kind !== "request-outcome") return "";
+	if (outcome === "offline") return "\nRecovery: Consider reassigning or using send_to_inbox for durable delivery.";
+	if (outcome === "timeout:response-after-idle")
+		return "\nRecovery: The Member settled without a Response. If an answer is still required, send a new send_member_request.";
+	if (outcome === "timeout:max-wait")
+		return "\nRecovery: No Response arrived before the safety deadline. Consider checking Member Status, reassigning, using send_to_inbox, or using redirect_member when urgent.";
+	return "";
 }
 
 export interface WaitResumeDelivery {
@@ -31,8 +28,6 @@ export interface YieldingWaitRuntimeDependencies {
 	readonly registry: YieldingWaitRegistry;
 	readonly deliver: (message: WaitResumeDelivery) => void;
 	readonly isRunIdle: () => boolean;
-	/** TASK-0080: fire-and-forget shared event publisher (pi.appendEntry). */
-	readonly publish?: (event: WaitEvent) => void;
 	readonly now?: () => number;
 	readonly createId?: () => string;
 }
@@ -47,20 +42,19 @@ export interface ParkWaitInput {
 
 /**
  * TASK-0077/0080: extension-side yield runtime. A wait tool parks a pending
- * wait and returns immediately (yielding the current Pi run); the runtime later
+ * wait and returns immediately (ending the current Pi run); the runtime later
  * resolves the oldest matching pending wait exactly once per terminal lifecycle
  * delivery and emits exactly one resume message. Busy-run arrivals are queued
  * one-shot (followUp) for the next natural turn start - never lost, never
  * doubled. Deadlines stay owned by their existing transports/timers; this
  * runtime only turns terminal lifecycle events into one-shot resume delivery
- * and publishes the TASK-0080 five-event machine
- * (parked -> resume-queued -> resume-started -> resume-settled | cancelled).
+ * and tracks queued/started lifecycle state internally for cancellation and
+ * exactly-once delivery.
  */
 export class YieldingWaitRuntime {
 	private readonly registry: YieldingWaitRegistry;
 	private readonly deliver: (message: WaitResumeDelivery) => void;
 	private readonly isRunIdle: () => boolean;
-	private readonly publish: (event: WaitEvent) => void;
 	private readonly now: () => number;
 	private readonly createId: () => string;
 	/** waitIds whose resume message is queued but has not entered context. */
@@ -73,7 +67,6 @@ export class YieldingWaitRuntime {
 		this.registry = dependencies.registry;
 		this.deliver = dependencies.deliver;
 		this.isRunIdle = dependencies.isRunIdle;
-		this.publish = dependencies.publish ?? (() => undefined);
 		this.now = dependencies.now ?? Date.now;
 		this.createId = dependencies.createId ?? (() => `wait-${Date.now()}-${this.sequence++}`);
 	}
@@ -88,18 +81,16 @@ export class YieldingWaitRuntime {
 			sessionId: input.sessionId ?? "",
 		});
 		if (registered.ok === false) return { ok: false, code: registered.code };
-		// TASK-0080: a semantic duplicate returns the EXISTING wait and publishes
-		// no new shared event; only a first park emits wait-parked.
+		// A semantic duplicate returns the EXISTING wait and creates no second
+		// lifecycle state.
 		if (registered.value.id !== id) return { ok: true, id: registered.value.id };
-		this.publish({ type: WAIT_PARKED, waitId: id, kind: input.kind });
 		return { ok: true, id };
 	}
 
 	/**
 	 * Resolves the oldest matching parked wait and queues one resume message.
-	 * Publishes wait-resume-queued and arms the queued -> started -> settled
-	 * correlation (details.waitId). Malformed/unexpected terminal payloads are
-	 * rejected before any consume: the wait stays parked and nothing resumes.
+	 * Malformed/unexpected terminal payloads are rejected before any consume:
+	 * the wait stays parked and nothing resumes.
 	 */
 	resolve(terminal: YieldingWaitTerminal): boolean {
 		const validated = validateYieldingWaitTerminal(terminal);
@@ -117,11 +108,11 @@ export class YieldingWaitRuntime {
 					.map((item, index) => `${index + 1}. ${item}`)
 					.join("\n")}`
 			: "";
+		const recovery = recoveryGuidance(validated.value.kind, validated.value.outcome);
 		this.queued.set(waitId, kind);
-		this.publish({ type: WAIT_RESUME_QUEUED, waitId, kind });
 		this.deliver({
 			customType: WAIT_RESUME_MESSAGE_TYPE,
-			content: `[wait resume] ${validated.value.kind} ${validated.value.target}: ${validated.value.outcome}${responseSuffix}`,
+			content: `[wait resume] ${validated.value.kind} ${validated.value.target}: ${validated.value.outcome}${responseSuffix}${recovery}`,
 			details: {
 				waitId,
 				kind: validated.value.kind,
@@ -136,27 +127,25 @@ export class YieldingWaitRuntime {
 	}
 
 	/**
-	 * TASK-0080: a run started while resumes were queued -> those resumes entered
-	 * model context (the OUTCOME TURN). Emits wait-resume-started once per id.
+	 * A run started while resumes were queued -> those resumes entered model
+	 * context (the OUTCOME TURN).
 	 */
 	markStarted(): void {
 		if (this.queued.size === 0) return;
 		for (const [id, kind] of [...this.queued.entries()]) {
 			this.queued.delete(id);
 			this.started.set(id, kind);
-			this.publish({ type: WAIT_RESUME_STARTED, waitId: id, kind });
 		}
 	}
 
 	/**
-	 * TASK-0080: the outcome turn settled -> emit wait-resume-settled once per
-	 * started id; unrelated turns (no started ids) publish nothing.
+	 * The outcome turn settled; clear its internal lifecycle state. Unrelated
+	 * turns (no started ids) are a no-op.
 	 */
 	markSettled(): void {
 		if (this.started.size === 0) return;
-		for (const [id, kind] of [...this.started.entries()]) {
+		for (const id of this.started.keys()) {
 			this.started.delete(id);
-			this.publish({ type: WAIT_RESUME_SETTLED, waitId: id, kind });
 		}
 	}
 
@@ -164,20 +153,17 @@ export class YieldingWaitRuntime {
 		// TASK-0080: cancel is valid while the wait is parked (registry entry) or
 		// resume-queued (runtime queue); it is IMPOSSIBLE from resume-started
 		// (the request already terminated - its settle path owns that id).
-		const entry = this.registry.peek(id);
 		const queuedKind = this.queued.get(id);
 		const startedKind = this.started.get(id);
 		if (startedKind !== undefined) return false;
 		const registryCancelled = this.registry.cancel(id);
 		if (!registryCancelled && queuedKind === undefined) return false;
-		const kind = entry?.kind ?? queuedKind ?? "request-outcome";
 		this.queued.delete(id);
 		this.started.delete(id);
-		this.publish({ type: WAIT_CANCELLED, waitId: id, kind });
 		return true;
 	}
 
-	/** TASK-0080: shutdown cancels every parked wait (wait-cancelled per id). */
+	/** Shutdown cancels every parked wait. */
 	cancelAll(): string[] {
 		const ids = this.registry.allIds();
 		for (const id of ids) this.cancel(id);

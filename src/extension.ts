@@ -175,9 +175,6 @@ export default function (pi: ExtensionAPI) {
 			else pi.sendMessage(customMessage, { triggerTurn: true, deliverAs: message.deliverAs });
 		},
 		isRunIdle: () => state.context?.isIdle?.() === true,
-		// TASK-0080: shared events are fire-and-forget session entries with the
-		// exact { waitId, kind } payload; zero listeners is a no-op.
-		publish: (event) => pi.appendEntry(event.type, { waitId: event.waitId, kind: event.kind }),
 	});
 	registerSendMemberRequestTool(pi, state);
 	registerRespondToMemberRequestTool(pi, state);
@@ -415,9 +412,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		inboxBridge.invalidate();
 		const context = state.context;
-		// TASK-0080: shutdown cancels every parked wait (wait-cancelled per id,
-		// no resumes queued) so no stale wait survives the session; auto clears
-		// its suspension via the cancelled events and no work is resumed.
+		// Shutdown cancels every parked wait so no stale wait survives the session.
 		yieldRuntime.cancelAll();
 		await releaseMembershipBeforeCleanup({
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
@@ -449,13 +444,11 @@ export default function (pi: ExtensionAPI) {
 	// and queued continuation work must be exhausted before `became-idle`.
 	pi.on("agent_settled", (_event, ctx) => {
 		emitIdleSettled(state, ctx);
-		// TASK-0080: the outcome turn of any started resume settled -> emit
-		// wait-resume-settled once per waitId; unrelated settles publish nothing.
+		// Clear internal lifecycle state for any started outcome resumes.
 		yieldRuntime.markSettled();
 	});
 
-	// TASK-0080: a run started while resumes were queued -> those resumes
-	// entered model context (the OUTCOME TURN); emit wait-resume-started per id.
+	// Track queued outcome resumes entering model context for cancellation safety.
 	pi.on("agent_start", () => {
 		yieldRuntime.markStarted();
 	});

@@ -209,7 +209,7 @@ test("TASK-0081: mutual member-idle waits BLOCK and each returns became-idle exa
 	assert.equal(resultB.details.result.disposition, "became-idle");
 });
 
-test("TASK-0080: request-outcome wait yields, stays parked through the internal idle, and resolves only at post-idle grace expiry", async (t) => {
+test("TASK-0151: request-outcome wait ends the run, stays parked through internal idle, and resolves only at post-idle grace expiry", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-yielding-request-"));
 	const targetPath = path.join(root, "target.sock");
 	const sourcePath = path.join(root, "source.sock");
@@ -294,7 +294,7 @@ test("TASK-0080: request-outcome wait yields, stays parked through the internal 
 	);
 	const wait = tools.find((tool) => tool.name === "wait_for_request_outcome")!;
 
-	// Real send + accept, then the wait tool yields immediately.
+	// Real send + accept, then the wait tool ends the current run immediately.
 	const accepted = await flow.sendMemberRequest({
 		membership: sourceState.membershipRuntime.getMembership(),
 		member: "Kelly",
@@ -304,8 +304,10 @@ test("TASK-0080: request-outcome wait yields, stays parked through the internal 
 	assert.equal(accepted.requestId, "request-real-1");
 	assert.equal(acceptedIntoContext.length, 1, "target must accept the request into model context");
 
-	const result = await within(2_000, wait.execute("id", {} as never), "wait blocked instead of yielding");
+	// The wait ends the current run immediately.
+	const result = await within(2_000, wait.execute("id", {} as never), "wait blocked instead of returning");
 	assert.equal((result as { details: { yielded: boolean } }).details.yielded, true);
+	assert.equal((result as { terminate?: boolean }).terminate, true);
 
 	// Target reaches the real agent_settled path without any Response. The
 	// internal member.request.idle notification arms the source grace; idle is
@@ -331,7 +333,7 @@ test("TASK-0080: request-outcome wait yields, stays parked through the internal 
 	assert.equal(flow.registry.outboundCount(), 0);
 });
 
-test("TASK-0081: request-outcome wait resumes with the FULL Response (message + instructions) in the crew-wait-resume", async (t) => {
+test("TASK-0151: request-outcome wait ends the run and resumes with the FULL Response", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-response-resume-"));
 	const targetPath = path.join(root, "target.sock");
 	const sourcePath = path.join(root, "source.sock");
@@ -412,7 +414,7 @@ test("TASK-0081: request-outcome wait resumes with the FULL Response (message + 
 	);
 	const wait = tools.find((tool) => tool.name === "wait_for_request_outcome")!;
 
-	// Real send + accept, then the wait tool yields immediately.
+	// Real send + accept, then the wait tool ends the current run immediately.
 	const accepted = await flow.sendMemberRequest({
 		membership: sourceState.membershipRuntime.getMembership(),
 		member: "Kelly",
@@ -421,8 +423,10 @@ test("TASK-0081: request-outcome wait resumes with the FULL Response (message + 
 	});
 	assert.equal(accepted.requestId, "request-real-2");
 	assert.equal(typeof accepted.member?.name, "string");
+	// The wait ends the current run immediately.
 	const yieldResult = await wait.execute("id", {} as never);
 	assert.equal((yieldResult as { details: { yielded: boolean } }).details.yielded, true);
+	assert.equal((yieldResult as { terminate?: boolean }).terminate, true);
 
 	// Kelly responds with message + instructions through the real channel.
 	const inbound = targetState.memberRequestFlow!.registry.selectInbound("request-real-2");
