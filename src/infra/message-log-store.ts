@@ -1,8 +1,28 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { canonicalMessageLogEntryBytes, validateMessageLogEntry, type MessageLogEntry } from "../domain/index.ts";
+import {
+	canonicalMessageLogEntryBytes,
+	canonicalMessageLogMarkerBytes,
+	validateMessageLogEntry,
+	validateMessageLogMarker,
+	type MessageLogEntry,
+	type MessageLogMarker,
+} from "../domain/index.ts";
 import { isTrustedCrewManifestPath } from "./crew-manifest-store.ts";
+import {
+	expireEntries,
+	quarantineArtifact,
+	RETENTION_AGE_MS,
+	readRetentionHighWater,
+	persistRetentionHighWater,
+	syncRetentionHighWater,
+	type HealthyEntry,
+} from "./message-log-retention.ts";
+import { appendMarkerOperation, readLastCheckpointClose } from "./message-log-marker-store.ts";
+import { readMessageLogEntry, validateStoredEntry } from "./message-log-entry-reader.ts";
+import { appendEntryLocked } from "./message-log-entry-store.ts";
+
 export type MessageLogStoreErrorCode =
 	| "untrusted-project"
 	| "untrusted-path"
@@ -20,6 +40,7 @@ export class MessageLogStoreError extends Error {
 		this.name = "MessageLogStoreError";
 	}
 }
+
 export interface MessageLogStoreOptions {
 	readonly manifestPath: string;
 	readonly projectRoot: string;
@@ -29,6 +50,7 @@ export interface MessageLogStoreOptions {
 	readonly now?: () => number;
 	readonly sleep?: (milliseconds: number) => Promise<void>;
 }
+
 type MessageLogStoreFs = {
 	mkdir: (directory: string, options: { recursive: true }) => Promise<void>;
 	readFile: (filePath: string) => Promise<Buffer>;
@@ -48,6 +70,7 @@ type MessageLogStoreFs = {
 	realpath: (filePath: string) => Promise<string>;
 	sync: (filePath: string) => Promise<void>;
 };
+
 const defaultFs: MessageLogStoreFs = {
 	mkdir: async (directory) => {
 		await fs.mkdir(directory, { recursive: true });
@@ -73,13 +96,16 @@ const defaultFs: MessageLogStoreFs = {
 		}
 	},
 };
+
 function isCode(error: unknown, code: string): boolean {
 	return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
+
 function inside(parent: string, child: string): boolean {
 	const relative = path.relative(parent, child);
 	return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
+
 function makeDependencies(fsOverrides?: Partial<MessageLogStoreFs>): MessageLogStoreFs {
 	return {
 		mkdir: fsOverrides?.mkdir ?? defaultFs.mkdir,
@@ -95,6 +121,7 @@ function makeDependencies(fsOverrides?: Partial<MessageLogStoreFs>): MessageLogS
 		sync: fsOverrides?.sync ?? defaultFs.sync,
 	};
 }
+
 async function checkAccess(
 	options: Pick<MessageLogStoreOptions, "manifestPath" | "projectRoot" | "isProjectTrusted">,
 	io: MessageLogStoreFs,
@@ -122,26 +149,29 @@ async function checkAccess(
 		trustedLogDir,
 	};
 }
+
 function asLockError(error: unknown): never {
 	if (error instanceof MessageLogStoreError) throw error;
 	throw new MessageLogStoreError("write-failed", "message log lock could not be acquired");
 }
+
 const MAX_EVENT_BYTES = 64 * 1024;
-/** Maximum aggregate canonical bytes retained by the trusted log. */
-export const MAX_MESSAGE_LOG_BYTES = 64 * 1024 * 1024;
-const MAX_SCAN_RECORDS = 50_000;
 const MAX_QUARANTINE_FILES = 256;
 const MAX_QUARANTINE_BYTES = 16 * 1024 * 1024;
 let lockSequence = 0;
+
 function defaultHash(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
 }
+
 function createLockOwner(now: () => number, hash: (value: string) => string): string {
 	return hash(`${process.pid}|${now()}|${lockSequence++}`);
 }
+
 function ownershipMismatch(path: string): never {
 	throw new MessageLogStoreError("lock-conflict", "message log lock ownership changed");
 }
+
 async function verifyLockOwner(
 	pathToLock: string,
 	owner: string,
@@ -160,6 +190,7 @@ async function verifyLockOwner(
 		await handle.close().catch(() => undefined);
 	}
 }
+
 async function acquireLock(
 	lockPath: string,
 	io: MessageLogStoreFs,
@@ -195,6 +226,7 @@ async function acquireLock(
 		}
 	}
 }
+
 function validateLogBoundary(logDir: string, trustedLogDir: string, io: MessageLogStoreFs): Promise<string> {
 	return io
 		.realpath(logDir)
@@ -209,68 +241,19 @@ function validateLogBoundary(logDir: string, trustedLogDir: string, io: MessageL
 			throw new MessageLogStoreError("write-failed", "message log path could not be resolved");
 		});
 }
+
 function asWriteError(error: unknown): never {
 	if (error instanceof MessageLogStoreError) throw error;
 	if (error instanceof Error) throw new MessageLogStoreError("write-failed", error.message);
 	throw new MessageLogStoreError("write-failed", "message log publication failed");
 }
-function validateStoredEntry(id: string, bytes: Uint8Array): void {
-	if (bytes.byteLength > MAX_EVENT_BYTES)
-		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
-	let parsed: MessageLogEntry;
-	try {
-		parsed = JSON.parse(Buffer.from(bytes).toString("utf8")) as MessageLogEntry;
-		validateMessageLogEntry(parsed);
-	} catch {
-		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
-	}
-	if (parsed.id !== id) throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
-	let canonical: Uint8Array;
-	try {
-		canonical = canonicalMessageLogEntryBytes(parsed);
-	} catch {
-		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
-	}
-	if (Buffer.compare(Buffer.from(bytes), Buffer.from(canonical)) !== 0)
-		throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
-}
+
 function isEntryFile(fileName: string): boolean {
 	return /^entry-[0-9a-f]{64}\.json$/.test(fileName);
 }
-function quarantineName(hash: (value: string) => string, bytes: Uint8Array): string {
-	const digest = hash(Buffer.from(bytes).toString("base64"));
-	if (!/^[0-9a-f]{64}$/.test(digest)) throw new MessageLogStoreError("write-failed", "message log quarantine failed");
-	return `artifact-${digest}.bin`;
-}
-async function quarantineArtifact(
-	source: string,
-	bytes: Uint8Array,
-	quarantineDir: string,
-	io: MessageLogStoreFs,
-	hash: (value: string) => string,
-): Promise<void> {
-	const destination = path.join(quarantineDir, quarantineName(hash, bytes));
-	let linked = false;
-	try {
-		try {
-			await io.link(source, destination);
-			linked = true;
-		} catch (error) {
-			if (!isCode(error, "EEXIST")) throw error;
-			const existing = await io.readFile(destination);
-			if (Buffer.compare(existing, Buffer.from(bytes)) !== 0)
-				throw new MessageLogStoreError("write-failed", "message log quarantine failed");
-		}
-		await io.sync(destination);
-		await io.sync(quarantineDir);
-		await io.unlink(source);
-		await io.sync(path.dirname(source));
-	} catch (error) {
-		if (linked) await io.unlink(destination).catch(() => undefined);
-		if (error instanceof MessageLogStoreError) throw error;
-		throw new MessageLogStoreError("write-failed", "message log quarantine failed");
-	}
-}
+
+type InspectedEntry = HealthyEntry | Uint8Array;
+
 async function readDirectoryOrEmpty(directory: string, io: MessageLogStoreFs): Promise<string[] | undefined> {
 	try {
 		return await io.readdir(directory);
@@ -279,6 +262,7 @@ async function readDirectoryOrEmpty(directory: string, io: MessageLogStoreFs): P
 		throw new MessageLogStoreError("write-failed", "message log scan failed");
 	}
 }
+
 async function measureQuarantine(quarantineDir: string, files: string[], io: MessageLogStoreFs): Promise<number> {
 	if (files.length > MAX_QUARANTINE_FILES)
 		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
@@ -291,12 +275,13 @@ async function measureQuarantine(quarantineDir: string, files: string[], io: Mes
 	}
 	return total;
 }
+
 async function readCorruptEntry(
 	source: string,
 	id: string,
 	quarantineBytes: number,
 	io: MessageLogStoreFs,
-): Promise<Uint8Array | undefined> {
+): Promise<InspectedEntry | undefined> {
 	let size: number;
 	try {
 		size = (await io.stat(source)).size;
@@ -315,7 +300,13 @@ async function readCorruptEntry(
 	if (bytes.byteLength <= MAX_EVENT_BYTES) {
 		try {
 			validateStoredEntry(id, bytes);
-			return undefined;
+			const parsed = JSON.parse(Buffer.from(bytes).toString("utf8")) as MessageLogEntry;
+			if (typeof parsed.occurredAt !== "string")
+				throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
+			const occurredAt = Date.parse(parsed.occurredAt);
+			if (!Number.isSafeInteger(occurredAt) || occurredAt < 0)
+				throw new MessageLogStoreError("invalid-entry", "message log entry is invalid");
+			return { source, occurredAt };
 		} catch (error) {
 			if (!(error instanceof MessageLogStoreError) || error.code !== "invalid-entry") throw error;
 		}
@@ -324,6 +315,7 @@ async function readCorruptEntry(
 		throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
 	return bytes;
 }
+
 async function validateQuarantineBoundary(
 	quarantineDir: string,
 	trustedLogDir: string,
@@ -339,34 +331,42 @@ async function validateQuarantineBoundary(
 		throw new MessageLogStoreError("write-failed", "message log path could not be resolved");
 	}
 }
+
 async function quarantineCorruptEntries(
 	logDir: string,
 	trustedLogDir: string,
 	io: MessageLogStoreFs,
 	hash: (value: string) => string,
-): Promise<void> {
+): Promise<readonly HealthyEntry[]> {
 	const files = await readDirectoryOrEmpty(logDir, io);
-	if (!files) return;
+	if (!files) return [];
 	const entryFiles = files.filter(isEntryFile);
-	if (entryFiles.length > MAX_SCAN_RECORDS)
+	if (entryFiles.length > 50_000)
 		throw new MessageLogStoreError("capacity-exceeded", "message log scan exceeds capacity");
 	const quarantineDir = path.join(logDir, "quarantine");
 	await validateQuarantineBoundary(quarantineDir, trustedLogDir, io);
 	const quarantinedFiles = (await readDirectoryOrEmpty(quarantineDir, io)) ?? [];
 	let quarantineBytes = await measureQuarantine(quarantineDir, quarantinedFiles, io);
 	let quarantinedCount = quarantinedFiles.length;
+	const healthyEntries: HealthyEntry[] = [];
 	for (const file of entryFiles) {
-		const bytes = await readCorruptEntry(path.join(logDir, file), file.slice(0, -5), quarantineBytes, io);
-		if (!bytes) continue;
+		const inspected = await readCorruptEntry(path.join(logDir, file), file.slice(0, -5), quarantineBytes, io);
+		if (!inspected) continue;
+		if (!(inspected instanceof Uint8Array)) {
+			healthyEntries.push(inspected);
+			continue;
+		}
 		if (quarantinedCount >= MAX_QUARANTINE_FILES)
 			throw new MessageLogStoreError("capacity-exceeded", "message log quarantine exceeds capacity");
 		await io.mkdir(quarantineDir, { recursive: true });
 		await validateQuarantineBoundary(quarantineDir, trustedLogDir, io);
-		await quarantineArtifact(path.join(logDir, file), bytes, quarantineDir, io, hash);
-		quarantineBytes += bytes.byteLength;
+		await quarantineArtifact(path.join(logDir, file), inspected, quarantineDir, io, hash);
+		quarantineBytes += inspected.byteLength;
 		quarantinedCount += 1;
 	}
+	return healthyEntries;
 }
+
 async function publishEntry(temp: string, target: string, bytes: Uint8Array, io: MessageLogStoreFs): Promise<void> {
 	try {
 		try {
@@ -396,47 +396,7 @@ async function publishEntry(temp: string, target: string, bytes: Uint8Array, io:
 		await io.unlink(temp).catch(() => undefined);
 	}
 }
-async function appendLocked(
-	entry: MessageLogEntry,
-	bytes: Uint8Array,
-	logDir: string,
-	trustedLogDir: string,
-	io: MessageLogStoreFs,
-	hash: (value: string) => string,
-): Promise<void> {
-	await quarantineCorruptEntries(logDir, trustedLogDir, io, hash);
-	if (!/^entry-[0-9a-f]{64}$/.test(String(entry.id)))
-		throw new MessageLogStoreError("invalid-entry", "message log entry id is invalid");
-	const target = path.join(logDir, `${entry.id}.json`);
-	try {
-		const existing = await io.readFile(target);
-		if (Buffer.compare(existing, Buffer.from(bytes)) !== 0)
-			throw new MessageLogStoreError("id-conflict", "message log entry identity conflict");
-		return;
-	} catch (error) {
-		if (error instanceof MessageLogStoreError) throw error;
-		if (!isCode(error, "ENOENT")) throw error;
-	}
-	const files = await readDirectoryOrEmpty(logDir, io);
-	const entryFiles = (files ?? []).filter(isEntryFile);
-	let retainedBytes = 0;
-	for (const file of entryFiles) {
-		try {
-			const size = (await io.stat(path.join(logDir, file))).size;
-			if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MESSAGE_LOG_BYTES - retainedBytes)
-				throw new MessageLogStoreError("capacity-exceeded", "message log exceeds capacity");
-			retainedBytes += size;
-		} catch (error) {
-			if (error instanceof MessageLogStoreError) throw error;
-			throw new MessageLogStoreError("write-failed", "message log scan failed");
-		}
-	}
-	if (bytes.byteLength > MAX_MESSAGE_LOG_BYTES - retainedBytes)
-		throw new MessageLogStoreError("capacity-exceeded", "message log exceeds capacity");
-	const temp = `${target}.tmp-${process.pid}`;
-	await io.writeFile(temp, bytes, { flag: "wx" });
-	await publishEntry(temp, target, bytes, io);
-}
+
 export function createMessageLogStore(options: MessageLogStoreOptions) {
 	const io = makeDependencies(options.fs);
 	const now = options.now ?? (() => Date.now());
@@ -460,10 +420,71 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 			const deadline = now() + 2000;
 			const release = await acquireLock(lock, io, deadline, now, sleep, hash);
 			try {
-				await appendLocked(entry, bytes, logDir, trustedLogDir, io, hash);
+				const persistedRetentionNow = await readRetentionHighWater(logDir, trustedLogDir, io);
+				const retentionNow = Math.max(now(), persistedRetentionNow);
+				await appendEntryLocked(
+					entry,
+					bytes,
+					logDir,
+					io,
+					retentionNow,
+					persistedRetentionNow,
+					() => quarantineCorruptEntries(logDir, trustedLogDir, io, hash),
+					(entries, cutoff) => expireEntries(entries, cutoff, io),
+					(temp, target, value) => publishEntry(temp, target, value, io),
+					(value) => persistRetentionHighWater(logDir, trustedLogDir, value, io),
+					() => syncRetentionHighWater(logDir, trustedLogDir, io),
+				);
 			} finally {
 				await release();
 			}
+		},
+		async appendMarker(marker: MessageLogMarker): Promise<void> {
+			const access = await checkAccess(options, io);
+			return appendMarkerOperation(
+				marker,
+				access,
+				io,
+				async () => {
+					await io.mkdir(access.logDir, { recursive: true });
+					await validateLogBoundary(access.logDir, access.trustedLogDir, io);
+				},
+				async (work) => {
+					const release = await acquireLock(
+						path.join(access.logDir, ".lock"),
+						io,
+						now() + 2000,
+						now,
+						sleep,
+						hash,
+					);
+					try {
+						const persisted = await readRetentionHighWater(access.logDir, access.trustedLogDir, io);
+						await work(Math.max(now(), persisted), persisted);
+					} finally {
+						await release();
+					}
+				},
+				(temp, target, value) => publishEntry(temp, target, value, io),
+				async (retentionNow, persistedRetentionNow) => {
+					if (retentionNow > persistedRetentionNow)
+						await persistRetentionHighWater(access.logDir, access.trustedLogDir, retentionNow, io);
+					else await syncRetentionHighWater(access.logDir, access.trustedLogDir, io);
+				},
+			);
+		},
+		async readLastCheckpointClose(endpointId: string): Promise<{
+			readonly checkpoint: MessageLogMarker | null;
+			readonly close: MessageLogMarker | null;
+		}> {
+			if (!/^endpoint-[0-9a-f]{64}$/.test(endpointId))
+				throw new MessageLogStoreError("invalid-entry", "message log endpoint is invalid");
+			const { logDir, trustedLogDir } = await checkAccess(options, io);
+			await validateLogBoundary(logDir, trustedLogDir, io).catch((error) => {
+				if (isCode(error, "ENOENT")) return;
+				throw error;
+			});
+			return readLastCheckpointClose(logDir, io, endpointId);
 		},
 		async read(id: string): Promise<Uint8Array | null> {
 			const { logDir, trustedLogDir } = await checkAccess(options, io);
@@ -473,16 +494,7 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 				if (error instanceof MessageLogStoreError && error.code === "untrusted-path") throw error;
 				if (!isCode(error, "ENOENT")) throw error;
 			});
-			const target = path.join(logDir, `${id}.json`);
-			try {
-				const bytes = new Uint8Array(await io.readFile(target));
-				validateStoredEntry(id, bytes);
-				return bytes;
-			} catch (error) {
-				if (isCode(error, "ENOENT")) return null;
-				if (error instanceof MessageLogStoreError) throw error;
-				throw new MessageLogStoreError("write-failed", "message log read failed");
-			}
+			return readMessageLogEntry(id, logDir, io, validateStoredEntry);
 		},
 	};
 }

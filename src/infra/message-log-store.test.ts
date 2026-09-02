@@ -17,8 +17,24 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { createMessageLogStore, MAX_MESSAGE_LOG_BYTES, MessageLogStoreError } from "./message-log-store.ts";
-import { canonicalMessageLogEntryBytes } from "../domain/index.ts";
+import { createMessageLogStore, MessageLogStoreError } from "./message-log-store.ts";
+import {
+	canonicalMessageLogEntryBytes,
+	canonicalMessageLogMarkerBytes,
+	type MessageLogMarker,
+} from "../domain/index.ts";
+
+const marker: MessageLogMarker = {
+	version: 1,
+	kind: "coverage-checkpoint",
+	id: "marker-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	occurredAt: "2026-08-28T00:00:00.000Z",
+	endpointId: "endpoint-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+	epochId: "epoch-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+	attemptSequence: 2,
+	details: { intervalEnd: "2026-08-28T00:00:00.000Z", lastAttemptSequence: 2 },
+	semanticFingerprint: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+};
 
 const entry = {
 	version: 1,
@@ -227,6 +243,11 @@ test("preserves healthy entries when quarantine byte capacity is full", async ()
 			fs: { sync: async () => undefined },
 		});
 		await store.append(nextEntry);
+		await store.append(nextEntry);
+		await assert.rejects(
+			() => store.append({ ...nextEntry, outcome: "failed", errorCode: "storage-failed" }),
+			(error) => error instanceof MessageLogStoreError && error.code === "id-conflict",
+		);
 		assert.deepEqual(await store.read(nextEntry.id), canonicalMessageLogEntryBytes(nextEntry));
 	} finally {
 		await fixture.cleanup();
@@ -312,6 +333,7 @@ test("fails closed before publication when the bounded scan overflows", async ()
 			() => store.append(entry),
 			(error) => error instanceof MessageLogStoreError && error.code === "capacity-exceeded",
 		);
+		await assert.rejects(() => readFile(path.join(messageLog, `${entry.id}.json`)));
 	} finally {
 		await fixture.cleanup();
 	}
@@ -496,41 +518,6 @@ test("fails closed for invalid hash and quarantine filesystem failures", async (
 	}
 });
 
-test("rejects a trusted append when aggregate retained bytes reach capacity", async () => {
-	const fixture = await makeFixture();
-	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
-	const existingId = "entry-" + "a".repeat(64);
-	const nextEntry = { ...entry, id: "entry-" + "b".repeat(64) };
-	let statCalls = 0;
-	try {
-		await mkdir(messageLog, { recursive: true });
-		const store = createMessageLogStore({
-			manifestPath: fixture.manifestPath,
-			projectRoot: fixture.root,
-			isProjectTrusted: () => true,
-			fs: {
-				readdir: async (directory) => (directory === messageLog ? [`${existingId}.json`] : []),
-				stat: async () => ({
-					size: statCalls++ < 2 ? MAX_MESSAGE_LOG_BYTES / 2 : MAX_MESSAGE_LOG_BYTES,
-				}),
-				readFile: async (filePath) => {
-					if (filePath.endsWith(".lock")) return readFile(filePath);
-					return Buffer.from(
-						canonicalMessageLogEntryBytes({ ...entry, id: path.basename(filePath, ".json") }),
-					);
-				},
-				sync: async () => undefined,
-			},
-		});
-		await assert.rejects(
-			() => store.append(nextEntry),
-			(error) => error instanceof MessageLogStoreError && error.code === "capacity-exceeded",
-		);
-	} finally {
-		await fixture.cleanup();
-	}
-});
-
 test("scans exactly 50,000 healthy entries before appending", async () => {
 	const fixture = await makeFixture();
 	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
@@ -633,7 +620,14 @@ test("append fsyncs publication sequence", async () => {
 		await store.append(entry);
 		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
 		const publicationTrace = syncCalls.filter((line) => line === `link:${target}` || line.startsWith("sync:"));
-		assert.deepEqual(publicationTrace, [`sync:${temp}`, `link:${target}`, `sync:${target}`, `sync:${messageLog}`]);
+		assert.deepEqual(publicationTrace, [
+			`sync:${temp}`,
+			`link:${target}`,
+			`sync:${target}`,
+			`sync:${messageLog}`,
+			`sync:${path.join(messageLog, ".retention-high-water.jsonl")}`,
+			`sync:${messageLog}`,
+		]);
 	} finally {
 		await fixture.cleanup();
 	}
@@ -1033,6 +1027,554 @@ test("read missing entry does not mutate filesystem", async () => {
 	const missing = await store.read("entry-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 	assert.equal(missing, null);
 	assert.equal(calls.includes("mkdir"), false);
+});
+
+test("retains the exact 30-day boundary and expires strictly older entries without tombstones", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const cutoff = Date.parse("2026-08-01T00:00:00.000Z");
+	const atBoundary = {
+		...entry,
+		id: "entry-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		occurredAt: new Date(cutoff).toISOString(),
+		capture: { ...entry.capture, capturedAt: new Date(cutoff).toISOString() },
+	};
+	const expired = {
+		...entry,
+		id: "entry-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		occurredAt: "2026-07-31T23:59:59.999Z",
+		capture: { ...entry.capture, capturedAt: "2026-07-31T23:59:59.999Z" },
+	};
+	try {
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(path.join(messageLog, `${atBoundary.id}.json`), canonicalMessageLogEntryBytes(atBoundary));
+		await writeFile(path.join(messageLog, `${expired.id}.json`), canonicalMessageLogEntryBytes(expired));
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => Date.parse("2026-08-31T00:00:00.000Z"),
+			fs: { sync: async () => undefined },
+		});
+		await store.append(entry);
+		assert.deepEqual(await store.read(atBoundary.id), canonicalMessageLogEntryBytes(atBoundary));
+		assert.equal(await store.read(expired.id), null);
+		assert.deepEqual(
+			(await readdir(messageLog)).filter((name) => name.includes("tombstone")),
+			[],
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("persists the retention high-water and prevents clock rollback from resurrecting expired evidence", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const firstNow = Date.parse("2026-08-31T00:00:00.000Z");
+	const expired = {
+		...entry,
+		id: "entry-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		occurredAt: "2026-07-31T00:00:00.000Z",
+		capture: { ...entry.capture, capturedAt: "2026-07-31T00:00:00.000Z" },
+	};
+	const later = {
+		...entry,
+		id: "entry-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+	};
+	try {
+		const first = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => firstNow,
+			fs: { sync: async () => undefined },
+		});
+		await first.append(entry);
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(path.join(messageLog, `${expired.id}.json`), canonicalMessageLogEntryBytes(expired));
+		const restarted = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+			fs: { sync: async () => undefined },
+		});
+		await restarted.append(later);
+		assert.equal(await restarted.read(expired.id), null);
+		assert.deepEqual(await restarted.read(entry.id), canonicalMessageLogEntryBytes(entry));
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("retention works in the compatibility .pi/crew layout", async () => {
+	const fixture = await makeFixture("crew");
+	const messageLog = path.join(fixture.root, ".pi", "crew", "message-log");
+	const expired = {
+		...entry,
+		id: "entry-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		occurredAt: "2026-07-31T23:59:59.999Z",
+		capture: { ...entry.capture, capturedAt: "2026-07-31T23:59:59.999Z" },
+	};
+	try {
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(path.join(messageLog, `${expired.id}.json`), canonicalMessageLogEntryBytes(expired));
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => Date.parse("2026-08-31T00:00:00.000Z"),
+			fs: { sync: async () => undefined },
+		});
+		await store.append(entry);
+		assert.equal(await store.read(expired.id), null);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("retention expiry failures fail closed without publishing the incoming entry", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const expired = {
+		...entry,
+		id: "entry-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		occurredAt: "2026-07-31T23:59:59.999Z",
+		capture: { ...entry.capture, capturedAt: "2026-07-31T23:59:59.999Z" },
+	};
+	const fresh = { ...entry, id: "entry-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
+	try {
+		await mkdir(messageLog, { recursive: true });
+		const oldPath = path.join(messageLog, `${expired.id}.json`);
+		await writeFile(oldPath, canonicalMessageLogEntryBytes(expired));
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => Date.parse("2026-08-31T00:00:00.000Z"),
+			fs: {
+				unlink: async (filePath) => {
+					if (filePath === oldPath) throw Object.assign(new Error("expiry failed"), { code: "EIO" });
+					return unlink(filePath);
+				},
+				sync: async () => undefined,
+			},
+		});
+		await assert.rejects(
+			() => store.append(fresh),
+			(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
+		);
+		assert.deepEqual(await readFile(oldPath), Buffer.from(canonicalMessageLogEntryBytes(expired)));
+		assert.equal(await store.read(fresh.id), null);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("high-water persistence failure reports failure after publication without advancing state", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const highWater = path.join(messageLog, ".retention-high-water.jsonl");
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => Date.parse("2026-08-31T00:00:00.000Z"),
+			fs: {
+				writeFile: async (filePath, data, options) => {
+					if (filePath === highWater) throw Object.assign(new Error("high-water failed"), { code: "EIO" });
+					return writeFile(filePath, data, options);
+				},
+				sync: async () => undefined,
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
+		);
+		assert.deepEqual(
+			await readFile(path.join(messageLog, `${entry.id}.json`)),
+			Buffer.from(canonicalMessageLogEntryBytes(entry)),
+		);
+		await assert.rejects(() => readFile(highWater));
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("rejects a high-water symlink before retention or publication", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const outside = path.join(fixture.root, "outside-high-water.jsonl");
+	try {
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(outside, "");
+		await symlink(outside, path.join(messageLog, ".retention-high-water.jsonl"));
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => Date.parse("2026-08-31T00:00:00.000Z"),
+			fs: { sync: async () => undefined },
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "untrusted-path",
+		);
+		assert.equal(await store.read(entry.id), null);
+		assert.equal((await readFile(outside)).toString(), "");
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("replaying an entry at a newer clock advances the persisted high-water", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const highWater = path.join(messageLog, ".retention-high-water.jsonl");
+	const firstNow = Date.parse("2026-08-01T00:00:00.000Z");
+	const secondNow = Date.parse("2026-08-02T00:00:00.000Z");
+	try {
+		const first = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => firstNow,
+			fs: { sync: async () => undefined },
+		});
+		await first.append(entry);
+		const before = await readFile(highWater);
+		const replay = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => secondNow,
+			fs: { sync: async () => undefined },
+		});
+		await replay.append(entry);
+		const after = await readFile(highWater);
+		assert.equal(after.toString().split("\n").length, 3);
+		assert.notDeepEqual(after, before);
+		assert.match(after.toString(), new RegExp(`"retentionNow":${secondNow}`));
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("high-water read failures fail closed before publication", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const highWater = path.join(messageLog, ".retention-high-water.jsonl");
+	try {
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(highWater, `${JSON.stringify({ version: 1, retentionNow: 1 })}\n`);
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: {
+				readFile: async (filePath) => {
+					if (filePath === highWater)
+						throw Object.assign(new Error("high-water read failed"), { code: "EIO" });
+					return readFile(filePath);
+				},
+				sync: async () => undefined,
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
+		);
+		assert.equal(await store.read(entry.id), null);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("expiry directory-sync failures fail closed after removal", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const expired = {
+		...entry,
+		id: "entry-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		occurredAt: "2026-07-31T23:59:59.999Z",
+		capture: { ...entry.capture, capturedAt: "2026-07-31T23:59:59.999Z" },
+	};
+	try {
+		await mkdir(messageLog, { recursive: true });
+		await writeFile(path.join(messageLog, `${expired.id}.json`), canonicalMessageLogEntryBytes(expired));
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => Date.parse("2026-08-31T00:00:00.000Z"),
+			fs: {
+				sync: async (filePath) => {
+					if (filePath === messageLog) throw Object.assign(new Error("expiry sync failed"), { code: "EIO" });
+				},
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
+		);
+		assert.equal(await store.read(entry.id), null);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("high-water file sync failure gives no false acknowledgement and permits later success", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const highWater = path.join(messageLog, ".retention-high-water.jsonl");
+	let failSync = true;
+	let highWaterSyncs = 0;
+	const now = Date.parse("2026-08-31T00:00:00.000Z");
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => now,
+			fs: {
+				sync: async (filePath) => {
+					if (filePath === highWater) {
+						highWaterSyncs += 1;
+						if (failSync) throw Object.assign(new Error("high-water sync failed"), { code: "EIO" });
+					}
+				},
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
+		);
+		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
+		failSync = false;
+		await store.append(entry);
+		assert.equal(highWaterSyncs, 2);
+		assert.match((await readFile(highWater)).toString(), /retentionNow/);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("high-water directory sync failure gives no false acknowledgement and permits later success", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	let directorySyncs = 0;
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			now: () => Date.parse("2026-08-31T00:00:00.000Z"),
+			fs: {
+				sync: async (filePath) => {
+					if (filePath === messageLog && ++directorySyncs === 2)
+						throw Object.assign(new Error("high-water directory sync failed"), { code: "EIO" });
+				},
+			},
+		});
+		await assert.rejects(
+			() => store.append(entry),
+			(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
+		);
+		assert.deepEqual(await store.read(entry.id), canonicalMessageLogEntryBytes(entry));
+		await store.append(entry);
+		assert.equal(directorySyncs, 3);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("malformed and noncanonical persisted high-water fail closed before publication", async () => {
+	const persisted = [Buffer.from("not-json\n"), Buffer.from('{"retentionNow":1,"version":1}\n')];
+	for (const bytes of persisted) {
+		const fixture = await makeFixture();
+		const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+		try {
+			await mkdir(messageLog, { recursive: true });
+			await writeFile(path.join(messageLog, ".retention-high-water.jsonl"), bytes);
+			const store = createMessageLogStore({
+				manifestPath: fixture.manifestPath,
+				projectRoot: fixture.root,
+				isProjectTrusted: () => true,
+				fs: { sync: async () => undefined },
+			});
+			await assert.rejects(
+				() => store.append(entry),
+				(error) => error instanceof MessageLogStoreError && error.code === "write-failed",
+			);
+			assert.equal(await store.read(entry.id), null);
+		} finally {
+			await fixture.cleanup();
+		}
+	}
+});
+
+test("lifecycle markers use canonical replay and conflict rules", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const target = path.join(messageLog, `${marker.id}.json`);
+	const open: MessageLogMarker = {
+		...marker,
+		kind: "epoch-open",
+		id: "marker-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+		details: { openedAt: marker.occurredAt, priorMarkerId: null },
+	};
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: { sync: async () => undefined },
+		});
+		await store.appendMarker(open);
+		assert.deepEqual(
+			await readFile(path.join(messageLog, `${open.id}.json`)),
+			Buffer.from(canonicalMessageLogMarkerBytes(open)),
+		);
+		await store.appendMarker(marker);
+		await store.appendMarker(marker);
+		assert.deepEqual(await readFile(target), Buffer.from(canonicalMessageLogMarkerBytes(marker)));
+		await assert.rejects(
+			() =>
+				store.appendMarker({ ...marker, details: { intervalEnd: marker.occurredAt, lastAttemptSequence: 3 } }),
+			(error) => error instanceof MessageLogStoreError && error.code === "id-conflict",
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("lifecycle markers support all kinds in both trusted layouts", async () => {
+	const open: MessageLogMarker = {
+		...marker,
+		kind: "epoch-open",
+		id: "marker-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+		details: { openedAt: marker.occurredAt, priorMarkerId: null },
+	};
+	const close: MessageLogMarker = {
+		...marker,
+		kind: "epoch-clean-close",
+		id: "marker-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		attemptSequence: 3,
+		details: { closedAt: "2026-08-28T00:01:00.000Z", lastAttemptSequence: 3 },
+	};
+	for (const layout of ["bebop", "crew"] as const) {
+		const fixture = await makeFixture(layout);
+		try {
+			const store = createMessageLogStore({
+				manifestPath: fixture.manifestPath,
+				projectRoot: fixture.root,
+				isProjectTrusted: () => true,
+				fs: { sync: async () => undefined },
+			});
+			for (const candidate of [open, marker, close]) {
+				await store.appendMarker(candidate);
+				assert.deepEqual(
+					await readFile(path.join(fixture.root, ".pi", layout, "message-log", `${candidate.id}.json`)),
+					Buffer.from(canonicalMessageLogMarkerBytes(candidate)),
+				);
+			}
+		} finally {
+			await fixture.cleanup();
+		}
+	}
+});
+
+test("clean-close markers use canonical replay and conflict rules", async () => {
+	const fixture = await makeFixture();
+	const close: MessageLogMarker = {
+		...marker,
+		kind: "epoch-clean-close",
+		id: "marker-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		attemptSequence: 3,
+		details: { closedAt: "2026-08-28T00:01:00.000Z", lastAttemptSequence: 3 },
+	};
+	const target = path.join(fixture.root, ".pi", "bebop", "message-log", `${close.id}.json`);
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: { sync: async () => undefined },
+		});
+		await store.appendMarker(close);
+		await store.appendMarker(close);
+		assert.deepEqual(await readFile(target), Buffer.from(canonicalMessageLogMarkerBytes(close)));
+		await assert.rejects(
+			() => store.appendMarker({ ...close, details: { closedAt: marker.occurredAt, lastAttemptSequence: 2 } }),
+			(error) => error instanceof MessageLogStoreError && error.code === "id-conflict",
+		);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("last checkpoint and close query is bounded and mutation-free", async () => {
+	const fixture = await makeFixture();
+	const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+	const endpointId = marker.endpointId;
+	const newerCheckpoint: MessageLogMarker = {
+		...marker,
+		id: "marker-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		attemptSequence: 4,
+		details: { intervalEnd: "2026-08-28T00:02:00.000Z", lastAttemptSequence: 4 },
+	};
+	const close: MessageLogMarker = {
+		...marker,
+		kind: "epoch-clean-close",
+		id: "marker-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		attemptSequence: 3,
+		details: { closedAt: "2026-08-28T00:01:00.000Z", lastAttemptSequence: 3 },
+	};
+	try {
+		const store = createMessageLogStore({
+			manifestPath: fixture.manifestPath,
+			projectRoot: fixture.root,
+			isProjectTrusted: () => true,
+			fs: { sync: async () => undefined },
+		});
+		assert.deepEqual(await store.readLastCheckpointClose(endpointId), { checkpoint: null, close: null });
+		await assert.rejects(() => readdir(messageLog));
+		await store.appendMarker(marker);
+		await store.appendMarker(newerCheckpoint);
+		await store.appendMarker(close);
+		const result = await store.readLastCheckpointClose(endpointId);
+		assert.deepEqual(result.checkpoint, newerCheckpoint);
+		assert.deepEqual(result.close, close);
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("malformed, schema-invalid, and noncanonical lifecycle markers fail closed without query mutation", async () => {
+	const persisted = [Buffer.from("{\n"), Buffer.from('{"version":1}\n'), Buffer.from(`${JSON.stringify(marker)}\n`)];
+	for (const bytes of persisted) {
+		const fixture = await makeFixture();
+		const messageLog = path.join(fixture.root, ".pi", "bebop", "message-log");
+		try {
+			await mkdir(messageLog, { recursive: true });
+			await writeFile(path.join(messageLog, `${marker.id}.json`), bytes);
+			const store = createMessageLogStore({
+				manifestPath: fixture.manifestPath,
+				projectRoot: fixture.root,
+				isProjectTrusted: () => true,
+			});
+			await assert.rejects(
+				() => store.readLastCheckpointClose(marker.endpointId),
+				(error) => error instanceof MessageLogStoreError && error.code === "invalid-entry",
+			);
+			assert.deepEqual(await readFile(path.join(messageLog, `${marker.id}.json`)), bytes);
+		} finally {
+			await fixture.cleanup();
+		}
+	}
 });
 
 test("untrusted project fails before filesystem calls", async () => {

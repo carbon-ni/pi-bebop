@@ -9,6 +9,7 @@ export * from "./blocking-wait-state.ts";
 export * from "./crew-idle-wait.ts";
 export * from "./crew-idle-capacity.ts";
 export * from "./message-log-entry.ts";
+export * from "./message-log-marker.ts";
 export * from "./message-renderer.ts";
 export * from "./session-messages.ts";
 export * from "./branch-alias.ts";
