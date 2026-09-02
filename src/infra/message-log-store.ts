@@ -6,6 +6,7 @@ import {
 	canonicalMessageLogMarkerBytes,
 	validateMessageLogEntry,
 	validateMessageLogMarker,
+	type CaptureGapRange,
 	type MessageLogEntry,
 	type MessageLogMarker,
 } from "../domain/index.ts";
@@ -22,6 +23,8 @@ import {
 import { appendMarkerOperation, readLastCheckpointClose } from "./message-log-marker-store.ts";
 import { readMessageLogEntry, validateStoredEntry } from "./message-log-entry-reader.ts";
 import { appendEntryLocked } from "./message-log-entry-store.ts";
+import { appendPendingGapBatch } from "./message-log-batch-store.ts";
+import { appendEpochOpenRecovery } from "./message-log-recovery-store.ts";
 
 export type MessageLogStoreErrorCode =
 	| "untrusted-project"
@@ -439,39 +442,27 @@ export function createMessageLogStore(options: MessageLogStoreOptions) {
 				await release();
 			}
 		},
+		async appendPendingGapBatch(ranges: readonly CaptureGapRange[], markers: readonly MessageLogMarker[], incoming: MessageLogEntry | MessageLogMarker) {
+			const access = await checkAccess(options, io);
+			const prepare = async () => { await io.mkdir(access.logDir, { recursive: true }); await validateLogBoundary(access.logDir, access.trustedLogDir, io); };
+			const withLock = async (work: (retentionNow: number, persisted: number) => Promise<void>) => { const release = await acquireLock(path.join(access.logDir, ".lock"), io, now() + 2000, now, sleep, hash); try { const persisted = await readRetentionHighWater(access.logDir, access.trustedLogDir, io); await work(Math.max(now(), persisted), persisted); } finally { await release(); } };
+			const appendEntry = (entry: MessageLogEntry, bytes: Uint8Array, retentionNow: number, persisted: number) => appendEntryLocked(entry, bytes, access.logDir, io, retentionNow, persisted, () => quarantineCorruptEntries(access.logDir, access.trustedLogDir, io, hash), (entries, cutoff) => expireEntries(entries, cutoff, io), (temp, target, value) => publishEntry(temp, target, value, io), (value) => persistRetentionHighWater(access.logDir, access.trustedLogDir, value, io), () => syncRetentionHighWater(access.logDir, access.trustedLogDir, io));
+			const advance = async (retentionNow: number, persisted: number) => { if (retentionNow > persisted) await persistRetentionHighWater(access.logDir, access.trustedLogDir, retentionNow, io); else await syncRetentionHighWater(access.logDir, access.trustedLogDir, io); };
+			return appendPendingGapBatch(ranges, markers, incoming, access, io, prepare, withLock, (temp, target, value) => publishEntry(temp, target, value, io), appendEntry, advance);
+		},
+		async appendEpochOpenRecovery(open: MessageLogMarker, unverified: MessageLogMarker | null) {
+			const access = await checkAccess(options, io);
+			const prepare = async () => { await io.mkdir(access.logDir, { recursive: true }); await validateLogBoundary(access.logDir, access.trustedLogDir, io); };
+			const withLock = async (work: (retentionNow: number, persisted: number) => Promise<void>) => { const release = await acquireLock(path.join(access.logDir, ".lock"), io, now() + 2000, now, sleep, hash); try { const persisted = await readRetentionHighWater(access.logDir, access.trustedLogDir, io); await work(Math.max(now(), persisted), persisted); } finally { await release(); } };
+			const advance = async (retentionNow: number, persisted: number) => { if (retentionNow > persisted) await persistRetentionHighWater(access.logDir, access.trustedLogDir, retentionNow, io); else await syncRetentionHighWater(access.logDir, access.trustedLogDir, io); };
+			return appendEpochOpenRecovery(open, unverified, access, io, prepare, withLock, (temp, target, value) => publishEntry(temp, target, value, io), advance);
+		},
 		async appendMarker(marker: MessageLogMarker): Promise<void> {
 			const access = await checkAccess(options, io);
-			return appendMarkerOperation(
-				marker,
-				access,
-				io,
-				async () => {
-					await io.mkdir(access.logDir, { recursive: true });
-					await validateLogBoundary(access.logDir, access.trustedLogDir, io);
-				},
-				async (work) => {
-					const release = await acquireLock(
-						path.join(access.logDir, ".lock"),
-						io,
-						now() + 2000,
-						now,
-						sleep,
-						hash,
-					);
-					try {
-						const persisted = await readRetentionHighWater(access.logDir, access.trustedLogDir, io);
-						await work(Math.max(now(), persisted), persisted);
-					} finally {
-						await release();
-					}
-				},
-				(temp, target, value) => publishEntry(temp, target, value, io),
-				async (retentionNow, persistedRetentionNow) => {
-					if (retentionNow > persistedRetentionNow)
-						await persistRetentionHighWater(access.logDir, access.trustedLogDir, retentionNow, io);
-					else await syncRetentionHighWater(access.logDir, access.trustedLogDir, io);
-				},
-			);
+			const prepare = async () => { await io.mkdir(access.logDir, { recursive: true }); await validateLogBoundary(access.logDir, access.trustedLogDir, io); };
+			const withLock = async (work: (retentionNow: number, persisted: number) => Promise<void>) => { const release = await acquireLock(path.join(access.logDir, ".lock"), io, now() + 2000, now, sleep, hash); try { const persisted = await readRetentionHighWater(access.logDir, access.trustedLogDir, io); await work(Math.max(now(), persisted), persisted); } finally { await release(); } };
+			const advance = async (retentionNow: number, persisted: number) => { if (retentionNow > persisted) await persistRetentionHighWater(access.logDir, access.trustedLogDir, retentionNow, io); else await syncRetentionHighWater(access.logDir, access.trustedLogDir, io); };
+			return appendMarkerOperation(marker, access, io, prepare, withLock, (temp, target, value) => publishEntry(temp, target, value, io), advance);
 		},
 		async readLastCheckpointClose(endpointId: string): Promise<{
 			readonly checkpoint: MessageLogMarker | null;

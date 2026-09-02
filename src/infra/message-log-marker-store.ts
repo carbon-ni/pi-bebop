@@ -99,6 +99,33 @@ export async function appendMarkerOperation(
 	});
 }
 
+export async function readAllMarkers(logDir: string, io: MarkerFs): Promise<readonly MessageLogMarker[]> {
+	let files: string[];
+	try {
+		files = await io.readdir(logDir);
+	} catch (error) {
+		if (isCode(error, "ENOENT")) return [];
+		throw new MessageLogStoreError("write-failed", "message log scan failed");
+	}
+	const markerFiles = files.filter(isMarkerFile);
+	if (markerFiles.length > MAX_SCAN_RECORDS)
+		throw new MessageLogStoreError("capacity-exceeded", "message log scan exceeds capacity");
+	const markers: MessageLogMarker[] = [];
+	for (const file of markerFiles) {
+		let bytes: Buffer;
+		try {
+			bytes = await io.readFile(path.join(logDir, file));
+		} catch {
+			throw new MessageLogStoreError("write-failed", "message log marker could not be read");
+		}
+		const marker = validateStoredMarker(bytes);
+		if (marker.id !== file.slice(0, -5))
+			throw new MessageLogStoreError("invalid-entry", "message log marker is invalid");
+		markers.push(marker);
+	}
+	return markers;
+}
+
 export async function readLastCheckpointClose(
 	logDir: string,
 	io: MarkerFs,
