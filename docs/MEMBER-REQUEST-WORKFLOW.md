@@ -75,7 +75,7 @@ A QA request that needs a verdict is a Member request, not a Follow-up:
 # Requester (e.g. a developer):
 send_member_request({ member: "Kelly", message: "QA the TASK-0076 changes and report a verdict or blocker" })
 ... no immediate coordination action remains ...
-wait_for_request_outcome()   # requester-side; ends this run; later terminal turn resumes
+wait_for_request_outcome()   # requester-side; blocks until the terminal outcome
 
 # Responder (Kelly): the inbound message is visibly marked [member request]
 # with the opaque Request ID; she does the QA work, then:
@@ -105,16 +105,14 @@ route is never public input.
 wait_for_request_outcome()
 ```
 
-No arguments. It returns the oldest terminal outbound Request outcome. It
-ends the current run when a wait is successfully parked; call it alone because
-Pi only terminates a batch when every result terminates. A later terminal
-Response, offline, or bounded timeout starts a new outcome turn. It does not
-poll and does not return Presence, Member Status, Broadcast, Inbox, or
-unrelated Crew activity. It is requester-side only: call it after you sent
-`send_member_request`, never to handle an inbound Member request or an ordinary
-message. When no pending outbound Member request exists, it returns a normal
-`all-settled` success with `pending_count: 0` and does not end the run. Waiting
-is only appropriate when no immediate coordination action remains.
+No arguments. It blocks this tool call until the oldest terminal outbound
+Request outcome arrives: Response, offline, or a bounded timeout. The wait is
+cancellable, has one local waiter, and does not poll or return Presence, Member
+Status, Broadcast, Inbox, or unrelated Crew activity. It is requester-side
+only: call it after you sent `send_member_request`, never to handle an inbound
+Member request or an ordinary message. When no pending outbound Member request
+exists, it returns a normal `all-settled` success with `pending_count: 0`.
+Waiting is only appropriate when no immediate coordination action remains.
 
 ## Request outcomes
 
@@ -167,7 +165,7 @@ not prove work stopped, failed, or completed.
 2. Requests return after acceptance; one slow Member does not block delegation.
 3. When no immediate coordination action remains, call
    `wait_for_request_outcome`.
-4. Handle the oldest Request outcome and assign newly ready work.
+4. Handle the returned Request outcome and assign newly ready work.
 5. Repeat until no ready work or pending Member requests remain.
 
 Outcomes may arrive out of assignment order; opaque Request IDs preserve

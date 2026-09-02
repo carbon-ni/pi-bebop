@@ -39,7 +39,6 @@ import {
 	ensureControlServer,
 	reconcileMembershipTools,
 	refreshIntrayStatus,
-	notifyAcceptedMessage,
 } from "./pi/control-runtime.ts";
 import { getSocketPath } from "./infra/intray-paths.ts";
 import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
@@ -61,9 +60,6 @@ import {
 import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
-import { YieldingWaitRegistry } from "./domain/index.ts";
-import { WAIT_RESUME_MESSAGE_TYPE } from "./pi/wait-resume.ts";
-import { YieldingWaitRuntime } from "./pi/wait-resume.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
 
 const CREW_FLAG = "crew";
@@ -86,7 +82,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
-	pi.registerMessageRenderer(WAIT_RESUME_MESSAGE_TYPE, renderSessionMessage);
 	pi.registerMessageRenderer("crew-presence", renderCrewPresence);
 	pi.registerMessageRenderer("crew-interrupt", renderCrewInterrupt);
 	pi.registerEntryRenderer("crew-roster", renderCrewRosterEntry);
@@ -150,35 +145,9 @@ export default function (pi: ExtensionAPI) {
 			);
 		},
 	});
-	// TASK-0077: one shared pending-wait registry + resume delivery for the
-	// yielding coordination waits. The registry survives the run; a terminal
-	// lifecycle delivery resolves the oldest matching parked wait exactly once
-	// and emits one crew-wait-resume message that wakes the agent later.
-	const yieldRuntime = new YieldingWaitRuntime({
-		registry: new YieldingWaitRegistry(),
-		deliver: (message) => {
-			const isIdle = state.context?.isIdle?.() === true;
-			const customMessage = {
-				customType: WAIT_RESUME_MESSAGE_TYPE,
-				content: message.content,
-				details: { wait: message.details },
-				display: true,
-			};
-			// TASK-0081: the crew-wait-resume MODEL delivery is a Bebop-owned
-			// delivery; a local blocking idle wait wakes on it (a Response on the
-			// request-scoped RPC channel alone is not a wake).
-			notifyAcceptedMessage(
-				state,
-				`wait-resume-${String((message.details as { waitId?: string }).waitId ?? "")}`,
-			);
-			if (isIdle) pi.sendMessage(customMessage, { triggerTurn: true });
-			else pi.sendMessage(customMessage, { triggerTurn: true, deliverAs: message.deliverAs });
-		},
-		isRunIdle: () => state.context?.isIdle?.() === true,
-	});
 	registerSendMemberRequestTool(pi, state);
 	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
+	registerWaitForRequestOutcomeTool(pi, state);
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,
@@ -412,8 +381,6 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		inboxBridge.invalidate();
 		const context = state.context;
-		// Shutdown cancels every parked wait so no stale wait survives the session.
-		yieldRuntime.cancelAll();
 		await releaseMembershipBeforeCleanup({
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
 			leave: async () => state.membershipRuntime!.leave(),
@@ -444,13 +411,6 @@ export default function (pi: ExtensionAPI) {
 	// and queued continuation work must be exhausted before `became-idle`.
 	pi.on("agent_settled", (_event, ctx) => {
 		emitIdleSettled(state, ctx);
-		// Clear internal lifecycle state for any started outcome resumes.
-		yieldRuntime.markSettled();
-	});
-
-	// Track queued outcome resumes entering model context for cancellation safety.
-	pi.on("agent_start", () => {
-		yieldRuntime.markStarted();
 	});
 
 	// Manual/branch compaction can settle while the agent run flag is already

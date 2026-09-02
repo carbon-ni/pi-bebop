@@ -32,25 +32,25 @@ continue ready work         # optional parallel coordination
 wait_for_request_outcome()  # explicitly end this run and wait once
 ```
 
-A successfully parked outcome wait mechanically terminates the current Pi run.
-Bebop later starts a new outcome turn for the oldest terminal Response, offline
-event, or bounded timeout. Timeout text gives the Requester practical recovery
-choices without automatically redirecting, retrying, persisting, or reassigning.
+`wait_for_request_outcome` blocks the same tool call until the oldest terminal
+Response, offline event, or bounded timeout. Timeout text gives the Requester
+practical recovery choices without automatically redirecting, retrying,
+persisting, or reassigning.
 
-Bebop does not pause, resume, cancel, or otherwise absorb `/auto`. Any automatic
-iteration scheduled after a terminated Pi run belongs to `/auto` or Pi core.
+Bebop does not pause, resume, cancel, or otherwise absorb `/auto`. Automatic
+iteration policy remains outside Bebop.
 
 ## Approved contract
 
 ### Successful wait
 
 - `wait_for_request_outcome` remains Requester-side and argument-free.
-- It parks one idempotent wait for the oldest terminal outbound Request outcome.
-- A successful park returns Pi's standard `terminate: true` result.
-- The tool must be called alone. Under Pi batch semantics, termination applies
-  only when every finalized sibling tool result also terminates.
-- Its result says the current run ended and a later terminal outcome will start
-  a new turn; it must not claim to block Pi runtime, sockets, or other sessions.
+- It blocks the current tool call until the oldest terminal outbound Request
+  outcome, using the same execution shape as `wait_for_member_idle`.
+- The same call resolves directly with Response, offline, or bounded timeout;
+  it does not park a yielding registry wait or create a later resume turn.
+- It must not claim to block sockets or other sessions; only its own tool call
+  waits.
 
 ### Non-wait results
 
@@ -86,48 +86,35 @@ experimental TASK-0144 requester-side `still-pending` wake/re-wait loop.
 
 ### Ownership boundary
 
-- Remove `pi-bebop:wait-parked`, `wait-resume-queued`,
-  `wait-resume-started`, `wait-resume-settled`, and `wait-cancelled` as
-  auto-shaped shared integration events when no Bebop behavior requires them.
+- Remove yielding wait registry state, `crew-wait-resume` delivery, and the five
+  `pi-bebop:wait-*` auto-shaped shared integration events from Request outcomes.
 - Remove the in-repository `AutoLoopStub` handshake tests and maintained claims
   that Bebop pauses or resumes `/auto`.
-- Preserve internal wait lifecycle state needed for terminal delivery,
-  cancellation, shutdown, privacy, and exactly-once behavior.
-- `/auto` scheduling after a terminated run is out of scope. Any future solution
-  must use a generic Pi or `/auto` contract rather than Bebop-specific control.
+- Preserve the single blocking waiter, terminal ordering, cancellation, bounded
+  safeguards, privacy, and exactly-once direct result behavior.
+- `/auto` scheduling remains out of scope and must not gain Bebop-specific
+  control.
 
 ## Acceptance criteria
 
-- [x] Tests first prove current successful wait returns no `terminate` flag and
-      permits Pi's automatic post-tool model continuation.
-- [x] A successful sole `wait_for_request_outcome` result returns
-      `terminate: true` and Pi performs no further model step in that run.
-- [x] Parallel-batch coverage documents Pi's all-results-must-terminate rule;
-      tool description and guidance say to call this wait alone.
-- [x] `all-settled`, validation failure, capacity failure, and rejected park do
-      not return a false terminating/yielded success.
-- [x] Semantic duplicate park remains one-shot/idempotent with no duplicate
-      listener, timer, outcome, or resume turn.
-- [x] Response, offline, response-after-idle timeout, and max-wait timeout each
-      resume exactly once; malformed terminal payload cannot consume parked wait.
-- [x] Buffered terminal outcome preserves oldest-first FIFO and is consumed
-      exactly once.
-- [x] Response resume preserves complete message and ordered instructions.
-- [x] Timeout and offline results contain approved actionable recovery without
+- [ ] TDD proves the wait blocks the same tool call until a terminal outcome;
+      no immediate `terminate` result or later resume turn is created.
+- [ ] No pending outbound Request returns immediate nonterminating all-settled;
+      validation, lifecycle, and one-wait capacity failures are actionable.
+- [ ] Response, offline, response-after-idle timeout, and max-wait timeout each
+      resolve exactly once; malformed state cannot consume the waiter.
+- [ ] FIFO ordering and full Response message plus ordered instructions are
+      preserved in the direct result.
+- [ ] Timeout and offline results contain approved actionable recovery without
       automatic side effects or inferred task state.
-- [x] Busy-run terminal delivery remains queued as Follow-up and idle-run
-      delivery remains Steering; neither duplicates or loses outcome.
-- [x] Cancellation, abort, clear, Membership loss, and shutdown release exact
-      parked wait and prevent stale later resume.
-- [x] Remove unused auto-shaped shared event publication, event constants,
-      extension hooks, `AutoLoopStub` tests, and maintained auto-integration
-      claims without disturbing internal wait lifecycle.
-- [x] Repository search outside historical plans/reports contains no claim that
-      Bebop controls, pauses, or resumes `/auto`.
-- [x] Current terminal-only behavior remains authoritative; no requester-side
-      `still-pending` reminder or nonterminal wake is added.
-- [x] Focused unit/integration coverage, architecture/package checks, full gate,
-      fresh unchanged watcher fingerprint, and independent exact-head QA pass.
+- [ ] Abort and bounded safeguards release the blocking call while preserving
+      request state; only one local waiter is active.
+- [ ] Existing send/response behavior, timers, first-terminal arbitration,
+      privacy, and nonblocking delegation remain unchanged.
+- [ ] Remove yielding registry, `crew-wait-resume` Request delivery, old wait
+      event constants/publication, AutoLoopStub tests, and stale `/auto` claims.
+- [ ] Focused unit/integration coverage, architecture/package checks, full gate,
+      fresh watcher fingerprint, and independent exact-head QA pass.
 
 ## Constraints
 
@@ -151,17 +138,15 @@ experimental TASK-0144 requester-side `still-pending` wake/re-wait loop.
 
 ## Verification
 
-- Independent exact-head QA: watcher generation 43 passed `@agent-final` at
-  commit `64fe44c2f7102d88adf1e6d360752666c7cd2a89`, with a clean unchanged
-  worktree fingerprint.
-- Focused wait/request tests, formatting, typecheck, architecture/package checks,
-  and the full gate passed before closure.
+- Previous terminate-based implementation and independent QA at
+  `64fe44c2f7102d88adf1e6d360752666c7cd2a89` are superseded by this refined
+  blocking-wait contract.
+- Fresh focused coverage and exact-head QA are required after implementation.
 
 ## Evidence
 
-- The pre-fix tool result had `terminate: undefined`; Pi terminates post-tool
-  continuation only when every finalized batch result has `terminate: true`.
-- Current `dev` is terminal-only; experimental TASK-0144 contains the separate
-  `still-pending` behavior and is not the contract for this task.
-- Real `pi-auto` had no consumer for Bebop's five wait events; the removed
-  in-repository handshake was only a test stub.
+- The previous implementation returned `terminate: true` and later
+  `crew-wait-resume`; product review rejected that execution shape in favor of
+  a blocking call like `wait_for_member_idle`.
+- Real `pi-auto` had no consumer for Bebop's old five wait events; `/auto` stays
+  outside this task.

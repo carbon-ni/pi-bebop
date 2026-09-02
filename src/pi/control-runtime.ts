@@ -1005,8 +1005,7 @@ export function emitTurnEnd(state: SocketState, event: TurnEndEvent, ctx: Extens
  * blocking-idle-wait listener claims `message-received` (cancelling the remote
  * idle subscription) and the unchanged message keeps its original
  * Follow-up/Redirect mode and FIFO position. Redirect is a wake but not FIFO.
- * A Response arriving only on its request-scoped RPC channel is NOT a wake;
- * its later crew-wait-resume model delivery is.
+ * A Response arriving on its request-scoped RPC channel is not a wake.
  */
 export function notifyAcceptedMessage(state: SocketState, deliveryId: string): void {
 	// Null-safe: partial-state consumers (tests) without a wake gate are a no-op.

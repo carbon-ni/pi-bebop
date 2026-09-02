@@ -97,7 +97,7 @@ project socket paths.
 
 | Tool                  | Use when                                                | Guarantee                                                                                                               |
 | --------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `send_member_request` | you need one correlated answer, report, or verdict      | exactly one Response, offline, timeout-after-idle, or timeout-max-wait — you resume via a later `crew-wait-resume` turn |
+| `send_member_request` | you need one correlated answer, report, or verdict      | accepted delivery; call `wait_for_request_outcome` to block until the terminal outcome |
 | `send_follow_up`      | ordinary information                                    | accepted delivery only; no correlated Response expected                                                                 |
 | `redirect_member`     | change what a member is doing next                      | steered before the target's next model step; never aborts                                                               |
 | `send_to_inbox`       | the peer may be offline                                 | persisted durably; read later as a normal follow-up                                                                     |
@@ -108,8 +108,8 @@ project socket paths.
 Bebop message releases the wait under its original delivery mode. A waking message is consumed immediately in the next model continuation;
 message-received never implies idle or completion. Call this coordination wait alone, not in a parallel tool batch, because its terminating
 result must be the only result in the batch. The bounded timeout is always the fallback.
-`wait_for_request_outcome` ends the current run and resumes in a later turn, so
-correlated Request outcome waits never deadlock.
+`wait_for_request_outcome` blocks the current tool call until the terminal
+outcome, so correlated Request outcome waits never deadlock.
 
 ## Boundaries
 

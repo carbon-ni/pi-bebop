@@ -3,13 +3,8 @@ import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createSocketState } from "../pi/control-runtime.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
-import { MAX_YIELDING_WAITS, YieldingWaitRegistry } from "../domain/index.ts";
-import { YieldingWaitRuntime } from "../pi/wait-resume.ts";
-import {
-	registerSendMemberRequestTool,
-	registerRespondToMemberRequestTool,
-	registerWaitForRequestOutcomeTool,
-} from "./member-request.ts";
+import { RequestOutcomeRegistry } from "../domain/index.ts";
+import { registerWaitForRequestOutcomeTool } from "./member-request.ts";
 
 type Tool = { name: string; description: string; execute: (...args: any[]) => Promise<any> };
 
@@ -29,169 +24,146 @@ function setup() {
 			respond: async () => undefined,
 		},
 	});
-	const delivered: Array<{ content: string; deliverAs: string }> = [];
-	let waitSequence = 0;
-	const yieldRuntime = new YieldingWaitRuntime({
-		registry: new YieldingWaitRegistry(),
-		deliver: (message) => delivered.push({ content: message.content, deliverAs: message.deliverAs }),
-		isRunIdle: () => true,
-		now: () => 1_000,
-		createId: () => `wait-${waitSequence++}`,
-	});
-	return { tools, state, pi, yieldRuntime, delivered };
+	registerWaitForRequestOutcomeTool(pi, state);
+	return { tools, state, pi };
 }
 
-test("coordination tools are distinct from accepted-only follow-up vocabulary", () => {
-	const { tools, state, pi, yieldRuntime } = setup();
-	registerSendMemberRequestTool(pi, state);
-	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
-	assert.deepEqual(
-		[...tools.keys()],
-		["send_member_request", "respond_to_member_request", "wait_for_request_outcome"],
-	);
-	assert.match(tools.get("send_member_request")!.description, /requiring.*response/i);
-	assert.match(tools.get("send_member_request")!.description, /send_follow_up/i);
-	assert.match(tools.get("respond_to_member_request")!.description, /correlated/i);
-	assert.equal(tools.get("send_member_request")!.label, "Send Member Request");
-	assert.equal(tools.get("respond_to_member_request")!.label, "Respond to Member Request");
-	assert.equal(tools.get("wait_for_request_outcome")!.label, "Wait for Request Outcome");
-	assert.match(tools.get("wait_for_request_outcome")!.description, /oldest terminal outbound Request outcome/i);
-	assert.match(tools.get("wait_for_request_outcome")!.description, /does not poll/i);
-	assert.equal(
-		[...tools.keys()].some(
-			(name) => name === ["request", "member"].join("_") || name === ["wait", "for", "crew", "update"].join("_"),
-		),
-		false,
-	);
+function registerAccepted(state: ReturnType<typeof createSocketState>, requestId = "active") {
+	const registry = state.memberRequestFlow!.registry;
+	registry.registerOutbound({ requestId, member: { name: "qa", role: "reviewer" }, now: 1_000 });
+	registry.acceptOutbound(requestId);
+	return registry;
+}
+
+test("request outcome waiting is blocking and distinct from accepted-only follow-up vocabulary", () => {
+	const { tools } = setup();
+	const wait = tools.get("wait_for_request_outcome")!;
+	assert.equal(wait.label, "Wait for Request Outcome");
+	assert.match(wait.description, /oldest terminal outbound Request outcome/i);
+	assert.match(wait.description, /block this tool call/i);
+	assert.match(wait.description, /bounded wait is cancellable/i);
+	assert.doesNotMatch(wait.description, /crew-wait-resume|yields the run/i);
 });
 
-test("TASK-0076: request tools make Requester/Responder roles structurally explicit", () => {
-	const { tools, state, pi, yieldRuntime } = setup();
-	registerSendMemberRequestTool(pi, state);
-	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
-	const send = tools.get("send_member_request")!.description;
-	const respond = tools.get("respond_to_member_request")!.description;
-	const wait = tools.get("wait_for_request_outcome")!.description;
-	// Requester-side send: recommended for any message whose sender requires one answer/report/verdict/evidence.
-	assert.match(send, /requester-side/i);
-	assert.match(send, /one answer, report, verdict, or evidence response/i);
-	// Responder-side respond: only for an inbound Member request.
-	assert.match(respond, /responder-side/i);
-	assert.match(respond, /inbound Member request/i);
-	assert.doesNotMatch(respond, /requester|wait_for_request_outcome/);
-	// Requester-only wait: call only after the current member sent a Member request; never inbound handling.
-	assert.match(wait, /requester-side/i);
-	assert.match(wait, /only after you sent a Member request/i);
-	assert.match(wait, /never handles inbound/i);
-});
-
-test("TASK-0151: empty wait succeeds as all-settled without terminating the run", async () => {
-	const { tools, state, pi, yieldRuntime } = setup();
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
+test("TASK-0151: empty wait succeeds as all-settled without blocking", async () => {
+	const { tools } = setup();
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
 	assert.equal(result.isError, undefined);
-	assert.equal(result.terminate, undefined, "all-settled success must not terminate the run");
+	assert.equal(result.terminate, undefined);
 	assert.deepEqual(result.details, { pending_count: 0 });
 	assert.match(String(result.content[0]?.text ?? ""), /all.*settled/i);
 });
 
-test("TASK-0077: abort cancels the parked wait and never resumes; request state survives", async () => {
-	const { tools, state, pi, yieldRuntime, delivered } = setup();
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
-	state.memberRequestFlow!.registry.registerOutbound({
-		requestId: "active",
-		member: { name: "qa", role: "reviewer" },
-		now: 1_000,
-	});
-	const controller = new AbortController();
-	const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, controller.signal);
-	controller.abort();
-	const result = await pending;
-	assert.equal(result.isError, undefined, "yielded result, not an abort error");
-	assert.equal(result.details.yielded, true);
-	assert.equal(result.terminate, true, "a parked wait must terminate the current run");
-	assert.equal(state.memberRequestFlow!.registry.outboundCount(), 1, "request state preserved");
-	assert.equal(delivered.length, 0, "aborted wait must never resume");
-});
-
-test("TASK-0151: all-settled wait does not create parked wait state", async () => {
-	const { tools, state, pi, yieldRuntime } = setup();
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
-	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.isError, undefined);
-	assert.equal(result.details.pending_count, 0);
-	assert.equal(yieldRuntime.queuedCount(), 0);
-	assert.equal(yieldRuntime.startedCount(), 0);
-});
-
-test("TASK-0151: lifecycle failure is actionable and nonterminating", async () => {
-	const { tools, state, pi, yieldRuntime } = setup();
-	state.memberRequestFlow = undefined;
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
-	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.isError, true);
-	assert.equal(result.details.error, "wait-failed");
-	assert.equal(result.terminate, undefined);
-});
-
-test("TASK-0151: capacity rejection is actionable and nonterminating", async () => {
-	const { tools, state, pi, yieldRuntime } = setup();
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
-	state.memberRequestFlow!.registry.registerOutbound({
-		requestId: "active",
-		member: { name: "qa", role: "reviewer" },
-		now: 1_000,
-	});
-	for (let index = 0; index < MAX_YIELDING_WAITS; index += 1) {
-		assert.equal(yieldRuntime.park({ kind: "member-idle", target: `member-${index}`, sessionId: "s1" }).ok, true);
-	}
-	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.isError, true);
-	assert.equal(result.details.error, "capacity");
-	assert.equal(result.terminate, undefined);
-});
-
-test("TASK-0080-fix: the wait tool forwards the FULL Response (message + ordered instructions) to the resume", async () => {
-	const { tools, state, pi, yieldRuntime, delivered } = setup();
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
-	const registry = state.memberRequestFlow!.registry;
-	registry.registerOutbound({ requestId: "active", member: { name: "qa", role: "reviewer" }, now: 1_000 });
-	registry.acceptOutbound("active");
-	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.details.yielded, true, "tool yields immediately");
-	assert.equal(result.terminate, true, "a successful sole wait terminates the current run");
-	assert.equal(delivered.length, 0);
-	// The responder's correlated Response arrives on the request channel.
+test("TASK-0151: wait blocks the same tool call until a terminal Response arrives", async () => {
+	const { tools, state } = setup();
+	const registry = registerAccepted(state);
+	let settled = false;
+	const pending = tools
+		.get("wait_for_request_outcome")!
+		.execute("id", {}, new AbortController().signal)
+		.then((result) => {
+			settled = true;
+			return result;
+		});
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(settled, false, "the wait remains blocked while the request is active");
 	registry.resolveResponse({
 		requestId: "active",
 		member: { name: "qa", role: "reviewer" },
 		message: "Evidence attached: 3 findings",
 		instructions: ["review finding 1", "confirm gate"],
 	});
-	assert.equal(delivered.length, 1, "Response resumes the parked wait exactly once");
-	assert.match(delivered[0]!.content, /request-outcome active: response/);
-	assert.match(delivered[0]!.content, /Evidence attached: 3 findings/);
-	assert.match(delivered[0]!.content, /1\. review finding 1/);
-	assert.match(delivered[0]!.content, /2\. confirm gate/);
+	const result = await pending;
+	assert.equal(result.isError, undefined);
+	assert.equal(result.terminate, undefined);
+	assert.equal(result.details.result.kind, "response");
+	assert.match(String(result.content[0]?.text ?? ""), /Evidence attached: 3 findings/);
+	assert.match(String(result.content[0]?.text ?? ""), /1\. review finding 1/);
+	assert.match(String(result.content[0]?.text ?? ""), /2\. confirm gate/);
 	assert.equal(registry.outboundCount(), 0);
 });
 
-test("TASK-0080: buffered post-idle grace timeout resumes once via the runtime, never twice", async () => {
-	const { tools, state, pi, yieldRuntime, delivered } = setup();
-	registerWaitForRequestOutcomeTool(pi, state, yieldRuntime);
+test("TASK-0151: terminal outcomes resolve the blocked call with actionable recovery", async () => {
+	const cases = [
+		{
+			requestId: "offline",
+			resolve: (registry: RequestOutcomeRegistry) => registry.resolveOffline("offline"),
+			phrases: ["offline", "reassign", "send_to_inbox"],
+		},
+		{
+			requestId: "idle-timeout",
+			resolve: (registry: RequestOutcomeRegistry) => {
+				registry.armOutboundIdle("idle-timeout");
+				return registry.resolveTimeout("idle-timeout", "response-after-idle");
+			},
+			phrases: ["settled without a Response", "send a new send_member_request"],
+		},
+		{
+			requestId: "hard-timeout",
+			resolve: (registry: RequestOutcomeRegistry) => registry.resolveTimeout("hard-timeout", "max-wait"),
+			phrases: ["safety deadline", "Member Status", "send_to_inbox", "redirect_member"],
+		},
+	] as const;
+	for (const scenario of cases) {
+		const { tools, state } = setup();
+		const registry = registerAccepted(state, scenario.requestId);
+		const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+		await new Promise((resolve) => setImmediate(resolve));
+		scenario.resolve(registry);
+		const result = await pending;
+		assert.equal(result.details.result.requestId, scenario.requestId);
+		const text = String(result.content[0]?.text ?? "");
+		for (const phrase of scenario.phrases) assert.match(text, new RegExp(phrase, "i"));
+	}
+});
+
+test("TASK-0151: buffered terminal outcome resolves immediately in FIFO order", async () => {
+	const { tools, state } = setup();
 	const registry = state.memberRequestFlow!.registry;
-	registry.registerOutbound({ requestId: "idle-1", member: { name: "qa", role: "reviewer" }, now: 1_000 });
-	registry.acceptOutbound("idle-1");
-	registry.armOutboundIdle("idle-1");
-	registry.resolveTimeout("idle-1", "response-after-idle"); // buffered before the wait parks
+	registerAccepted(state, "first");
+	registerAccepted(state, "second");
+	registry.resolveOffline("first");
+	registry.resolveOffline("second");
+	const first = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	const second = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(first.details.result.requestId, "first");
+	assert.equal(second.details.result.requestId, "second");
+});
+
+test("TASK-0151: abort releases the blocked waiter without changing request state", async () => {
+	const { tools, state } = setup();
+	const registry = registerAccepted(state);
+	const controller = new AbortController();
+	const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, controller.signal);
+	await new Promise((resolve) => setImmediate(resolve));
+	controller.abort();
+	const result = await pending;
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "aborted");
+	assert.equal(result.terminate, undefined);
+	assert.equal(registry.outboundCount(), 1);
+	const released = registry.waitForUpdate(() => undefined);
+	assert.equal(released.ok, true);
+	if (released.ok && released.kind === "waiting") released.cancel();
+});
+
+test("TASK-0151: only one blocked waiter is allowed", async () => {
+	const { tools, state } = setup();
+	const registry = registerAccepted(state);
+	const first = tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	await new Promise((resolve) => setImmediate(resolve));
+	const second = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(second.isError, true);
+	assert.equal(second.details.error, "already-waiting");
+	registry.resolveOffline("active");
+	const result = await first;
+	assert.equal(result.details.result.kind, "offline");
+});
+
+test("TASK-0151: missing flow is actionable and nonblocking", async () => {
+	const { tools, state } = setup();
+	state.memberRequestFlow = undefined;
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.isError, undefined);
-	assert.equal(result.details.yielded, true, "tool yields immediately");
-	assert.equal(result.terminate, true, "a buffered terminal outcome still ends this run");
-	assert.equal(delivered.length, 1, "buffered outcome resumes exactly once");
-	assert.match(delivered[0]!.content, /timeout:response-after-idle/);
-	assert.equal(delivered[0]!.deliverAs, "steer");
-	assert.equal(registry.outboundCount(), 0);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "wait-failed");
 });
