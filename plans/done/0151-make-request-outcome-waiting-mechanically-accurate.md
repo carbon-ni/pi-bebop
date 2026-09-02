@@ -98,35 +98,35 @@ experimental TASK-0144 requester-side `still-pending` wake/re-wait loop.
 
 ## Acceptance criteria
 
-- [ ] Tests first prove current successful wait returns no `terminate` flag and
+- [x] Tests first prove current successful wait returns no `terminate` flag and
       permits Pi's automatic post-tool model continuation.
-- [ ] A successful sole `wait_for_request_outcome` result returns
+- [x] A successful sole `wait_for_request_outcome` result returns
       `terminate: true` and Pi performs no further model step in that run.
-- [ ] Parallel-batch coverage documents Pi's all-results-must-terminate rule;
+- [x] Parallel-batch coverage documents Pi's all-results-must-terminate rule;
       tool description and guidance say to call this wait alone.
-- [ ] `all-settled`, validation failure, capacity failure, and rejected park do
+- [x] `all-settled`, validation failure, capacity failure, and rejected park do
       not return a false terminating/yielded success.
-- [ ] Semantic duplicate park remains one-shot/idempotent with no duplicate
+- [x] Semantic duplicate park remains one-shot/idempotent with no duplicate
       listener, timer, outcome, or resume turn.
-- [ ] Response, offline, response-after-idle timeout, and max-wait timeout each
+- [x] Response, offline, response-after-idle timeout, and max-wait timeout each
       resume exactly once; malformed terminal payload cannot consume parked wait.
-- [ ] Buffered terminal outcome preserves oldest-first FIFO and is consumed
+- [x] Buffered terminal outcome preserves oldest-first FIFO and is consumed
       exactly once.
-- [ ] Response resume preserves complete message and ordered instructions.
-- [ ] Timeout and offline results contain approved actionable recovery without
+- [x] Response resume preserves complete message and ordered instructions.
+- [x] Timeout and offline results contain approved actionable recovery without
       automatic side effects or inferred task state.
-- [ ] Busy-run terminal delivery remains queued as Follow-up and idle-run
+- [x] Busy-run terminal delivery remains queued as Follow-up and idle-run
       delivery remains Steering; neither duplicates or loses outcome.
-- [ ] Cancellation, abort, clear, Membership loss, and shutdown release exact
+- [x] Cancellation, abort, clear, Membership loss, and shutdown release exact
       parked wait and prevent stale later resume.
-- [ ] Remove unused auto-shaped shared event publication, event constants,
+- [x] Remove unused auto-shaped shared event publication, event constants,
       extension hooks, `AutoLoopStub` tests, and maintained auto-integration
       claims without disturbing internal wait lifecycle.
-- [ ] Repository search outside historical plans/reports contains no claim that
+- [x] Repository search outside historical plans/reports contains no claim that
       Bebop controls, pauses, or resumes `/auto`.
-- [ ] Current terminal-only behavior remains authoritative; no requester-side
+- [x] Current terminal-only behavior remains authoritative; no requester-side
       `still-pending` reminder or nonterminal wake is added.
-- [ ] Focused unit/integration coverage, architecture/package checks, full gate,
+- [x] Focused unit/integration coverage, architecture/package checks, full gate,
       fresh unchanged watcher fingerprint, and independent exact-head QA pass.
 
 ## Constraints
