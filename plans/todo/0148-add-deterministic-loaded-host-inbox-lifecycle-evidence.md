@@ -1,7 +1,7 @@
 ---
 id: TASK-0148
 title: Add deterministic loaded-host Inbox lifecycle evidence
-status: todo
+status: doing
 depends_on: [TASK-0129, TASK-0147]
 priority: high
 tags: [crew, inbox, broadcast, lifecycle, integration, qa]
