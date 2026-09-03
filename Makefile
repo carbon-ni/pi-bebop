@@ -28,7 +28,7 @@ security-check:
 
 hooks-install:
 	git config core.hooksPath .githooks
-	chmod +x .githooks/pre-commit .githooks/pre-push .githooks/commit-msg
+	chmod +x .githooks/pre-commit .githooks/pre-push .githooks/commit-msg .githooks/run-check
 
 hooks-uninstall:
 	git config --unset core.hooksPath || true
