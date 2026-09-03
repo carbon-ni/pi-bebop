@@ -199,6 +199,8 @@ export function sessionMessageKind(message: unknown): SessionMessageKind {
 	const payload = (details as { messagePayload?: unknown }).messagePayload;
 	if (payload && isMessagePayload(payload)) {
 		switch (payload.kind) {
+			case "member request":
+				return "member-request";
 			case "redirect":
 				return "redirect";
 			case "interrupt":
