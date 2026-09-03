@@ -86,7 +86,7 @@ interface SessionHarness {
 	offeredItemIds(): string[];
 }
 
-function session(crew: Awaited<ReturnType<typeof makeCrew>>, memberName: string): SessionHarness {
+function session(crew: Awaited<ReturnType<typeof makeCrew>>, memberName: string, deliveredAt = 5_000): SessionHarness {
 	const entries: Array<Record<string, unknown>> = [];
 	const sent: Array<{ message: Record<string, unknown>; options?: Record<string, unknown> }> = [];
 	const pi = {
@@ -112,7 +112,7 @@ function session(crew: Awaited<ReturnType<typeof makeCrew>>, memberName: string)
 		},
 	} as unknown as SocketState;
 	const membership = membershipFor(crew, memberName);
-	const bridge = createInboxBridgeController(pi, state, { now: () => 5_000 });
+	const bridge = createInboxBridgeController(pi, state, { now: () => deliveredAt });
 	return {
 		entries,
 		sent,
@@ -143,10 +143,11 @@ async function enqueueFor(
 	senderName: string,
 	targetName: string,
 	message: string,
+	now = 3_000,
 ) {
 	const membership = membershipFor(crew, senderName);
 	const outcome = await enqueueMemberInboxMessage(
-		{ membership: membership as never, member: targetName, message, now: 3_000 },
+		{ membership: membership as never, member: targetName, message, now },
 		{
 			isProjectTrusted: () => true,
 			openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
@@ -189,6 +190,21 @@ test("offline enqueue reaches a later-joining peer as one follow-up, then the it
 	const next = await recipient.bridge.attemptOffer();
 	assert.deepEqual(next, { offered: false, reason: "no-items" });
 	assert.equal(await (await storeFor(crew, "developer")).count(), 0);
+});
+
+test("hours-old Inbox retry keeps original enqueue age and exact header", async (t) => {
+	const crew = await makeCrew();
+	t.after(crew.cleanup);
+	await enqueueFor(crew, "lead", "developer", "old durable message", 0);
+	const deliveredAt = 86_400_000 + 3 * 3_600_000;
+	const first = session(crew, "developer", deliveredAt);
+	first.bridge.establish(ownershipFromMembership(first.membership));
+	assert.equal((await first.bridge.attemptOffer()).offered, true);
+	assert.match(String(first.sent[0]!.message.content), /^\[inbox\] from lead \(lead\) · age at delivery 1d 3h\n/);
+	const second = session(crew, "developer", deliveredAt);
+	second.bridge.establish(ownershipFromMembership(second.membership));
+	assert.equal((await second.bridge.attemptOffer()).offered, true);
+	assert.match(String(second.sent[0]!.message.content), /age at delivery 1d 3h/);
 });
 
 test("a live follow-up accepted before the inbox handoff keeps FIFO position; inbox never redirects", async (t) => {
