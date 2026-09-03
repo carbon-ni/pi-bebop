@@ -53,14 +53,19 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 
 ## Transport language
 
-| Canonical term      | Definition                                                                     | Avoid                                    |
-| ------------------- | ------------------------------------------------------------------------------ | ---------------------------------------- |
-| **Runtime socket**  | Global Unix socket owned by one running Bebop session.                         | member endpoint                          |
-| **Endpoint claim**  | Safe publication of member endpoint to current runtime socket.                 | registration, authentication             |
-| **Origin**          | Claimed attribution attached to message; never proof of identity or authority. | sender authentication                    |
-| **Delivery intent** | Internal choice between follow-up and redirect semantics.                      | mode in product-facing APIs              |
-| **Disposition**     | Acknowledged delivery outcome: direct, queued, or redirected.                  | status without qualification             |
-| **Presence hint**   | Untrusted request that causes peer to probe member endpoint.                   | join event, authoritative presence event |
+| Canonical term      | Definition                                                                                                                                        | Avoid                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **Runtime socket**  | Global Unix socket owned by one running Bebop session.                                                                                            | member endpoint                          |
+| **Endpoint claim**  | Safe publication of member endpoint to current runtime socket.                                                                                    | registration, authentication             |
+| **Origin**          | Claimed attribution attached to message; never proof of identity or authority.                                                                    | sender authentication                    |
+| **Sent time**       | Source-owned instant when transient delivery starts or a durable message is enqueued; delivery metadata, never caller-supplied content.           | created time, caller timestamp           |
+| **Delivered time**  | Recipient-owned instant when Bebop hands a message to Pi for model-visible delivery; not socket acknowledgement or proof the model understood it. | acknowledged, read time                  |
+| **Age at delivery** | Frozen nonnegative elapsed time from Sent time to Delivered time; replay does not increase it.                                                    | stale threshold, live age                |
+| **Request age**     | Frozen nonnegative elapsed time from accepted Member request to correlated Response receipt; it describes request context, not task completion.   | response transit time, completion age    |
+| **Stale**           | Contextual relevance judgment made by the receiving agent or user; Bebop supplies age evidence but never classifies, drops, or reorders messages. | expired, obsolete, TTL                   |
+| **Delivery intent** | Internal choice between follow-up and redirect semantics.                                                                                         | mode in product-facing APIs              |
+| **Disposition**     | Acknowledged delivery outcome: direct, queued, or redirected.                                                                                     | status without qualification             |
+| **Presence hint**   | Untrusted request that causes peer to probe member endpoint.                                                                                      | join event, authoritative presence event |
 
 ## Recommended agent-facing verbs
 
