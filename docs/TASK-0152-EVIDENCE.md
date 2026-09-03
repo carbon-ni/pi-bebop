@@ -56,6 +56,8 @@ classification, expiry, drop, reorder, retry, or automatic response policy.
 
 ## Verification status
 
-Current implementation head at the time of this record is kept in Git history.
-The dedicated multi-runtime test must be included in a fresh watcher run before
-independent exact-head QA. TASK-0152 remains open.
+Current implementation head is `e960bfe`. The dedicated multi-runtime test and
+all focused acceptance tests pass. Fresh watcher verification generation 224
+passed `npm test && npm run format:check && npm run lint && make all` with
+fingerprint `35875274d1a7`. TASK-0152 remains open pending independent exact-head
+QA.
