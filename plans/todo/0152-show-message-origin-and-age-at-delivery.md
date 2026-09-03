@@ -24,7 +24,8 @@ age threshold would silently discard valid communication.
 
 ## Desired outcome
 
-Every Bebop message that enters model context starts with one compact header:
+Every Bebop message that enters model context starts with one compact
+provenance-and-timing header. Ordinary deliveries show frozen Age at delivery:
 
 ```text
 [follow-up] from Mony (lead) · age at delivery 2h 14m
@@ -37,7 +38,15 @@ Every Bebop message that enters model context starts with one compact header:
 External Origin remains visibly unverified:
 
 ```text
-[inbox] from jira-automation (unverified) · age at delivery 1d 3h
+[external intake] from jira-automation (unverified) · age at delivery 1d 3h
+```
+
+A correlated Response instead shows Request age because that exposes how old
+the request context is; Response delivery age would usually be near zero and
+would hide the risk demonstrated by a late response:
+
+```text
+[member response] from Dave (dev) · request age 1d 3h · request request_123
 ```
 
 The header gives the receiving agent enough evidence to accept, re-check, or
@@ -53,6 +62,9 @@ changes delivery order, or infers that its work is still relevant.
   model understood the content.
 - **Age at delivery** — nonnegative elapsed time from Sent time to Delivered
   time, frozen when delivered. It does not increase when history is replayed.
+- **Request age** — nonnegative elapsed time from accepted Member Request to
+  correlated Response receipt, frozen when outcome is returned. It describes
+  request-context age, not Response transit time or completion.
 - **Stale** — a contextual judgment made by receiving agent or user. Bebop
   provides age evidence but never computes a stale/not-stale classification.
 
@@ -63,8 +75,14 @@ spread across protocol, storage, and renderers.
 
 ### Header
 
-- Model-visible header includes semantic message kind, Origin, and Age at
-  delivery before message content.
+- Model-visible header includes canonical semantic message kind, Origin, and
+  timing evidence before message content.
+- Canonical kinds are exactly `follow-up`, `member request`, `redirect`,
+  `interrupt`, `inbox`, `broadcast`, `external intake`, and `member response`.
+  Kind describes source intent; durable storage does not silently turn a
+  Broadcast or external Intake into an Inbox message.
+- All kinds except `member response` show `age at delivery`; `member response`
+  shows `request age` because that is the relevant stale-context evidence.
 - Crew Origin renders `from <name> (<role>)`.
 - External Origin renders `from <label> (unverified)` because attribution is
   never authentication.
@@ -85,9 +103,10 @@ spread across protocol, storage, and renderers.
   Sent time across restart; do not reset age when offering or retrying delivery.
 - Recipient captures Delivered time from injected Clock at Bebop-to-Pi model
   handoff, not at socket acknowledgement.
-- Correlated Response reports elapsed Request age from accepted Request to
-  Response receipt using existing Request lifecycle time; wording remains
-  Response received, never task completed.
+- Correlated Response captures Request age from accepted Request to Response
+  receipt using existing Request lifecycle time. It does not substitute the
+  usually-near-zero Response delivery age; wording remains Response received,
+  never task completed.
 - Timestamp metadata is finite nonnegative integer epoch milliseconds within
   safe numeric bounds. Invalid, missing, future, or overflowed timing produces
   `age at delivery unavailable`; never clamp to a misleading zero or emit a
@@ -95,7 +114,8 @@ spread across protocol, storage, and renderers.
 
 ### Deterministic formatting
 
-Age is formatted by one pure helper from a frozen elapsed millisecond value:
+Age at delivery and Request age use one pure formatter from a frozen elapsed
+millisecond value:
 
 - below 1 second: `<1s`;
 - below 1 minute: whole seconds;
@@ -108,16 +128,18 @@ timezone-independent, and never calls current time internally.
 
 ### Surfaces
 
-Apply the same envelope semantics to all model-bound Bebop communication:
+Apply the same provenance-and-timing envelope to all model-bound Bebop
+communication, using these exact kind labels:
 
-- Follow-up;
-- Member Request;
-- Redirect;
-- Interrupt recovery;
-- durable Inbox handoff;
-- Crew Broadcast handoff;
-- external Crew Intake handoff;
-- correlated Response returned by `wait_for_request_outcome`.
+- `[follow-up]` for Follow-up;
+- `[member request]` for Member Request;
+- `[redirect]` for Redirect;
+- `[interrupt]` for Interrupt recovery;
+- `[inbox]` for a direct durable Inbox handoff;
+- `[broadcast]` for Crew Broadcast, including durable handoff;
+- `[external intake]` for external Crew Intake, including durable handoff;
+- `[member response]` for correlated Response returned by
+  `wait_for_request_outcome`.
 
 Presence, Member Status, roster, control notifications, CLI help, and internal
 protocol diagnostics are not messages and do not receive this header.
@@ -136,8 +158,9 @@ protocol diagnostics are not messages and do not receive this header.
 
 - [ ] TDD first characterizes current Origin rendering and missing timing on
       happy paths, then adds new contract.
-- [ ] `UL.md` defines Sent time, Delivered time, Age at delivery, and Stale with
-      explicit attribution/authentication and relevance boundaries.
+- [ ] `UL.md` defines Sent time, Delivered time, Age at delivery, Request age,
+      and Stale with explicit attribution/authentication and relevance
+      boundaries.
 - [ ] One pure formatter covers every duration bucket and exact boundary,
       invalid value, overflow, future timestamp, and clock-skew path using fake
       clocks only.
@@ -154,9 +177,10 @@ protocol diagnostics are not messages and do not receive this header.
       than offer time.
 - [ ] Broadcast and external Intake reuse durable timing semantics without
       generating one new Sent time per recipient or retry.
-- [ ] Correlated Response direct tool result includes configured Member Origin
-      and deterministic Request age while preserving full message and ordered
-      instructions.
+- [ ] Correlated Response direct tool result uses the exact `[member response]`
+      header with configured Member Origin, deterministic `request age`, and
+      opaque Request ID while preserving full message and ordered instructions;
+      it does not report misleading Response `age at delivery`.
 - [ ] TUI collapsed/expanded renderers and model-visible content use typed
       metadata consistently; replay does not increase frozen age.
 - [ ] Missing/legacy timing remains deliverable and visibly says age unavailable;
