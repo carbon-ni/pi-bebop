@@ -89,7 +89,10 @@ describe("createInterruptFlow", () => {
 		};
 		await flow.interrupt(payload);
 		const pending = surface.getEntries()[0] as { data: { sentAt?: number } };
+		const handed = surface.getEntries()[1] as { data: { sentAt?: number; deliveredAt?: number } };
 		assert.equal(pending.data.sentAt, 3_000);
+		assert.equal(handed.data.sentAt, 3_000);
+		assert.equal(handed.data.deliveredAt, 5_000);
 		assert.equal((delivered?.details as { messagePayload: MessagePayload }).messagePayload.sentAt, 3_000);
 
 		const recovered = makeSurface({
