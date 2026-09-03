@@ -6,6 +6,28 @@ export interface MessageClock {
 /** Model-visible fallback for missing, malformed, future, or overflowing timing. */
 export const UNAVAILABLE_MESSAGE_AGE = "unavailable";
 
+/** Closed semantic labels for every model-bound Bebop message surface. */
+export const MESSAGE_KINDS = [
+	"follow-up",
+	"member request",
+	"redirect",
+	"interrupt",
+	"inbox",
+	"broadcast",
+	"external intake",
+	"member response",
+] as const;
+export type MessageKind = (typeof MESSAGE_KINDS)[number];
+
+export interface MessageHeaderInput {
+	readonly kind: MessageKind;
+	readonly origin?:
+		| { readonly kind: "crew"; readonly name: string; readonly role: string }
+		| { readonly kind: "external"; readonly label: string };
+	readonly elapsedMs?: number;
+	readonly requestId?: string;
+}
+
 const isEpochMilliseconds = (value: number): boolean =>
 	Number.isSafeInteger(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER;
 
@@ -38,4 +60,20 @@ export function formatMessageAge(elapsedMs: number): string {
 export function formatMessageAgeBetween(sentAt: number, deliveredAt: number): string {
 	const elapsed = elapsedMessageMilliseconds(sentAt, deliveredAt);
 	return elapsed === null ? UNAVAILABLE_MESSAGE_AGE : formatMessageAge(elapsed);
+}
+
+function formatHeaderOrigin(origin: MessageHeaderInput["origin"]): string {
+	if (!origin) return "from unknown";
+	return origin.kind === "crew" ? `from ${origin.name} (${origin.role})` : `from ${origin.label} (unverified)`;
+}
+
+/** Formats the compact, model-visible provenance and timing header. */
+export function formatMessageHeader(input: MessageHeaderInput): string {
+	const age = formatMessageAge(input.elapsedMs ?? -1);
+	const timing = input.kind === "member response" ? `request age ${age}` : `age at delivery ${age}`;
+	const request =
+		(input.kind === "member request" || input.kind === "member response") && input.requestId
+			? ` · request ${input.requestId}`
+			: "";
+	return `[${input.kind}] ${formatHeaderOrigin(input.origin)} · ${timing}${request}`;
 }
