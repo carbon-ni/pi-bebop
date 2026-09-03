@@ -1,18 +1,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { MessagePayloadSchema } from "../domain/index.ts";
-import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import { submitCrewBroadcast } from "../application/crew-broadcast.ts";
+import type { BroadcastMessageDependencies } from "../application/crew-broadcast.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
 /**
- * broadcast_to_crew — durable, non-interrupting fan-out to every other member.
+ * broadcast_to_crew — transient, non-interrupting Follow-up fan-out.
  *
- * Internal, joined-members only: the tool is registered unconditionally but
- * only activated while joined (MEMBERSHIP_TOOLS in control-runtime), and the
- * application operation rejects without an active membership. No endpoint is
- * ever probed; every recipient gets an independent Inbox item replayed by the
- * normal TASK-0037 follow-up bridge. Never steers or redirects active work.
+ * Every other configured member is attempted in manifest order. The tool has
+ * no Inbox fallback, delivery mode, redirect, interrupt, or response option.
  */
 
 const parameters = Type.Object(
@@ -23,90 +20,59 @@ const parameters = Type.Object(
 	{ additionalProperties: false },
 );
 
-// details is intentionally `unknown` so every tool branch can declare its own shape.
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean; details: unknown };
 
 export function registerBroadcastToCrewTool(
 	pi: ExtensionAPI,
 	state: SocketState,
-	dependencies: { isProjectTrusted: () => boolean },
+	dependencies: BroadcastMessageDependencies,
 ): void {
 	pi.registerTool({
 		name: "broadcast_to_crew",
 		label: "Broadcast To Crew",
 		description:
-			"Durably send one non-interrupting message to every other configured crew member, in manifest order, whether they are online or not. Each recipient later receives it as a normal follow-up; it never interrupts or redirects active work and the sender is excluded. Use for shared team-wide information (for example an API contract change or a global constraint), not for work that should have a single owner — for a targeted message use send_follow_up or send_to_inbox for the specific member instead. No live delivery or response is implied; if a recipient's inbox is full that recipient is reported as failed, and retrying the same broadcast is safe and idempotent.",
+			"Send one transient, non-interrupting Broadcast Follow-up to every other configured crew member in manifest order. Each recipient is attempted independently; offline or rejected recipients are reported as failed and do not stop later deliveries. The sender is excluded. Broadcast never writes or falls back to Inbox, redirects active work, interrupts, or expects a Response. Use send_to_inbox for durable delivery to one member.",
 		parameters,
-		async execute(_toolCallId, params): Promise<ToolResult> {
-			const membership = (state.membershipRuntime?.getMembership() ?? null) as never;
+		async execute(_toolCallId, params, signal): Promise<ToolResult> {
+			const membership = state.membershipRuntime?.getMembership() ?? null;
 			try {
 				const result = await submitCrewBroadcast(
 					{
 						membership,
 						message: params.message,
 						instructions: params.instructions,
-						now: Date.now(),
+						signal,
 					},
-					{
-						isProjectTrusted: dependencies.isProjectTrusted,
-						openStore: async (options) =>
-							openTrustedMemberInboxStore({
-								manifestPath: options.manifestPath,
-								projectRoot: options.projectRoot,
-								isProjectTrusted: options.isProjectTrusted,
-								member: {
-									name: options.member.name,
-									role: options.member.role,
-									socketPath: options.member.socketPath,
-								},
-							}),
-					},
+					dependencies,
 				);
-
 				if (result.ok === false) {
 					const message =
 						result.code === "no-recipients"
 							? "Nothing to broadcast: you are the only configured member"
 							: "Cannot broadcast: sender is not a configured member";
-					return {
-						content: [{ type: "text", text: message }],
-						isError: true,
-						details: { error: result.code, broadcastId: result.broadcastId },
-					};
+					return { content: [{ type: "text", text: message }], isError: true, details: { error: result.code } };
 				}
-
+				const delivered = result.summary.delivered;
+				const failed = result.summary.failed;
 				const recipients = result.dispositions.map((disposition) => ({
 					member: disposition.recipientName,
 					role: disposition.recipientRole,
-					itemId: disposition.itemId,
-					disposition: disposition.status,
+					disposition: disposition.disposition,
+					...(disposition.deliveryId === undefined ? {} : { deliveryId: disposition.deliveryId }),
 					...(disposition.code === undefined ? {} : { code: disposition.code }),
 				}));
-
-				const { persisted, alreadyPersisted, failed } = result.summary;
-				if (failed > 0) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Persisted for ${persisted} of ${result.summary.total} recipients (${failed} failed, ${alreadyPersisted} already persisted); retry is safe and will not duplicate.`,
-							},
-						],
-						isError: true,
-						details: { broadcastId: result.broadcastId, ...result.summary, recipients },
-					};
-				}
-
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Persisted for ${persisted} recipient${persisted === 1 ? "" : "s"}${
-								alreadyPersisted > 0 ? ` (${alreadyPersisted} already persisted)` : ""
-							}`,
+							text:
+								failed === 0
+									? `Delivered to ${delivered} recipient${delivered === 1 ? "" : "s"}`
+									: `Delivered to ${delivered} of ${result.summary.total} recipients (${failed} failed)`,
 						},
 					],
-					details: { broadcastId: result.broadcastId, ...result.summary, recipients },
+					isError: failed > 0,
+					details: { ...result.summary, recipients },
 				};
 			} catch (error) {
 				const code =

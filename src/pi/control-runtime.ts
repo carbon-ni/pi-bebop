@@ -68,11 +68,7 @@ import {
 	MemberInboxMessageError,
 	type MemberInboxMessageDependencies,
 } from "../application/member-inbox-message.ts";
-import {
-	submitCrewBroadcast,
-	CrewBroadcastApplicationError,
-	type BroadcastStoreDependencies,
-} from "../application/crew-broadcast.ts";
+import { submitCrewBroadcast, CrewBroadcastApplicationError } from "../application/crew-broadcast.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import { writeMemberUpdateEvent } from "../infra/rpc-server.ts";
@@ -110,8 +106,6 @@ export interface SocketState {
 	memberMessageDependencies?: MemberMessageDependencies;
 	/** Injectable durable Inbox action dependencies (TASK-0064). */
 	memberInboxMessageDependencies?: MemberInboxMessageDependencies;
-	/** Injectable durable broadcast action dependencies (TASK-0064). */
-	broadcastStoreDependencies?: BroadcastStoreDependencies;
 	/** Correlated request/update lifecycle (TASK-0071). */
 	memberRequestFlow?: MemberRequestFlow;
 	/** Recipient-owned clock for freezing model-visible message age at handoff. */
@@ -541,20 +535,19 @@ export async function handleCommand(
 		return;
 	}
 
-	// Durable broadcast fan-out (TASK-0064): the existing application flow
-	// fixes broadcast and recipient ids before writes, persists in manifest
-	// order, and reports every recipient disposition without rollback claims.
+	// Live broadcast fan-out (TASK-0153): use the same ordinary Follow-up
+	// application seam as send_follow_up. Every recipient is attempted in
+	// manifest order; no Inbox store, fallback, redirect, or interrupt exists.
 	if (command.type === "crew_broadcast") {
+		if (state.context?.isProjectTrusted?.() !== true) {
+			respond(false, command.type, undefined, "untrusted-project");
+			return;
+		}
 		const membership = state.membershipRuntime?.getMembership() ?? null;
-		const dependencies = state.broadcastStoreDependencies ?? {
-			isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
-			openStore: async (options) =>
-				openTrustedMemberInboxStore({
-					manifestPath: options.manifestPath,
-					projectRoot: options.projectRoot,
-					isProjectTrusted: options.isProjectTrusted,
-					member: options.member,
-				}),
+		const dependencies = state.memberMessageDependencies ?? {
+			transport: { send: sendRpcCommand },
+			resolveEndpoint: resolveMemberEndpoint,
+			coordinator: createMemberMessageCoordinator(),
 		};
 		const controller = new AbortController();
 		const onDisconnect = () => controller.abort();
@@ -566,7 +559,6 @@ export async function handleCommand(
 					membership: membership as never,
 					message: command.message,
 					instructions: command.instructions,
-					now: state.now?.() ?? Date.now(),
 					signal: controller.signal,
 				},
 				dependencies,
@@ -575,12 +567,11 @@ export async function handleCommand(
 				respond(false, command.type, undefined, outcome.code);
 			} else {
 				respond(true, command.type, {
-					broadcastId: outcome.broadcastId,
 					dispositions: outcome.dispositions.map((item) => ({
 						member: item.recipientName,
 						role: item.recipientRole,
-						itemId: item.itemId,
-						disposition: item.status,
+						disposition: item.disposition,
+						...(item.deliveryId === undefined ? {} : { deliveryId: item.deliveryId }),
 						...(item.code === undefined ? {} : { code: item.code }),
 					})),
 					summary: outcome.summary,
@@ -588,7 +579,7 @@ export async function handleCommand(
 			}
 		} catch (error) {
 			if (error instanceof CrewBroadcastApplicationError) respond(false, command.type, undefined, error.code);
-			else respond(false, command.type, undefined, "storage-failed");
+			else respond(false, command.type, undefined, "transport-error");
 		} finally {
 			controller.abort();
 		}

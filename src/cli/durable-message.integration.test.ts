@@ -5,6 +5,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
+import { sendRpcCommand } from "../infra/rpc-client.ts";
+import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
+import { createMemberMessageCoordinator } from "../application/member-message.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import {
@@ -19,7 +22,7 @@ function context(): CliContext {
 	return { cwd: "/project", input: new PassThrough(), signal: new AbortController().signal };
 }
 
-test("durable Inbox and broadcast CLI leaves delegate over a real source dispatcher to trusted stores", async (t) => {
+test("Inbox CLI remains durable while Broadcast CLI leaves deliver live Follow-ups over real sockets", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-durable-cli-"));
 	const layout = path.join(root, ".pi", "bebop");
 	const manifestPath = path.join(layout, "crew.json");
@@ -59,15 +62,45 @@ test("durable Inbox and broadcast CLI leaves delegate over a real source dispatc
 		openStore: (options) => openTrustedMemberInboxStore(options),
 		hintTransport: null,
 	} as never;
-	state.broadcastStoreDependencies = {
-		isProjectTrusted: () => true,
-		openStore: (options) => openTrustedMemberInboxStore(options),
-	} as never;
+	const targetMessages = new Map<string, string[]>();
+	const targetServers = await Promise.all(
+		members.slice(1).map(async (member) => {
+			const targetState = createSocketState(() => 4_000);
+			targetState.server = {} as never;
+			targetState.membershipRuntime = {
+				getMembership: () => ({
+					manifestPath,
+					socketPath: member.socketPath,
+					member,
+					manifest: { members: [member] },
+				}),
+			} as never;
+			targetState.context = {
+				hasUI: false,
+				sessionManager: { getSessionId: () => member.name, getSessionName: () => null, getEntries: () => [] },
+				isIdle: () => true,
+				hasPendingMessages: () => false,
+				isProjectTrusted: () => true,
+			} as never;
+			const messages: string[] = [];
+			targetMessages.set(member.name, messages);
+			return createRpcServer(member.socketPath, (command, socket) =>
+				handleCommand({ sendMessage: (message: { content: string }) => messages.push(message.content) } as never, targetState, command, socket),
+			);
+		}),
+	);
+	state.memberMessageDependencies = {
+		transport: { send: sendRpcCommand },
+		resolveEndpoint: resolveMemberEndpoint,
+		coordinator: createMemberMessageCoordinator(),
+		now: () => 1_000,
+	};
 	const server = await createRpcServer(sourceSocket, (command, socket) =>
 		handleCommand({} as never, state, command, socket),
 	);
 	t.after(async () => {
 		await closeRpcServer(server);
+		await Promise.all(targetServers.map((target) => closeRpcServer(target)));
 		await fs.rm(root, { recursive: true, force: true });
 	});
 	const source: SourceResolution & { ok: true } = {
@@ -116,10 +149,12 @@ test("durable Inbox and broadcast CLI leaves delegate over a real source dispatc
 	);
 	assert.equal(broadcast.kind, "result");
 	if (broadcast.kind !== "result") throw new Error("expected broadcast result");
-	assert.equal(broadcast.result.ok, true);
-	assert.equal(broadcast.result.status, "persisted");
-	const data = broadcast.result.data as { summary: { persisted: number; total: number } };
-	assert.deepEqual(data.summary, { persisted: 2, alreadyPersisted: 0, failed: 0, total: 2 });
+	assert.equal(broadcast.result.ok, true, JSON.stringify(broadcast.result));
+	assert.equal(broadcast.result.status, "delivered");
+	const data = broadcast.result.data as { summary: { delivered: number; failed: number; total: number } };
+	assert.deepEqual(data.summary, { delivered: 2, failed: 0, total: 2 });
+	assert.ok(targetMessages.get("Mary")?.some((content) => content.startsWith("[broadcast]")), JSON.stringify(targetMessages.get("Mary")));
+	assert.ok(targetMessages.get("Kelly")?.some((content) => content.startsWith("[broadcast]")), JSON.stringify(targetMessages.get("Kelly")));
 	const retry = await runDurableMessageCommand(
 		{
 			command: "crew-broadcast",
@@ -135,8 +170,7 @@ test("durable Inbox and broadcast CLI leaves delegate over a real source dispatc
 	assert.equal(retry.kind, "result");
 	if (retry.kind !== "result") throw new Error("expected retry result");
 	assert.deepEqual((retry.result.data as { summary: unknown }).summary, {
-		persisted: 0,
-		alreadyPersisted: 2,
+		delivered: 2,
 		failed: 0,
 		total: 2,
 	});
@@ -147,5 +181,5 @@ test("durable Inbox and broadcast CLI leaves delegate over a real source dispatc
 		isProjectTrusted: () => true,
 		member: members[2]!,
 	});
-	assert.equal(await inboxStore.count(), 2);
+	assert.equal(await inboxStore.count(), 1, "Broadcast must not create Inbox items");
 });

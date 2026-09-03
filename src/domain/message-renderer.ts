@@ -105,11 +105,12 @@ export function renderMemberRequestModelContent(
  * heuristically upgraded into a Member request.
  */
 export function renderFollowUpModelContent(payload: MessagePayload, deliveredAt?: number): string {
+	const kind = payload.kind === "redirect" ? "redirect" : payload.kind === "broadcast" ? "broadcast" : "follow-up";
 	const header =
 		deliveredAt === undefined
 			? ""
 			: `${formatMessageHeader({
-					kind: payload.kind === "redirect" ? "redirect" : "follow-up",
+					kind,
 					origin: payload.origin,
 					elapsedMs:
 						payload.sentAt === undefined
@@ -117,7 +118,7 @@ export function renderFollowUpModelContent(payload: MessagePayload, deliveredAt?
 							: (elapsedMessageMilliseconds(payload.sentAt, deliveredAt) ?? -1),
 				})}\n`;
 	const affordance = "Information only; no correlated Response expected.";
-	return deliveredAt === undefined
-		? `[${payload.kind === "redirect" ? "redirect" : "follow-up"}] ${affordance}\n${renderMessagePayload(payload)}`
+		return deliveredAt === undefined
+		? `[${kind}] ${affordance}\n${renderMessagePayload(payload)}`
 		: `${header}${affordance}\n${renderMessagePayload(payload)}`;
 }

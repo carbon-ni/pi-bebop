@@ -3,6 +3,7 @@ import { isMessagePayload, isSendResult, type RpcCommand, type RpcCommandRespons
 export type CrewMember = { name: string; role: string; socketPath: string };
 export type CrewMembership = { member: CrewMember; socketPath: string; manifest: { members: readonly CrewMember[] } };
 export type MemberDeliveryIntent = "follow_up" | "immediate";
+export type MemberMessageKind = "follow-up" | "broadcast";
 export type MemberWaitFor = "accepted" | "response";
 
 export interface MemberMessageRequest {
@@ -10,6 +11,8 @@ export interface MemberMessageRequest {
 	readonly member: string;
 	readonly message: string;
 	readonly intent?: MemberDeliveryIntent;
+	/** Model-visible semantic kind; delivery intent remains Follow-up for broadcasts. */
+	readonly kind?: MemberMessageKind;
 	readonly waitFor?: MemberWaitFor;
 	readonly signal?: AbortSignal;
 	readonly instructions?: readonly string[];
@@ -129,7 +132,10 @@ function prepareMemberDelivery(request: MemberMessageRequest, now: () => number)
 		content: request.message,
 		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
 		origin,
-		kind: intent === "immediate" ? ("redirect" as const) : ("follow-up" as const),
+		kind:
+			intent === "immediate"
+				? ("redirect" as const)
+				: (request.kind ?? ("follow-up" as const)),
 		sentAt: now(),
 		...(request.sender === undefined ? {} : { replyTo: request.sender }),
 	};
