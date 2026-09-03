@@ -47,6 +47,7 @@
 		"src/domain/inbox-hint.ts",
 		"src/domain/messages.ts",
 		"src/domain/message-payload.ts",
+		"src/domain/message-age.ts",
 		"src/domain/message-renderer.ts",
 		"src/domain/presence.ts",
 		"src/domain/protocol.ts",
