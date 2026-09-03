@@ -31,6 +31,8 @@ export interface MemberMessageDependencies {
 	readonly transport: MemberMessageTransport;
 	readonly resolveEndpoint: (socketPath: string) => Promise<string>;
 	readonly coordinator: MemberMessageCoordinator;
+	/** Source-owned send instant; callers cannot provide message timestamps. */
+	readonly now?: () => number;
 }
 export interface MemberMessageOutcome {
 	readonly target: CrewMember;
@@ -109,7 +111,7 @@ interface PreparedMemberDelivery {
 	readonly command: RpcCommand;
 }
 
-function prepareMemberDelivery(request: MemberMessageRequest): PreparedMemberDelivery {
+function prepareMemberDelivery(request: MemberMessageRequest, now: () => number): PreparedMemberDelivery {
 	if (!request.membership) throw new MemberMessageError("not-joined", "Not joined to a crew");
 	const intent = request.intent ?? "follow_up";
 	if (request.waitFor === "response")
@@ -127,6 +129,8 @@ function prepareMemberDelivery(request: MemberMessageRequest): PreparedMemberDel
 		content: request.message,
 		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
 		origin,
+		kind: intent === "immediate" ? ("redirect" as const) : ("follow-up" as const),
+		sentAt: now(),
 		...(request.sender === undefined ? {} : { replyTo: request.sender }),
 	};
 	if (!isMessagePayload(payload))
@@ -184,7 +188,7 @@ export async function sendMemberMessage(
 	request: MemberMessageRequest,
 	dependencies: MemberMessageDependencies,
 ): Promise<MemberMessageOutcome> {
-	const prepared = prepareMemberDelivery(request);
+	const prepared = prepareMemberDelivery(request, dependencies.now ?? Date.now);
 	const endpoint = await dependencies.resolveEndpoint(prepared.target.socketPath);
 	return orderMemberDelivery(prepared, endpoint, dependencies);
 }

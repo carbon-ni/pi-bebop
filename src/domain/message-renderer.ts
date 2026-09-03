@@ -1,15 +1,21 @@
 import { isMessagePayload, type MessagePayload } from "./message-payload.ts";
+import { elapsedMessageMilliseconds, formatMessageHeader } from "./message-age.ts";
 
 /** Canonical model input. JSON escaping makes every field boundary unambiguous. */
 export function renderMessagePayload(payload: MessagePayload): string {
-	if (payload.origin === undefined && payload.instructions === undefined && payload.replyTo === undefined)
-		return payload.content;
+	const { kind: _kind, sentAt: _sentAt, ...visiblePayload } = payload;
+	if (
+		visiblePayload.origin === undefined &&
+		visiblePayload.instructions === undefined &&
+		visiblePayload.replyTo === undefined
+	)
+		return visiblePayload.content;
 	return JSON.stringify({
 		type: "message-context",
-		content: payload.content,
-		...(payload.instructions === undefined ? {} : { instructions: payload.instructions }),
-		...(payload.origin === undefined ? {} : { origin: payload.origin }),
-		...(payload.replyTo === undefined ? {} : { replyTo: payload.replyTo }),
+		content: visiblePayload.content,
+		...(visiblePayload.instructions === undefined ? {} : { instructions: visiblePayload.instructions }),
+		...(visiblePayload.origin === undefined ? {} : { origin: visiblePayload.origin }),
+		...(visiblePayload.replyTo === undefined ? {} : { replyTo: visiblePayload.replyTo }),
 	});
 }
 
@@ -47,8 +53,24 @@ export function renderMessagePayloadForDisplay(payload: MessagePayload): string 
  * ID only — never the requester socket/session/manifest path or any
  * authentication claim. The canonical payload JSON follows on the next line.
  */
-export function renderMemberRequestModelContent(payload: MessagePayload, requestId: string): string {
-	return `[member request] ${requestId}: do the requested work, then respond with respond_to_member_request. Never wait with wait_for_request_outcome for this inbound request.\n${renderMessagePayload(payload)}`;
+export function renderMemberRequestModelContent(
+	payload: MessagePayload,
+	requestId: string,
+	deliveredAt?: number,
+): string {
+	const header =
+		deliveredAt === undefined
+			? ""
+			: `${formatMessageHeader({
+					kind: "member request",
+					origin: payload.origin,
+					elapsedMs:
+						payload.sentAt === undefined
+							? undefined
+							: (elapsedMessageMilliseconds(payload.sentAt, deliveredAt) ?? -1),
+					requestId,
+				})}\n`;
+	return `${header}[member request] ${requestId}: do the requested work, then respond with respond_to_member_request. Never wait with wait_for_request_outcome for this inbound request.\n${renderMessagePayload(payload)}`;
 }
 
 /**
@@ -56,6 +78,17 @@ export function renderMemberRequestModelContent(payload: MessagePayload, request
  * only, no correlated Response expected. Message content is never parsed or
  * heuristically upgraded into a Member request.
  */
-export function renderFollowUpModelContent(payload: MessagePayload): string {
-	return `[follow-up] information only; no correlated Response expected.\n${renderMessagePayload(payload)}`;
+export function renderFollowUpModelContent(payload: MessagePayload, deliveredAt?: number): string {
+	const header =
+		deliveredAt === undefined
+			? ""
+			: `${formatMessageHeader({
+					kind: payload.kind === "redirect" ? "redirect" : "follow-up",
+					origin: payload.origin,
+					elapsedMs:
+						payload.sentAt === undefined
+							? undefined
+							: (elapsedMessageMilliseconds(payload.sentAt, deliveredAt) ?? -1),
+				})}\n`;
+	return `${header}[${payload.kind === "redirect" ? "redirect" : "follow-up"}] information only; no correlated Response expected.\n${renderMessagePayload(payload)}`;
 }

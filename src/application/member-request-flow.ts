@@ -84,10 +84,13 @@ export class MemberRequestFlow {
 			name: input.membership.member.name,
 			role: input.membership.member.role,
 		};
+		const sentAt = this.now();
 		const payload = {
 			content: input.message,
 			...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
 			origin,
+			kind: "member request" as const,
+			sentAt,
 		};
 		if (!isMessagePayload(payload))
 			throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
@@ -97,7 +100,7 @@ export class MemberRequestFlow {
 		const registration = this.registry.registerOutbound({
 			requestId,
 			member: { name: target.name, role: target.role },
-			now: this.now(),
+			now: sentAt,
 			timeoutSeconds,
 			maxWaitSeconds,
 		});

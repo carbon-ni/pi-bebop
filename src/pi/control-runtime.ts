@@ -114,6 +114,8 @@ export interface SocketState {
 	broadcastStoreDependencies?: BroadcastStoreDependencies;
 	/** Correlated request/update lifecycle (TASK-0071). */
 	memberRequestFlow?: MemberRequestFlow;
+	/** Recipient-owned clock for freezing model-visible message age at handoff. */
+	now?: () => number;
 	/** Injectable source-to-target interrupt transport for deterministic recovery tests (TASK-0065). */
 	memberInterruptSend?: typeof sendRpcCommand;
 	memberInterruptResolveEndpoint?: typeof resolveMemberEndpoint;
@@ -298,7 +300,11 @@ export async function handleCommand(
 			// Registration precedes Pi visibility. Once sendMessage accepts the
 			// request into context, arm idle handling and acknowledge delivery.
 			// TASK-0081: accepted Bebop model delivery wakes a local blocking idle wait.
-			const message = renderMemberRequestModelContent(command.payload, command.requestId);
+			const message = renderMemberRequestModelContent(
+				command.payload,
+				command.requestId,
+				(state.now ?? Date.now)(),
+			);
 			notifyAcceptedMessage(state, command.requestId);
 			pi.sendMessage(
 				{
@@ -821,7 +827,7 @@ export async function handleCommand(
 			return;
 		}
 		if (isInboxHint(payload)) state.onInboxHint?.();
-		const message = renderFollowUpModelContent(payload);
+		const message = renderFollowUpModelContent(payload, (state.now ?? Date.now)());
 		const mode = command.delivery ?? "follow_up";
 		const isIdle = ctx.isIdle() && !contextIsCompacting(ctx);
 		const customMessage = {
@@ -970,7 +976,7 @@ function updateSessionEnv(ctx: ExtensionContext | null, enabled: boolean): void 
 	}
 }
 
-export function createSocketState(): SocketState {
+export function createSocketState(now?: () => number): SocketState {
 	return {
 		server: null,
 		socketPath: null,
@@ -981,6 +987,7 @@ export function createSocketState(): SocketState {
 		idleWaitSubscriptions: [],
 		wakeGate: new AcceptedLocalMessageWakeGate(),
 		membershipRuntime: null,
+		now,
 	};
 }
 

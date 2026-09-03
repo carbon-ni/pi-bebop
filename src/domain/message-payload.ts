@@ -1,6 +1,20 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
+/** Closed semantic labels for every model-bound Bebop message surface. */
+export const MESSAGE_KINDS = [
+	"follow-up",
+	"member request",
+	"redirect",
+	"interrupt",
+	"inbox",
+	"broadcast",
+	"external intake",
+	"member response",
+] as const;
+export const MessageKindSchema = Type.Union(MESSAGE_KINDS.map((kind) => Type.Literal(kind)));
+export type MessageKind = (typeof MESSAGE_KINDS)[number];
+
 /** Transport limits are deterministic UTF-8 byte limits. Aggregate size is UTF-8 bytes of compact JSON payload (framing excluded). */
 export const MAX_MESSAGE_CONTENT_BYTES = 1_000_000;
 export const MAX_MESSAGE_INSTRUCTIONS = 32;
@@ -31,6 +45,8 @@ export const MessagePayloadSchema = Type.Object(
 		content: Type.String({ minLength: 1, maxLength: MAX_MESSAGE_CONTENT_BYTES }),
 		instructions: MessageInstructionsSchema,
 		origin: Type.Optional(MessageOriginSchema),
+		kind: Type.Optional(MessageKindSchema),
+		sentAt: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
 		replyTo: Type.Optional(ReplyToSchema),
 	},
 	{ additionalProperties: false },
@@ -57,6 +73,7 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
 	if (invalidContent(payload.content)) return false;
 	const instructions = payload.instructions ?? [];
 	if (instructions.some(invalidInstruction)) return false;
+	if (payload.sentAt !== undefined && (!Number.isSafeInteger(payload.sentAt) || payload.sentAt < 0)) return false;
 	if (payload.origin) {
 		const fields =
 			payload.origin.kind === "crew" ? [payload.origin.name, payload.origin.role] : [payload.origin.label];

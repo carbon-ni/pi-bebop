@@ -88,7 +88,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer("crew-status", renderCrewStatusEntry);
 	pi.registerEntryRenderer("crew-inbox", renderCrewInboxEntry);
 
-	const state = createSocketState();
+	const state = createSocketState(Date.now);
 	state.membershipRuntime = createMembershipRuntime({
 		loadManifest: async (manifestPath) => {
 			const context = state.context;
@@ -152,6 +152,7 @@ export default function (pi: ExtensionAPI) {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,
 		coordinator: createMemberMessageCoordinator(),
+		now: Date.now,
 	};
 	registerSendFollowUpTool(pi, state, memberMessageDependencies);
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);
