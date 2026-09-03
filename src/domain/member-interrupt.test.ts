@@ -118,6 +118,7 @@ describe("createInterruptRecoveryPayload", () => {
 		const payload = createInterruptRecoveryPayload(sender, REQUEST);
 		assert.deepEqual(payload.origin, { kind: "crew", name: "Tony", role: "lead" });
 		assert.equal(payload.content, REQUEST.message);
+		assert.equal(payload.sentAt, REQUEST.requestedAt);
 		assert.deepEqual(payload.instructions, ["Report what you changed before proceeding"]);
 		assert.ok(!("replyTo" in payload));
 	});

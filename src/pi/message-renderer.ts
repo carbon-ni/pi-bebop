@@ -103,12 +103,15 @@ export function getMessageDisplayModel(
 	const payload = typedDetails?.payload ?? null;
 	const senderInfo = payload ? null : parseSenderInfo(rawContent);
 	let text = payload ? renderMessagePayloadForDisplay(payload) : stripMessageMetadata(rawContent);
-	const timingText =
-		payload && typedDetails?.deliveredAt !== undefined
-			? typedDetails.kind === "member response"
-				? `request age ${formatMessageAge(typedDetails.sentAt === undefined ? -1 : (elapsedMessageMilliseconds(typedDetails.sentAt, typedDetails.deliveredAt) ?? -1))}`
-				: `age at delivery ${formatMessageAge(typedDetails.sentAt === undefined ? -1 : (elapsedMessageMilliseconds(typedDetails.sentAt, typedDetails.deliveredAt) ?? -1))}`
-			: null;
+	const ageMs =
+		payload && typedDetails?.deliveredAt !== undefined && typedDetails.sentAt !== undefined
+			? elapsedMessageMilliseconds(typedDetails.sentAt, typedDetails.deliveredAt)
+			: undefined;
+	const timingText = payload
+		? typedDetails?.kind === "member response"
+			? `request age ${formatMessageAge(ageMs ?? -1)}`
+			: `age at delivery ${formatMessageAge(ageMs ?? -1)}`
+		: null;
 	if (!text) text = "(no content)";
 	if (!expanded) {
 		const lines = text.split("\n");

@@ -12,7 +12,14 @@ test("interrupt evidence ignores malformed records and finds the latest valid ph
 	const valid = {
 		type: "custom",
 		customType: "intray-interrupt",
-		data: { phase: "pending", interruptId: "i1", targetName: "Bob", senderName: "Tony", abortRequested: true },
+		data: {
+			phase: "pending",
+			interruptId: "i1",
+			targetName: "Bob",
+			senderName: "Tony",
+			senderRole: "lead",
+			abortRequested: true,
+		},
 	};
 	assert.deepEqual(
 		latestInterruptEvidence([
@@ -25,6 +32,7 @@ test("interrupt evidence ignores malformed records and finds the latest valid ph
 			interruptId: "i1",
 			targetName: "Bob",
 			senderName: "Tony",
+			senderRole: "lead",
 			abortRequested: true,
 		},
 	);
@@ -104,12 +112,15 @@ describe("createInterruptFlow", () => {
 			interruptId: "interrupt-sent-time",
 			targetName: "Tony",
 			senderName: "Mary",
+			senderRole: "lead",
 			abortRequested: false,
 			sentAt: 3_000,
 			content: "recover me",
 		});
 		await createInterruptFlow(recovered).recoverPending();
-		assert.equal((delivered?.details as { messagePayload: MessagePayload }).messagePayload.sentAt, 3_000);
+		const recoveredPayload = (delivered?.details as { messagePayload: MessagePayload }).messagePayload;
+		assert.equal(recoveredPayload.sentAt, 3_000);
+		assert.deepEqual(recoveredPayload.origin, { kind: "crew", name: "Mary", role: "lead" });
 	});
 	test("busy target: persists pending BEFORE abort, requests abort, steers recovery, marks handed-off", async () => {
 		const order: string[] = [];
@@ -200,6 +211,7 @@ describe("reload recovery (exactly-once handoff)", () => {
 			interruptId: "interrupt-crash-1",
 			targetName: "Tony",
 			senderName: "Mary",
+			senderRole: "lead",
 			abortRequested: true,
 			content: "recover me",
 		};
@@ -225,6 +237,7 @@ describe("reload recovery (exactly-once handoff)", () => {
 			interruptId: "interrupt-done-1",
 			targetName: "Tony",
 			senderName: "Mary",
+			senderRole: "lead",
 			abortRequested: false,
 			deliveredAt: 123,
 			content: "done",
@@ -240,6 +253,7 @@ describe("reload recovery (exactly-once handoff)", () => {
 			interruptId: "interrupt-2",
 			targetName: "Tony",
 			senderName: "Mary",
+			senderRole: "lead",
 			abortRequested: true,
 			content: "again",
 		});

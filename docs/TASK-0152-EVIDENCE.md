@@ -11,7 +11,7 @@ Command:
 npm pack --dry-run --json
 ```
 
-Observed current package inventory: 85 files; `src/domain/message-age.ts` is
+Observed current package inventory: 86 files; `src/domain/message-age.ts` is
 included; language test files are not included. Runtime modules such as
 `src/domain/session-id.ts` and `src/infra/socket-endpoint.ts` are package
 implementation dependencies, not model-visible header fields.
@@ -19,9 +19,10 @@ implementation dependencies, not model-visible header fields.
 ## Privacy and stale-policy checks
 
 The model renderer strips `kind` and `sentAt` from the canonical body and emits
-only the typed header, content, and allowed instructions. Callback `replyTo` is
-never displayed by the TUI renderer. Header tests reject route-like leakage
-(`sessionId`, socket, manifest, and private callback values).
+the typed header plus the compatibility payload body. Callback `replyTo` remains
+in that body where callback behavior requires it, but is never displayed in the
+TUI header or body renderer. Header tests reject route-like leakage (`sessionId`,
+socket, manifest, and private callback values).
 
 Representative checks:
 
