@@ -205,6 +205,20 @@ test("member follow-up and redirect round-trip over real sockets with accepted d
 	);
 });
 
+test("malformed timed wire delivery is rejected before target model handoff", async (t) => {
+	const sessions = await startSessions(t);
+	await assert.rejects(
+		() =>
+			sendRpcCommand(sessions.targetSocket, {
+				type: "send",
+				payload: { content: "invalid timing", kind: "follow-up", sentAt: -1 },
+				delivery: "follow_up",
+			}),
+		(error: unknown) => error instanceof Error && /Invalid message\.send params/.test(error.message),
+	);
+	assert.deepEqual(sessions.targetMessages, []);
+});
+
 test("member follow-up maps target offline over the real wire to exit 1 code offline", async (t) => {
 	const sessions = await startSessions(t);
 	// Only the target goes away; the source stays up and reports target offline.

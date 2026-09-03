@@ -432,6 +432,8 @@ test("method parameter schemas accept only their exact valid shapes", () => {
 	for (const [method, schema, value] of cases) assert.equal(Value.Check(schema, value), true, method);
 	assert.equal(Value.Check(MessageSendParamsSchema, { content: "" }), false);
 	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x", delivery: "later" }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x", sentAt: -1 }), false);
+	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x", sentAt: "caller-time" }), false);
 	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x", extra: true }), false);
 	assert.equal(Value.Check(MessageSendParamsSchema, { content: "x".repeat(1_000_001) }), false);
 	assert.equal(Value.Check(SubscribeParamsSchema, { event: null }), false);
