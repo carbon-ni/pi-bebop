@@ -5,6 +5,8 @@ import {
 	elapsedMessageMilliseconds,
 	formatMessageAge,
 	formatMessageAgeBetween,
+	formatMessageHeader,
+	MESSAGE_KINDS,
 } from "./message-age.ts";
 
 test("formatMessageAge uses deterministic duration buckets and boundaries", () => {
@@ -41,4 +43,42 @@ test("elapsedMessageMilliseconds rejects malformed, future, and overflowing inst
 test("formatMessageAgeBetween renders valid age and unavailable invalid timing", () => {
 	assert.equal(formatMessageAgeBetween(1_000, 61_000), "1m");
 	assert.equal(formatMessageAgeBetween(61_000, 60_999), UNAVAILABLE_MESSAGE_AGE);
+});
+
+test("formatMessageHeader uses the closed kind list and request ID only for request kinds", () => {
+	assert.deepEqual(MESSAGE_KINDS, [
+		"follow-up",
+		"member request",
+		"redirect",
+		"interrupt",
+		"inbox",
+		"broadcast",
+		"external intake",
+		"member response",
+	]);
+	const crew = { kind: "crew" as const, name: "Mony", role: "lead" };
+	assert.equal(
+		formatMessageHeader({ kind: "follow-up", origin: crew, elapsedMs: 134_000, requestId: "hidden" }),
+		"[follow-up] from Mony (lead) · age at delivery 2m",
+	);
+	assert.equal(
+		formatMessageHeader({ kind: "member request", origin: crew, elapsedMs: 37 * 60_000, requestId: "request_123" }),
+		"[member request] from Mony (lead) · age at delivery 37m · request request_123",
+	);
+	assert.equal(
+		formatMessageHeader({
+			kind: "member response",
+			origin: { kind: "external", label: "jira-automation" },
+			elapsedMs: 86_400_000 + 3 * 3_600_000,
+			requestId: "request_123",
+		}),
+		"[member response] from jira-automation (unverified) · request age 1d 3h · request request_123",
+	);
+});
+
+test("formatMessageHeader makes missing origin and invalid timing explicit", () => {
+	assert.equal(
+		formatMessageHeader({ kind: "external intake", elapsedMs: Number.NaN }),
+		"[external intake] from unknown · age at delivery unavailable",
+	);
 });
