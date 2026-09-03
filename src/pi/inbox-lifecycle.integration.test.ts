@@ -418,6 +418,7 @@ test("external intake persists for an offline contact and later hands off as a f
 			loadManifest: async (manifestPath) =>
 				parseCrewManifest(JSON.parse(await fs.readFile(manifestPath, "utf8")), manifestPath),
 			openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
+			now: () => 1_000,
 		},
 	);
 	assert.equal(ack.contact, "developer");
@@ -434,6 +435,10 @@ test("external intake persists for an offline contact and later hands off as a f
 	assert.equal(outcome.itemId, ack.itemId);
 	const payload = (recipient.sent[0]!.message.details as { messagePayload: { origin?: unknown } }).messagePayload;
 	assert.deepEqual(payload.origin, { kind: "external", label: "jira-automation" });
+	assert.match(
+		String(recipient.sent[0]!.message.content),
+		/^\[external intake\] from jira-automation \(unverified\) · age at delivery 4s\n/,
+	);
 	assert.deepEqual(recipient.sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
 
 	// Durable evidence removes the item on the next trigger.
@@ -485,6 +490,7 @@ test("broadcast reaches an offline recipient as a normal follow-up and is remove
 	assert.equal(payload?.content, "API contract changed; pull latest plan before continuing");
 	// Derived crew origin: the broadcaster's manifest identity, never external.
 	assert.deepEqual(payload?.origin, { kind: "crew", name: "lead", role: "lead" });
+	assert.match(String(handoff.message.content), /^\[broadcast\] from lead \(lead\) · age at delivery 4s\n/);
 	// Never redirects active work.
 	assert.deepEqual(handoff.options, { triggerTurn: true, deliverAs: "followUp" });
 
