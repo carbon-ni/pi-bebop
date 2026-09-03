@@ -65,6 +65,19 @@ test("TASK-0076: Member request model content carries a bounded marker, Request 
 	assert.deepEqual(parseRenderedMessagePayload(rendered.split("\n").slice(1).join("\n")), payload);
 });
 
+test("TASK-0152: model headers are exact, frozen, and do not duplicate semantic markers", () => {
+	const payload = {
+		content: "Deliver the report",
+		origin: { kind: "crew" as const, name: "Tony", role: "lead" },
+		kind: "member request" as const,
+		sentAt: 1_000,
+	};
+	const rendered = renderMemberRequestModelContent(payload, "request-1", 61_000);
+	assert.match(rendered, /^\[member request\] from Tony \(lead\) · age at delivery 1m · request request-1\n/);
+	assert.equal((rendered.match(/\[member request\]/g) ?? []).length, 1);
+	assert.doesNotMatch(rendered, /sentAt|requester socket|sessionId/);
+});
+
 test("TASK-0076: ordinary Follow-up model content is structurally no-correlated-Response", () => {
 	const payload = {
 		content: "Heads up about the deploy",

@@ -105,6 +105,7 @@ test("source wait blocks through a real socket and resolves the same call with t
 			respond: async (channel, update) => channel.send(update),
 		},
 		resolveEndpoint: resolveMemberEndpoint,
+		now: () => 1_000,
 		createRequestId: () => `request-real-${++requestSequence}`,
 		setTimeout: (callback, delay) => {
 			const handle = ++timerSequence;
@@ -153,7 +154,12 @@ test("source wait blocks through a real socket and resolves the same call with t
 	assert.equal(result.details.result.kind, "response");
 	assert.equal(result.details.result.message, "Evidence attached: 3 findings");
 	assert.deepEqual(result.details.result.instructions, ["review finding 1", "confirm gate"]);
-	assert.match(result.content[0]!.text, /Evidence attached: 3 findings/);
+	assert.equal(
+		result.content[0]!.text,
+		"[member response] from Kelly (qa) · request age <1s · request request-real-1\n" +
+			"Response received from Kelly (qa) for request request-real-1: Evidence attached: 3 findings\n" +
+			"Instructions:\n1. review finding 1\n2. confirm gate",
+	);
 	assert.equal(flow.registry.outboundCount(), 0);
 
 	// The same real socket path also covers a bounded terminal outcome: idle is
