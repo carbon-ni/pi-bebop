@@ -46,8 +46,8 @@ function detailsFromMessage(
 	};
 }
 
-function claimedOrigin(payload: MessagePayload): string | null {
-	if (!payload.origin) return null;
+function claimedOrigin(payload: MessagePayload): string {
+	if (!payload.origin) return "from unknown";
 	return payload.origin.kind === "crew"
 		? `from ${payload.origin.name} (${payload.origin.role})`
 		: `from ${payload.origin.label} (unverified)`;
