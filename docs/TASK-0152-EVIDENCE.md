@@ -56,8 +56,23 @@ classification, expiry, drop, reorder, retry, or automatic response policy.
 
 ## Verification status
 
-Current implementation head is `e960bfe`. The dedicated multi-runtime test and
-all focused acceptance tests pass. Fresh watcher verification generation 224
-passed `npm test && npm run format:check && npm run lint && make all` with
-fingerprint `35875274d1a7`. TASK-0152 remains open pending independent exact-head
-QA.
+Current implementation head is `38fb3c6` (the required exact head). Independent
+focused QA ran:
+
+```sh
+node_modules/.bin/tsx --test \
+  src/domain/message-age.test.ts src/pi/message-renderer.test.ts \
+  src/cli/member-message.integration.test.ts src/pi/inbox-lifecycle.integration.test.ts \
+  src/pi/message-age-multi-runtime.integration.test.ts \
+  src/pi/member-request-outcome.integration.test.ts \
+  src/application/interrupt-flow.test.ts src/domain/member-interrupt.test.ts
+```
+
+Result: 61 tests passed, 0 failed, including the real multi-runtime transient +
+durable timing test, Unix-wire validation, restart/retry age preservation,
+correlated Response request age, renderer privacy, and Interrupt timing. Package
+inventory independently remains 86 files with `src/domain/message-age.ts`
+included. Watcher verification was unavailable: `.pi/funzzy.sock` returned
+`ENOENT`; no fresh watcher fingerprint is claimed. TASK-0152 remains open until
+the full fresh watcher gate and independent exact-head QA requirements are
+accepted by the lead.
