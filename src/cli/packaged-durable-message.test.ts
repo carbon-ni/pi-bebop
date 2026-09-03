@@ -14,6 +14,8 @@ interface Fixture {
 	readonly manifestPath: string;
 	readonly sourceSocket: string;
 	readonly sourceServer: net.Server;
+	readonly targetServer: net.Server;
+	readonly targetMessages: string[];
 	readonly stores: {
 		tony: Awaited<ReturnType<typeof openTrustedMemberInboxStore>>;
 		mary: Awaited<ReturnType<typeof openTrustedMemberInboxStore>>;
@@ -67,6 +69,27 @@ async function startFixture(t: test.TestContext): Promise<Fixture> {
 		hasPendingMessages: () => false,
 		isProjectTrusted: () => trusted,
 	} as never;
+	const targetMessages: string[] = [];
+	const targetState = createSocketState(() => 4_000);
+	targetState.server = {} as never;
+	targetState.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath,
+			socketPath: marySocket,
+			member: { name: "Mary", role: "po", socketPath: marySocket },
+			manifest: { members: [{ name: "Mary", role: "po", socketPath: marySocket }] },
+		}),
+	} as never;
+	targetState.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "mary", getSessionName: () => null, getEntries: () => [] },
+		isIdle: () => true,
+		hasPendingMessages: () => false,
+		isProjectTrusted: () => true,
+	} as never;
+	const targetServer = await createRpcServer(marySocket, (command, socket) =>
+		handleCommand({ sendMessage: (message: { content: string }) => targetMessages.push(message.content) } as never, targetState, command, socket),
+	);
 	const sourceServer = await createRpcServer(sourceSocket, (command, socket) =>
 		handleCommand({} as never, sourceState, command, socket),
 	);
@@ -86,6 +109,7 @@ async function startFixture(t: test.TestContext): Promise<Fixture> {
 	};
 	t.after(async () => {
 		await closeRpcServer(sourceServer);
+		await closeRpcServer(targetServer);
 		await fs.rm(root, { recursive: true, force: true });
 	});
 	return {
@@ -93,6 +117,8 @@ async function startFixture(t: test.TestContext): Promise<Fixture> {
 		manifestPath,
 		sourceSocket,
 		sourceServer,
+		targetServer,
+		targetMessages,
 		stores,
 		setTrusted: (value) => (trusted = value),
 		close: () => closeRpcServer(sourceServer),
@@ -114,7 +140,7 @@ async function packaged(root: string, args: string[]): Promise<{ code: number; s
 	return { code, stdout, stderr };
 }
 
-test("packaged CLI persists Inbox and broadcast through the production trusted dispatcher", async (t) => {
+test("packaged CLI persists Inbox and broadcasts live through the production dispatcher", async (t) => {
 	const fixture = await startFixture(t);
 	const inbox = await packaged(fixture.root, [
 		"member",
@@ -131,6 +157,7 @@ test("packaged CLI persists Inbox and broadcast through the production trusted d
 	assert.equal(inbox.code, 0, `${inbox.stdout}${inbox.stderr}`);
 	assert.equal(JSON.parse(inbox.stdout).status, "persisted");
 	assert.equal(await fixture.stores.mary.count(), 1);
+	const targetMessagesBeforeBroadcast = fixture.targetMessages.length;
 
 	const broadcast = await packaged(fixture.root, [
 		"crew",
@@ -144,12 +171,14 @@ test("packaged CLI persists Inbox and broadcast through the production trusted d
 	]);
 	assert.equal(broadcast.code, 0, `${broadcast.stdout}${broadcast.stderr}`);
 	const data = JSON.parse(broadcast.stdout);
-	assert.equal(data.status, "persisted");
-	assert.deepEqual(data.data.summary, { persisted: 1, alreadyPersisted: 0, failed: 0, total: 1 });
-	assert.equal(await fixture.stores.mary.count(), 2);
+	assert.equal(data.status, "delivered");
+	assert.deepEqual(data.data.summary, { delivered: 1, failed: 0, total: 1 });
+	assert.equal(fixture.targetMessages.length, targetMessagesBeforeBroadcast + 1, JSON.stringify(fixture.targetMessages));
+	assert.ok(fixture.targetMessages.at(-1)?.startsWith("[broadcast]"));
+	assert.equal(await fixture.stores.mary.count(), 1, "broadcast must not write an Inbox item");
 });
 
-test("packaged CLI trusted dispatcher rejects durable writes when runtime trust is false", async (t) => {
+test("packaged CLI rejects live broadcast when runtime trust is false", async (t) => {
 	const fixture = await startFixture(t);
 	fixture.setTrusted(false);
 	const outcome = await packaged(fixture.root, [
@@ -165,4 +194,5 @@ test("packaged CLI trusted dispatcher rejects durable writes when runtime trust 
 	assert.equal(outcome.code, 1, `${outcome.stdout}${outcome.stderr}`);
 	assert.match(outcome.stdout, /untrusted-project/);
 	assert.equal(await fixture.stores.mary.count(), 0);
+	assert.equal(fixture.targetMessages.length, 0);
 });

@@ -48,8 +48,8 @@ export function buildDurableMessageCommand(intent: DurableMessageIntent): Comman
 	let program = new Command(command)
 		.description(
 			intent === "inbox"
-				? "Persist one durable Inbox item for a crew member (persisted-only)"
-				: "Persist one durable Inbox copy for every other crew member (persisted-only)",
+				? "Persist one durable Inbox item for a crew member"
+				: "Send a transient non-interrupting Broadcast Follow-up to every other crew member",
 		)
 		.option("--session <id|alias>", "Source joined Pi session id or alias (default: PI_SESSION_ID)")
 		.option("--message <text>", "Message text")
@@ -70,17 +70,19 @@ export function durableMessageHelp(intent: DurableMessageIntent): string {
 		[
 			`pi-bebop ${command} [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]`,
 			"",
-			`${label(intent)} persists durable Inbox data for ${target}.`,
-			"The selected joined source derives membership, trust, origin, manifest, and storage paths.",
+			intent === "inbox"
+				? `${label(intent)} persists durable Inbox data for ${target}.`
+				: `${label(intent)} sends one transient Follow-up to ${target}; each recipient is attempted independently.`,
+			intent === "inbox"
+				? "The selected joined source derives membership, trust, origin, manifest, and storage paths."
+				: "The selected joined source derives membership, origin, and manifest; the sender is excluded.",
 			"The CLI never accepts caller-supplied source identity, manifest, socket, or reply fields.",
 			"",
 			intent === "inbox"
 				? "Success means persisted (and an optional best-effort hint), never read, delivered, or completed."
-				: "Success means persisted copies, never delivered, read, or completed; retries reuse deterministic ids.",
-			"There is no wait_for flag: persistence acknowledgement is the only guarantee.",
-			intent === "broadcast"
-				? "The broadcast id already contains a different payload (idempotency-conflict); change the message or instructions and retry."
-				: "",
+				: "Success means every recipient accepted a Follow-up; partial delivery reports each failed recipient.",
+			"There is no wait_for flag: the delivery acknowledgement is the only guarantee; it never proves the model read or acted.",
+			intent === "broadcast" ? "Broadcast never writes or falls back to Inbox, redirects, interrupts, or expects a Response." : "",
 			"",
 			"Options:",
 			"  --session <id|alias>    Source joined Pi session id or alias (default: PI_SESSION_ID)",
@@ -104,9 +106,7 @@ function mapCommanderError(error: CommanderError): UsageError {
 	if (error.code === "commander.unknownOption") {
 		const unknown = /unknown option '([^']+)'/.exec(error.message)?.[1] ?? "";
 		if (unknown.startsWith("--wait"))
-			return new UsageError(
-				`Unknown flag '${unknown}'; this command is persisted-only and never waits for delivery`,
-			);
+			return new UsageError(`Unknown flag '${unknown}'; this command never waits for delivery`);
 		return new UsageError(`Unknown flag '${unknown}'; valid flags: ${VALID_FLAGS}`);
 	}
 	if (error.code === "commander.excessArguments")
@@ -228,7 +228,7 @@ export interface DurableMessageCliDependencies {
 	) => Promise<{ ok: true; result: MemberInboxSendResult | CrewBroadcastRpcResult } | { ok: false; code: string }>;
 	readonly environmentSession: () => string | undefined;
 }
-const REMOTE_DURABLE_CODES = new Set([
+const REMOTE_MESSAGE_CODES = new Set([
 	"not-joined",
 	"unknown-sender",
 	"unknown-member",
@@ -246,7 +246,7 @@ const REMOTE_DURABLE_CODES = new Set([
 	"no-recipients",
 ]);
 function transportError(error: unknown): { ok: false; code: string } {
-	if (error instanceof RpcProtocolError && (error.code === "outcome-unknown" || REMOTE_DURABLE_CODES.has(error.code)))
+	if (error instanceof RpcProtocolError && (error.code === "outcome-unknown" || REMOTE_MESSAGE_CODES.has(error.code)))
 		return { ok: false, code: error.code };
 	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
 	const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
@@ -308,26 +308,21 @@ function inboxOutcome(result: MemberInboxSendResult, member: string | undefined,
 
 function broadcastOutcome(result: CrewBroadcastRpcResult, format: CliFormat): CliOutcome {
 	const partial = result.summary.failed > 0;
-	const conflict = result.dispositions.some(
-		(disposition) => disposition.disposition === "failed" && disposition.code === "idempotency-conflict",
-	);
 	return {
 		kind: "result",
 		result: {
 			ok: !partial,
 			target: "crew",
-			status: partial ? "partial" : "persisted",
-			response: `${result.summary.persisted} persisted, ${result.summary.alreadyPersisted} already persisted, ${result.summary.failed} failed`,
+			status: partial ? "partial" : "delivered",
+			response: `${result.summary.delivered} delivered, ${result.summary.failed} failed`,
 			data: result,
 			...(partial
 				? {
-						error: {
-							code: conflict ? "idempotency-conflict" : "partial",
-							message: conflict
-								? "Broadcast stopped after an idempotency conflict; no later recipients were written"
-								: "Broadcast partially persisted; retry is safe and will not duplicate",
-						},
-					}
+					error: {
+						code: "partial",
+						message: "Broadcast partially delivered; inspect each recipient disposition",
+					},
+				}
 				: {}),
 		},
 		format,

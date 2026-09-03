@@ -1,36 +1,22 @@
 import {
 	buildBroadcastRecipients,
-	createBroadcastId,
 	createBroadcastPayload,
 	noRecipientsResult,
 	summarizeBroadcastDispositions,
+	validateBroadcastInput,
 	type BroadcastDisposition,
 	type CrewBroadcastResult,
 } from "../domain/index.ts";
-import { MemberInboxStoreError, type MemberInboxStore } from "../infra/member-inbox-store.ts";
+import {
+	sendMemberMessage,
+	MemberMessageError,
+	type MemberMessageDependencies,
+} from "./member-message.ts";
 import type { CrewManifest, CrewMember } from "../domain/index.ts";
 
-/**
- * Durable crew broadcast (application operation behind broadcast_to_crew).
- *
- * Internal fan-out: one non-interrupting message durably persisted to every
- * other configured member, in manifest order, regardless of presence. The
- * caller must already hold an active join membership; the operation never
- * probes endpoints and never redirects active work. This file contains no
- * Pi/TUI types — the transport seam is the injected store factory.
- *
- * Retry semantics follow the TASK-0042 contract: a stable broadcast id plus
- * deterministic per-recipient item ids make a retry after partial failure
- * idempotent — already-persisted recipients are skipped, missing recipients
- * are filled in, and no copy is ever duplicated. Every target reports a
- * disposition; partial success is an error outcome for the caller to surface,
- * never a silent total success.
- *
- * No-recipient and unknown-sender outcomes short-circuit before any storage
- * IO so a single-member crew cannot cause writes.
- */
+/** Live, non-interrupting broadcast fan-out application operation. */
 
-export type BroadcastToCrewErrorCode = "not-joined" | "unknown-sender" | "invalid-request" | "untrusted-project";
+export type BroadcastToCrewErrorCode = "not-joined" | "unknown-sender" | "invalid-request" | "no-recipients";
 
 export class CrewBroadcastApplicationError extends Error {
 	readonly code: BroadcastToCrewErrorCode;
@@ -46,18 +32,8 @@ export interface CrewBroadcastRequest {
 	readonly membership: BroadcastMembership | null;
 	readonly message: string;
 	readonly instructions?: readonly string[];
-	readonly now: number;
 	readonly signal?: AbortSignal;
 }
-
-interface BroadcastMember {
-	readonly name: string;
-	readonly role: string;
-	readonly socket: string;
-	readonly socketPath: string;
-}
-
-export type { BroadcastMember };
 
 export interface BroadcastMembership {
 	readonly manifestPath: string;
@@ -66,149 +42,81 @@ export interface BroadcastMembership {
 	readonly manifest: CrewManifest;
 }
 
-export interface BroadcastStoreDependencies {
-	readonly isProjectTrusted: () => boolean;
-	readonly openStore: (options: {
-		readonly manifestPath: string;
-		readonly projectRoot: string;
-		readonly isProjectTrusted: () => boolean;
-		readonly member: BroadcastMember;
-	}) => Promise<MemberInboxStore>;
+export interface BroadcastMessageDependencies extends MemberMessageDependencies {}
+
+function failureCode(error: unknown): string {
+	if (error instanceof MemberMessageError) return error.code;
+	if (error instanceof Error && error.name === "AbortError") return "aborted";
+	const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+	if (systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN") return "offline";
+	if (error instanceof Error && /timed? ?out|timeout/i.test(error.message)) return "timeout";
+	return "transport-error";
 }
 
-function projectRootOf(manifestPath: string): string {
-	const normalized = manifestPath.split(/[\\/]/);
-	return normalized.slice(0, -3).join("/") || "/";
-}
-
-const STORAGE_UNAVAILABLE = new Set(["lock-conflict", "write-failed", "read-failed", "quarantine-failed"]);
-
-function mapStoreError(error: unknown, fallback = "storage-failed"): string {
-	if (!(error instanceof MemberInboxStoreError)) return "storage-failed";
-	switch (error.code) {
-		case "capacity-exceeded":
-			return "inbox-full";
-		case "invalid-payload":
-			return "invalid-payload";
-		case "invalid-item-id":
-			return "invalid-item-id";
-		case "untrusted-path":
-			return "inbox-untrusted-path";
-		case "untrusted-project":
-			return "untrusted-project";
-	}
-	if (STORAGE_UNAVAILABLE.has((error as MemberInboxStoreError).code)) return "storage-unavailable";
-	if ((error as MemberInboxStoreError).code === "idempotency-conflict") return "idempotency-conflict";
-	return fallback;
+function failureMessage(error: unknown, code: string): string {
+	if (error instanceof Error && error.message.length > 0) return error.message;
+	return code === "offline" ? "Member endpoint offline" : "Broadcast delivery failed";
 }
 
 /**
- * Fans one message out to every other manifest member. Resolves to a
- * `CrewBroadcastResult` (TASK-0042 contract); `ok:false` means no recipients
- * and implies no storage IO was performed (single-member crew or unknown
- * sender).
+ * Fans one [broadcast] payload out as ordinary Follow-ups to every other
+ * manifest member. Each recipient is attempted independently in manifest
+ * order; no Inbox store, fallback, redirect, or interrupt is involved.
  */
 export async function submitCrewBroadcast(
 	request: CrewBroadcastRequest,
-	dependencies: BroadcastStoreDependencies,
+	dependencies: BroadcastMessageDependencies,
 ): Promise<CrewBroadcastResult> {
 	if (!request.membership) throw new CrewBroadcastApplicationError("not-joined", "Not joined to a crew");
-
-	const { membership } = request;
-	const senderName = membership.member.name;
-	const instructions =
-		request.instructions && request.instructions.length > 0 ? [...request.instructions] : undefined;
-
-	// Stable idempotency key for the whole fan-out (TASK-0042).
-	const broadcastId = createBroadcastId({
-		senderName,
-		content: request.message,
-		...(instructions === undefined ? {} : { instructions }),
-	});
-
-	// Recipient snapshot in manifest order, sender excluded by canonical identity.
-	const snapshot = buildBroadcastRecipients(membership.manifest, senderName, broadcastId);
-	if (snapshot.ok === false) return noRecipientsResult(broadcastId, snapshot.code);
-
-	if (!dependencies.isProjectTrusted())
-		throw new CrewBroadcastApplicationError("untrusted-project", "Cannot broadcast in an untrusted project");
-
-	// One payload shared by every recipient: content + ordered instructions + derived crew origin.
+	const membership = request.membership;
+	try {
+		validateBroadcastInput({
+			senderName: membership.member.name,
+			content: request.message,
+			instructions: request.instructions,
+		});
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "invalid-request")
+			throw new CrewBroadcastApplicationError("invalid-request", error.message);
+		throw error;
+	}
+	const snapshot = buildBroadcastRecipients(membership.manifest, membership.member.name);
+	if (snapshot.ok === false) return noRecipientsResult(snapshot.code);
 	const payload = createBroadcastPayload(membership.member, {
 		content: request.message,
-		...(instructions === undefined ? {} : { instructions }),
+		...(request.instructions === undefined ? {} : { instructions: request.instructions }),
 	});
-
 	const dispositions: BroadcastDisposition[] = [];
 	for (const recipient of snapshot.recipients) {
-		if (request.signal?.aborted) {
+		try {
+			const outcome = await sendMemberMessage(
+				{
+					membership: membership as never,
+					member: recipient.member.name,
+					message: payload.content,
+					instructions: payload.instructions,
+					kind: "broadcast",
+					intent: "follow_up",
+					signal: request.signal,
+				},
+				dependencies,
+			);
 			dispositions.push({
 				recipientName: recipient.member.name,
 				recipientRole: recipient.member.role,
-				itemId: recipient.itemId,
-				status: "failed",
-				code: "aborted",
-				message: "Broadcast aborted before recipient was reached",
+				deliveryId: outcome.deliveryId,
+				disposition: "delivered",
 			});
-			continue;
-		}
-		await persistOne(recipient, dependencies, payload, request, dispositions);
-		if (dispositions.at(-1)?.code === "idempotency-conflict") {
-			for (const remaining of snapshot.recipients.slice(dispositions.length)) {
-				dispositions.push({
-					recipientName: remaining.member.name,
-					recipientRole: remaining.member.role,
-					itemId: remaining.itemId,
-					status: "failed",
-					code: "idempotency-conflict",
-					message: "Broadcast stopped after an idempotency conflict",
-				});
-			}
-			break;
-		}
-	}
-
-	return { ok: true, broadcastId, dispositions, summary: summarizeBroadcastDispositions(dispositions) };
-}
-
-async function persistOne(
-	recipient: { member: CrewMember; itemId: string },
-	dependencies: BroadcastStoreDependencies,
-	payload: ReturnType<typeof createBroadcastPayload>,
-	request: { now: number; membership: BroadcastMembership },
-	dispositions: BroadcastDisposition[],
-): Promise<void> {
-	const { member, itemId } = recipient;
-	const fail = (code: string, message?: string) => {
-		dispositions.push({
-			recipientName: member.name,
-			recipientRole: member.role,
-			itemId,
-			status: "failed" as const,
-			code,
-			message,
-		});
-	};
-	try {
-		const store = await dependencies.openStore({
-			manifestPath: request.membership.manifestPath,
-			projectRoot: projectRootOf(request.membership.manifestPath),
-			isProjectTrusted: dependencies.isProjectTrusted,
-			member: { name: member.name, role: member.role, socket: member.socket, socketPath: member.socketPath },
-		});
-		const result = await store.enqueueWithId(payload, request.now, itemId);
-		if ("alreadyPersisted" in result) {
+		} catch (error) {
+			const code = failureCode(error);
 			dispositions.push({
-				recipientName: member.name,
-				recipientRole: member.role,
-				itemId,
-				status: "already-persisted",
+				recipientName: recipient.member.name,
+				recipientRole: recipient.member.role,
+				disposition: "failed",
+				code,
+				message: failureMessage(error, code),
 			});
-			return;
 		}
-		dispositions.push({ recipientName: member.name, recipientRole: member.role, itemId, status: "persisted" });
-	} catch (error) {
-		const code = mapStoreError(error);
-		fail(code, error instanceof Error ? error.message : String(error));
 	}
+	return { ok: true, dispositions, summary: summarizeBroadcastDispositions(dispositions) };
 }

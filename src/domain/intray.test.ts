@@ -1067,7 +1067,7 @@ test("member.follow_up / member.redirect round-trip with the delivery-ack result
 	assert.equal(isMemberMessageResult({ deliveryId: "d-1", disposition: "queued" }), false);
 });
 
-test("member.inbox_send and crew.broadcast are closed persistence commands", () => {
+test("member.inbox_send stays durable while crew.broadcast is a live Follow-up command", () => {
 	assert.equal(
 		Value.Check(MemberInboxSendRequestSchema, {
 			jsonrpc: "2.0",
@@ -1144,45 +1144,36 @@ test("member.inbox_send and crew.broadcast are closed persistence commands", () 
 	);
 	assert.equal(
 		isCrewBroadcastResult({
-			broadcastId: "broadcast-1",
 			dispositions: [],
-			summary: { persisted: 0, alreadyPersisted: 0, failed: 0, total: 0 },
+			summary: { delivered: 0, failed: 0, total: 0 },
 		}),
 		true,
 	);
 	assert.equal(
 		isCrewBroadcastResult({
-			broadcastId: "broadcast-1",
-			dispositions: [{ member: "Mary", role: "po", itemId: "item-1", disposition: "failed" }],
-			summary: { persisted: 0, alreadyPersisted: 0, failed: 1, total: 1 },
+			dispositions: [{ member: "Mary", role: "po", deliveryId: "delivery-1", disposition: "delivered" }],
+			summary: { delivered: 1, failed: 0, total: 1 },
+		}),
+		true,
+	);
+	assert.equal(
+		isCrewBroadcastResult({
+			dispositions: [{ member: "Mary", role: "po", disposition: "failed", code: "offline" }],
+			summary: { delivered: 0, failed: 1, total: 1 },
+		}),
+		true,
+	);
+	assert.equal(
+		isCrewBroadcastResult({
+			dispositions: [{ member: "Mary", role: "po", disposition: "failed" }],
+			summary: { delivered: 0, failed: 1, total: 1 },
 		}),
 		false,
 	);
 	assert.equal(
 		isCrewBroadcastResult({
-			broadcastId: "broadcast-1",
-			dispositions: [
-				{ member: "Mary", role: "po", itemId: "item-1", disposition: "persisted", code: "unexpected" },
-			],
-			summary: { persisted: 1, alreadyPersisted: 0, failed: 0, total: 1 },
-		}),
-		false,
-	);
-	assert.equal(
-		isCrewBroadcastResult({
-			broadcastId: "broadcast-1",
-			dispositions: [
-				{ member: "Mary", role: "po", itemId: "item-1", disposition: "failed", code: "not-approved" },
-			],
-			summary: { persisted: 0, alreadyPersisted: 0, failed: 1, total: 1 },
-		}),
-		false,
-	);
-	assert.equal(
-		isCrewBroadcastResult({
-			broadcastId: "broadcast-1",
-			dispositions: [{ member: "Mary", role: "po", itemId: "item-1", disposition: "failed", code: "inbox-full" }],
-			summary: { persisted: 0, alreadyPersisted: 0, failed: 0, total: 1 },
+			dispositions: [{ member: "Mary", role: "po", deliveryId: "delivery-1", disposition: "delivered" }],
+			summary: { delivered: 0, failed: 1, total: 1 },
 		}),
 		false,
 	);

@@ -38,9 +38,8 @@ function deps(overrides: Partial<DurableMessageCliDependencies> = {}): DurableMe
 				: {
 						ok: true,
 						result: {
-							broadcastId: "broadcast-1",
-							dispositions: [{ member: "Mary", role: "po", itemId: "item-1", disposition: "persisted" }],
-							summary: { persisted: 1, alreadyPersisted: 0, failed: 0, total: 1 },
+							dispositions: [{ member: "Mary", role: "po", deliveryId: "delivery-1", disposition: "delivered" }],
+							summary: { delivered: 1, failed: 0, total: 1 },
 						},
 					},
 		environmentSession: () => undefined,
@@ -74,7 +73,7 @@ test("durable commands parse target/message sources and preserve instruction ord
 	assert.throws(() => parseDurableMessageCommand(["Kelly", "--message", "x", "--stdin"], "inbox"), /exactly one/);
 	assert.throws(
 		() => parseDurableMessageCommand(["--wait", "response", "--message", "x"], "broadcast"),
-		/persisted-only/,
+		/never waits for delivery/,
 	);
 });
 
@@ -134,7 +133,7 @@ test("durable commands map source, stdin, and delivery failures", async () => {
 	assert.equal(failed.kind, "result");
 });
 
-test("durable commands run Inbox persistence and broadcast partial outcomes without delivery claims", async () => {
+test("Inbox remains durable while broadcast reports partial live delivery", async () => {
 	const inbox = await runDurableMessageCommand(
 		{
 			command: "member-inbox-send",
@@ -168,11 +167,8 @@ test("durable commands run Inbox persistence and broadcast partial outcomes with
 			deliver: async () => ({
 				ok: true,
 				result: {
-					broadcastId: "broadcast-1",
-					dispositions: [
-						{ member: "Mary", role: "po", itemId: "item-1", disposition: "failed", code: "inbox-full" },
-					],
-					summary: { persisted: 0, alreadyPersisted: 0, failed: 1, total: 1 },
+					dispositions: [{ member: "Mary", role: "po", disposition: "failed", code: "offline" }],
+					summary: { delivered: 0, failed: 1, total: 1 },
 				},
 			}),
 		}),
@@ -182,42 +178,9 @@ test("durable commands run Inbox persistence and broadcast partial outcomes with
 	assert.equal(broadcast.result.ok, false);
 	assert.equal(broadcast.result.status, "partial");
 	assert.equal(broadcast.result.error?.code, "partial");
-
-	const conflict = await runDurableMessageCommand(
-		{
-			command: "crew-broadcast",
-			intent: "broadcast",
-			message: "changed",
-			instructions: [],
-			stdin: false,
-			format: "json",
-		},
-		context(),
-		deps({
-			deliver: async () => ({
-				ok: true,
-				result: {
-					broadcastId: "broadcast-1",
-					dispositions: [
-						{
-							member: "Mary",
-							role: "po",
-							itemId: "item-1",
-							disposition: "failed",
-							code: "idempotency-conflict",
-						},
-					],
-					summary: { persisted: 0, alreadyPersisted: 0, failed: 1, total: 1 },
-				},
-			}),
-		}),
-	);
-	assert.equal(conflict.kind, "result");
-	if (conflict.kind !== "result") return;
-	assert.equal(conflict.result.error?.code, "idempotency-conflict");
 });
 
-test("tool and CLI parity preserve persisted Inbox and broadcast outcomes", async () => {
+test("tool and CLI preserve separate Inbox and live Broadcast contracts", async () => {
 	const membership = {
 		manifestPath: "/project/.pi/bebop/crew.json",
 		socketPath: "/project/.pi/bebop/sockets/lead.sock",
@@ -259,9 +222,12 @@ test("tool and CLI parity preserve persisted Inbox and broadcast outcomes", asyn
 		openStore: async () => ({ enqueue: async () => ({ item: { id: "inbox-parity" } }) }) as never,
 	});
 	registerBroadcastToCrewTool(pi, state, {
-		isProjectTrusted: () => true,
-		openStore: async () =>
-			({ enqueueWithId: async (_payload: unknown, _now: number, id: string) => ({ item: { id } }) }) as never,
+		resolveEndpoint: async (socketPath) => socketPath,
+		coordinator: { enqueue: async (_key: string, operation: () => Promise<unknown>) => operation(), pendingKeyCount: () => 0 },
+		transport: {
+			send: async (_endpoint, _command) =>
+				({ response: { success: true, data: { deliveryId: "delivery-parity", disposition: "queued" } } }) as never,
+		},
 	} as never);
 	const inboxTool = await registered
 		.get("send_to_inbox")!
@@ -296,7 +262,8 @@ test("tool and CLI parity preserve persisted Inbox and broadcast outcomes", asyn
 	const broadcastTool = await registered
 		.get("broadcast_to_crew")!
 		.execute("call", { message: "hello", instructions: ["one"] });
-	assert.equal(broadcastTool.details.broadcastId.startsWith("broadcast-"), true);
+	assert.equal(broadcastTool.isError, false);
+	assert.equal(broadcastTool.details.delivered, 1);
 	const broadcastCli = await runDurableMessageCommand(
 		{
 			command: "crew-broadcast",
@@ -311,23 +278,20 @@ test("tool and CLI parity preserve persisted Inbox and broadcast outcomes", asyn
 			deliver: async () => ({
 				ok: true,
 				result: {
-					broadcastId: broadcastTool.details.broadcastId,
-					dispositions: [{ member: "Mary", role: "po", itemId: "x", disposition: "persisted" }],
-					summary: { persisted: 1, alreadyPersisted: 0, failed: 0, total: 1 },
+					dispositions: [{ member: "Mary", role: "po", deliveryId: "delivery-parity", disposition: "delivered" }],
+					summary: { delivered: 1, failed: 0, total: 1 },
 				},
 			}),
 		}),
 	);
 	assert.equal(broadcastCli.kind, "result");
-	if (broadcastCli.kind === "result")
-		assert.equal(
-			(broadcastCli.result.data as { broadcastId: string }).broadcastId,
-			broadcastTool.details.broadcastId,
-		);
+	if (broadcastCli.kind === "result") assert.equal(broadcastCli.result.status, "delivered");
 });
 
-test("durable help teaches persistence-only semantics and broadcast limitation", () => {
+test("help distinguishes durable Inbox from transient Broadcast", () => {
 	assert.match(durableMessageHelp("inbox"), /persisted.*never read, delivered/i);
 	assert.match(durableMessageHelp("inbox"), /no wait_for flag/i);
-	assert.match(durableMessageHelp("broadcast"), /idempotency-conflict/i);
+	assert.match(durableMessageHelp("broadcast"), /transient Follow-up/i);
+	assert.match(durableMessageHelp("broadcast"), /never writes or falls back to Inbox/i);
+	assert.doesNotMatch(durableMessageHelp("broadcast"), /idempotency-conflict|retry.*duplicate/i);
 });

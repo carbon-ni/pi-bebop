@@ -1297,25 +1297,35 @@ test("member_inbox_send delegates to the durable Inbox application operation", a
 	assert.equal(opened, 1);
 });
 
-test("crew_broadcast delegates to the durable broadcast application operation and preserves manifest order", async () => {
+test("crew_broadcast delegates to live Follow-up delivery and preserves manifest order", async () => {
 	const { state, socket, writes } = delegationState([
 		{ name: "Tony", role: "lead", socket: "/project/.pi/bebop/sockets/lead.sock" },
 		{ name: "Mary", role: "po", socket: "/project/.pi/bebop/sockets/po.sock" },
 		{ name: "Kelly", role: "qa", socket: "/project/.pi/bebop/sockets/qa.sock" },
 	]);
-	state.broadcastStoreDependencies = {
-		isProjectTrusted: () => true,
-		openStore: async () => ({ enqueueWithId: async () => ({ item: {} }) }) as never,
+	const delivered: string[] = [];
+	state.memberMessageDependencies = {
+		resolveEndpoint: async (socketPath) => socketPath,
+		coordinator: createMemberMessageCoordinator(),
+		transport: {
+			send: async (endpoint, command) => {
+				delivered.push(`${endpoint}:${command.delivery}:${command.payload.kind}`);
+			return { response: { success: true, data: { deliveryId: `delivery-${delivered.length}`, disposition: "queued" } } } as never;
+		},
+		},
 	} as never;
 	await handleCommand({} as never, state, { type: "crew_broadcast", message: "hello", id: "bc-1" }, socket);
 	const response = JSON.parse(writes[0]!);
-	assert.equal(response.result.broadcastId.startsWith("broadcast-"), true);
+	assert.deepEqual(delivered, [
+		"/project/.pi/bebop/sockets/po.sock:follow_up:broadcast",
+		"/project/.pi/bebop/sockets/qa.sock:follow_up:broadcast",
+	]);
 	assert.deepEqual(
 		response.result.dispositions.map((item: { member: string }) => item.member),
 		["Mary", "Kelly"],
 	);
 	assert.deepEqual(
 		response.result.dispositions.map((item: { disposition: string }) => item.disposition),
-		["persisted", "persisted"],
+		["delivered", "delivered"],
 	);
 });

@@ -450,40 +450,24 @@ export const MemberInboxSendResultSchema = Type.Object(
 const BroadcastDispositionBaseSchema = {
 	member: Type.String({ minLength: 1 }),
 	role: Type.String({ minLength: 1 }),
-	itemId: Type.String({ minLength: 1 }),
 };
 const BroadcastDispositionSchema = Type.Union([
 	Type.Object(
-		{ ...BroadcastDispositionBaseSchema, disposition: Type.Literal("persisted") },
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{ ...BroadcastDispositionBaseSchema, disposition: Type.Literal("already-persisted") },
+		{ ...BroadcastDispositionBaseSchema, deliveryId: Type.String({ minLength: 1 }), disposition: Type.Literal("delivered") },
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
 			...BroadcastDispositionBaseSchema,
 			disposition: Type.Literal("failed"),
-			code: Type.Union([
-				Type.Literal("inbox-full"),
-				Type.Literal("inbox-untrusted-path"),
-				Type.Literal("untrusted-project"),
-				Type.Literal("storage-unavailable"),
-				Type.Literal("storage-failed"),
-				Type.Literal("invalid-payload"),
-				Type.Literal("invalid-item-id"),
-				Type.Literal("aborted"),
-				Type.Literal("idempotency-conflict"),
-			]),
+			code: Type.String({ minLength: 1 }),
 		},
 		{ additionalProperties: false },
 	),
 ]);
 const BroadcastSummarySchema = Type.Object(
 	{
-		persisted: Type.Integer({ minimum: 0 }),
-		alreadyPersisted: Type.Integer({ minimum: 0 }),
+		delivered: Type.Integer({ minimum: 0 }),
 		failed: Type.Integer({ minimum: 0 }),
 		total: Type.Integer({ minimum: 0 }),
 	},
@@ -491,7 +475,6 @@ const BroadcastSummarySchema = Type.Object(
 );
 export const CrewBroadcastResultSchema = Type.Object(
 	{
-		broadcastId: Type.String({ minLength: 1 }),
 		dispositions: Type.Array(BroadcastDispositionSchema),
 		summary: BroadcastSummarySchema,
 	},
@@ -708,20 +691,9 @@ export function isMemberInboxSendResult(value: unknown): value is MemberInboxSen
 export function isCrewBroadcastResult(value: unknown): value is CrewBroadcastRpcResult {
 	if (!Value.Check(CrewBroadcastResultSchema, value)) return false;
 	const result = value as CrewBroadcastRpcResult;
-	let persisted = 0;
-	let alreadyPersisted = 0;
-	let failed = 0;
-	for (const disposition of result.dispositions) {
-		if (disposition.disposition === "persisted") persisted += 1;
-		else if (disposition.disposition === "already-persisted") alreadyPersisted += 1;
-		else failed += 1;
-	}
-	return (
-		result.summary.total === result.dispositions.length &&
-		result.summary.persisted === persisted &&
-		result.summary.alreadyPersisted === alreadyPersisted &&
-		result.summary.failed === failed
-	);
+	const delivered = result.dispositions.filter((item) => item.disposition === "delivered").length;
+	const failed = result.dispositions.filter((item) => item.disposition === "failed").length;
+	return result.summary.total === result.dispositions.length && result.summary.delivered === delivered && result.summary.failed === failed;
 }
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
 export type PresenceHintResult = Static<typeof PresenceHintResultSchema>;
