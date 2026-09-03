@@ -114,13 +114,11 @@ export function deriveBroadcastOrigin(sender: CrewMember): CrewOrigin {
 export function createBroadcastPayload(
 	sender: CrewMember,
 	input: Omit<CrewBroadcastInput, "senderName">,
-	sentAt?: number,
 ): MessagePayload {
 	const payload: MessagePayload = {
 		content: input.content,
 		origin: deriveBroadcastOrigin(sender),
 		kind: "broadcast",
-		...(sentAt === undefined ? {} : { sentAt }),
 		...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
 	};
 	if (!isMessagePayload(payload)) throw new CrewBroadcastError("invalid-payload", "invalid crew broadcast message");

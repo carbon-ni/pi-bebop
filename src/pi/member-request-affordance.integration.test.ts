@@ -141,7 +141,9 @@ test("TASK-0076 happy: requester sends, responder sees the request marker, respo
 			member: { name: "Kelly", role: "qa" },
 		});
 		const update = await within(2_000, pending, "requester did not receive the correlated Response");
-		assert.deepEqual(update, {
+		const { requestAgeMs, ...responseWithoutAge } = update;
+		assert.equal(typeof requestAgeMs, "number");
+		assert.deepEqual(responseWithoutAge, {
 			kind: "response",
 			requestId: "request-afford-1",
 			member: { name: "Kelly", role: "qa" },
