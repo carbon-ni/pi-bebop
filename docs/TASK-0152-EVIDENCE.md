@@ -43,9 +43,10 @@ classification, expiry, drop, reorder, retry, or automatic response policy.
   delivery is rejected before target `sendMessage`.
 - `src/pi/inbox-lifecycle.integration.test.ts`: hours-old Inbox retry and exact
   Broadcast/external Intake headers with persisted enqueue time.
-- `src/pi/message-age-multi-runtime.integration.test.ts`: one real target runtime
-  combines immediate transient and delayed durable messages; both exact headers
-  freeze at the injected delivery instant.
+- `src/pi/message-age-multi-runtime.integration.test.ts`: real source and target
+  Unix-socket runtimes combine an immediate transient Follow-up with a delayed
+  durable Inbox handoff; both exact headers freeze at the injected delivery
+  instant.
 - `src/pi/message-renderer.test.ts`: all eight canonical kinds, collapsed and
   expanded models, replay stability, unknown origin, unavailable timing, and
   callback-route privacy.
@@ -55,5 +56,5 @@ classification, expiry, drop, reorder, retry, or automatic response policy.
 ## Verification status
 
 Current implementation head at the time of this record is kept in Git history.
-The dedicated multi-runtime test must be committed and included in a fresh
-watcher run before independent exact-head QA. TASK-0152 remains open.
+The dedicated multi-runtime test must be included in a fresh watcher run before
+independent exact-head QA. TASK-0152 remains open.
