@@ -109,16 +109,17 @@ export function createInboxBridgeController(
 			// TASK-0081: the inbox offer is a Bebop-owned model delivery; a local
 			// blocking idle wait wakes on it before the unchanged message submits.
 			notifyAcceptedMessage(state, `inbox-${entry.id}`);
+			const deliveredAt = now();
 			pi.sendMessage(
 				{
 					customType: SESSION_MESSAGE_TYPE,
 					content: renderModelMessageWithHeader(entry.payload, {
 						kind: entry.payload.kind ?? "inbox",
 						sentAt: entry.enqueuedAt,
-						deliveredAt: now(),
+						deliveredAt,
 					}),
 					display: true,
-					details: { messagePayload: entry.payload, inbox: { itemId: entry.id } },
+					details: { messagePayload: entry.payload, inbox: { itemId: entry.id }, deliveredAt },
 				},
 				{ triggerTurn: true, deliverAs: "followUp" },
 			);

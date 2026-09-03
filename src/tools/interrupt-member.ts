@@ -64,6 +64,8 @@ export function registerInterruptMemberTool(pi: ExtensionAPI, state: SocketState
 					content: params.message,
 					...(params.instructions === undefined ? {} : { instructions: [...params.instructions] }),
 					origin: { kind: "crew", name: membership.member.name, role: membership.member.role },
+					kind: "interrupt",
+					sentAt: (state.now ?? Date.now)(),
 				};
 				if (!isMessagePayload(payload))
 					return errorResult(targetName, "invalid-payload", "Invalid interrupt payload");

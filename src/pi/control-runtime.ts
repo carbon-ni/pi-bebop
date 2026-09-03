@@ -300,17 +300,18 @@ export async function handleCommand(
 			// Registration precedes Pi visibility. Once sendMessage accepts the
 			// request into context, arm idle handling and acknowledge delivery.
 			// TASK-0081: accepted Bebop model delivery wakes a local blocking idle wait.
-			const message = renderMemberRequestModelContent(
-				command.payload,
-				command.requestId,
-				(state.now ?? Date.now)(),
-			);
+			const deliveredAt = (state.now ?? Date.now)();
+			const message = renderMemberRequestModelContent(command.payload, command.requestId, deliveredAt);
 			notifyAcceptedMessage(state, command.requestId);
 			pi.sendMessage(
 				{
 					customType: SESSION_MESSAGE_TYPE,
 					content: message,
-					details: { messagePayload: command.payload, crewRequestId: command.requestId },
+					details: {
+						messagePayload: command.payload,
+						crewRequestId: command.requestId,
+						deliveredAt,
+					},
 					display: true,
 				},
 				{ triggerTurn: true },
@@ -827,13 +828,14 @@ export async function handleCommand(
 			return;
 		}
 		if (isInboxHint(payload)) state.onInboxHint?.();
-		const message = renderFollowUpModelContent(payload, (state.now ?? Date.now)());
+		const deliveredAt = (state.now ?? Date.now)();
+		const message = renderFollowUpModelContent(payload, deliveredAt);
 		const mode = command.delivery ?? "follow_up";
 		const isIdle = ctx.isIdle() && !contextIsCompacting(ctx);
 		const customMessage = {
 			customType: SESSION_MESSAGE_TYPE,
 			content: message,
-			details: { messagePayload: payload },
+			details: { messagePayload: payload, deliveredAt },
 			display: true,
 		};
 
