@@ -95,21 +95,22 @@ project socket paths.
 
 ## Choose communication
 
-| Tool                  | Use when                                                | Guarantee                                                                                                               |
-| --------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `send_member_request` | you need one correlated answer, report, or verdict      | exactly one Response, offline, timeout-after-idle, or timeout-max-wait — you resume via a later `crew-wait-resume` turn |
-| `send_follow_up`      | ordinary information                                    | accepted delivery only; no correlated Response expected                                                                 |
-| `redirect_member`     | change what a member is doing next                      | steered before the target's next model step; never aborts                                                               |
-| `send_to_inbox`       | the peer may be offline                                 | persisted durably; read later as a normal follow-up                                                                     |
-| `interrupt_member`    | work is stuck, harmful, or based on invalid assumptions | best-effort abort plus recovery guidance; never rolls back side effects                                                 |
-| `broadcast_to_crew`   | a shared team-wide constraint                           | durable per-recipient copy for every other member; idempotent retry                                                     |
+| Tool                  | Use when                                                | Guarantee                                                                              |
+| --------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `send_member_request` | you need one correlated answer, report, or verdict      | accepted delivery; call `wait_for_request_outcome` to block until the terminal outcome |
+| `send_follow_up`      | ordinary information                                    | accepted delivery only; no correlated Response expected                                |
+| `redirect_member`     | change what a member is doing next                      | steered before the target's next model step; never aborts                              |
+| `send_to_inbox`       | the peer may be offline                                 | persisted durably; read later as a normal follow-up                                    |
+| `interrupt_member`    | work is stuck, harmful, or based on invalid assumptions | best-effort abort plus recovery guidance; never rolls back side effects                |
+| `broadcast_to_crew`   | a shared team-wide constraint                           | durable per-recipient copy for every other member; idempotent retry                    |
 
 `wait_for_member_idle` blocks the current run until the target settles to mechanical idle, goes offline, the bounded timeout expires, or an accepted
 Bebop message releases the wait under its original delivery mode. A waking message is consumed immediately in the next model continuation;
 message-received never implies idle or completion. Call this coordination wait alone, not in a parallel tool batch, because its terminating
 result must be the only result in the batch. The bounded timeout is always the fallback.
-`wait_for_request_outcome` yields the run and resumes in a later turn, so
-correlated Request outcome waits never deadlock.
+`wait_for_request_outcome` blocks the current tool call until a terminal
+outcome or bounded safeguard releases it; it does not guarantee another Member
+will respond.
 
 ## Boundaries
 

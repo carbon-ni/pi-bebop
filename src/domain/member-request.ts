@@ -52,6 +52,22 @@ export interface RequestOutcomeTimeout {
 	readonly reason: "max-wait" | "response-after-idle";
 }
 export type RequestOutcome = RequestOutcomeResponse | RequestOutcomeOffline | RequestOutcomeTimeout;
+
+export function formatRequestOutcome(outcome: RequestOutcome): string {
+	const member = `${outcome.member.name} (${outcome.member.role})`;
+	if (outcome.kind === "response") {
+		const instructions = outcome.instructions.length
+			? `\nInstructions:\n${outcome.instructions.map((item, index) => `${index + 1}. ${item}`).join("\n")}`
+			: "";
+		return `Response received from ${member} for request ${outcome.requestId}: ${outcome.message}${instructions}`;
+	}
+	if (outcome.kind === "offline")
+		return `Member ${member} is offline for request ${outcome.requestId}. Recovery: consider reassigning or using send_to_inbox for durable delivery.`;
+	if (outcome.reason === "response-after-idle")
+		return `Member ${member} settled without a Response for request ${outcome.requestId}. Recovery: if an answer is still required, send a new send_member_request.`;
+	return `No Response arrived before the safety deadline for request ${outcome.requestId}. Recovery: consider checking Member Status, reassigning, using send_to_inbox, or using redirect_member when urgent.`;
+}
+
 /** Mechanical terminal union (no idle-without-response since TASK-0080). */
 export type RequestOutcomeMechanical = RequestOutcomeOffline | RequestOutcomeTimeout;
 
