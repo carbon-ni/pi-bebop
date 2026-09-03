@@ -2,7 +2,13 @@ import type { EntryRenderer, MessageRenderer } from "@earendil-works/pi-coding-a
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { TextContent } from "@earendil-works/pi-ai";
 import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import { isMessagePayload, renderMessagePayloadForDisplay, type MessagePayload } from "../domain/index.ts";
+import {
+	elapsedMessageMilliseconds,
+	formatMessageAge,
+	isMessagePayload,
+	renderMessagePayloadForDisplay,
+	type MessagePayload,
+} from "../domain/index.ts";
 
 const SENDER_INFO_PATTERN = /<sender_info>[\s\S]*?<\/sender_info>/g;
 const LEGACY_REPLY_INSTRUCTION_PATTERN =
@@ -25,11 +31,15 @@ interface SenderInfo {
 	sessionName?: string;
 }
 
-function payloadFromDetails(message: unknown): MessagePayload | null {
+function detailsFromMessage(message: unknown): { payload: MessagePayload; deliveredAt?: number } | null {
 	const details = (message as { details?: unknown }).details;
 	if (typeof details !== "object" || details === null) return null;
-	const payload = (details as { messagePayload?: unknown }).messagePayload;
-	return isMessagePayload(payload) ? payload : null;
+	const candidate = details as { messagePayload?: unknown; deliveredAt?: unknown };
+	if (!isMessagePayload(candidate.messagePayload)) return null;
+	return {
+		payload: candidate.messagePayload,
+		deliveredAt: typeof candidate.deliveredAt === "number" ? candidate.deliveredAt : undefined,
+	};
 }
 
 function claimedOrigin(payload: MessagePayload): string | null {
@@ -81,19 +91,26 @@ function formatSenderInfo(info: SenderInfo | null): string | null {
 export function getMessageDisplayModel(
 	message: unknown,
 	expanded: boolean,
-): { text: string; senderText: string | null } {
+): { text: string; senderText: string | null; timingText: string | null } {
 	const rawContent = extractTextContent(
 		(message as { content: string | Array<TextContent | { type: string }> }).content,
 	);
-	const payload = payloadFromDetails(message);
+	const typedDetails = detailsFromMessage(message);
+	const payload = typedDetails?.payload ?? null;
 	const senderInfo = payload ? null : parseSenderInfo(rawContent);
 	let text = payload ? renderMessagePayloadForDisplay(payload) : stripMessageMetadata(rawContent);
+	const timingText =
+		payload && typedDetails?.deliveredAt !== undefined
+			? payload.kind === "member response"
+				? `request age ${formatMessageAge(payload.sentAt === undefined ? -1 : (elapsedMessageMilliseconds(payload.sentAt, typedDetails.deliveredAt) ?? -1))}`
+				: `age at delivery ${formatMessageAge(payload.sentAt === undefined ? -1 : (elapsedMessageMilliseconds(payload.sentAt, typedDetails.deliveredAt) ?? -1))}`
+			: null;
 	if (!text) text = "(no content)";
 	if (!expanded) {
 		const lines = text.split("\n");
 		if (lines.length > 5) text = `${lines.slice(0, 5).join("\n")}\n...`;
 	}
-	return { text, senderText: payload ? claimedOrigin(payload) : formatSenderInfo(senderInfo) };
+	return { text, senderText: payload ? claimedOrigin(payload) : formatSenderInfo(senderInfo), timingText };
 }
 
 export const renderCrewPresence: MessageRenderer = (message, _options, theme) => {
@@ -132,11 +149,13 @@ export const renderCrewInboxEntry: EntryRenderer = (entry, _options, theme) =>
 	markdownEntry(contentOfEntry(entry), theme);
 
 export const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => {
-	const { text, senderText } = getMessageDisplayModel(message, expanded);
+	const { text, senderText, timingText } = getMessageDisplayModel(message, expanded);
 
 	const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
 	const labelBase = theme.fg("customMessageLabel", `\x1b[1m${sessionMessageLabel(message)}\x1b[22m`);
-	const label = senderText ? `${labelBase} ${theme.fg("dim", senderText)}` : labelBase;
+	const label = [senderText, timingText].filter(Boolean).length
+		? `${labelBase} ${theme.fg("dim", [senderText, timingText].filter(Boolean).join(" · "))}`
+		: labelBase;
 	box.addChild(new Text(label, 0, 0));
 	box.addChild(new Spacer(1));
 	box.addChild(
