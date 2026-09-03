@@ -143,7 +143,7 @@ test("TASK-0152: TUI preserves all canonical kinds, frozen timing, and privacy",
 		{ content: "legacy", details: { messagePayload: { content: "old" }, deliveredAt: 90_000_000 } },
 		true,
 	);
-	assert.equal(unknown.senderText, null);
+	assert.equal(unknown.senderText, "from unknown");
 	assert.equal(unknown.timingText, "age at delivery unavailable");
 });
 
