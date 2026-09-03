@@ -83,12 +83,15 @@ test("application omission defaults to follow-up wire delivery and coordinator q
 			},
 			resolveEndpoint: async (socketPath) => socketPath,
 			coordinator: createMemberMessageCoordinator(),
+			now: () => 1_234,
 		},
 	);
 	assert.equal(command.delivery, "follow_up");
 	assert.deepEqual(command.payload, {
 		content: "default",
 		origin: { kind: "crew", name: "dev", role: "developer" },
+		kind: "follow-up",
+		sentAt: 1_234,
 	});
 	assert.equal(outcome.disposition, "queued");
 });

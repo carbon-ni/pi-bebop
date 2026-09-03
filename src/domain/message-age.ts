@@ -6,24 +6,14 @@ export interface MessageClock {
 /** Model-visible fallback for missing, malformed, future, or overflowing timing. */
 export const UNAVAILABLE_MESSAGE_AGE = "unavailable";
 
-/** Closed semantic labels for every model-bound Bebop message surface. */
-export const MESSAGE_KINDS = [
-	"follow-up",
-	"member request",
-	"redirect",
-	"interrupt",
-	"inbox",
-	"broadcast",
-	"external intake",
-	"member response",
-] as const;
-export type MessageKind = (typeof MESSAGE_KINDS)[number];
+import type { MessageKind, MessageOrigin } from "./message-payload.ts";
+import { MESSAGE_KINDS } from "./message-payload.ts";
+export { MESSAGE_KINDS } from "./message-payload.ts";
+export type { MessageKind } from "./message-payload.ts";
 
 export interface MessageHeaderInput {
 	readonly kind: MessageKind;
-	readonly origin?:
-		| { readonly kind: "crew"; readonly name: string; readonly role: string }
-		| { readonly kind: "external"; readonly label: string };
+	readonly origin?: MessageOrigin;
 	readonly elapsedMs?: number;
 	readonly requestId?: string;
 }
