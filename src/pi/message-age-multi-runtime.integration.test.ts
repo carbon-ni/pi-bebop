@@ -11,7 +11,6 @@ import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
-import type { MessagePayload } from "../domain/index.ts";
 
 test("multi-runtime transient and hours-old durable messages keep exact frozen headers", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-message-age-multi-runtime-"));
@@ -68,7 +67,8 @@ test("multi-runtime transient and hours-old durable messages keep exact frozen h
 	);
 	t.after(() => closeRpcServer(targetServer));
 
-	const sourceState = createSocketState(() => 89_996_000);
+	let sourceNow = 89_996_000;
+	const sourceState = createSocketState(() => sourceNow);
 	sourceState.server = {} as never;
 	sourceState.context = { isProjectTrusted: () => true, isIdle: () => false } as never;
 	sourceState.membershipRuntime = {
@@ -93,6 +93,17 @@ test("multi-runtime transient and hours-old durable messages keep exact frozen h
 		coordinator: createMemberMessageCoordinator(),
 		now: () => 89_996_000,
 	};
+	sourceState.memberInboxMessageDependencies = {
+		isProjectTrusted: () => true,
+		openStore: async (options) =>
+			openTrustedMemberInboxStore({
+				manifestPath: options.manifestPath,
+				projectRoot: root,
+				isProjectTrusted: options.isProjectTrusted,
+				member: options.member,
+			}),
+		hintTransport: null,
+	};
 	await fs.rm(sourceSocket, { force: true });
 	const sourceServer = await createRpcServer(sourceSocket, (command, socket) =>
 		handleCommand({} as never, sourceState, command, socket),
@@ -110,23 +121,22 @@ test("multi-runtime transient and hours-old durable messages keep exact frozen h
 		'[follow-up] from Tony (lead) · age at delivery 4s\nInformation only; no correlated Response expected.\n{"type":"message-context","content":"transient now","origin":{"kind":"crew","name":"Tony","role":"lead"}}',
 	);
 
-	const store = await openTrustedMemberInboxStore({
-		manifestPath,
-		projectRoot: root,
-		isProjectTrusted: () => true,
-		member: { name: "Kelly", role: "qa", socketPath: targetSocket },
+	sourceNow = 0;
+	const durable = await sendRpcCommand(sourceSocket, {
+		type: "member_inbox_send",
+		target: "Kelly",
+		message: "durable then",
 	});
-	await store.enqueue(
-		{
-			content: "durable then",
-			origin: { kind: "crew", name: "Tony", role: "lead" },
-			kind: "inbox",
-		} satisfies MessagePayload,
-		0,
-	);
+	assert.equal(durable.response.success, true);
 	const bridge = createInboxBridgeController(pi, targetState, {
 		now: () => 90_000_000,
-		openStore: async () => store,
+		openStore: async () =>
+			openTrustedMemberInboxStore({
+				manifestPath,
+				projectRoot: root,
+				isProjectTrusted: () => true,
+				member: { name: "Kelly", role: "qa", socketPath: targetSocket },
+			}),
 	});
 	bridge.establish(ownershipFromMembership(membership));
 	assert.equal((await bridge.attemptOffer()).offered, true);

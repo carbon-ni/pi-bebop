@@ -145,6 +145,13 @@ test("TASK-0152: TUI preserves all canonical kinds, frozen timing, and privacy",
 	);
 	assert.equal(unknown.senderText, "from unknown");
 	assert.equal(unknown.timingText, "age at delivery unavailable");
+	for (const deliveredAt of [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+		const legacyTiming = getMessageDisplayModel(
+			{ content: "legacy", details: { messagePayload: { content: "old" }, deliveredAt } },
+			true,
+		);
+		assert.equal(legacyTiming.timingText, "age at delivery unavailable");
+	}
 });
 
 test("sender header parsing preserves valid identity and ignores malformed metadata", () => {

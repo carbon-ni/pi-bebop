@@ -71,6 +71,7 @@ export interface InterruptEvidenceRecord {
 	readonly interruptId: string;
 	readonly targetName: string;
 	readonly senderName: string;
+	readonly senderRole: string;
 	readonly abortRequested: boolean;
 	readonly deliveredAt?: number;
 	readonly sentAt?: number;
@@ -98,7 +99,7 @@ export function latestInterruptEvidence(entries: readonly unknown[]): InterruptE
 		const data = entry.data;
 		if (data.phase !== "pending" && data.phase !== "handed-off") continue;
 		if (!isSafeText(data.interruptId) || !isSafeText(data.targetName) || !isSafeText(data.senderName)) continue;
-		if (typeof data.abortRequested !== "boolean") continue;
+		if (!isSafeText(data.senderRole) || typeof data.abortRequested !== "boolean") continue;
 		const deliveredAt: number | undefined =
 			data.deliveredAt === undefined
 				? undefined
@@ -118,6 +119,7 @@ export function latestInterruptEvidence(entries: readonly unknown[]): InterruptE
 			interruptId: data.interruptId,
 			targetName: data.targetName,
 			senderName: data.senderName,
+			senderRole: data.senderRole,
 			abortRequested: data.abortRequested,
 			...(deliveredAt === undefined ? {} : { deliveredAt }),
 			...(sentAt === undefined ? {} : { sentAt }),
@@ -151,6 +153,7 @@ function evidenceRecord(
 		interruptId: evidence.interruptId,
 		targetName: evidence.targetName,
 		senderName: evidence.senderName,
+		senderRole: evidence.senderRole,
 		abortRequested: evidence.abortRequested,
 		...(deliveredAt === undefined ? {} : { deliveredAt }),
 		...(sentAt === undefined ? {} : { sentAt }),
@@ -174,7 +177,8 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 		if (hasPendingInterrupt(entries, targetName)) return { ok: false, code: "already-pending" };
 
 		const senderName = payload.origin.kind === "crew" ? payload.origin.name : "external";
-		const interruptId = `interrupt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+		const senderRole = payload.origin.kind === "crew" ? payload.origin.role : "external";
+		const interruptId = `interrupt-${(surface.now?.() ?? Date.now()).toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 		const abortRequested = !surface.isIdle();
 
 		// 1. Persist pending evidence BEFORE any abort (crash-safe: reload sees pending-without-handed-off).
@@ -183,6 +187,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 				interruptId,
 				targetName,
 				senderName,
+				senderRole,
 				abortRequested,
 				sentAt: payload.sentAt,
 				content: payload.content,
@@ -221,6 +226,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 					interruptId,
 					targetName,
 					senderName,
+					senderRole,
 					abortRequested,
 					sentAt: payload.sentAt,
 					deliveredAt,
@@ -247,7 +253,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 		if (!record || record.phase === "handed-off") return null;
 		const payload: MessagePayload = {
 			content: record.content ?? "Recovery from an interrupted turn",
-			origin: { kind: "crew", name: record.senderName, role: record.senderName },
+			origin: { kind: "crew", name: record.senderName, role: record.senderRole },
 			kind: "interrupt",
 			...(record.sentAt === undefined ? {} : { sentAt: record.sentAt }),
 		};
@@ -276,6 +282,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 				interruptId: record.interruptId,
 				targetName: record.targetName,
 				senderName: record.senderName,
+				senderRole: record.senderRole,
 				abortRequested: record.abortRequested,
 				sentAt: record.sentAt,
 				deliveredAt,

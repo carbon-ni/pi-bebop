@@ -519,7 +519,7 @@ export async function handleCommand(
 					member: command.target,
 					message: command.message,
 					instructions: command.instructions,
-					now: Date.now(),
+					now: state.now?.() ?? Date.now(),
 					signal: controller.signal,
 				},
 				dependencies,
@@ -566,7 +566,7 @@ export async function handleCommand(
 					membership: membership as never,
 					message: command.message,
 					instructions: command.instructions,
-					now: Date.now(),
+					now: state.now?.() ?? Date.now(),
 					signal: controller.signal,
 				},
 				dependencies,
@@ -672,7 +672,7 @@ export async function handleCommand(
 			targetName: resolution.target.name,
 			message: command.message,
 			instructions: command.instructions,
-			requestedAt: Date.now(),
+			requestedAt: state.now?.() ?? Date.now(),
 		};
 		try {
 			const payload = createInterruptRecoveryPayload(membership.member, request);

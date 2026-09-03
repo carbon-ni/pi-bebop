@@ -142,6 +142,7 @@ export function createInterruptRecoveryPayload(sender: CrewMember, request: Memb
 		content: request.message,
 		origin: deriveInterruptOrigin(sender),
 		kind: "interrupt",
+		sentAt: request.requestedAt,
 		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
 	};
 	if (!isMessagePayload(payload))
