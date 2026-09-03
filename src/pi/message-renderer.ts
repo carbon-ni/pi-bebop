@@ -152,7 +152,7 @@ export const renderSessionMessage: MessageRenderer = (message, { expanded }, the
 	return box;
 };
 
-export type SessionMessageKind = "member-request" | "follow-up" | "wait-resume" | "other";
+export type SessionMessageKind = "member-request" | "follow-up" | "other";
 
 /**
  * TASK-0076: structural UI distinction between an inbound Member request and
@@ -165,9 +165,6 @@ export function sessionMessageKind(message: unknown): SessionMessageKind {
 	if (typeof details !== "object" || details === null) return "other";
 	if (typeof (details as { crewRequestId?: unknown }).crewRequestId === "string") return "member-request";
 	if ((details as { messagePayload?: unknown }).messagePayload !== undefined) return "follow-up";
-	const wait = (details as { wait?: unknown }).wait;
-	if (typeof wait === "object" && wait !== null && typeof (wait as { kind?: unknown }).kind === "string")
-		return "wait-resume";
 	return "other";
 }
 
@@ -175,7 +172,6 @@ export function sessionMessageLabel(message: unknown): string {
 	const kind = sessionMessageKind(message);
 	if (kind === "member-request") return "[member request]";
 	if (kind === "follow-up") return "[follow-up]";
-	if (kind === "wait-resume") return "[wait resume]";
 	const customType = (message as { customType?: unknown }).customType;
 	return typeof customType === "string" && customType ? `[${customType}]` : "[message]";
 }
@@ -183,8 +179,6 @@ export function sessionMessageLabel(message: unknown): string {
 export function sessionMessageHint(message: unknown): string | null {
 	const kind = sessionMessageKind(message);
 	if (kind === "member-request") return "Respond with respond_to_member_request after completing the requested work.";
-	if (kind === "wait-resume")
-		return "A crew-wait-resume reached a terminal outcome (Response, offline, or a bounded timeout); act on it or continue. A timeout never implies task failure.";
 	return null;
 }
 

@@ -8,10 +8,9 @@
  * `wait_for_member_idle` is released. The delivered message itself is
  * untouched: it keeps its original Follow-up/Redirect mode and FIFO position.
  *
- * Scope: Follow-up, Redirect, Member request, correlated Response resume
- * (crew-wait-resume model delivery), Inbox, Broadcast, reminder. A Response
- * arriving only on its request-scoped RPC channel is NOT a wake; its later
- * crew-wait-resume model delivery is. Interrupt/abort is not a wake.
+ * Scope: Follow-up, Redirect, Member request, Inbox, Broadcast, and reminder.
+ * A Response arriving on its request-scoped RPC channel is not a wake.
+ * Interrupt/abort is not a wake.
  *
  * A message accepted before `arm` does not wake the later wait (public Pi API
  * does not expose accepted-versus-entered correlation and private queue
