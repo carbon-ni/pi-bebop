@@ -73,6 +73,41 @@ describe("createInterruptFlow", () => {
 		assert.equal(pending.data.interruptId, handed.data.interruptId);
 	});
 
+	test("new Interrupt sentAt survives pending evidence and recovery", async () => {
+		let delivered: Record<string, unknown> | undefined;
+		const surface = makeSurface({
+			now: () => 5_000,
+			sendMessage: (message) => {
+				delivered = message as Record<string, unknown>;
+			},
+		});
+		const flow = createInterruptFlow(surface);
+		const payload: MessagePayload = {
+			...PAYLOAD("stop now"),
+			kind: "interrupt",
+			sentAt: 3_000,
+		};
+		await flow.interrupt(payload);
+		const pending = surface.getEntries()[0] as { data: { sentAt?: number } };
+		assert.equal(pending.data.sentAt, 3_000);
+		assert.equal((delivered?.details as { messagePayload: MessagePayload }).messagePayload.sentAt, 3_000);
+
+		const recovered = makeSurface({
+			now: () => 6_000,
+			sendMessage: (message) => (delivered = message as Record<string, unknown>),
+		});
+		recovered.appendEntry("intray-interrupt", {
+			phase: "pending",
+			interruptId: "interrupt-sent-time",
+			targetName: "Tony",
+			senderName: "Mary",
+			abortRequested: false,
+			sentAt: 3_000,
+			content: "recover me",
+		});
+		await createInterruptFlow(recovered).recoverPending();
+		assert.equal((delivered?.details as { messagePayload: MessagePayload }).messagePayload.sentAt, 3_000);
+	});
 	test("busy target: persists pending BEFORE abort, requests abort, steers recovery, marks handed-off", async () => {
 		const order: string[] = [];
 		const surface = makeSurface({

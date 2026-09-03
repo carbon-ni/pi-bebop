@@ -73,6 +73,7 @@ export interface InterruptEvidenceRecord {
 	readonly senderName: string;
 	readonly abortRequested: boolean;
 	readonly deliveredAt?: number;
+	readonly sentAt?: number;
 	readonly content?: string;
 }
 
@@ -104,7 +105,14 @@ export function latestInterruptEvidence(entries: readonly unknown[]): InterruptE
 				: typeof data.deliveredAt === "number" && Number.isFinite(data.deliveredAt)
 					? data.deliveredAt
 					: undefined;
+		const sentAt: number | undefined =
+			data.sentAt === undefined
+				? undefined
+				: typeof data.sentAt === "number" && Number.isSafeInteger(data.sentAt) && data.sentAt >= 0
+					? data.sentAt
+					: undefined;
 		if (data.deliveredAt !== undefined && deliveredAt === undefined) continue;
+		if (data.sentAt !== undefined && sentAt === undefined) continue;
 		return {
 			phase: data.phase as InterruptEvidenceRecord["phase"],
 			interruptId: data.interruptId,
@@ -112,6 +120,7 @@ export function latestInterruptEvidence(entries: readonly unknown[]): InterruptE
 			senderName: data.senderName,
 			abortRequested: data.abortRequested,
 			...(deliveredAt === undefined ? {} : { deliveredAt }),
+			...(sentAt === undefined ? {} : { sentAt }),
 		};
 	}
 	return null;
@@ -136,6 +145,7 @@ function evidenceRecord(
 ): InterruptEvidenceRecord {
 	const deliveredAt = evidence.deliveredAt;
 	const content = evidence.content;
+	const sentAt = evidence.sentAt;
 	return {
 		phase,
 		interruptId: evidence.interruptId,
@@ -143,6 +153,7 @@ function evidenceRecord(
 		senderName: evidence.senderName,
 		abortRequested: evidence.abortRequested,
 		...(deliveredAt === undefined ? {} : { deliveredAt }),
+		...(sentAt === undefined ? {} : { sentAt }),
 		...(content === undefined ? {} : { content }),
 	};
 }
@@ -173,6 +184,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 				targetName,
 				senderName,
 				abortRequested,
+				sentAt: payload.sentAt,
 				content: payload.content,
 			}),
 		);
@@ -210,6 +222,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 					targetName,
 					senderName,
 					abortRequested,
+					sentAt: payload.sentAt,
 					deliveredAt: Date.now(),
 					content: payload.content,
 				}),
@@ -235,6 +248,8 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 		const payload: MessagePayload = {
 			content: record.content ?? "Recovery from an interrupted turn",
 			origin: { kind: "crew", name: record.senderName, role: record.senderName },
+			kind: "interrupt",
+			...(record.sentAt === undefined ? {} : { sentAt: record.sentAt }),
 		};
 		const deliveredAt = surface.now?.();
 		await surface.sendMessage(
@@ -262,6 +277,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 				targetName: record.targetName,
 				senderName: record.senderName,
 				abortRequested: record.abortRequested,
+				sentAt: record.sentAt,
 				deliveredAt: Date.now(),
 				content: record.content,
 			}),
