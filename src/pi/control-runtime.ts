@@ -46,7 +46,7 @@ import {
 	type RpcCommand,
 	SESSION_MESSAGE_TYPE,
 } from "../domain/index.ts";
-import type { MembershipRuntime } from "../infra/membership-runtime.ts";
+import type { Membership, MembershipRuntime } from "../infra/membership-runtime.ts";
 import type { PresenceObserver } from "../application/presence-observer.ts";
 import { createInterruptFlow } from "../application/interrupt-flow.ts";
 import {
@@ -123,7 +123,7 @@ export interface SocketState {
 // Utilities
 // ============================================================================
 
-const STATUS_KEY = "intray";
+const STATUS_KEY = "pi-bebop";
 
 function getSessionAlias(ctx: ExtensionContext): string | null {
 	const sessionName = ctx.sessionManager.getSessionName();
@@ -938,8 +938,9 @@ export function refreshIntrayStatus(state: SocketState, ctx: ExtensionContext | 
 	updateStatus(ctx, state);
 }
 
-export function formatIntrayFooter(sessionId: string, status: IntrayStatus): string {
-	return `${sessionId} ${status}`;
+export function formatIntrayFooter(status: IntrayStatus, member?: Pick<Membership["member"], "name" | "role">): string {
+	const identity = status === "joined" && member ? ` ${member.name} (${member.role})` : "";
+	return `${status}${identity}`;
 }
 
 function updateStatus(ctx: ExtensionContext | null, state: SocketState, enabled = true): void {
@@ -949,9 +950,13 @@ function updateStatus(ctx: ExtensionContext | null, state: SocketState, enabled 
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
-		const sessionId = ctx.sessionManager.getSessionId();
-		const status = deriveIntrayStatus(Boolean(state.server), Boolean(state.membershipRuntime?.getMembership()));
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", formatIntrayFooter(sessionId, status)));
+		const membership = state.membershipRuntime?.getMembership();
+		const status = deriveIntrayStatus(Boolean(state.server), Boolean(membership));
+		if (status === "stopped") {
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+			return;
+		}
+		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", formatIntrayFooter(status, membership?.member)));
 	} catch (error) {
 		if (!isStaleContextError(error)) throw error;
 	}
