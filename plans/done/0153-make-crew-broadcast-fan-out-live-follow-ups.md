@@ -1,7 +1,7 @@
 ---
 id: TASK-0153
 title: Make Crew Broadcast fan out live Follow-ups
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, broadcast, follow-up, messaging, tools, cli, refactor, tdd]
@@ -72,10 +72,11 @@ unreachable recipient is an explicit failed disposition. Agents use
       a second mode. Inbox-specific code shared by `send_to_inbox` remains.
 - [x] README and `UL.md` distinguish transient Crew Broadcast from targeted
       Follow-up and durable Inbox delivery.
-- [ ] Unit, real-wire multi-runtime, CLI/tool parity, package smoke, coverage,
+- [x] Unit, real-wire multi-runtime, CLI/tool parity, package smoke, coverage,
       architecture, final watcher, and independent exact-head QA gates pass.
-      Focused and watcher verification pass; independent exact-head QA remains
-      a lead-owned final acceptance step.
+      Lead verification passed 910/910 focused npm tests and watcher generation
+      30 full gate with fresh fingerprint `35875274d1a7`; worktree was clean at
+      exact HEAD `e0eaace`.
 
 ## Constraints
 
