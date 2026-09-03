@@ -223,7 +223,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 					senderName,
 					abortRequested,
 					sentAt: payload.sentAt,
-					deliveredAt: Date.now(),
+					deliveredAt,
 					content: payload.content,
 				}),
 			);
@@ -278,7 +278,7 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 				senderName: record.senderName,
 				abortRequested: record.abortRequested,
 				sentAt: record.sentAt,
-				deliveredAt: Date.now(),
+				deliveredAt,
 				content: record.content,
 			}),
 		);
