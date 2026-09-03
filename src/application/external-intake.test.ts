@@ -117,6 +117,7 @@ describe("submitExternalIntake happy path", () => {
 			content: "Evaluate this request",
 			instructions: ["Triage"],
 			origin: { kind: "external", label: "jira-automation" },
+			kind: "external intake",
 		});
 		assert.equal(harness.enqueued[0]!.now, 1234);
 	});
