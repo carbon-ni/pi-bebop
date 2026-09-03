@@ -134,14 +134,10 @@ export async function submitCrewBroadcast(
 		throw new CrewBroadcastApplicationError("untrusted-project", "Cannot broadcast in an untrusted project");
 
 	// One payload shared by every recipient: content + ordered instructions + derived crew origin.
-	const payload = createBroadcastPayload(
-		membership.member,
-		{
-			content: request.message,
-			...(instructions === undefined ? {} : { instructions }),
-		},
-		request.now,
-	);
+	const payload = createBroadcastPayload(membership.member, {
+		content: request.message,
+		...(instructions === undefined ? {} : { instructions }),
+	});
 
 	const dispositions: BroadcastDisposition[] = [];
 	for (const recipient of snapshot.recipients) {

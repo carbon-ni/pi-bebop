@@ -294,15 +294,14 @@ export class RequestOutcomeRegistry {
 			input.receivedAt === undefined || request.acceptedAt === undefined
 				? undefined
 				: (elapsedMessageMilliseconds(request.acceptedAt, input.receivedAt) ?? undefined);
-		const update = {
-			kind: "response" as const,
+		const update: RequestOutcomeResponse = {
+			kind: "response",
 			requestId: input.requestId,
 			member: input.member,
 			message: input.message,
 			instructions: [...input.instructions],
+			...(requestAgeMs === undefined ? {} : { requestAgeMs }),
 		};
-		if (requestAgeMs !== undefined)
-			Object.defineProperty(update, "requestAgeMs", { value: requestAgeMs, enumerable: false, writable: false });
 		this.outbound.delete(input.requestId);
 		this.setTerminal(input.requestId, { kind: update.kind, update });
 		this.publish(update);

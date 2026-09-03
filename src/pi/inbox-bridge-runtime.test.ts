@@ -59,6 +59,7 @@ function setup(entries: Array<Record<string, unknown>> = [], initialPending: Inb
 		},
 	} as unknown as SocketState;
 	const controller = createInboxBridgeController(pi, state, {
+		now: () => 5_000,
 		openStore: (async () => ({
 			memberKey: "member-test",
 			enqueue: async () => {
@@ -170,6 +171,8 @@ describe("adapter controller wiring", () => {
 		assert.deepEqual(message.details, {
 			messagePayload: { content: "message 0" },
 			inbox: { itemId: "inbox-0-abc" },
+			sentAt: 1_000,
+			deliveredAt: 5_000,
 		});
 		assert.deepEqual(harness.sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
 	});

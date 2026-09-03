@@ -112,7 +112,7 @@ function session(crew: Awaited<ReturnType<typeof makeCrew>>, memberName: string)
 		},
 	} as unknown as SocketState;
 	const membership = membershipFor(crew, memberName);
-	const bridge = createInboxBridgeController(pi, state);
+	const bridge = createInboxBridgeController(pi, state, { now: () => 5_000 });
 	return {
 		entries,
 		sent,
@@ -146,7 +146,7 @@ async function enqueueFor(
 ) {
 	const membership = membershipFor(crew, senderName);
 	const outcome = await enqueueMemberInboxMessage(
-		{ membership: membership as never, member: targetName, message, now: Date.now() },
+		{ membership: membership as never, member: targetName, message, now: 3_000 },
 		{
 			isProjectTrusted: () => true,
 			openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
@@ -178,6 +178,8 @@ test("offline enqueue reaches a later-joining peer as one follow-up, then the it
 			origin: { kind: "crew", name: "lead", role: "lead" },
 		},
 		inbox: { itemId: outcome.itemId },
+		sentAt: 3_000,
+		deliveredAt: 5_000,
 	});
 	// Normal follow-up semantics: queued, never steering active work.
 	assert.deepEqual(recipient.sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });

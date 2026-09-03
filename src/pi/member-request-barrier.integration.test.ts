@@ -242,7 +242,9 @@ test("TASK-0080 G6: parked outbound slot survives idle; a Response during the po
 		});
 	}
 	const update = await pending;
-	assert.deepEqual(update, {
+	const { requestAgeMs, ...responseWithoutAge } = update;
+	assert.equal(typeof requestAgeMs, "number");
+	assert.deepEqual(responseWithoutAge, {
 		kind: "response",
 		requestId: "request-real",
 		member: { name: "Kelly", role: "qa" },
@@ -315,14 +317,18 @@ test("TASK-0080 G11: mutual idle waits and nested Member requests resolve withou
 		member: { name: "Kelly", role: "qa" },
 	});
 	const [updateA, updateB] = await Promise.all([pendingA, pendingB]);
-	assert.deepEqual(updateA, {
+	const { requestAgeMs: requestAgeA, ...responseAWithoutAge } = updateA;
+	const { requestAgeMs: requestAgeB, ...responseBWithoutAge } = updateB;
+	assert.equal(typeof requestAgeA, "number");
+	assert.equal(typeof requestAgeB, "number");
+	assert.deepEqual(responseAWithoutAge, {
 		kind: "response",
 		requestId: "request-real",
 		member: { name: "Kelly", role: "qa" },
 		message: "B answers A",
 		instructions: [],
 	});
-	assert.deepEqual(updateB, {
+	assert.deepEqual(responseBWithoutAge, {
 		kind: "response",
 		requestId: "request-real",
 		member: { name: "Tony", role: "lead" },
