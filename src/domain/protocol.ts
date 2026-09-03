@@ -54,14 +54,8 @@ export const MessageSendRequestSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-export const InterruptPayloadSchema = Type.Object(
-	{
-		content: Type.String({ minLength: 1, maxLength: MAX_MESSAGE_CONTENT_BYTES }),
-		instructions: Type.Optional(MessageInstructionsSchema),
-		origin: Type.Optional(MessageOriginSchema),
-	},
-	{ additionalProperties: false },
-);
+const { replyTo: _replyTo, ...InterruptPayloadProperties } = MessagePayloadSchema.properties;
+export const InterruptPayloadSchema = Type.Object(InterruptPayloadProperties, { additionalProperties: false });
 export const InterruptParamsSchema = Type.Object({ payload: InterruptPayloadSchema }, { additionalProperties: false });
 export const InterruptResultSchema = Type.Object(
 	{
