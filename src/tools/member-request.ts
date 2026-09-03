@@ -1,11 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { MessagePayloadSchema } from "../domain/index.ts";
+import { formatRequestOutcome, MessagePayloadSchema, type RequestOutcome } from "../domain/index.ts";
 import { MemberMessageError } from "../application/member-message.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
-import type { YieldingWaitRuntime } from "../pi/wait-resume.ts";
 
 const requestParameters = Type.Object(
 	{
@@ -39,7 +38,11 @@ const responseParameters = Type.Object(
 	{ additionalProperties: false },
 );
 const emptyParameters = Type.Object({}, { additionalProperties: false });
-type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean; details: unknown };
+type ToolResult = {
+	content: Array<{ type: "text"; text: string }>;
+	isError?: boolean;
+	details: unknown;
+};
 
 function success(text: string, details: unknown): ToolResult {
 	return { content: [{ type: "text", text }], details };
@@ -52,15 +55,40 @@ function flowFor(state: SocketState): MemberRequestFlow {
 	return state.memberRequestFlow;
 }
 
-/** TASK-0080: map a terminal Request outcome to its opaque resume marker;
- * timeout carries its reason (timeout:max-wait / timeout:response-after-idle). */
-function outcomeMarker(update: {
-	readonly kind: string;
-	readonly requestId: string;
-	readonly reason?: string;
-}): string {
-	if (update.kind === "timeout") return `timeout:${update.reason ?? "max-wait"}`;
-	return update.kind;
+type RequestOutcomeWait =
+	| { readonly ok: true; readonly outcome: RequestOutcome }
+	| { readonly ok: false; readonly code: "aborted" | "already-waiting" | "no-pending-requests" };
+
+function waitForRequestOutcome(flow: MemberRequestFlow, signal?: AbortSignal): Promise<RequestOutcomeWait> {
+	return new Promise((resolve) => {
+		let active = true;
+		let cancel: (() => void) | undefined;
+		const onAbort = () => {
+			if (!active) return;
+			active = false;
+			cancel?.();
+			signal?.removeEventListener("abort", onAbort);
+			resolve({ ok: false, code: "aborted" });
+		};
+		const finish = (result: RequestOutcomeWait) => {
+			if (!active) return;
+			active = false;
+			signal?.removeEventListener("abort", onAbort);
+			resolve(result);
+		};
+		const waiting = flow.waitForRequestOutcome((outcome) => finish({ ok: true, outcome }));
+		if (waiting.ok === false) {
+			finish({ ok: false, code: waiting.code });
+			return;
+		}
+		if (waiting.kind === "update") {
+			finish({ ok: true, outcome: waiting.update });
+			return;
+		}
+		cancel = waiting.cancel;
+		if (signal?.aborted) onAbort();
+		else signal?.addEventListener("abort", onAbort, { once: true });
+	});
 }
 
 export function registerSendMemberRequestTool(pi: ExtensionAPI, state: SocketState): void {
@@ -132,89 +160,28 @@ export function registerRespondToMemberRequestTool(pi: ExtensionAPI, state: Sock
 	});
 }
 
-export function registerWaitForRequestOutcomeTool(
-	pi: ExtensionAPI,
-	state: SocketState,
-	yieldRuntime: YieldingWaitRuntime,
-): void {
+export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: SocketState): void {
 	pi.registerTool({
 		name: "wait_for_request_outcome",
 		label: "Wait for Request Outcome",
 		description:
-			"Requester-side: yield the run and resume with the oldest terminal outbound Request outcome of a Member request you successfully sent: Response, offline, timeout(response-after-idle), or timeout(max-wait). The tool returns a deterministic 'yielded, waiting' result immediately; the terminal outcome arrives in a later turn as a crew-wait-resume message, never while this run stays busy. Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. It does not poll, monitor, or return unrelated Crew activity, and never proves completion, correctness, progress, or availability.",
+			"Requester-side: block this tool call until the oldest terminal outbound Request outcome arrives: Response, offline, timeout(response-after-idle), or timeout(max-wait). Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. The bounded wait is cancellable and does not poll, monitor, or return unrelated Crew activity. It preserves full Response instructions and presents recovery choices without claiming completion, correctness, or availability.",
 		parameters: emptyParameters,
 		async execute(_id, _params, signal) {
-			const flow = flowFor(state);
 			try {
+				const flow = flowFor(state);
 				if (!flow.hasPendingRequestOutcome())
-					return failure(
-						"no-pending-member-requests",
-						"No pending outbound Member request from you. If you received a Member request, respond with respond_to_member_request; otherwise send a new send_member_request or continue ready work.",
-					);
-
-				// Yield: park the one-shot wait and return immediately; the pump
-				// (shared, survives the run) forwards terminal outcomes to the
-				// runtime, which resumes the run later via crew-wait-resume.
-				const parked = yieldRuntime.park({
-					kind: "request-outcome",
-					target: "request",
-					sessionId: state.context?.sessionManager?.getSessionId?.(),
-				});
-				if (parked.ok === false)
-					return failure(parked.code, `Request outcome wait park rejected: ${parked.code}`);
-				if (signal) {
-					if (signal.aborted) yieldRuntime.cancel(parked.id);
-					else
-						signal.addEventListener(
-							"abort",
-							() => {
-								yieldRuntime.cancel(parked.id);
-							},
-							{ once: true },
-						);
+					return success("All outbound Member Request outcomes are settled.", { pending_count: 0 });
+				const waited = await waitForRequestOutcome(flow, signal);
+				if (waited.ok === false) {
+					if (waited.code === "no-pending-requests")
+						return success("All outbound Member Request outcomes are settled.", { pending_count: 0 });
+					if (waited.code === "aborted") return failure("aborted", "Request outcome wait aborted");
+					if (waited.code === "already-waiting")
+						return failure(waited.code, "Another Request outcome wait is already active");
+					return failure("wait-failed", `Could not wait for request outcome: ${waited.code}`);
 				}
-
-				const pump = () => {
-					const waiting = flow.waitForRequestOutcome((update) => {
-						yieldRuntime.resolve({
-							kind: "request-outcome",
-							target: update.requestId,
-							outcome: outcomeMarker(update),
-							observedAt: Date.now(),
-							...(update.kind === "response"
-								? { response: { message: update.message, instructions: update.instructions } }
-								: {}),
-						});
-						queueMicrotask(pump);
-					});
-					if (waiting.ok === false) return;
-					if (waiting.kind === "update") {
-						yieldRuntime.resolve({
-							kind: "request-outcome",
-							target: waiting.update.requestId,
-							outcome: outcomeMarker(waiting.update),
-							observedAt: Date.now(),
-							...(waiting.update.kind === "response"
-								? {
-										response: {
-											message: waiting.update.message,
-											instructions: waiting.update.instructions,
-										},
-									}
-								: {}),
-						});
-						queueMicrotask(pump);
-					}
-				};
-				pump();
-
-				return success(
-					"Request outcome wait armed; run yielded. You will resume in a later turn with the terminal outcome.",
-					{
-						yielded: true,
-						wait: { kind: "request-outcome" },
-					},
-				);
+				return success(formatRequestOutcome(waited.outcome), { result: waited.outcome });
 			} catch {
 				return failure("wait-failed", "Could not wait for request outcome");
 			}

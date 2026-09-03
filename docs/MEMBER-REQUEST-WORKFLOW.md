@@ -75,7 +75,7 @@ A QA request that needs a verdict is a Member request, not a Follow-up:
 # Requester (e.g. a developer):
 send_member_request({ member: "Kelly", message: "QA the TASK-0076 changes and report a verdict or blocker" })
 ... no immediate coordination action remains ...
-wait_for_request_outcome()   # requester-side, returns the QA verdict or offline/timeout
+wait_for_request_outcome()   # requester-side; blocks until the terminal outcome
 
 # Responder (Kelly): the inbound message is visibly marked [member request]
 # with the opaque Request ID; she does the QA work, then:
@@ -105,14 +105,14 @@ route is never public input.
 wait_for_request_outcome()
 ```
 
-No arguments. It returns the oldest terminal outbound Request outcome. It does
-not poll and does not return Presence, Member Status, Broadcast, Inbox,
-or unrelated Crew activity. It is requester-side only: call it after you sent
-`send_member_request`, never to handle an inbound Member request or an ordinary
-message. When no pending outbound Member request exists, it fails immediately
-with `no-pending-member-requests` and recovery guidance (respond to any inbound
-request, send a new request, or continue ready work). Waiting is only
-appropriate when no immediate coordination action remains.
+No arguments. It blocks this tool call until the oldest terminal outbound
+Request outcome arrives: Response, offline, or a bounded timeout. The wait is
+cancellable, has one local waiter, and does not poll or return Presence, Member
+Status, Broadcast, Inbox, or unrelated Crew activity. It is requester-side
+only: call it after you sent `send_member_request`, never to handle an inbound
+Member request or an ordinary message. When no pending outbound Member request
+exists, it returns a normal `all-settled` success with `pending_count: 0`.
+Waiting is only appropriate when no immediate coordination action remains.
 
 ## Request outcomes
 
@@ -140,21 +140,24 @@ Response after the grace window is rejected as already-terminal.
 ### Offline
 
 The request channel disconnected before a Response. Correlated requests are
-transient. For delivery that must survive absence or restart, create a durable
-Inbox message instead.
+transient. Consider reassigning or using `send_to_inbox` for durable delivery.
+This does not prove the work failed or stopped.
 
 ### Timeout after idle
 
 The post-idle Response grace expired without a Response (default 120s). The
 responder was idle-awaiting-response and the one-time reminder had already been
-queued. Timeout never retracts accepted work and does not prove work stopped,
-failed, or completed.
+queued. If an answer is still required, send a new `send_member_request`.
+Timeout never retracts accepted work and does not prove work stopped, failed,
+or completed.
 
 ### Timeout max-wait
 
 The absolute accepted-request safety deadline (`max_wait_seconds`, default
-1800s) expired before any Response; it may truncate a late grace. Timeout never
-retracts accepted work and does not prove work stopped, failed, or completed.
+1800s) expired before any Response; it may truncate a late grace. Consider
+checking Member Status, reassigning, using `send_to_inbox`, or using
+`redirect_member` when urgent. Timeout never retracts accepted work and does
+not prove work stopped, failed, or completed.
 
 ## Parallel loop
 
@@ -162,7 +165,7 @@ retracts accepted work and does not prove work stopped, failed, or completed.
 2. Requests return after acceptance; one slow Member does not block delegation.
 3. When no immediate coordination action remains, call
    `wait_for_request_outcome`.
-4. Handle the oldest Request outcome and assign newly ready work.
+4. Handle the returned Request outcome and assign newly ready work.
 5. Repeat until no ready work or pending Member requests remain.
 
 Outcomes may arrive out of assignment order; opaque Request IDs preserve
@@ -182,3 +185,4 @@ same instant — never to a Response/idle boundary.
 - Member Idle Wait remains a mechanical timing primitive and never proves a
   Response, completion, progress, correctness, or availability.
 - Bebop never infers completion, quality, ownership, or integration.
+- `/auto` scheduling is outside Bebop's scope; Bebop does not pause or resume it.

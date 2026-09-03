@@ -67,15 +67,6 @@ test("TASK-0076: inbound Member request is visibly distinguished from ordinary F
 	assert.equal(sessionMessageKind(other), "other");
 	assert.equal(sessionMessageLabel(other), "[bebop-session-message]");
 	assert.equal(sessionMessageHint(other), null);
-
-	const resumeMessage = {
-		customType: "crew-wait-resume",
-		content: "[wait resume] member-idle Kelly became-idle",
-		details: { wait: { kind: "member-idle", target: "Kelly", outcome: "became-idle", observedAt: 1_000 } },
-	};
-	assert.equal(sessionMessageKind(resumeMessage), "wait-resume");
-	assert.equal(sessionMessageLabel(resumeMessage), "[wait resume]");
-	assert.match(sessionMessageHint(resumeMessage) ?? "", /crew-wait-resume/);
 });
 
 test("typed Bob/Kelly details render claimed origin, ordered instructions, and hide replyTo", () => {
