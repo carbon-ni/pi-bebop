@@ -132,10 +132,7 @@ function prepareMemberDelivery(request: MemberMessageRequest, now: () => number)
 		content: request.message,
 		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
 		origin,
-		kind:
-			intent === "immediate"
-				? ("redirect" as const)
-				: (request.kind ?? ("follow-up" as const)),
+		kind: intent === "immediate" ? ("redirect" as const) : (request.kind ?? ("follow-up" as const)),
 		sentAt: now(),
 		...(request.sender === undefined ? {} : { replyTo: request.sender }),
 	};

@@ -453,7 +453,11 @@ const BroadcastDispositionBaseSchema = {
 };
 const BroadcastDispositionSchema = Type.Union([
 	Type.Object(
-		{ ...BroadcastDispositionBaseSchema, deliveryId: Type.String({ minLength: 1 }), disposition: Type.Literal("delivered") },
+		{
+			...BroadcastDispositionBaseSchema,
+			deliveryId: Type.String({ minLength: 1 }),
+			disposition: Type.Literal("delivered"),
+		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
@@ -693,7 +697,11 @@ export function isCrewBroadcastResult(value: unknown): value is CrewBroadcastRpc
 	const result = value as CrewBroadcastRpcResult;
 	const delivered = result.dispositions.filter((item) => item.disposition === "delivered").length;
 	const failed = result.dispositions.filter((item) => item.disposition === "failed").length;
-	return result.summary.total === result.dispositions.length && result.summary.delivered === delivered && result.summary.failed === failed;
+	return (
+		result.summary.total === result.dispositions.length &&
+		result.summary.delivered === delivered &&
+		result.summary.failed === failed
+	);
 }
 export type PresenceHintRequest = Static<typeof PresenceHintRequestSchema>;
 export type PresenceHintResult = Static<typeof PresenceHintResultSchema>;

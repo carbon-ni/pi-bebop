@@ -88,7 +88,12 @@ async function startFixture(t: test.TestContext): Promise<Fixture> {
 		isProjectTrusted: () => true,
 	} as never;
 	const targetServer = await createRpcServer(marySocket, (command, socket) =>
-		handleCommand({ sendMessage: (message: { content: string }) => targetMessages.push(message.content) } as never, targetState, command, socket),
+		handleCommand(
+			{ sendMessage: (message: { content: string }) => targetMessages.push(message.content) } as never,
+			targetState,
+			command,
+			socket,
+		),
 	);
 	const sourceServer = await createRpcServer(sourceSocket, (command, socket) =>
 		handleCommand({} as never, sourceState, command, socket),
@@ -173,7 +178,11 @@ test("packaged CLI persists Inbox and broadcasts live through the production dis
 	const data = JSON.parse(broadcast.stdout);
 	assert.equal(data.status, "delivered");
 	assert.deepEqual(data.data.summary, { delivered: 1, failed: 0, total: 1 });
-	assert.equal(fixture.targetMessages.length, targetMessagesBeforeBroadcast + 1, JSON.stringify(fixture.targetMessages));
+	assert.equal(
+		fixture.targetMessages.length,
+		targetMessagesBeforeBroadcast + 1,
+		JSON.stringify(fixture.targetMessages),
+	);
 	assert.ok(fixture.targetMessages.at(-1)?.startsWith("[broadcast]"));
 	assert.equal(await fixture.stores.mary.count(), 1, "broadcast must not write an Inbox item");
 });

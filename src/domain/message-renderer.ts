@@ -118,7 +118,7 @@ export function renderFollowUpModelContent(payload: MessagePayload, deliveredAt?
 							: (elapsedMessageMilliseconds(payload.sentAt, deliveredAt) ?? -1),
 				})}\n`;
 	const affordance = "Information only; no correlated Response expected.";
-		return deliveredAt === undefined
+	return deliveredAt === undefined
 		? `[${kind}] ${affordance}\n${renderMessagePayload(payload)}`
 		: `${header}${affordance}\n${renderMessagePayload(payload)}`;
 }

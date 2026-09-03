@@ -1,7 +1,7 @@
 ---
 id: TASK-0153
 title: Make Crew Broadcast fan out live Follow-ups
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, broadcast, follow-up, messaging, tools, cli, refactor, tdd]
@@ -47,33 +47,35 @@ unreachable recipient is an explicit failed disposition. Agents use
 
 ## Acceptance criteria
 
-- [ ] TDD first characterizes current durable behavior, then replaces it with
+- [x] TDD first characterizes current durable behavior, then replaces it with
       live Follow-up happy, offline, unreachable, partial-failure, and
       single-member paths.
-- [ ] `broadcast_to_crew` remains joined-member-only and accepts exactly message
+- [x] `broadcast_to_crew` remains joined-member-only and accepts exactly message
       plus ordered instructions.
-- [ ] `pi-bebop crew broadcast` has same semantics and result contract as tool.
-- [ ] Sender and origin are derived at execution time from current trusted
+- [x] `pi-bebop crew broadcast` has same semantics and result contract as tool.
+- [x] Sender and origin are derived at execution time from current trusted
       membership; caller cannot spoof origin or select recipients.
-- [ ] Fan-out excludes sender, preserves manifest order, attempts every other
+- [x] Fan-out excludes sender, preserves manifest order, attempts every other
       member once, and preserves ordered instructions.
-- [ ] Busy recipients receive normal queued Follow-up behavior; broadcast never
+- [x] Busy recipients receive normal queued Follow-up behavior; broadcast never
       steers or interrupts their active turn.
-- [ ] Offline, stale-socket, transport, and recipient-rejection failures are
+- [x] Offline, stale-socket, transport, and recipient-rejection failures are
       explicit per-recipient dispositions; one failure does not stop fan-out.
-- [ ] All-delivered outcome is success; any failed disposition is a clear
+- [x] All-delivered outcome is success; any failed disposition is a clear
       partial/failure outcome retaining successful recipient evidence.
-- [ ] Recipient model context retains canonical `[broadcast]` kind, Crew Origin,
+- [x] Recipient model context retains canonical `[broadcast]` kind, Crew Origin,
       Sent time, and Age-at-delivery behavior without exposing socket routes.
-- [ ] No broadcast path opens, writes, probes capacity of, or hints any member
+- [x] No broadcast path opens, writes, probes capacity of, or hints any member
       Inbox. There is no automatic Inbox fallback.
-- [ ] Obsolete durable-broadcast IDs, persistence application flow, RPC result
+- [x] Obsolete durable-broadcast IDs, persistence application flow, RPC result
       fields, help text, and tool guidance are removed rather than preserved as
       a second mode. Inbox-specific code shared by `send_to_inbox` remains.
-- [ ] README and `UL.md` distinguish transient Crew Broadcast from targeted
+- [x] README and `UL.md` distinguish transient Crew Broadcast from targeted
       Follow-up and durable Inbox delivery.
 - [ ] Unit, real-wire multi-runtime, CLI/tool parity, package smoke, coverage,
       architecture, final watcher, and independent exact-head QA gates pass.
+      Focused and watcher verification pass; independent exact-head QA remains
+      a lead-owned final acceptance step.
 
 ## Constraints
 

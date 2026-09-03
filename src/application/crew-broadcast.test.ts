@@ -87,8 +87,14 @@ describe("submitCrewBroadcast", () => {
 		);
 		assert.equal(result.ok, true);
 		if (!result.ok) return;
-		assert.deepEqual(calls.map((call) => call.endpoint), ["/crew/tony.sock", "/crew/mary.sock", "/crew/kelly.sock"]);
-		assert.deepEqual(result.dispositions.map((item) => item.disposition), ["delivered", "failed", "failed"]);
+		assert.deepEqual(
+			calls.map((call) => call.endpoint),
+			["/crew/tony.sock", "/crew/mary.sock", "/crew/kelly.sock"],
+		);
+		assert.deepEqual(
+			result.dispositions.map((item) => item.disposition),
+			["delivered", "failed", "failed"],
+		);
 		assert.equal(result.dispositions[1]!.code, "offline");
 		assert.equal(result.dispositions[2]!.code, "transport-error");
 		assert.deepEqual(result.summary, { delivered: 1, failed: 2, total: 3 });

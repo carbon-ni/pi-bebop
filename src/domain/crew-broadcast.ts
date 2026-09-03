@@ -80,15 +80,10 @@ export type BuildBroadcastRecipientsResult =
 	| { readonly ok: false; readonly code: "unknown-sender" | "no-recipients" };
 
 /** Manifest-order recipient snapshot excluding the sender by canonical identity. */
-export function buildBroadcastRecipients(
-	manifest: CrewManifest,
-	senderName: string,
-): BuildBroadcastRecipientsResult {
+export function buildBroadcastRecipients(manifest: CrewManifest, senderName: string): BuildBroadcastRecipientsResult {
 	const sender = manifest.members.find((candidate) => candidate.name === senderName);
 	if (!sender) return { ok: false, code: "unknown-sender" };
-	const recipients = manifest.members
-		.filter((member) => member.name !== sender.name)
-		.map((member) => ({ member }));
+	const recipients = manifest.members.filter((member) => member.name !== sender.name).map((member) => ({ member }));
 	if (recipients.length === 0) return { ok: false, code: "no-recipients" };
 	return { ok: true, recipients };
 }
