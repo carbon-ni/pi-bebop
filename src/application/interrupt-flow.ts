@@ -1,4 +1,9 @@
-import { isMessagePayload, type MessagePayload } from "../domain/index.ts";
+import {
+	elapsedMessageMilliseconds,
+	formatMessageHeader,
+	isMessagePayload,
+	type MessagePayload,
+} from "../domain/index.ts";
 
 /**
  * Target-owned interrupt state machine (application, TASK-0045).
@@ -57,6 +62,8 @@ export interface InterruptPiSurface {
 	readonly sendMessage: (message: unknown, options?: unknown) => Promise<void> | void;
 	readonly appendEntry: (customType: string, data?: unknown) => void;
 	readonly getEntries: () => readonly unknown[];
+	/** Recipient-owned clock captured at Pi handoff. */
+	readonly now?: () => number;
 }
 
 export interface InterruptEvidenceRecord {
@@ -176,12 +183,23 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 				await surface.abort();
 			}
 			// 3. Hand recovery to Pi: steer (busy) precedes older follow-ups; direct turn when idle.
+			const deliveredAt = surface.now?.();
 			await surface.sendMessage(
 				{
 					customType: "crew-interrupt",
-					content: `[interrupt] ${payload.content}`,
+					content:
+						deliveredAt === undefined
+							? `[interrupt] ${payload.content}`
+							: `${formatMessageHeader({
+									kind: "interrupt",
+									origin: payload.origin,
+									elapsedMs:
+										payload.sentAt === undefined
+											? undefined
+											: (elapsedMessageMilliseconds(payload.sentAt, deliveredAt) ?? undefined),
+								})}\n${payload.content}`,
 					display: true,
-					details: { messagePayload: payload },
+					details: { messagePayload: payload, ...(deliveredAt === undefined ? {} : { deliveredAt }) },
 				},
 				abortRequested ? { triggerTurn: true, deliverAs: "steer" } : { triggerTurn: true },
 			);
@@ -218,12 +236,23 @@ export function createInterruptFlow(surface: InterruptPiSurface) {
 			content: record.content ?? "Recovery from an interrupted turn",
 			origin: { kind: "crew", name: record.senderName, role: record.senderName },
 		};
+		const deliveredAt = surface.now?.();
 		await surface.sendMessage(
 			{
 				customType: "crew-interrupt",
-				content: `[interrupt] ${payload.content}`,
+				content:
+					deliveredAt === undefined
+						? `[interrupt] ${payload.content}`
+						: `${formatMessageHeader({
+								kind: "interrupt",
+								origin: payload.origin,
+								elapsedMs:
+									payload.sentAt === undefined
+										? undefined
+										: (elapsedMessageMilliseconds(payload.sentAt, deliveredAt) ?? undefined),
+							})}\n${payload.content}`,
 				display: true,
-				details: { messagePayload: payload },
+				details: { messagePayload: payload, ...(deliveredAt === undefined ? {} : { deliveredAt }) },
 			},
 			{ triggerTurn: true, deliverAs: "steer" },
 		);
