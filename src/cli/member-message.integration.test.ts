@@ -6,7 +6,9 @@ import * as path from "node:path";
 import * as net from "node:net";
 import { PassThrough } from "node:stream";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
+import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
+import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { createMemberMessageCoordinator } from "../application/member-message.ts";
 import { registerMemberIntentTool } from "../tools/member-tool-adapter.ts";
 import {
@@ -46,7 +48,7 @@ async function startSessions(t: test.TestContext): Promise<SessionPair> {
 	const targetSocket = path.join(root, "target.sock");
 	const targetMessages: Array<{ type: string; content: string }> = [];
 
-	const targetState = createSocketState();
+	const targetState = createSocketState(() => 5_000);
 	targetState.server = {} as never;
 	targetState.membershipRuntime = {
 		getMembership: () => ({
@@ -72,7 +74,7 @@ async function startSessions(t: test.TestContext): Promise<SessionPair> {
 		handleCommand(targetPi, targetState, command, socket),
 	);
 
-	const sourceState = createSocketState();
+	const sourceState = createSocketState(() => 1_000);
 	sourceState.server = {} as never;
 	sourceState.membershipRuntime = {
 		getMembership: () => ({
@@ -87,6 +89,12 @@ async function startSessions(t: test.TestContext): Promise<SessionPair> {
 			},
 		}),
 	} as never;
+	sourceState.memberMessageDependencies = {
+		transport: { send: sendRpcCommand },
+		resolveEndpoint: resolveMemberEndpoint,
+		coordinator: createMemberMessageCoordinator(),
+		now: () => 1_000,
+	};
 	sourceState.context = {
 		hasUI: false,
 		sessionManager: { getSessionId: () => "source", getSessionName: () => null, getEntries: () => [] },
@@ -183,8 +191,18 @@ test("member follow-up and redirect round-trip over real sockets with accepted d
 
 	// The target session received exactly two structured messages, in order.
 	assert.equal(sessions.targetMessages.length, 2);
-	assert.match(sessions.targetMessages[0]!.content, /wrap up/);
-	assert.match(sessions.targetMessages[1]!.content, /change course/);
+	assert.equal(
+		sessions.targetMessages[0]!.content,
+		"[follow-up] from Tony (lead) · age at delivery 4s\n" +
+			"Information only; no correlated Response expected.\n" +
+			'{"type":"message-context","content":"wrap up","origin":{"kind":"crew","name":"Tony","role":"lead"}}',
+	);
+	assert.equal(
+		sessions.targetMessages[1]!.content,
+		"[redirect] from Tony (lead) · age at delivery 4s\n" +
+			"Information only; no correlated Response expected.\n" +
+			'{"type":"message-context","content":"change course","instructions":["careful"],"origin":{"kind":"crew","name":"Tony","role":"lead"}}',
+	);
 });
 
 test("member follow-up maps target offline over the real wire to exit 1 code offline", async (t) => {

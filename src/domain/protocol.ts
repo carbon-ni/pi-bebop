@@ -1153,6 +1153,8 @@ export function requestToCommand(request: RpcRequest): RpcInboundCommand | Proto
 					content: rawParams.content,
 					...(rawParams.instructions === undefined ? {} : { instructions: rawParams.instructions }),
 					...(rawParams.origin === undefined ? {} : { origin: rawParams.origin }),
+					...(rawParams.kind === undefined ? {} : { kind: rawParams.kind }),
+					...(rawParams.sentAt === undefined ? {} : { sentAt: rawParams.sentAt }),
 					...(rawParams.replyTo === undefined ? {} : { replyTo: rawParams.replyTo }),
 				}
 			: undefined;
