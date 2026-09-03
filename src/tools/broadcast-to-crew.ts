@@ -50,7 +50,11 @@ export function registerBroadcastToCrewTool(
 						result.code === "no-recipients"
 							? "Nothing to broadcast: you are the only configured member"
 							: "Cannot broadcast: sender is not a configured member";
-					return { content: [{ type: "text", text: message }], isError: true, details: { error: result.code } };
+					return {
+						content: [{ type: "text", text: message }],
+						isError: true,
+						details: { error: result.code },
+					};
 				}
 				const delivered = result.summary.delivered;
 				const failed = result.summary.failed;

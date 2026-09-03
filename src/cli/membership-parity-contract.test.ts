@@ -246,7 +246,6 @@ test("contract artifact schema is closed to approved keys", () => {
 			"cancellation",
 		];
 		if (item.tool === "wait_for_member_idle") allowed.push("inputContract");
-		if (item.tool === "broadcast_to_crew") allowed.push("idempotency");
 		assertExactKeys(item, allowed, `tools[${item.tool}]`);
 	}
 });
@@ -303,14 +302,12 @@ const BROADCAST_FLOW_CODES: readonly (CrewBroadcastErrorCode | BroadcastToCrewEr
 ];
 /** Per-recipient codes produced by the broadcast store-error mapping (application/crew-broadcast.ts). */
 const BROADCAST_RECIPIENT_CODES: readonly string[] = [
-	"inbox-full",
-	"inbox-untrusted-path",
-	"untrusted-project",
-	"storage-unavailable",
-	"storage-failed",
-	"invalid-payload",
-	"invalid-item-id",
-	"aborted",
+	"unknown-member",
+	"ambiguous-member",
+	"self-send",
+	"remote-rejected",
+	"invalid-ack",
+	"offline",
 ];
 const INTERRUPT_RESOLUTION_CODES: readonly MemberInterruptErrorCode[] = [
 	"invalid-request",
@@ -415,7 +412,7 @@ test("frozen enums: formats, exits, membership, and result discriminators", () =
 	assertArrayEqualSets(entry("send_to_inbox").result.hint as string[], ["sent", "skipped"], "inbox hint");
 	assertArrayEqualSets(
 		entry("broadcast_to_crew").result.recipientDisposition as string[],
-		["persisted", "already-persisted", "failed"],
+		["delivered", "failed"],
 		"broadcast recipient dispositions",
 	);
 	assertArrayEqualSets(
@@ -447,8 +444,8 @@ test("terminal result.status and ordered result.fields are exact for all seven t
 			fields: ["member.name", "member.role", "itemId", "persisted", "hint"],
 		},
 		broadcast_to_crew: {
-			status: ["persisted", "partial"],
-			fields: ["broadcastId", "persisted", "alreadyPersisted", "failed", "total", "recipients"],
+			status: ["delivered", "partial"],
+			fields: ["delivered", "failed", "total", "recipients"],
 		},
 		interrupt_member: {
 			status: "accepted",
@@ -492,14 +489,13 @@ test("discriminated nested result shapes are exact for all seven tools", () => {
 
 test("broadcast recipient fields, disposition, and code pairing are exact", () => {
 	const broadcast = entry("broadcast_to_crew");
-	assert.deepEqual(broadcast.result.recipientFields, ["member", "role", "itemId", "disposition", "code"]);
-	assert.deepEqual(broadcast.result.recipientDisposition, ["persisted", "already-persisted", "failed"]);
+	assert.deepEqual(broadcast.result.recipientFields, ["member", "role", "deliveryId", "disposition", "code"]);
+	assert.deepEqual(broadcast.result.recipientDisposition, ["delivered", "failed"]);
 	assert.deepEqual(broadcast.result.recipientPairing, {
 		failed: "requires-stable-code",
-		persisted: "no-code",
-		"already-persisted": "no-code",
+		delivered: "requires-delivery-id",
 	});
-	assert.match(broadcast.delivery, /one independent non-interrupting Inbox copy/);
+	assert.match(broadcast.delivery, /transient.*Follow-up/);
 });
 
 test("per-tool exit shapes are closed: success 0, broadcast partial 1", () => {
@@ -507,7 +503,7 @@ test("per-tool exit shapes are closed: success 0, broadcast partial 1", () => {
 		send_follow_up: 0,
 		redirect_member: 0,
 		send_to_inbox: 0,
-		broadcast_to_crew: { allPersistedOrAlready: 0, partial: 1 },
+		broadcast_to_crew: { allDelivered: 0, partial: 1 },
 		interrupt_member: 0,
 		get_member_status: 0,
 		wait_for_member_idle: 0,
@@ -578,25 +574,15 @@ test("session-list truncation and classified alias privacy are explicit", () => 
 });
 
 // ============================================================================
-// Pending decisions: idempotency-conflict waits for product wording
+// Broadcast has no persistence or idempotency extension contract
 // ============================================================================
 
-test("broadcast idempotency-conflict remains pending product wording", () => {
-	assert.equal(contract.pendingDecisions.length, 1);
-	const decision = contract.pendingDecisions[0]!;
-	assert.equal(decision.id, "broadcast-idempotency-conflict");
-	assert.match(decision.status, /pending product wording/);
-	for (const item of contract.tools) {
-		assert.ok(
-			!item.errors.includes("idempotency-conflict"),
-			`${item.tool} must not assert an undecided idempotency-conflict code`,
-		);
-	}
+test("broadcast has no persistence or idempotency contract", () => {
+	assert.equal(contract.pendingDecisions.length, 0);
 	const broadcast = entry("broadcast_to_crew");
-	assert.ok(broadcast.idempotency, "broadcast idempotency scope is documented");
-	assert.match(String(broadcast.idempotency?.approved), /already-persisted/);
-	assert.match(String(broadcast.idempotency?.conflictCode), /pending product wording/);
-	assert.match(broadcast.cancellation, /identical retry reuses ids/);
+	assert.equal(broadcast.idempotency, undefined);
+	assert.match(broadcast.delivery, /no Inbox/);
+	assert.match(broadcast.cancellation, /each recipient/);
 });
 
 // ============================================================================
@@ -737,9 +723,8 @@ test("reviewed status, broadcast, and idle edge contracts remain explicit", () =
 	assert.match(status.delivery, /successful offline\/unavailable/i);
 
 	const broadcast = entry("broadcast_to_crew");
-	assert.match(broadcast.cancellation, /completed writes remain/i);
-	assert.match(broadcast.cancellation, /identical retry reuses ids/i);
-	assert.ok(broadcast.errors.includes("outcome-unknown"));
+	assert.match(broadcast.cancellation, /each recipient/i);
+	assert.match(broadcast.cancellation, /new delivery/i);
 
 	const idle = entry("wait_for_member_idle");
 	assert.match(String(idle.inputContract?.timeout), /exact whole 1–600 seconds/);

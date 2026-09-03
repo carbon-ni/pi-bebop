@@ -9,7 +9,11 @@ type RegisteredTool = {
 	name: string;
 	parameters: unknown;
 	description: string;
-	execute(toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<{
+	execute(
+		toolCallId: string,
+		params: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<{
 		content: Array<{ type: "text"; text: string }>;
 		isError?: boolean;
 		details: unknown;
@@ -30,9 +34,13 @@ const membership = {
 };
 function setup(currentMembership: unknown | (() => unknown), dependencies: MemberMessageDependencies): RegisteredTool {
 	let registeredTool: RegisteredTool | undefined;
-	const pi = { registerTool: (tool: unknown) => (registeredTool = tool as RegisteredTool) } as unknown as ExtensionAPI;
+	const pi = {
+		registerTool: (tool: unknown) => (registeredTool = tool as RegisteredTool),
+	} as unknown as ExtensionAPI;
 	const state = {
-		membershipRuntime: { getMembership: typeof currentMembership === "function" ? currentMembership : () => currentMembership },
+		membershipRuntime: {
+			getMembership: typeof currentMembership === "function" ? currentMembership : () => currentMembership,
+		},
 	} as never as SocketState;
 	registerBroadcastToCrewTool(pi, state, dependencies);
 	assert.ok(registeredTool);
@@ -45,7 +53,12 @@ function deps(calls: string[]): MemberMessageDependencies {
 		transport: {
 			send: async (endpoint, command) => {
 				calls.push(`${endpoint}:${String((command.payload as { kind: string }).kind)}:${command.delivery}`);
-				return { response: { success: true, data: { deliveryId: `delivery-${calls.length}`, disposition: "queued" } } as never };
+				return {
+					response: {
+						success: true,
+						data: { deliveryId: `delivery-${calls.length}`, disposition: "queued" },
+					} as never,
+				};
 			},
 		},
 	};
@@ -67,10 +80,7 @@ describe("broadcast_to_crew tool", () => {
 		const result = await setup(membership, deps(calls)).execute("id", { message: "hello", instructions: ["one"] });
 		assert.equal(result.isError, false);
 		assert.match(result.content[0]!.text, /Delivered to 2 recipients/);
-		assert.deepEqual(calls, [
-			"/project/bob.sock:broadcast:follow_up",
-			"/project/kelly.sock:broadcast:follow_up",
-		]);
+		assert.deepEqual(calls, ["/project/bob.sock:broadcast:follow_up", "/project/kelly.sock:broadcast:follow_up"]);
 		assert.deepEqual(result.details, {
 			delivered: 2,
 			failed: 0,

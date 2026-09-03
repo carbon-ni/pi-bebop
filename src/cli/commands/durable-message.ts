@@ -82,7 +82,9 @@ export function durableMessageHelp(intent: DurableMessageIntent): string {
 				? "Success means persisted (and an optional best-effort hint), never read, delivered, or completed."
 				: "Success means every recipient accepted a Follow-up; partial delivery reports each failed recipient.",
 			"There is no wait_for flag: the delivery acknowledgement is the only guarantee; it never proves the model read or acted.",
-			intent === "broadcast" ? "Broadcast never writes or falls back to Inbox, redirects, interrupts, or expects a Response." : "",
+			intent === "broadcast"
+				? "Broadcast never writes or falls back to Inbox, redirects, interrupts, or expects a Response."
+				: "",
 			"",
 			"Options:",
 			"  --session <id|alias>    Source joined Pi session id or alias (default: PI_SESSION_ID)",
@@ -242,7 +244,6 @@ const REMOTE_MESSAGE_CODES = new Set([
 	"storage-failed",
 	"invalid-item-id",
 	"aborted",
-	"idempotency-conflict",
 	"no-recipients",
 ]);
 function transportError(error: unknown): { ok: false; code: string } {
@@ -318,11 +319,11 @@ function broadcastOutcome(result: CrewBroadcastRpcResult, format: CliFormat): Cl
 			data: result,
 			...(partial
 				? {
-					error: {
-						code: "partial",
-						message: "Broadcast partially delivered; inspect each recipient disposition",
-					},
-				}
+						error: {
+							code: "partial",
+							message: "Broadcast partially delivered; inspect each recipient disposition",
+						},
+					}
 				: {}),
 		},
 		format,

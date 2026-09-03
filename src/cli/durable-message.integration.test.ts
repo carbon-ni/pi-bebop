@@ -85,7 +85,12 @@ test("Inbox CLI remains durable while Broadcast CLI leaves deliver live Follow-u
 			const messages: string[] = [];
 			targetMessages.set(member.name, messages);
 			return createRpcServer(member.socketPath, (command, socket) =>
-				handleCommand({ sendMessage: (message: { content: string }) => messages.push(message.content) } as never, targetState, command, socket),
+				handleCommand(
+					{ sendMessage: (message: { content: string }) => messages.push(message.content) } as never,
+					targetState,
+					command,
+					socket,
+				),
 			);
 		}),
 	);
@@ -153,8 +158,14 @@ test("Inbox CLI remains durable while Broadcast CLI leaves deliver live Follow-u
 	assert.equal(broadcast.result.status, "delivered");
 	const data = broadcast.result.data as { summary: { delivered: number; failed: number; total: number } };
 	assert.deepEqual(data.summary, { delivered: 2, failed: 0, total: 2 });
-	assert.ok(targetMessages.get("Mary")?.some((content) => content.startsWith("[broadcast]")), JSON.stringify(targetMessages.get("Mary")));
-	assert.ok(targetMessages.get("Kelly")?.some((content) => content.startsWith("[broadcast]")), JSON.stringify(targetMessages.get("Kelly")));
+	assert.ok(
+		targetMessages.get("Mary")?.some((content) => content.startsWith("[broadcast]")),
+		JSON.stringify(targetMessages.get("Mary")),
+	);
+	assert.ok(
+		targetMessages.get("Kelly")?.some((content) => content.startsWith("[broadcast]")),
+		JSON.stringify(targetMessages.get("Kelly")),
+	);
 	const retry = await runDurableMessageCommand(
 		{
 			command: "crew-broadcast",

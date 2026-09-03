@@ -173,13 +173,7 @@
       "default": "toon"
     }
   },
-  "pendingDecisions": [
-    {
-      "id": "broadcast-idempotency-conflict",
-      "status": "pending product wording",
-      "scope": "identical-retry id reuse and already-persisted reporting are approved; semantics for idempotency-conflict when a conflicting request claims the same broadcast identity are not yet decided and must not be implemented or asserted"
-    }
-  ],
+  "pendingDecisions": [],
   "tools": [
     {
       "tool": "send_follow_up",
@@ -332,59 +326,50 @@
         "recipients": "every other configured member in manifest order"
       },
       "result": {
-        "status": [
-          "persisted",
-          "partial"
-        ],
-        "fields": [
-          "broadcastId",
-          "persisted",
-          "alreadyPersisted",
-          "failed",
-          "total",
-          "recipients"
-        ],
-        "recipientFields": [
-          "member",
-          "role",
-          "itemId",
-          "disposition",
-          "code"
-        ],
-        "recipientDisposition": [
-          "persisted",
-          "already-persisted",
-          "failed"
-        ],
-        "exit": {
-          "allPersistedOrAlready": 0,
-          "partial": 1
-        },
-        "recipientPairing": {
-          "failed": "requires-stable-code",
-          "persisted": "no-code",
-          "already-persisted": "no-code"
-        }
+              "status": [
+        "delivered",
+        "partial"
+      ],
+      "fields": [
+        "delivered",
+        "failed",
+        "total",
+        "recipients"
+      ],
+      "recipientFields": [
+        "member",
+        "role",
+        "deliveryId",
+        "disposition",
+        "code"
+      ],
+      "recipientDisposition": [
+        "delivered",
+        "failed"
+      ],
+      "exit": {
+        "allDelivered": 0,
+        "partial": 1
+      },
+      "recipientPairing": {
+        "failed": "requires-stable-code",
+        "delivered": "requires-delivery-id"
+      }
       },
       "errors": [
         "unknown-sender",
         "no-recipients",
         "invalid-request",
         "untrusted-project",
-        "inbox-full",
-        "inbox-untrusted-path",
-        "storage-unavailable",
-        "storage-failed",
-        "invalid-payload",
-        "invalid-item-id",
-        "outcome-unknown"
+        "unknown-member",
+        "ambiguous-member",
+        "self-send",
+        "remote-rejected",
+        "invalid-ack",
+        "offline"
       ],
-      "idempotency": {
-        "approved": "identical retry reuses the same broadcast and per-recipient ids; already-persisted recipients report already-persisted without duplication",
-        "conflictCode": "idempotency-conflict is reserved; conflicting-content semantics are pending product wording (see pendingDecisions)"
-      },
-      "delivery": "durably persists one independent non-interrupting Inbox copy for every other member; no endpoint probe, shared ownership, live delivery, reply, or completion",
-      "cancellation": "broadcast id and per-recipient ids are fixed before writes; completed writes remain; remaining recipients report aborted when acknowledgement is available; disconnect may be outcome-unknown; identical retry reuses ids and reports already-persisted without duplication"
+      "delivery": "transient non-interrupting Broadcast Follow-up to every other member in manifest order; no Inbox write, fallback, redirect, interrupt, reply, or completion claim",
+      "cancellation": "each recipient is attempted independently in manifest order; delivered results remain evidence, failed recipients report a stable code, and repeating the command is a new delivery"
     },
     {
       "tool": "interrupt_member",

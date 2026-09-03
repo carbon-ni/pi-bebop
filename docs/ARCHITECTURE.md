@@ -202,18 +202,16 @@ forward internally with follow-up/inbox; redirect remains exceptional.
 
 ### Crew Broadcast (tool)
 
-Crew Broadcast is the internal, durable, non-interrupting fan-out initiated
-by a current joined member: the same structured message is persisted to every
-other member configured by the current trusted manifest, in manifest order,
-regardless of presence. Each recipient later receives its own Inbox item
-through the normal Follow-up handoff (TASK-0037 bridge). The `broadcast_to_crew`
-tool (TASK-0043) exposes the operation to joined members; the domain contract
-defined in TASK-0042 remains authoritative.
+Crew Broadcast is the internal, transient, non-interrupting fan-out initiated
+by a current joined member: the same structured message is attempted as a
+Follow-up to every other member configured by the current trusted manifest, in
+manifest order. The `broadcast_to_crew` tool and `crew broadcast` CLI share the
+live member-message application seam. `send_to_inbox` remains the separate
+durable one-recipient surface.
 
 - **Internal and joined only.** The initiator must resolve to a configured
-  manifest member; unjoined or external callers are rejected before
-  persistence. Joined-ness is enforced by the application layer (tool), while
-  the domain validates sender identity and derives origin. External actors use
+  manifest member; unjoined or external callers are rejected before delivery.
+  The domain validates sender identity and derives origin. External actors use
   Crew Intake, a separate boundary, and never broadcast directly.
 - **Self exclusion by canonical identity.** Recipients are the manifest
   snapshot in manifest order excluding the sender by exact canonical member
@@ -221,26 +219,24 @@ defined in TASK-0042 remains authoritative.
   order.
 - **Derived origin.** Every recipient payload carries the initiator's crew
   origin derived from the validated manifest member, never from caller-claimed
-  input.
-- **Non-interrupting delivery.** Broadcast always persists through each
-  recipient's Inbox as a normal Follow-up; it can never steer or redirect
-  active work.
-- **Idempotent retry.** A stable broadcast id plus deterministic per-recipient
-  item ids (broadcast id + recipient canonical name only, independent of
-  inbox sequence) let a retry fill missing recipients without duplicating
-  successful copies. TASK-0043 wiring must persist copies under these ids and
-  treat a matching id as already-persisted.
-- **Disposition contract.** The outcome reports persisted, already-persisted,
-  and failed for every target. Partial success is never presented as total
-  success — callers must observe the failed count. One recipient failure or a
-  full inbox does not corrupt other recipients and never silently drops a
-  failed target.
-- **No-recipient no-IO.** When self exclusion empties the recipient set, the
-  contract returns an explicit no-recipients outcome and performs no storage
-  IO.
+  input, and retains semantic `broadcast` kind.
+- **Non-interrupting delivery.** Broadcast uses ordinary Follow-up delivery,
+  so busy recipients queue normally; it never steers or interrupts active work,
+  waits for a Response, or aggregates responses.
+- **Independent attempts.** Every recipient is attempted once in manifest
+  order. Offline, stale-socket, transport, and rejection failures produce an
+  explicit per-recipient failed disposition; later recipients are still
+  attempted. Repeating a command is a new transient delivery and may duplicate
+  messages.
+- **Disposition contract.** The outcome reports delivered or failed for every
+  target and is partial/failure when any recipient fails. It contains no Inbox
+  item id, persistence acknowledgement, retry identity, or already-persisted
+  state.
+- **No Inbox path.** Broadcast never opens, writes, probes capacity of, hints,
+  or falls back to a recipient Inbox.
 
-Crew Broadcast is not Crew Intake (external one-way boundary), not a shared
-inbox or group turn (per-recipient independent copies), and not redirect-all.
+Crew Broadcast is not Crew Intake (external one-way boundary), not a durable
+Inbox message or group turn, and not redirect-all.
 
 ## Quality gates
 

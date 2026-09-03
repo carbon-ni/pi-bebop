@@ -38,7 +38,9 @@ function deps(overrides: Partial<DurableMessageCliDependencies> = {}): DurableMe
 				: {
 						ok: true,
 						result: {
-							dispositions: [{ member: "Mary", role: "po", deliveryId: "delivery-1", disposition: "delivered" }],
+							dispositions: [
+								{ member: "Mary", role: "po", deliveryId: "delivery-1", disposition: "delivered" },
+							],
 							summary: { delivered: 1, failed: 0, total: 1 },
 						},
 					},
@@ -223,10 +225,15 @@ test("tool and CLI preserve separate Inbox and live Broadcast contracts", async 
 	});
 	registerBroadcastToCrewTool(pi, state, {
 		resolveEndpoint: async (socketPath) => socketPath,
-		coordinator: { enqueue: async (_key: string, operation: () => Promise<unknown>) => operation(), pendingKeyCount: () => 0 },
+		coordinator: {
+			enqueue: async (_key: string, operation: () => Promise<unknown>) => operation(),
+			pendingKeyCount: () => 0,
+		},
 		transport: {
 			send: async (_endpoint, _command) =>
-				({ response: { success: true, data: { deliveryId: "delivery-parity", disposition: "queued" } } }) as never,
+				({
+					response: { success: true, data: { deliveryId: "delivery-parity", disposition: "queued" } },
+				}) as never,
 		},
 	} as never);
 	const inboxTool = await registered
@@ -278,7 +285,9 @@ test("tool and CLI preserve separate Inbox and live Broadcast contracts", async 
 			deliver: async () => ({
 				ok: true,
 				result: {
-					dispositions: [{ member: "Mary", role: "po", deliveryId: "delivery-parity", disposition: "delivered" }],
+					dispositions: [
+						{ member: "Mary", role: "po", deliveryId: "delivery-parity", disposition: "delivered" },
+					],
 					summary: { delivered: 1, failed: 0, total: 1 },
 				},
 			}),

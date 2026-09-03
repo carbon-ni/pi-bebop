@@ -1310,8 +1310,13 @@ test("crew_broadcast delegates to live Follow-up delivery and preserves manifest
 		transport: {
 			send: async (endpoint, command) => {
 				delivered.push(`${endpoint}:${command.delivery}:${command.payload.kind}`);
-			return { response: { success: true, data: { deliveryId: `delivery-${delivered.length}`, disposition: "queued" } } } as never;
-		},
+				return {
+					response: {
+						success: true,
+						data: { deliveryId: `delivery-${delivered.length}`, disposition: "queued" },
+					},
+				} as never;
+			},
 		},
 	} as never;
 	await handleCommand({} as never, state, { type: "crew_broadcast", message: "hello", id: "bc-1" }, socket);

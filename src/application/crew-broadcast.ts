@@ -7,11 +7,7 @@ import {
 	type BroadcastDisposition,
 	type CrewBroadcastResult,
 } from "../domain/index.ts";
-import {
-	sendMemberMessage,
-	MemberMessageError,
-	type MemberMessageDependencies,
-} from "./member-message.ts";
+import { sendMemberMessage, MemberMessageError, type MemberMessageDependencies } from "./member-message.ts";
 import type { CrewManifest, CrewMember } from "../domain/index.ts";
 
 /** Live, non-interrupting broadcast fan-out application operation. */
