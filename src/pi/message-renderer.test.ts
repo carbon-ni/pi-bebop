@@ -11,6 +11,7 @@ import {
 	sessionMessageHint,
 	stripMessageMetadata,
 } from "./message-renderer.ts";
+import type { MessagePayload } from "../domain/index.ts";
 
 const fakeTheme = {
 	bg: () => "",
@@ -104,6 +105,46 @@ test("typed external details and malformed details fail safely to legacy content
 	const malformed = getMessageDisplayModel({ content: "legacy", details: { messagePayload: { content: 1 } } }, true);
 	assert.equal(malformed.text, "legacy");
 	assert.equal(malformed.senderText, null);
+});
+
+test("TASK-0152: TUI preserves all canonical kinds, frozen timing, and privacy", () => {
+	const cases: Array<[MessagePayload["kind"], string, string]> = [
+		["follow-up", "[follow-up]", "age at delivery"],
+		["member request", "[member request]", "age at delivery"],
+		["redirect", "[redirect]", "age at delivery"],
+		["interrupt", "[interrupt]", "age at delivery"],
+		["inbox", "[inbox]", "age at delivery"],
+		["broadcast", "[broadcast]", "age at delivery"],
+		["external intake", "[external intake]", "age at delivery"],
+		["member response", "[member response]", "request age"],
+	];
+	for (const [kind, label, timing] of cases) {
+		const payload: MessagePayload = {
+			content: `body-${kind}`,
+			kind,
+			sentAt: 0,
+			origin:
+				kind === "external intake"
+					? { kind: "external", label: "automation" }
+					: { kind: "crew", name: "Mony", role: "lead" },
+			replyTo: { sessionId: "private-route" },
+		};
+		const message = { content: "ignored", details: { messagePayload: payload, deliveredAt: 90_000_000 } };
+		const collapsed = getMessageDisplayModel(message, false);
+		const expanded = getMessageDisplayModel(message, true);
+		assert.equal(sessionMessageLabel(message), label);
+		assert.equal(collapsed.timingText, `${timing} 1d 1h`);
+		assert.equal(expanded.timingText, collapsed.timingText);
+		assert.equal(getMessageDisplayModel(message, true).timingText, expanded.timingText);
+		assert.doesNotMatch(collapsed.text, /private-route/);
+		if (kind === "external intake") assert.equal(collapsed.senderText, "from automation (unverified)");
+	}
+	const unknown = getMessageDisplayModel(
+		{ content: "legacy", details: { messagePayload: { content: "old" }, deliveredAt: 90_000_000 } },
+		true,
+	);
+	assert.equal(unknown.senderText, null);
+	assert.equal(unknown.timingText, "age at delivery unavailable");
 });
 
 test("sender header parsing preserves valid identity and ignores malformed metadata", () => {
