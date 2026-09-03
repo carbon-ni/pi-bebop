@@ -331,6 +331,7 @@ export default function (pi: ExtensionAPI) {
 			const membership = state.membershipRuntime.getMembership();
 			if (joined && membership) {
 				activateMembershipTool(pi);
+				refreshIntrayStatus(state);
 				await refreshPresence();
 				persistMembership(true, membership);
 				announceMembership(
@@ -353,6 +354,7 @@ export default function (pi: ExtensionAPI) {
 			manifestPathForSocket: getCrewManifestPathFromSocketPath,
 			announce: async (message) => {
 				activateMembershipTool(pi);
+				refreshIntrayStatus(state);
 				await refreshPresence();
 				announceMembership(message);
 				const membership = state.membershipRuntime?.getMembership();
