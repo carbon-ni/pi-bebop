@@ -1,7 +1,7 @@
 ---
 id: TASK-0152
 title: Show message origin and age at delivery
-status: todo
+status: doing
 depends_on: []
 priority: normal
 tags: [messaging, provenance, timing, staleness, ux, deterministic]
