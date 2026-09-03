@@ -1,8 +1,11 @@
+import { elapsedMessageMilliseconds, formatMessageHeader } from "./message-age.ts";
+
 export const MAX_MEMBER_REQUEST_OUTBOUND = 8;
 export const MAX_MEMBER_REQUEST_INBOUND = 8;
 export const MAX_MEMBER_REQUEST_BUFFERED = 64;
 export const MAX_REQUEST_ID_BYTES = 128;
 export const MAX_REQUEST_OUTCOME_TOMBSTONES = 64;
+
 /** TASK-0080: fixed delivery/acceptance deadline for the request channel (exported). */
 export const MEMBER_REQUEST_ACCEPT_DEADLINE_MS = 5000;
 /** TASK-0080: post-idle Response grace, 1..600, default 120. */
@@ -35,6 +38,8 @@ export interface MemberRequestMember {
 export interface RequestOutcomeResponse {
 	readonly kind: "response";
 	readonly requestId: string;
+	/** Frozen age of the accepted Request when its Response was received. */
+	readonly requestAgeMs?: number;
 	readonly member: MemberRequestMember;
 	readonly message: string;
 	readonly instructions: readonly string[];
@@ -52,6 +57,17 @@ export interface RequestOutcomeTimeout {
 	readonly reason: "max-wait" | "response-after-idle";
 }
 export type RequestOutcome = RequestOutcomeResponse | RequestOutcomeOffline | RequestOutcomeTimeout;
+
+export function formatRequestOutcomeWithHeader(outcome: RequestOutcome): string {
+	if (outcome.kind !== "response") return formatRequestOutcome(outcome);
+	const header = formatMessageHeader({
+		kind: "member response",
+		origin: { kind: "crew", name: outcome.member.name, role: outcome.member.role },
+		elapsedMs: outcome.requestAgeMs,
+		requestId: outcome.requestId,
+	});
+	return `${header}\n${formatRequestOutcome(outcome)}`;
+}
 
 export function formatRequestOutcome(outcome: RequestOutcome): string {
 	const member = `${outcome.member.name} (${outcome.member.role})`;
@@ -74,6 +90,8 @@ export type RequestOutcomeMechanical = RequestOutcomeOffline | RequestOutcomeTim
 export interface MemberRequestOutbound {
 	readonly requestId: string;
 	readonly member: MemberRequestMember;
+	/** Accepted-at instant used for frozen correlated Response age. */
+	readonly acceptedAt?: number;
 	readonly deadlineAt: number;
 	readonly accepted: boolean;
 	readonly idleArmed: boolean;
@@ -93,6 +111,7 @@ export interface MemberRequestInbound {
 
 interface MutableOutbound extends MemberRequestOutbound {
 	accepted: boolean;
+	acceptedAt?: number;
 	idleArmed: boolean;
 	idleAt?: number;
 }
@@ -201,10 +220,11 @@ export class RequestOutcomeRegistry {
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
 
-	acceptOutbound(requestId: string): RequestOutcomeOperation<MemberRequestOutbound> {
+	acceptOutbound(requestId: string, acceptedAt?: number): RequestOutcomeOperation<MemberRequestOutbound> {
 		const request = this.outbound.get(requestId);
 		if (!request) return { ok: false, code: "unknown-request" };
 		request.accepted = true;
+		if (acceptedAt !== undefined) request.acceptedAt = acceptedAt;
 		return { ok: true, value: { ...request } };
 	}
 
@@ -261,6 +281,7 @@ export class RequestOutcomeRegistry {
 		readonly member: MemberRequestMember;
 		readonly message: string;
 		readonly instructions: readonly string[];
+		readonly receivedAt?: number;
 	}): RequestOutcomeOperation<RequestOutcomeResponse> {
 		const request = this.outbound.get(input.requestId);
 		if (!request) {
@@ -269,13 +290,19 @@ export class RequestOutcomeRegistry {
 			return { ok: false, code: "already-terminal" };
 		}
 		if (!request.accepted) return { ok: false, code: "unknown-request" };
-		const update: RequestOutcomeResponse = {
-			kind: "response",
+		const requestAgeMs =
+			input.receivedAt === undefined || request.acceptedAt === undefined
+				? undefined
+				: (elapsedMessageMilliseconds(request.acceptedAt, input.receivedAt) ?? undefined);
+		const update = {
+			kind: "response" as const,
 			requestId: input.requestId,
 			member: input.member,
 			message: input.message,
 			instructions: [...input.instructions],
 		};
+		if (requestAgeMs !== undefined)
+			Object.defineProperty(update, "requestAgeMs", { value: requestAgeMs, enumerable: false, writable: false });
 		this.outbound.delete(input.requestId);
 		this.setTerminal(input.requestId, { kind: update.kind, update });
 		this.publish(update);

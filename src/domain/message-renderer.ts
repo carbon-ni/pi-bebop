@@ -1,5 +1,5 @@
 import { isMessagePayload, type MessagePayload } from "./message-payload.ts";
-import { elapsedMessageMilliseconds, formatMessageHeader } from "./message-age.ts";
+import { elapsedMessageMilliseconds, formatMessageHeader, type MessageKind } from "./message-age.ts";
 
 /** Canonical model input. JSON escaping makes every field boundary unambiguous. */
 export function renderMessagePayload(payload: MessagePayload): string {
@@ -45,6 +45,28 @@ export function renderMessagePayloadForDisplay(payload: MessagePayload): string 
 		);
 	sections.push(payload.content);
 	return sections.join("\n\n");
+}
+
+/** Adds the typed provenance/timing header without exposing transport metadata. */
+export function renderModelMessageWithHeader(
+	payload: MessagePayload,
+	input: {
+		readonly kind: MessageKind;
+		readonly sentAt?: number;
+		readonly deliveredAt: number;
+		readonly requestId?: string;
+	},
+): string {
+	const elapsedMs =
+		input.sentAt === undefined
+			? undefined
+			: (elapsedMessageMilliseconds(input.sentAt, input.deliveredAt) ?? undefined);
+	return `${formatMessageHeader({
+		kind: input.kind,
+		origin: payload.origin,
+		elapsedMs,
+		requestId: input.requestId,
+	})}\n${renderMessagePayload(payload)}`;
 }
 
 /**

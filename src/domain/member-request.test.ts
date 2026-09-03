@@ -9,6 +9,7 @@ import {
 	MAX_MEMBER_REQUEST_OUTBOUND,
 	MAX_REQUEST_ID_BYTES,
 	MAX_REQUEST_OUTCOME_TOMBSTONES,
+	formatRequestOutcomeWithHeader,
 } from "./member-request.ts";
 
 const member = { name: "qa", role: "reviewer" };
@@ -18,6 +19,27 @@ function arm(registry: RequestOutcomeRegistry, requestId: string): void {
 	assert.equal(registry.acceptOutbound(requestId).ok, true);
 	assert.equal(registry.armOutboundIdle(requestId).ok, true);
 }
+
+test("accepted Request Response freezes request age and formats its canonical header", () => {
+	const registry = new RequestOutcomeRegistry();
+	registry.registerOutbound({ requestId: "request-age", member, now: 1_000 });
+	registry.acceptOutbound("request-age", 2_000);
+	const result = registry.resolveResponse({
+		requestId: "request-age",
+		member,
+		message: "done",
+		instructions: ["inspect"],
+		receivedAt: 62_000,
+	});
+	assert.equal(result.ok, true);
+	if (result.ok) {
+		assert.equal(result.value.requestAgeMs, 60_000);
+		assert.match(
+			formatRequestOutcomeWithHeader(result.value),
+			/^\[member response\] from qa \(reviewer\) · request age 1m · request request-age/,
+		);
+	}
+});
 
 test("registers before acceptance, starts the hard deadline immediately, and cleans pre-accept failures", () => {
 	const registry = new RequestOutcomeRegistry();

@@ -141,6 +141,7 @@ export function createInterruptRecoveryPayload(sender: CrewMember, request: Memb
 	const payload: MessagePayload = {
 		content: request.message,
 		origin: deriveInterruptOrigin(sender),
+		kind: "interrupt",
 		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
 	};
 	if (!isMessagePayload(payload))

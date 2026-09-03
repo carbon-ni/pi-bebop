@@ -1,6 +1,11 @@
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { renderMessagePayload, SESSION_MESSAGE_TYPE, type InboxItem, type InboxOffering } from "../domain/index.ts";
+import {
+	renderModelMessageWithHeader,
+	SESSION_MESSAGE_TYPE,
+	type InboxItem,
+	type InboxOffering,
+} from "../domain/index.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 import {
 	createInboxBridge,
@@ -18,6 +23,8 @@ const MAX_INBOX_EVIDENCE_ID_BYTES = 128;
 export interface InboxBridgeRuntimeDependencies {
 	readonly openStore?: typeof openTrustedMemberInboxStore;
 	readonly isProjectTrusted?: () => boolean;
+	/** Recipient-owned clock captured at model handoff. */
+	readonly now?: () => number;
 }
 
 /** Ownership for the current member, derived from the live membership. */
@@ -74,6 +81,7 @@ export function createInboxBridgeController(
 ): InboxBridgeController {
 	const isProjectTrusted = dependencies.isProjectTrusted ?? (() => state.context?.isProjectTrusted?.() === true);
 	const openStore = dependencies.openStore ?? openTrustedMemberInboxStore;
+	const now = dependencies.now ?? Date.now;
 
 	const entries = (): readonly unknown[] => state.context?.sessionManager.getEntries() ?? [];
 
@@ -104,7 +112,11 @@ export function createInboxBridgeController(
 			pi.sendMessage(
 				{
 					customType: SESSION_MESSAGE_TYPE,
-					content: renderMessagePayload(entry.payload),
+					content: renderModelMessageWithHeader(entry.payload, {
+						kind: entry.payload.kind ?? "inbox",
+						sentAt: entry.enqueuedAt,
+						deliveredAt: now(),
+					}),
 					display: true,
 					details: { messagePayload: entry.payload, inbox: { itemId: entry.id } },
 				},
