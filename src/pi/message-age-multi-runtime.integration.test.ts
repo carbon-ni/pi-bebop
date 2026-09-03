@@ -6,6 +6,8 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createInboxBridgeController, ownershipFromMembership } from "./inbox-bridge-runtime.ts";
 import { createSocketState, handleCommand } from "./control-runtime.ts";
+import { createMemberMessageCoordinator } from "../application/member-message.ts";
+import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
@@ -18,6 +20,7 @@ test("multi-runtime transient and hours-old durable messages keep exact frozen h
 	const sockets = path.join(layout, "sockets");
 	await fs.mkdir(sockets, { recursive: true });
 	const manifestPath = path.join(layout, "crew.json");
+	const sourceSocket = path.join(root, "Tony-source.sock");
 	const targetSocket = path.join(sockets, "Kelly.sock");
 	await fs.writeFile(
 		manifestPath,
@@ -60,26 +63,51 @@ test("multi-runtime transient and hours-old durable messages keep exact frozen h
 		},
 		appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
 	} as unknown as ExtensionAPI;
-	const server = await createRpcServer(targetSocket, (command, socket) =>
+	const targetServer = await createRpcServer(targetSocket, (command, socket) =>
 		handleCommand(pi, targetState, command, socket),
 	);
-	t.after(() => closeRpcServer(server));
+	t.after(() => closeRpcServer(targetServer));
 
-	const transientPayload: MessagePayload = {
-		content: "transient now",
-		origin: { kind: "crew", name: "Tony", role: "lead" },
-		kind: "follow-up",
-		sentAt: 0,
+	const sourceState = createSocketState(() => 89_996_000);
+	sourceState.server = {} as never;
+	sourceState.context = { isProjectTrusted: () => true, isIdle: () => false } as never;
+	sourceState.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath,
+			socketPath: sourceSocket,
+			globalSocketPath: path.join(root, "global.sock"),
+			member: { name: "Tony", role: "lead", socketPath: sourceSocket },
+			manifest: {
+				version: 1,
+				members: [
+					{ name: "Tony", role: "lead", socketPath: sourceSocket },
+					{ name: "Kelly", role: "qa", socketPath: targetSocket },
+				],
+				presence: { notifications: true },
+			},
+		}),
+	} as never;
+	sourceState.memberMessageDependencies = {
+		transport: { send: sendRpcCommand },
+		resolveEndpoint: resolveMemberEndpoint,
+		coordinator: createMemberMessageCoordinator(),
+		now: () => 89_996_000,
 	};
-	const transient = await sendRpcCommand(targetSocket, {
-		type: "send",
-		payload: transientPayload,
-		delivery: "follow_up",
+	await fs.rm(sourceSocket, { force: true });
+	const sourceServer = await createRpcServer(sourceSocket, (command, socket) =>
+		handleCommand({} as never, sourceState, command, socket),
+	);
+	t.after(() => closeRpcServer(sourceServer));
+
+	const transient = await sendRpcCommand(sourceSocket, {
+		type: "member_follow_up",
+		target: "Kelly",
+		message: "transient now",
 	});
 	assert.equal(transient.response.success, true);
 	assert.equal(
 		messages[0],
-		'[follow-up] from Tony (lead) · age at delivery 1d 1h\nInformation only; no correlated Response expected.\n{"type":"message-context","content":"transient now","origin":{"kind":"crew","name":"Tony","role":"lead"}}',
+		'[follow-up] from Tony (lead) · age at delivery 4s\nInformation only; no correlated Response expected.\n{"type":"message-context","content":"transient now","origin":{"kind":"crew","name":"Tony","role":"lead"}}',
 	);
 
 	const store = await openTrustedMemberInboxStore({
