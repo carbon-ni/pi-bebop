@@ -98,7 +98,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	const inboxBridge = createInboxBridgeController(pi, state);
+	const inboxBridge = createInboxBridgeController(pi, state, { now: Date.now });
 	state.onInboxHint = () => {
 		void inboxBridge.attemptOffer();
 	};

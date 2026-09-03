@@ -57,6 +57,7 @@ export function createExternalIntakePayload(input: ExternalIntakeMessageInput): 
 	const payload: MessagePayload = {
 		content: input.content,
 		origin: { kind: "external", label: input.label },
+		kind: "external intake",
 		...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
 	};
 	if (!isMessagePayload(payload)) throw new CrewIntakeError("invalid-payload", "invalid external intake message");

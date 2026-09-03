@@ -1,6 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { formatRequestOutcome, MessagePayloadSchema, type RequestOutcome } from "../domain/index.ts";
+import {
+	formatRequestOutcome,
+	formatRequestOutcomeWithHeader,
+	MessagePayloadSchema,
+	type RequestOutcome,
+} from "../domain/index.ts";
 import { MemberMessageError } from "../application/member-message.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
@@ -181,7 +186,7 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 						return failure(waited.code, "Another Request outcome wait is already active");
 					return failure("wait-failed", `Could not wait for request outcome: ${waited.code}`);
 				}
-				return success(formatRequestOutcome(waited.outcome), { result: waited.outcome });
+				return success(formatRequestOutcomeWithHeader(waited.outcome), { result: waited.outcome });
 			} catch {
 				return failure("wait-failed", "Could not wait for request outcome");
 			}

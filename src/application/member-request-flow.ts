@@ -131,6 +131,7 @@ export class MemberRequestFlow {
 					member: update.member,
 					message: update.message,
 					instructions: update.instructions ?? [],
+					receivedAt: this.now(),
 				});
 			else if (update.kind === "offline") this.registry.resolveOffline(requestId);
 			else this.registry.resolveTimeout(requestId, "max-wait");
@@ -147,7 +148,7 @@ export class MemberRequestFlow {
 			this.closes.set(requestId, opened.close);
 			this.channels.set(requestId, { send: async () => undefined });
 			if (this.completed.delete(requestId)) this.finishRequest(requestId);
-			const acceptedOutcome = this.registry.acceptOutbound(requestId);
+			const acceptedOutcome = this.registry.acceptOutbound(requestId, this.now());
 			if (acceptedOutcome.ok === false) throw new Error(acceptedOutcome.code);
 			accepted = true;
 			// TASK-0080: hard safety starts exactly once at accepted delivery.
