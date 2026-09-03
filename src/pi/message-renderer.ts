@@ -31,14 +31,18 @@ interface SenderInfo {
 	sessionName?: string;
 }
 
-function detailsFromMessage(message: unknown): { payload: MessagePayload; deliveredAt?: number } | null {
+function detailsFromMessage(
+	message: unknown,
+): { payload: MessagePayload; sentAt?: number; deliveredAt?: number; kind?: string } | null {
 	const details = (message as { details?: unknown }).details;
 	if (typeof details !== "object" || details === null) return null;
-	const candidate = details as { messagePayload?: unknown; deliveredAt?: unknown };
+	const candidate = details as { messagePayload?: unknown; sentAt?: unknown; deliveredAt?: unknown; inbox?: unknown };
 	if (!isMessagePayload(candidate.messagePayload)) return null;
 	return {
 		payload: candidate.messagePayload,
+		sentAt: typeof candidate.sentAt === "number" ? candidate.sentAt : candidate.messagePayload.sentAt,
 		deliveredAt: typeof candidate.deliveredAt === "number" ? candidate.deliveredAt : undefined,
+		kind: candidate.inbox && typeof candidate.inbox === "object" ? "inbox" : candidate.messagePayload.kind,
 	};
 }
 
@@ -46,7 +50,7 @@ function claimedOrigin(payload: MessagePayload): string | null {
 	if (!payload.origin) return null;
 	return payload.origin.kind === "crew"
 		? `from ${payload.origin.name} (${payload.origin.role})`
-		: `from ${payload.origin.label}`;
+		: `from ${payload.origin.label} (unverified)`;
 }
 
 export function parseSenderInfo(text: string): SenderInfo | null {
@@ -101,9 +105,9 @@ export function getMessageDisplayModel(
 	let text = payload ? renderMessagePayloadForDisplay(payload) : stripMessageMetadata(rawContent);
 	const timingText =
 		payload && typedDetails?.deliveredAt !== undefined
-			? payload.kind === "member response"
-				? `request age ${formatMessageAge(payload.sentAt === undefined ? -1 : (elapsedMessageMilliseconds(payload.sentAt, typedDetails.deliveredAt) ?? -1))}`
-				: `age at delivery ${formatMessageAge(payload.sentAt === undefined ? -1 : (elapsedMessageMilliseconds(payload.sentAt, typedDetails.deliveredAt) ?? -1))}`
+			? typedDetails.kind === "member response"
+				? `request age ${formatMessageAge(typedDetails.sentAt === undefined ? -1 : (elapsedMessageMilliseconds(typedDetails.sentAt, typedDetails.deliveredAt) ?? -1))}`
+				: `age at delivery ${formatMessageAge(typedDetails.sentAt === undefined ? -1 : (elapsedMessageMilliseconds(typedDetails.sentAt, typedDetails.deliveredAt) ?? -1))}`
 			: null;
 	if (!text) text = "(no content)";
 	if (!expanded) {
@@ -171,7 +175,16 @@ export const renderSessionMessage: MessageRenderer = (message, { expanded }, the
 	return box;
 };
 
-export type SessionMessageKind = "member-request" | "follow-up" | "other";
+export type SessionMessageKind =
+	| "member-request"
+	| "follow-up"
+	| "redirect"
+	| "interrupt"
+	| "inbox"
+	| "broadcast"
+	| "external-intake"
+	| "member-response"
+	| "other";
 
 /**
  * TASK-0076: structural UI distinction between an inbound Member request and
@@ -183,6 +196,26 @@ export function sessionMessageKind(message: unknown): SessionMessageKind {
 	const details = (message as { details?: unknown }).details;
 	if (typeof details !== "object" || details === null) return "other";
 	if (typeof (details as { crewRequestId?: unknown }).crewRequestId === "string") return "member-request";
+	const payload = (details as { messagePayload?: unknown }).messagePayload;
+	if (payload && isMessagePayload(payload)) {
+		switch (payload.kind) {
+			case "redirect":
+				return "redirect";
+			case "interrupt":
+				return "interrupt";
+			case "inbox":
+				return "inbox";
+			case "broadcast":
+				return "broadcast";
+			case "external intake":
+				return "external-intake";
+			case "member response":
+				return "member-response";
+			default:
+				return "follow-up";
+		}
+	}
+	if ((details as { inbox?: unknown }).inbox !== undefined) return "inbox";
 	if ((details as { messagePayload?: unknown }).messagePayload !== undefined) return "follow-up";
 	return "other";
 }
@@ -190,7 +223,13 @@ export function sessionMessageKind(message: unknown): SessionMessageKind {
 export function sessionMessageLabel(message: unknown): string {
 	const kind = sessionMessageKind(message);
 	if (kind === "member-request") return "[member request]";
+	if (kind === "member-response") return "[member response]";
 	if (kind === "follow-up") return "[follow-up]";
+	if (kind === "redirect") return "[redirect]";
+	if (kind === "interrupt") return "[interrupt]";
+	if (kind === "inbox") return "[inbox]";
+	if (kind === "broadcast") return "[broadcast]";
+	if (kind === "external-intake") return "[external intake]";
 	const customType = (message as { customType?: unknown }).customType;
 	return typeof customType === "string" && customType ? `[${customType}]` : "[message]";
 }
@@ -202,10 +241,12 @@ export function sessionMessageHint(message: unknown): string | null {
 }
 
 export const renderCrewInterrupt: MessageRenderer = (message, { expanded }, theme) => {
-	const { text, senderText } = getMessageDisplayModel(message, expanded);
+	const { text, senderText, timingText } = getMessageDisplayModel(message, expanded);
 	const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
 	const labelBase = theme.fg("customMessageLabel", `\x1b[1m[interrupt]\x1b[22m`);
-	const label = senderText ? `${labelBase} ${theme.fg("dim", senderText)}` : labelBase;
+	const label = [senderText, timingText].filter(Boolean).length
+		? `${labelBase} ${theme.fg("dim", [senderText, timingText].filter(Boolean).join(" · "))}`
+		: labelBase;
 	box.addChild(new Text(label, 0, 0));
 	box.addChild(new Spacer(1));
 	box.addChild(

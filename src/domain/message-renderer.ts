@@ -92,7 +92,11 @@ export function renderMemberRequestModelContent(
 							: (elapsedMessageMilliseconds(payload.sentAt, deliveredAt) ?? -1),
 					requestId,
 				})}\n`;
-	return `${header}[member request] ${requestId}: do the requested work, then respond with respond_to_member_request. Never wait with wait_for_request_outcome for this inbound request.\n${renderMessagePayload(payload)}`;
+	const affordance =
+		"Do the requested work, then respond with respond_to_member_request. Never wait with wait_for_request_outcome for this inbound request.";
+	return deliveredAt === undefined
+		? `[member request] ${requestId}: ${affordance}\n${renderMessagePayload(payload)}`
+		: `${header}${affordance}\n${renderMessagePayload(payload)}`;
 }
 
 /**
@@ -112,5 +116,8 @@ export function renderFollowUpModelContent(payload: MessagePayload, deliveredAt?
 							? undefined
 							: (elapsedMessageMilliseconds(payload.sentAt, deliveredAt) ?? -1),
 				})}\n`;
-	return `${header}[${payload.kind === "redirect" ? "redirect" : "follow-up"}] information only; no correlated Response expected.\n${renderMessagePayload(payload)}`;
+	const affordance = "Information only; no correlated Response expected.";
+	return deliveredAt === undefined
+		? `[${payload.kind === "redirect" ? "redirect" : "follow-up"}] ${affordance}\n${renderMessagePayload(payload)}`
+		: `${header}${affordance}\n${renderMessagePayload(payload)}`;
 }

@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	renderMessagePayload,
 	renderModelMessageWithHeader,
 	SESSION_MESSAGE_TYPE,
 	type InboxItem,
@@ -81,7 +82,7 @@ export function createInboxBridgeController(
 ): InboxBridgeController {
 	const isProjectTrusted = dependencies.isProjectTrusted ?? (() => state.context?.isProjectTrusted?.() === true);
 	const openStore = dependencies.openStore ?? openTrustedMemberInboxStore;
-	const now = dependencies.now ?? Date.now;
+	const now = dependencies.now;
 
 	const entries = (): readonly unknown[] => state.context?.sessionManager.getEntries() ?? [];
 
@@ -109,17 +110,24 @@ export function createInboxBridgeController(
 			// TASK-0081: the inbox offer is a Bebop-owned model delivery; a local
 			// blocking idle wait wakes on it before the unchanged message submits.
 			notifyAcceptedMessage(state, `inbox-${entry.id}`);
-			const deliveredAt = now();
+			const deliveredAt = now?.();
 			pi.sendMessage(
 				{
 					customType: SESSION_MESSAGE_TYPE,
-					content: renderModelMessageWithHeader(entry.payload, {
-						kind: entry.payload.kind ?? "inbox",
-						sentAt: entry.enqueuedAt,
-						deliveredAt,
-					}),
+					content:
+						deliveredAt === undefined
+							? renderMessagePayload(entry.payload)
+							: renderModelMessageWithHeader(entry.payload, {
+									kind: entry.payload.kind ?? "inbox",
+									sentAt: entry.enqueuedAt,
+									deliveredAt,
+								}),
 					display: true,
-					details: { messagePayload: entry.payload, inbox: { itemId: entry.id }, deliveredAt },
+					details: {
+						messagePayload: entry.payload,
+						inbox: { itemId: entry.id },
+						...(deliveredAt === undefined ? {} : { sentAt: entry.enqueuedAt, deliveredAt }),
+					},
 				},
 				{ triggerTurn: true, deliverAs: "followUp" },
 			);

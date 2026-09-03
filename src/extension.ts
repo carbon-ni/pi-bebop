@@ -112,6 +112,7 @@ export default function (pi: ExtensionAPI) {
 			sendMessage: (message, options) => pi.sendMessage(message as never, options as never),
 			appendEntry: (customType, data) => pi.appendEntry(customType, data),
 			getEntries: () => context.sessionManager.getEntries() as readonly unknown[],
+			now: state.now,
 		});
 		await interruptFlow.recoverPending();
 	};
