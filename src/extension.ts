@@ -133,6 +133,7 @@ export default function (pi: ExtensionAPI) {
 		const membership = state.membershipRuntime?.getMembership();
 		if (!membership) {
 			state.guestAdmissionRuntime = undefined;
+			activeGuestRegistry = null;
 			return;
 		}
 		try {
@@ -140,6 +141,7 @@ export default function (pi: ExtensionAPI) {
 				manifestPath: membership.manifestPath,
 				crew: membership.manifest.crew ?? { id: "unknown", displayName: "unknown" },
 			});
+			activeGuestRegistry = registry;
 			state.guestAdmissionRuntime = createGuestAdmissionRuntime({
 				manifest: membership.manifest,
 				memberName: membership.member.name,
@@ -234,11 +236,22 @@ export default function (pi: ExtensionAPI) {
 	registerSendMemberRequestTool(pi, state);
 	registerRespondToMemberRequestTool(pi, state);
 	registerWaitForRequestOutcomeTool(pi, state);
+	/** Set by refreshGuestAdmission; fresh crew-registry reads for Member->Guest addressing. */
+	let activeGuestRegistry: ReturnType<typeof createGuestRegistryStore> | null = null;
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,
 		coordinator: createMemberMessageCoordinator(),
 		now: Date.now,
+		approvedGuests: () =>
+			activeGuestRegistry
+				?.load()
+				.entries.filter((entry) => entry.status === "approved")
+				.map((entry) => ({
+					guestName: entry.guestName,
+					guestIdentity: entry.guestIdentity,
+					callbackEndpoint: entry.callbackEndpoint,
+				})) ?? [],
 	};
 	registerSendFollowUpTool(pi, state, memberMessageDependencies);
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);

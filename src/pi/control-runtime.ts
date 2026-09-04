@@ -629,7 +629,10 @@ async function handleMemberMessageCommand(
 			dependencies,
 		);
 		respond(true, command.type, {
-			member: { name: outcome.target.name, role: outcome.target.role },
+			member:
+				outcome.target.kind === "member"
+					? { name: outcome.target.name, role: outcome.target.role }
+					: { name: outcome.target.guestName, role: "guest" },
 			deliveryId: outcome.deliveryId,
 			disposition: outcome.disposition,
 		});

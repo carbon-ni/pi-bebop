@@ -73,7 +73,11 @@ test("sendMemberMessage resolves endpoint before delivery and preserves prepared
 		"resolve:/project/.pi/bebop/sockets/qa.sock",
 		"send:endpoint:/project/.pi/bebop/sockets/qa.sock",
 	]);
-	assert.deepEqual(outcome, { target: manifest.members[1], deliveryId: "delivery-1", disposition: "queued" });
+	assert.deepEqual(outcome, {
+		target: { kind: "member", name: "qa", role: "reviewer", socketPath: "/project/.pi/bebop/sockets/qa.sock" },
+		deliveryId: "delivery-1",
+		disposition: "queued",
+	});
 });
 
 test("delivery stage keeps stable acknowledgement and lost-outcome errors", async () => {
@@ -101,5 +105,88 @@ test("delivery stage keeps stable acknowledgement and lost-outcome errors", asyn
 	await assert.rejects(
 		() => sendMemberMessage({ membership, member: "qa", message: "x", intent: "immediate" }, lost),
 		(error: unknown) => error instanceof MemberMessageError && error.code === "outcome-unknown",
+	);
+});
+
+test("Member->Guest follow-ups route to the approved Guest callback endpoint", async () => {
+	const events: string[] = [];
+	const sent: unknown[] = [];
+	const dependencies: MemberMessageDependencies = {
+		coordinator: createMemberMessageCoordinator(),
+		resolveEndpoint: async (socketPath) => {
+			events.push(`resolve:${socketPath}`);
+			return socketPath;
+		},
+		transport: {
+			send: async (_endpoint, command) => {
+				sent.push(command);
+				return ack();
+			},
+		},
+	};
+	const outcome = await sendMemberMessage(
+		{
+			membership,
+			member: "Taylor",
+			message: "hello guest",
+			approvedGuests: [
+				{ guestName: "Taylor", guestIdentity: "guest-session", callbackEndpoint: "/tmp/guest-callback.sock" },
+			],
+		},
+		dependencies,
+	);
+	assert.deepEqual(outcome.target, {
+		kind: "guest",
+		guestName: "Taylor",
+		guestIdentity: "guest-session",
+		callbackEndpoint: "/tmp/guest-callback.sock",
+	});
+	assert.deepEqual(events, ["resolve:/tmp/guest-callback.sock"]);
+	const command = sent[0] as { payload: { origin: { kind: string; name: string; role: string } } };
+	assert.equal(command.payload.origin.kind, "crew");
+	assert.equal(command.payload.origin.name, "dev");
+});
+
+test("Guest names colliding with Member names are qualification errors, never guesses", async () => {
+	const dependencies: MemberMessageDependencies = {
+		resolveEndpoint: async (socketPath) => socketPath,
+		transport: { send: async () => ack() },
+	};
+	await assert.rejects(
+		() =>
+			sendMemberMessage(
+				{
+					membership,
+					member: "dev",
+					message: "hi",
+					approvedGuests: [
+						{
+							guestName: "dev",
+							guestIdentity: "guest-session",
+							callbackEndpoint: "/tmp/guest-callback.sock",
+						},
+					],
+				},
+				dependencies,
+			),
+		(error: MemberMessageError) => {
+			assert.equal(error.code, "ambiguous-member");
+			assert.match(error.message, /matches both a crew Member and an approved Guest/);
+			return true;
+		},
+	);
+});
+
+test("without an approvedGuests resolver, Guest names fail closed as unknown", async () => {
+	const dependencies: MemberMessageDependencies = {
+		resolveEndpoint: async (socketPath) => socketPath,
+		transport: { send: async () => ack() },
+	};
+	await assert.rejects(
+		() => sendMemberMessage({ membership, member: "Taylor", message: "hi" }, dependencies),
+		(error: MemberMessageError) => {
+			assert.equal(error.code, "unknown-member");
+			return true;
+		},
 	);
 });

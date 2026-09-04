@@ -17,7 +17,27 @@ export interface MemberMessageRequest {
 	readonly signal?: AbortSignal;
 	readonly instructions?: readonly string[];
 	readonly sender?: { sessionId: string; sessionName?: string }; // callback routing only; never message origin
+	/**
+	 * Approved Guests of the joined crew (crew registry read at execute time).
+	 * Enables Member->Guest addressing by unique Guest name; collisions with
+	 * Member names are qualification errors, never guesses.
+	 */
+	readonly approvedGuests?: readonly {
+		readonly guestName: string;
+		readonly guestIdentity: string;
+		readonly callbackEndpoint: string;
+	}[];
 }
+
+/** Resolved message target: a crew Member (manifest) or an approved Guest (registry). */
+export type MessageTarget =
+	| { readonly kind: "member"; readonly name: string; readonly role: string; readonly socketPath: string }
+	| {
+			readonly kind: "guest";
+			readonly guestName: string;
+			readonly guestIdentity: string;
+			readonly callbackEndpoint: string;
+	  };
 export interface MemberMessageTransport {
 	send(
 		endpoint: string,
@@ -38,7 +58,7 @@ export interface MemberMessageDependencies {
 	readonly now?: () => number;
 }
 export interface MemberMessageOutcome {
-	readonly target: CrewMember;
+	readonly target: MessageTarget;
 	readonly deliveryId: string;
 	readonly disposition: "direct" | "queued" | "steered";
 }
@@ -94,9 +114,26 @@ export class MemberMessageError extends Error {
 }
 
 /** Shared exact-name/unique-role resolver used by accepted delivery and requests. */
-export function resolveTarget(membership: CrewMembership, memberName: string): CrewMember {
+export function resolveTarget(
+	membership: CrewMembership,
+	memberName: string,
+	approvedGuests?: MemberMessageRequest["approvedGuests"],
+): MessageTarget {
 	const byName = membership.manifest.members.find((member) => member.name === memberName);
 	const byRole = membership.manifest.members.filter((member) => member.role === memberName);
+	const guest = approvedGuests?.find((candidate) => candidate.guestName === memberName);
+	if (byName && guest)
+		throw new MemberMessageError(
+			"ambiguous-member",
+			`"${memberName}" matches both a crew Member and an approved Guest; qualify the target`,
+		);
+	if (guest)
+		return {
+			kind: "guest",
+			guestName: guest.guestName,
+			guestIdentity: guest.guestIdentity,
+			callbackEndpoint: guest.callbackEndpoint,
+		};
 	const target = byName ?? (byRole.length === 1 ? byRole[0] : undefined);
 	if (!target) {
 		if (byRole.length > 1) throw new MemberMessageError("ambiguous-member", `Ambiguous crew role: ${memberName}`);
@@ -104,11 +141,12 @@ export function resolveTarget(membership: CrewMembership, memberName: string): C
 	}
 	if (target.name === membership.member.name || target.socketPath === membership.socketPath)
 		throw new MemberMessageError("self-send", "Cannot send to yourself");
-	return target;
+	return { kind: "member", name: target.name, role: target.role, socketPath: target.socketPath };
 }
 
 interface PreparedMemberDelivery {
-	readonly target: CrewMember;
+	readonly target: MessageTarget;
+	readonly endpoint: string;
 	readonly intent: MemberDeliveryIntent;
 	readonly signal?: AbortSignal;
 	readonly command: RpcCommand;
@@ -122,7 +160,8 @@ function prepareMemberDelivery(request: MemberMessageRequest, now: () => number)
 			"response-wait-requires-member-request",
 			"wait_for=response is unavailable on ordinary member messages; use send_member_request for a correlated Response",
 		);
-	const target = resolveTarget(request.membership, request.member.trim());
+	const target = resolveTarget(request.membership, request.member.trim(), request.approvedGuests);
+	const endpoint = target.kind === "member" ? target.socketPath : target.callbackEndpoint;
 	const origin = {
 		kind: "crew" as const,
 		name: request.membership.member.name,
@@ -140,6 +179,7 @@ function prepareMemberDelivery(request: MemberMessageRequest, now: () => number)
 		throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
 	return {
 		target,
+		endpoint,
 		intent,
 		signal: request.signal,
 		command: { type: "send", payload, delivery: intent },
@@ -192,6 +232,6 @@ export async function sendMemberMessage(
 	dependencies: MemberMessageDependencies,
 ): Promise<MemberMessageOutcome> {
 	const prepared = prepareMemberDelivery(request, dependencies.now ?? Date.now);
-	const endpoint = await dependencies.resolveEndpoint(prepared.target.socketPath);
+	const endpoint = await dependencies.resolveEndpoint(prepared.endpoint);
 	return orderMemberDelivery(prepared, endpoint, dependencies);
 }
