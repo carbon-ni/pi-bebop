@@ -1,7 +1,7 @@
 ---
 id: TASK-0157
 title: Split protocol.ts into domain/protocol/ modules
-status: doing
+status: done
 depends_on: [TASK-0156]
 priority: normal
 tags: [refactor, protocol]
@@ -34,11 +34,11 @@ cause broad churn.
 
 ## Acceptance criteria
 
-- [ ] No file under `src/domain/protocol/` exceeds 500 lines.
-- [ ] `rg "from .*domain/protocol\.ts" src` returns nothing (barrel removed
+- [x] No file under `src/domain/protocol/` exceeds 500 lines.
+- [x] `rg "from .*domain/protocol\.ts" src` returns nothing (barrel removed
       or no direct deep imports outside domain).
-- [ ] Full test suite green; no test file edits needed except import paths.
-- [ ] `npm run lint` and coverage gates stay green.
+- [x] Full test suite green; no test file edits needed except import paths.
+- [x] `npm run lint` and coverage gates stay green.
 
 ## Non-goals
 
@@ -47,12 +47,13 @@ No schema or wire changes, no renaming of exported types.
 ## Context
 (Optional: approach, links, related tasks.)
 
-## Acceptance criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-
 ## Notes
 
 - 2026-09-04: Coordinator remains sole implementation owner under Mary's
   authorization for the TASK-0155 onward sequence.
+- 2026-09-04: Implemented in `01810d6`; package whitelist and explicit stable
+  barrel export fixes in `44e8c29`. Full `npm test` passed (1169 tests),
+  `npm run verify:cli` passed (95.84% lines, 90.07% branches), and watcher
+  generation 724 passed the fresh `@agent-final` gate. Mary approved exact-head
+  closure; package verification passed with an ignored nested `.pi` artifact.
 
