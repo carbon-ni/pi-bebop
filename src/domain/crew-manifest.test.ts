@@ -62,6 +62,69 @@ describe("crew manifest", () => {
 		}
 	});
 
+	test("parses stable Guest crew identity and exact approver names", () => {
+		const result = parseCrewManifest(
+			{
+				version: 2,
+				crew: { identity: "crew-alpha", displayName: "Alpha Crew", guestApprovers: ["lead"] },
+				members: [
+					{ name: "lead", role: "lead", socket: "sockets/lead.sock" },
+					{ name: "dev", role: "developer", socket: "sockets/dev.sock" },
+				],
+			},
+			"/repo/.pi/bebop/crew.json",
+		);
+		assert.deepEqual(result.crew, {
+			identity: "crew-alpha",
+			displayName: "Alpha Crew",
+			guestApprovers: ["lead"],
+		});
+		assert.deepEqual(
+			parseCrewManifest({
+				version: 2,
+				crew: { identity: "legacy", displayName: "Legacy Crew" },
+				members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+			}).crew?.guestApprovers,
+			undefined,
+		);
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					version: 1,
+					crew: { identity: "legacy", displayName: "Legacy Crew" },
+					members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+				}),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-version",
+		);
+	});
+
+	test("rejects Guest policies that are missing exact configured Member names", () => {
+		const base = {
+			version: 2,
+			members: [{ name: "lead", role: "lead", socket: "sockets/lead.sock" }],
+		};
+		for (const crew of [
+			{ identity: "", displayName: "Crew" },
+			{ identity: "crew", displayName: "" },
+			{ identity: "crew", displayName: "Crew", guestApprovers: "lead" },
+			{ identity: "crew", displayName: "Crew", guestApprovers: ["missing"] },
+			{ identity: "crew", displayName: "Crew", guestApprovers: ["lead", "lead"] },
+		]) {
+			assert.throws(
+				() => parseCrewManifest({ ...base, crew }),
+				(error: unknown) => error instanceof CrewManifestError,
+			);
+		}
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					...base,
+					crew: { identity: "crew", displayName: "Crew", guestApprovers: ["lead"], extra: true },
+				}),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-crew-config",
+		);
+	});
+
 	test("accepts v2 common instructions and rejects v1 common extensions or unsafe paths", () => {
 		const result = parseCrewManifest(
 			{

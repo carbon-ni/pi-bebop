@@ -23,9 +23,13 @@ test("accepts an ordered payload with discriminated claimed origin", () => {
 	assert.equal(isMessagePayload(payload), true);
 });
 
-test("accepts content-only and claimed external payloads", () => {
+test("accepts content-only, claimed external, and typed Guest origins", () => {
 	assert.equal(isMessagePayload({ content: "hello" }), true);
 	assert.equal(isMessagePayload({ content: "hello", origin: { kind: "external", label: "CI" } }), true);
+	assert.equal(
+		isMessagePayload({ content: "hello", origin: { kind: "guest", identity: "guest-1", name: "Taylor" } }),
+		true,
+	);
 });
 
 test("rejects ambiguous, malformed, empty, NUL, and extra payload fields", () => {
@@ -44,6 +48,8 @@ test("rejects ambiguous, malformed, empty, NUL, and extra payload fields", () =>
 		{ content: "x", origin: { kind: "crew", name: "Bob", role: "dev", trusted: true } },
 		{ content: "x", origin: { kind: "crew", name: "", role: "dev" } },
 		{ content: "x", origin: { kind: "external", label: "" } },
+		{ content: "x", origin: { kind: "guest", identity: "", name: "Taylor" } },
+		{ content: "x", origin: { kind: "guest", identity: "guest-1", name: "Taylor", role: "guest" } },
 		{ content: "x", origin: { kind: "unknown", label: "x" } },
 		{ content: "x", origin: { kind: "crew", name: "Bob", role: "\0" } },
 		{ content: "x", replyTo: { sessionId: "   " } },

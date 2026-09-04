@@ -38,6 +38,12 @@ test("renders the reverse Kelly (qa) to Bob (dev) recipient model context", () =
 	assert.match(renderMessagePayloadForDisplay(payload), /^Claimed origin: from Kelly \(qa\)/);
 });
 
+test("labels typed Guest origin without exposing callback identity or role", () => {
+	const payload = { content: "hello", origin: { kind: "guest" as const, identity: "guest-1", name: "Taylor" } };
+	assert.match(renderMessagePayloadForDisplay(payload), /^Claimed origin: from Taylor \(guest\)/);
+	assert.doesNotMatch(renderMessagePayloadForDisplay(payload), /guest-1/);
+});
+
 test("preserves claimed external origin and reply route independently", () => {
 	const origin = { kind: "external" as const, label: "CI\n😀" };
 	const withoutRoute = { content: "hello", origin };

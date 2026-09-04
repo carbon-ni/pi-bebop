@@ -42,6 +42,7 @@
 		"src/domain/crew-init.ts",
 		"src/domain/crew-role.ts",
 		"src/domain/member-request.ts",
+		"src/domain/guest-membership.ts",
 		"src/domain/member-inbox.ts",
 		"src/domain/index.ts",
 		"src/domain/inbox-hint.ts",

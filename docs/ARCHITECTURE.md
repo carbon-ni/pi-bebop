@@ -205,6 +205,39 @@ forward internally with follow-up/inbox; redirect remains exceptional.
 - The message is persisted to the contact's inbox (TASK-0035 store) and may
   arrive while the contact is offline.
 
+### Multi-crew Guest membership (contract)
+
+A Guest is an external Pi session with one stable identity and one callback
+socket that may be explicitly admitted to zero, one, or many Crews. A Crew
+manifest that participates in Guest membership declares a stable public
+identity and display name under `crew`, plus exact configured Member names in
+`crew.guestApprovers` (a version 2-only extension):
+
+```json
+{
+	"crew": {
+		"identity": "project-alpha",
+		"displayName": "Alpha Crew",
+		"guestApprovers": ["lead"]
+	}
+}
+```
+
+Missing or empty `guestApprovers` disables admission. A join request travels
+through one live Member socket but creates no membership until an exact
+approver accepts it. Approval binds the expected Guest identity, callback
+endpoint, and Crew identity with a runtime-held capability. Leave and revoke
+are Crew-local; they cannot release another membership held by the same Guest.
+Legacy manifests may omit `crew` and therefore cannot admit Guests.
+
+Guests have no Member role and no privileged coordination authority. Their
+closed messaging capability is Follow-up, Member Request/Response, and
+transient Crew Broadcast; Inbox, Redirect, Interrupt, control, role/common
+instructions, and approval remain unavailable. Guest Origin is typed and
+rendered `from <name> (guest)`; it is attribution, not trusted content.
+Guest presence reports callback reachability only. Crew Intake remains the
+one-way offline contact feature and is never redirected into Guest admission.
+
 ### Crew Broadcast (tool)
 
 Crew Broadcast is the internal, transient, non-interrupting fan-out initiated

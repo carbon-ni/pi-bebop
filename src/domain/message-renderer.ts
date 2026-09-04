@@ -36,7 +36,9 @@ export function renderMessagePayloadForDisplay(payload: MessagePayload): string 
 		sections.push(
 			payload.origin.kind === "crew"
 				? `Claimed origin: from ${payload.origin.name} (${payload.origin.role})`
-				: `Claimed origin: from ${payload.origin.label}`,
+				: payload.origin.kind === "guest"
+					? `Claimed origin: from ${payload.origin.name} (guest)`
+					: `Claimed origin: from ${payload.origin.label}`,
 		);
 	}
 	if (payload.instructions)

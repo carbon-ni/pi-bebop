@@ -29,6 +29,19 @@ export interface CrewIntakeConfig {
 	readonly contact: string;
 }
 
+/**
+ * Stable public crew identity and optional Guest admission policy.
+ *
+ * `guestApprovers` is deliberately optional: absent or empty means Guest
+ * admission is disabled. Entries are exact configured Member names; roles are
+ * never inferred as approval authority.
+ */
+export interface CrewGuestConfig {
+	readonly identity: string;
+	readonly displayName: string;
+	readonly guestApprovers?: readonly string[];
+}
+
 export interface CrewManifest {
 	readonly version: CrewManifestVersion;
 	readonly commonInstructionsFile?: string;
@@ -37,6 +50,8 @@ export interface CrewManifest {
 	readonly members: readonly CrewMember[];
 	readonly presence: CrewPresenceConfig;
 	readonly intake?: CrewIntakeConfig;
+	/** Optional for legacy manifests; required to participate in Guest membership. */
+	readonly crew?: CrewGuestConfig;
 }
 
 export type CrewManifestErrorCode =
@@ -49,6 +64,12 @@ export type CrewManifestErrorCode =
 	| "invalid-common-instructions-file"
 	| "invalid-intake-config"
 	| "invalid-intake-contact"
+	| "invalid-crew-config"
+	| "invalid-crew-identity"
+	| "invalid-crew-display-name"
+	| "invalid-guest-approvers"
+	| "invalid-guest-approver"
+	| "duplicate-guest-approver"
 	| "duplicate-member-name"
 	| "duplicate-socket-path";
 
@@ -271,6 +292,70 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 		}
 	}
 
+	let crew: CrewGuestConfig | undefined;
+	const rawCrew = input.crew;
+	if (rawCrew !== undefined) {
+		if (input.version !== CREW_MANIFEST_V2)
+			throw new CrewManifestError(
+				"invalid-version",
+				"crew Guest configuration requires manifest version 2; version 1 runtimes reject this extension",
+			);
+		if (!isRecord(rawCrew)) invalid("crew must be an object", "invalid-crew-config");
+		const crewKeys = Object.keys(rawCrew);
+		const allowedCrewKeys = new Set(["identity", "displayName", "guestApprovers"]);
+		if (crewKeys.some((key) => !allowedCrewKeys.has(key)))
+			invalid("crew contains unknown fields", "invalid-crew-config");
+		const identity = rawCrew.identity;
+		if (
+			typeof identity !== "string" ||
+			identity.trim().length === 0 ||
+			identity !== identity.trim() ||
+			identity.includes("\0")
+		)
+			invalid("crew.identity must be a non-empty trimmed string without NUL", "invalid-crew-identity");
+		const displayName = rawCrew.displayName;
+		if (
+			typeof displayName !== "string" ||
+			displayName.trim().length === 0 ||
+			displayName !== displayName.trim() ||
+			displayName.includes("\0")
+		)
+			invalid("crew.displayName must be a non-empty trimmed string without NUL", "invalid-crew-display-name");
+		const rawGuestApprovers = rawCrew.guestApprovers;
+		if (rawGuestApprovers !== undefined && !Array.isArray(rawGuestApprovers))
+			invalid("crew.guestApprovers must be an array", "invalid-guest-approvers");
+		const guestApprovers = rawGuestApprovers as unknown[] | undefined;
+		if (
+			guestApprovers?.some(
+				(approver) =>
+					typeof approver !== "string" ||
+					approver.trim().length === 0 ||
+					approver !== approver.trim() ||
+					approver.includes("\0"),
+			)
+		)
+			invalid("crew.guestApprovers must contain exact trimmed member names", "invalid-guest-approver");
+		const validGuestApprovers = guestApprovers === undefined ? undefined : [...(guestApprovers as string[])];
+		if (validGuestApprovers) {
+			const seenApprovers = new Set<string>();
+			for (const approver of validGuestApprovers) {
+				if (seenApprovers.has(approver))
+					throw new CrewManifestError("duplicate-guest-approver", `duplicate Guest approver: ${approver}`);
+				seenApprovers.add(approver);
+				if (!names.has(approver))
+					throw new CrewManifestError(
+						"invalid-guest-approver",
+						`Guest approver is not a configured member: ${approver}`,
+					);
+			}
+		}
+		crew = {
+			identity,
+			displayName,
+			...(validGuestApprovers === undefined ? {} : { guestApprovers: validGuestApprovers }),
+		};
+	}
+
 	let intake: CrewIntakeConfig | undefined;
 	const rawIntake = input.intake;
 	if (rawIntake !== undefined) {
@@ -303,6 +388,7 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 		members,
 		presence,
 		...(intake === undefined ? {} : { intake }),
+		...(crew === undefined ? {} : { crew }),
 	};
 }
 
