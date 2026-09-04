@@ -23,8 +23,9 @@ package-verify:
 	npm run verify:package
 
 security-check:
-	# Pi is a peer dependency; audit only the extension's production dependency tree.
-	npm audit --omit=dev --audit-level=moderate
+	# Registry audit endpoints are being retired; wrapper retries and records
+	# infrastructure failures precisely while still failing on real findings.
+	node scripts/security-check.mjs
 
 hooks-install:
 	git config core.hooksPath .githooks
