@@ -89,6 +89,26 @@ describe("crew manifest", () => {
 					error.message === "intake.contact must be a non-empty trimmed member name",
 			);
 		}
+		assert.throws(
+			() => parseCrewManifest({ version: 2, members, crew: { id: "crew", displayName: "Crew", extra: true } }),
+			(error: unknown) =>
+				error instanceof CrewManifestError &&
+				error.code === "invalid-crew-config" &&
+				error.message === "crew contains unknown fields",
+		);
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					version: 2,
+					members,
+					crew: { id: "crew", displayName: "Crew" },
+					guestAdmission: { approvers: ["lead"], extra: true },
+				}),
+			(error: unknown) =>
+				error instanceof CrewManifestError &&
+				error.code === "invalid-guest-admission" &&
+				error.message === "guestAdmission must contain only the approvers field",
+		);
 	});
 
 	test("rejects invalid versions, member values, roles, instructions, and sockets", () => {
