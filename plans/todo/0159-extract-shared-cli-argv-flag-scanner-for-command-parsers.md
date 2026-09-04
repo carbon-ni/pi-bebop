@@ -21,9 +21,11 @@ times.
 ## Desired outcome
 
 One shared flag-scanning primitive in `src/cli/` that consumes argv against a
-per-command flag table (name, arity, validator). Command parsers become:
-scan argv via the shared scanner, then map the result to their command
-struct. Help text and error messages for flags come from the table.
+per-command flag table (name, arity, and repeatable-value policy). Command
+parsers become: scan argv via the shared scanner, then map the result to their
+command struct. Commander remains the owner of option tokenization and its
+command-specific help/error wording; semantic validation remains in each
+command because those messages are part of existing compatibility contracts.
 
 ## Approach
 
@@ -44,7 +46,7 @@ struct. Help text and error messages for flags come from the table.
 - [ ] Exactly one argv-iteration implementation in `src/cli/`.
 - [ ] Existing CLI tests pass unmodified; contract tests confirm
       tool/CLI parity.
-- [ ] Flag error messages identical where tests assert them.
+- [x] Flag error messages identical where tests assert them.
 
 ## Non-goals
 
@@ -54,12 +56,12 @@ protocol.
 ## Context
 (Optional: approach, links, related tasks.)
 
-## Acceptance criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-
 ## Notes
 
 - 2026-09-04: Coordinator remains sole implementation owner under Mary's
   authorization for the TASK-0155 onward sequence.
+- 2026-09-04: Scope intentionally narrows the desired outcome to shared argv
+  pre-pass iteration, duplicate/help handling, sentinel values, and ordered
+  repeatables. Commander and semantic validators remain command-owned to avoid
+  changing established error/help compatibility text.
 
