@@ -107,12 +107,11 @@ that crew. Joining or leaving one crew never affects another membership.
 ## Implementation notes
 
 - Contract slice owns the ubiquitous language, optional `crew` manifest projection
-  (`identity`, `displayName`, exact `guestApprovers`), and pure Guest selectors,
-  capability allowlist, origin, and binding records.
-- Version 2 manifests may declare `crew`; legacy manifests may omit it (and
-  version 1 manifests reject the extension), so they cannot participate in Guest
-  membership. Missing or empty `guestApprovers` disables admission without a
-  role/contact/online fallback.
+  (`id`, `displayName`), optional `guestAdmission.approvers`, and pure Guest
+  selectors, capability allowlist, origin, and binding records.
+- Both manifest versions accept the newest metadata fields. Legacy manifests may
+  omit `crew`; omitted `guestAdmission` disables admission, while empty
+  `approvers` is invalid. No role/contact/online fallback exists.
 - TASK-0161 owns admission, callback socket lifecycle, persistence, revocation,
   and fail-closed restore. TASK-0162 owns crew-scoped Guest messaging/tool
   surfaces. No runtime command or tool behavior is changed here.

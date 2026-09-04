@@ -211,19 +211,23 @@ A Guest is an external Pi session with one stable identity and one callback
 socket that may be explicitly admitted to zero, one, or many Crews. A Crew
 manifest that participates in Guest membership declares a stable public
 identity and display name under `crew`, plus exact configured Member names in
-`crew.guestApprovers` (a version 2-only extension):
+`guestAdmission.approvers` (validated for both manifest versions):
 
 ```json
 {
 	"crew": {
-		"identity": "project-alpha",
-		"displayName": "Alpha Crew",
-		"guestApprovers": ["lead"]
+		"id": "project-alpha",
+		"displayName": "Alpha Crew"
+	},
+	"guestAdmission": {
+		"approvers": ["lead"]
 	}
 }
 ```
 
-Missing or empty `guestApprovers` disables admission. A join request travels
+Omitted `guestAdmission` disables admission; empty `approvers` is invalid. The
+approver names are non-empty, unique, exact Member names in manifest order. A
+join request travels
 through one live Member socket but creates no membership until an exact
 approver accepts it. Approval binds the expected Guest identity, callback
 endpoint, and Crew identity with a runtime-held capability. Leave and revoke

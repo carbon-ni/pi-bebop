@@ -1,6 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import type { CrewGuestConfig, CrewManifest } from "./crew-manifest.ts";
+import type { CrewIdentityConfig, CrewManifest, GuestAdmissionConfig } from "./crew-manifest.ts";
 
 /**
  * TASK-0160: Guest is an external Pi session explicitly admitted to one exact
@@ -16,6 +16,31 @@ export const MAX_GUEST_CAPABILITY_BYTES = 512;
 /** Ordinary messaging only. This is a closed set, not negotiable capability input. */
 export const GUEST_CAPABILITIES = ["follow-up", "member-request", "member-response", "broadcast"] as const;
 export type GuestCapabilityName = (typeof GUEST_CAPABILITIES)[number];
+export const GuestCapabilitySchema = Type.Union(GUEST_CAPABILITIES.map((capability) => Type.Literal(capability)));
+
+export const GUEST_THREATS = [
+	"guessed-or-stolen-socket",
+	"replayed-approval",
+	"capability-leakage",
+	"stale-endpoint",
+	"name-collision",
+	"cross-crew-confusion",
+	"unauthorized-approval-or-revocation",
+	"compromised-crew",
+] as const;
+export type GuestThreat = (typeof GUEST_THREATS)[number];
+export const GuestThreatSchema = Type.Union(GUEST_THREATS.map((threat) => Type.Literal(threat)));
+export const GuestThreatModelSchema = Type.Object(
+	{
+		threats: Type.Array(GuestThreatSchema, {
+			minItems: GUEST_THREATS.length,
+			maxItems: GUEST_THREATS.length,
+			uniqueItems: true,
+		}),
+	},
+	{ additionalProperties: false },
+);
+export type GuestThreatModel = Static<typeof GuestThreatModelSchema>;
 
 const BoundedText = (maxLength: number) => Type.String({ minLength: 1, maxLength, pattern: "^[^\\u0000\\r\\n]+$" });
 const isBoundedText = (value: unknown, maxBytes: number): value is string =>
@@ -25,6 +50,16 @@ const isBoundedText = (value: unknown, maxBytes: number): value is string =>
 	!value.includes("\0") &&
 	!/[\r\n]/.test(value) &&
 	Buffer.byteLength(value, "utf8") <= maxBytes;
+
+/** One Pi session's stable identity and live callback endpoint. */
+export const GuestSchema = Type.Object(
+	{
+		identity: BoundedText(MAX_GUEST_IDENTITY_BYTES),
+		callbackEndpoint: BoundedText(MAX_GUEST_ENDPOINT_BYTES),
+	},
+	{ additionalProperties: false },
+);
+export type Guest = Static<typeof GuestSchema>;
 
 /** Public selector shown to a Guest; it contains no manifest path or socket route. */
 export const CrewSelectorSchema = Type.Object(
@@ -37,8 +72,8 @@ export const CrewSelectorSchema = Type.Object(
 export type CrewSelector = Static<typeof CrewSelectorSchema>;
 
 /** Stable identity and display metadata projected from a manifest. */
-export function crewSelectorFromConfig(config: CrewGuestConfig): CrewSelector {
-	return { identity: config.identity, displayName: config.displayName };
+export function crewSelectorFromConfig(config: CrewIdentityConfig): CrewSelector {
+	return { identity: config.id, displayName: config.displayName };
 }
 
 export type CrewSelectorLookup =
@@ -64,12 +99,15 @@ export function selectCrewBySelector(crews: readonly CrewSelector[], identity: s
 }
 
 /** Exact configured Member names allowed to approve Guests. */
-export function guestAdmissionPolicy(
-	config: CrewGuestConfig | undefined,
-): { readonly enabled: true; readonly approvers: readonly string[] } | { readonly enabled: false } {
-	const approvers = config?.guestApprovers;
-	if (!approvers || approvers.length === 0) return { enabled: false };
-	return { enabled: true, approvers: [...approvers] };
+export type GuestAdmissionPolicy =
+	| { readonly enabled: true; readonly approvers: readonly string[] }
+	| { readonly enabled: false; readonly reason: "missing" }
+	| { readonly enabled: false; readonly reason: "empty" };
+
+export function guestAdmissionPolicy(config: GuestAdmissionConfig | undefined): GuestAdmissionPolicy {
+	if (!config) return { enabled: false, reason: "missing" };
+	if (config.approvers.length === 0) return { enabled: false, reason: "empty" };
+	return { enabled: true, approvers: [...config.approvers] };
 }
 
 /** Guest names are unique within one crew across configured Members and Guests. */
@@ -101,6 +139,88 @@ export function bindGuestApprovalCapability(value: string): GuestApprovalCapabil
 	)
 		throw new Error("invalid Guest approval capability");
 	return value as GuestApprovalCapability;
+}
+
+/** Untrusted admission request received through one explicit live Member socket. */
+export const GuestJoinRequestSchema = Type.Object(
+	{
+		requestId: BoundedText(MAX_GUEST_IDENTITY_BYTES),
+		crew: CrewSelectorSchema,
+		guestIdentity: BoundedText(MAX_GUEST_IDENTITY_BYTES),
+		guestName: BoundedText(MAX_GUEST_NAME_BYTES),
+		callbackEndpoint: BoundedText(MAX_GUEST_ENDPOINT_BYTES),
+		submittedByMember: BoundedText(MAX_GUEST_NAME_BYTES),
+	},
+	{ additionalProperties: false },
+);
+export type GuestJoinRequest = Static<typeof GuestJoinRequestSchema>;
+
+/** Crew-local approval; capability issuance remains runtime-owned and opaque. */
+export const GuestApprovalSchema = Type.Object(
+	{
+		requestId: BoundedText(MAX_GUEST_IDENTITY_BYTES),
+		crew: CrewSelectorSchema,
+		guestIdentity: BoundedText(MAX_GUEST_IDENTITY_BYTES),
+		guestName: BoundedText(MAX_GUEST_NAME_BYTES),
+		callbackEndpoint: BoundedText(MAX_GUEST_ENDPOINT_BYTES),
+		approver: BoundedText(MAX_GUEST_NAME_BYTES),
+	},
+	{ additionalProperties: false },
+);
+export type GuestApproval = Static<typeof GuestApprovalSchema>;
+
+/** Crew-local revocation; it cannot address another Crew membership. */
+export const GuestRevocationSchema = Type.Object(
+	{
+		crew: CrewSelectorSchema,
+		guestIdentity: BoundedText(MAX_GUEST_IDENTITY_BYTES),
+		revokedBy: BoundedText(MAX_GUEST_NAME_BYTES),
+	},
+	{ additionalProperties: false },
+);
+export type GuestRevocation = Static<typeof GuestRevocationSchema>;
+
+function isValidSelector(selector: CrewSelector): boolean {
+	return (
+		isBoundedText(selector.identity, MAX_GUEST_IDENTITY_BYTES) &&
+		isBoundedText(selector.displayName, MAX_GUEST_NAME_BYTES)
+	);
+}
+
+export function isGuestJoinRequest(value: unknown): value is GuestJoinRequest {
+	if (!Value.Check(GuestJoinRequestSchema, value)) return false;
+	const request = value as GuestJoinRequest;
+	return (
+		isValidSelector(request.crew) &&
+		isBoundedText(request.requestId, MAX_GUEST_IDENTITY_BYTES) &&
+		isBoundedText(request.guestIdentity, MAX_GUEST_IDENTITY_BYTES) &&
+		isBoundedText(request.guestName, MAX_GUEST_NAME_BYTES) &&
+		isBoundedText(request.callbackEndpoint, MAX_GUEST_ENDPOINT_BYTES) &&
+		isBoundedText(request.submittedByMember, MAX_GUEST_NAME_BYTES)
+	);
+}
+
+export function isGuestApproval(value: unknown): value is GuestApproval {
+	if (!Value.Check(GuestApprovalSchema, value)) return false;
+	const approval = value as GuestApproval;
+	return (
+		isValidSelector(approval.crew) &&
+		isBoundedText(approval.requestId, MAX_GUEST_IDENTITY_BYTES) &&
+		isBoundedText(approval.guestIdentity, MAX_GUEST_IDENTITY_BYTES) &&
+		isBoundedText(approval.guestName, MAX_GUEST_NAME_BYTES) &&
+		isBoundedText(approval.callbackEndpoint, MAX_GUEST_ENDPOINT_BYTES) &&
+		isBoundedText(approval.approver, MAX_GUEST_NAME_BYTES)
+	);
+}
+
+export function isGuestRevocation(value: unknown): value is GuestRevocation {
+	if (!Value.Check(GuestRevocationSchema, value)) return false;
+	const revocation = value as GuestRevocation;
+	return (
+		isValidSelector(revocation.crew) &&
+		isBoundedText(revocation.guestIdentity, MAX_GUEST_IDENTITY_BYTES) &&
+		isBoundedText(revocation.revokedBy, MAX_GUEST_NAME_BYTES)
+	);
 }
 
 /** Internal binding checked by lifecycle code before every Guest operation. */

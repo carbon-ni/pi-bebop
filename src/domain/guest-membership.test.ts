@@ -2,11 +2,16 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
 	bindGuestApprovalCapability,
+	GuestSchema,
+	GuestThreatModelSchema,
 	crewSelectorFromConfig,
 	guestAdmissionPolicy,
 	GUEST_CAPABILITIES,
 	isGuestCapability,
+	isGuestApproval,
+	isGuestJoinRequest,
 	isGuestMembershipRecord,
+	isGuestRevocation,
 	isGuestNameAvailable,
 	isGuestOrigin,
 	bindingMatchesRecord,
@@ -25,9 +30,14 @@ const manifest: Pick<CrewManifest, "members"> = {
 };
 
 describe("Guest membership contract", () => {
+	test("defines stable Guest identity/callback and the threat model as closed schemas", () => {
+		assert.equal(GuestSchema.type, "object");
+		assert.equal(GuestThreatModelSchema.type, "object");
+	});
+
 	test("selects an exact stable crew identity and never guesses duplicate display names", () => {
-		const alpha = crewSelectorFromConfig({ identity: "alpha", displayName: "Shared name" });
-		const beta = crewSelectorFromConfig({ identity: "beta", displayName: "Shared name" });
+		const alpha = crewSelectorFromConfig({ id: "alpha", displayName: "Shared name" });
+		const beta = crewSelectorFromConfig({ id: "beta", displayName: "Shared name" });
 		assert.deepEqual(selectCrewBySelector([alpha, beta], "beta"), { kind: "match", crew: beta });
 		assert.deepEqual(selectCrewBySelector([alpha, beta], "Shared name"), {
 			kind: "no-match",
@@ -37,16 +47,10 @@ describe("Guest membership contract", () => {
 		assert.equal(selectCrewBySelector([alpha], "missing").kind, "no-match");
 	});
 
-	test("missing or empty Guest approvers disable admission; configured names are exact", () => {
-		assert.deepEqual(guestAdmissionPolicy(undefined), { enabled: false });
-		assert.deepEqual(guestAdmissionPolicy({ identity: "alpha", displayName: "Alpha" }), { enabled: false });
-		assert.deepEqual(guestAdmissionPolicy({ identity: "alpha", displayName: "Alpha", guestApprovers: [] }), {
-			enabled: false,
-		});
-		assert.deepEqual(guestAdmissionPolicy({ identity: "alpha", displayName: "Alpha", guestApprovers: ["lead"] }), {
-			enabled: true,
-			approvers: ["lead"],
-		});
+	test("missing Guest admission disables it; configured names are exact", () => {
+		assert.deepEqual(guestAdmissionPolicy(undefined), { enabled: false, reason: "missing" });
+		assert.deepEqual(guestAdmissionPolicy({ approvers: [] }), { enabled: false, reason: "empty" });
+		assert.deepEqual(guestAdmissionPolicy({ approvers: ["lead"] }), { enabled: true, approvers: ["lead"] });
 		assert.equal(isGuestNameAvailable(manifest, [], "guest"), true);
 		assert.equal(isGuestNameAvailable(manifest, [], "lead"), false);
 		assert.equal(isGuestNameAvailable(manifest, ["guest"], "guest"), false);
@@ -76,6 +80,45 @@ describe("Guest membership contract", () => {
 		assert.equal(bindingMatchesCapability({ ...alpha, capability }, capability), true);
 		assert.equal(bindingMatchesCapability({ ...alpha, capability }, bindGuestApprovalCapability("other")), false);
 		assert.equal(bindingMatchesRecord({ ...alpha, callbackEndpoint: "other.sock", capability }, alpha), false);
+	});
+
+	test("models untrusted join, Crew-local approval, and Crew-local revocation", () => {
+		const request = {
+			requestId: "request-1",
+			crew: { identity: "alpha", displayName: "Alpha" },
+			guestIdentity: "guest-session",
+			guestName: "Taylor",
+			callbackEndpoint: "callback.sock",
+			submittedByMember: "lead",
+		};
+		assert.equal(isGuestJoinRequest(request), true);
+		assert.equal(
+			isGuestApproval({
+				requestId: request.requestId,
+				crew: request.crew,
+				guestIdentity: request.guestIdentity,
+				guestName: request.guestName,
+				callbackEndpoint: request.callbackEndpoint,
+				approver: "lead",
+			}),
+			true,
+		);
+		assert.equal(
+			isGuestRevocation({ crew: request.crew, guestIdentity: request.guestIdentity, revokedBy: "lead" }),
+			true,
+		);
+		assert.equal(
+			isGuestApproval({
+				requestId: request.requestId,
+				crew: request.crew,
+				guestIdentity: request.guestIdentity,
+				guestName: request.guestName,
+				callbackEndpoint: request.callbackEndpoint,
+				approver: "unknown",
+				extra: true,
+			}),
+			false,
+		);
 	});
 
 	test("validates the persistable binding while keeping approval capability runtime-only", () => {
