@@ -98,6 +98,7 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		assert.match(tool.description, /Block this run until/);
 		assert.match(tool.description, /accepted message releases the idle wait/);
 		assert.match(tool.description, /Only one blocking Member Idle Wait may be active locally/);
+		assert.match(tool.description, /content-free continuation.*mixed tool batch/i);
 		assert.match(tool.description, /bounded timeout is always armed/);
 		assert.match(tool.description, /1,800 seconds/);
 		assert.doesNotMatch(tool.description, /yield/);
