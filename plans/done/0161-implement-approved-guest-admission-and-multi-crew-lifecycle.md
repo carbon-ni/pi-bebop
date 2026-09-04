@@ -1,7 +1,7 @@
 ---
 id: TASK-0161
 title: Implement approved Guest admission and multi-crew lifecycle
-status: doing
+status: done
 depends_on: [TASK-0160]
 priority: high
 tags: [crew, guest, admission, multi-crew, lifecycle, cli, security, tdd]
@@ -74,7 +74,7 @@ publishes its new callback endpoint without repeating approval.
       secrets are redacted from tools, TUI, logs, roster, errors, and reports.
 - [x] Runtime stores zero-to-many Guest memberships keyed by stable crew
       identity. Joining/restoring/leaving one cannot mutate another.
-- [ ] Restart restores only still-approved matching memberships; stale,
+- [x] Restart restores only still-approved matching memberships; stale,
       revoked, moved, tampered, or mismatched records fail closed per crew while
       preserving independent valid memberships.
 - [x] Guest callback endpoint is never published as or allowed to replace a
@@ -93,11 +93,11 @@ publishes its new callback endpoint without repeating approval.
       stable error codes and token-light default output.
 - [x] Roster/presence distinguish pending, approved-online, approved-offline,
       left, and revoked without treating socket liveness as approval.
-- [ ] Concurrent approve/revoke/join/leave is deterministic, atomic per crew,
+- [x] Concurrent approve/revoke/join/leave is deterministic, atomic per crew,
       and leaves no orphaned capability or symlink after crash recovery.
 - [x] Existing single Member membership, Crew Intake, socket ownership, and
       trust boundaries remain regression-covered and backward compatible.
-- [ ] Package smoke, storage/restart integration, architecture, coverage, final
+- [x] Package smoke, storage/restart integration, architecture, coverage, final
       watcher, and independent exact-head QA gates pass.
 
 ## Closure evidence
@@ -138,3 +138,21 @@ session via `pi.appendEntry`), so approval state is NOT crew-owned and not
 usable by every Member runtime. Reopened to implement a trusted crew-owned
 durable Guest registry under the canonical crew layout before messaging work
 (TASK-0162) resumes. Prior closure evidence below is historical.
+
+## Reclosed 2026-09-04 with crew-owned Guest registry
+
+The dependency defect was fixed at `1ef75da` (crew-owned durable Guest
+registry as admission authority) and `5f4026b` (capability delivery exactly
+once through the approved join response, Guest-side retention across
+restarts). Independent exact-head QA passed at `8ed0b8b`: worktree clean and
+unchanged, diff-check clean, `npm test` 1128/1128, `npm run verify:cli` passed
+(97.02% lines, 90.31%->90.26% branches, complexity/package pass), fresh
+watcher gen 411 PASS. Real Guest registry and capability delivery/restart
+suites passed with no actionable defects.
+
+Registry authority semantics: pending/approved/denied/revoked tombstones with
+exact crew/identity/name/callback/capability verifier digest/approver/order/
+revision; atomic crash-safe writes with revision compare-and-retry; fail-closed
+on trust/tamper/path/permissions; session-private approvals invalidated with no
+silent migration; capability delivered exactly once per Member runtime and
+retained by the Guest runtime.
