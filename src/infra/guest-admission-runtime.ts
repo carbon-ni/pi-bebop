@@ -71,6 +71,36 @@ export type GuestSendAuthorizationResult =
 				| "registry-unavailable";
 	  };
 
+/** Freshly validates a Guest sender against a crew-owned registry snapshot. */
+export function authorizeGuestSendAgainstRegistry(
+	registryAuthority: () => unknown,
+	digestCapability: (capability: string) => string,
+	input: {
+		readonly crewId: string;
+		readonly guestIdentity: string;
+		readonly callbackEndpoint: string;
+		readonly capability: string;
+	},
+): GuestSendAuthorizationResult {
+	let raw: unknown;
+	try {
+		raw = registryAuthority();
+	} catch {
+		return { ok: false, code: "registry-unavailable" };
+	}
+	if (!isGuestRegistryFile(raw)) return { ok: false, code: "registry-unavailable" };
+	const entry = raw.entries.find((candidate: GuestRegistryEntry) => candidate.guestIdentity === input.guestIdentity);
+	if (!entry) return { ok: false, code: "not-approved" };
+	if (entry.crew.id !== input.crewId) return { ok: false, code: "crew-mismatch" };
+	if (entry.status === "revoked") return { ok: false, code: "revoked" };
+	if (entry.status === "denied") return { ok: false, code: "denied" };
+	if (entry.status === "pending") return { ok: false, code: "pending" };
+	if (entry.callbackEndpoint !== input.callbackEndpoint) return { ok: false, code: "endpoint-mismatch" };
+	if (digestCapability(input.capability) !== entry.capabilityDigest)
+		return { ok: false, code: "capability-mismatch" };
+	return { ok: true, guestName: entry.guestName };
+}
+
 export type GuestAdmissionMutationResult =
 	| { readonly ok: true; readonly changed: boolean }
 	| { readonly ok: false; readonly code: "unauthorized" | "not-found" | "mutation-failed" };
@@ -217,28 +247,9 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			callbackEndpoint: string;
 			capability: string;
 		}): GuestSendAuthorizationResult {
-			const unavailable = { ok: false as const, code: "registry-unavailable" as const };
-			if (!deps.registryAuthority || !deps.digestCapability) return unavailable;
-			let raw: unknown;
-			try {
-				raw = deps.registryAuthority();
-			} catch {
-				return unavailable;
-			}
-			if (!isGuestRegistryFile(raw)) return unavailable;
-			const entry = raw.entries.find(
-				(candidate: GuestRegistryEntry) => candidate.guestIdentity === input.guestIdentity,
-			);
-			if (!entry) return { ok: false as const, code: "not-approved" as const };
-			if (entry.crew.id !== input.crewId) return { ok: false as const, code: "crew-mismatch" as const };
-			if (entry.status === "revoked") return { ok: false as const, code: "revoked" as const };
-			if (entry.status === "denied") return { ok: false as const, code: "denied" as const };
-			if (entry.status === "pending") return { ok: false as const, code: "pending" as const };
-			if (entry.callbackEndpoint !== input.callbackEndpoint)
-				return { ok: false as const, code: "endpoint-mismatch" as const };
-			if (deps.digestCapability(input.capability) !== entry.capabilityDigest)
-				return { ok: false as const, code: "capability-mismatch" as const };
-			return { ok: true as const, guestName: entry.guestName };
+			if (!deps.registryAuthority || !deps.digestCapability)
+				return { ok: false as const, code: "registry-unavailable" as const };
+			return authorizeGuestSendAgainstRegistry(deps.registryAuthority, deps.digestCapability, input);
 		},
 		consumeCapability(guestIdentity: string) {
 			const entry = states.get(guestIdentity);

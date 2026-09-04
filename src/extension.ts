@@ -45,7 +45,7 @@ import { getSocketPath } from "./infra/intray-paths.ts";
 import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
 import { createMembershipRuntime } from "./infra/membership-runtime.ts";
 import { createGuestMembershipRuntime } from "./infra/guest-membership-runtime.ts";
-import { createGuestAdmissionRuntime } from "./infra/guest-admission-runtime.ts";
+import { authorizeGuestSendAgainstRegistry, createGuestAdmissionRuntime } from "./infra/guest-admission-runtime.ts";
 import { createGuestRegistryStore, digestGuestCapability } from "./infra/guest-registry-store.ts";
 import {
 	appendMembershipContext,
@@ -108,7 +108,33 @@ export default function (pi: ExtensionAPI) {
 
 	const state = createSocketState(Date.now);
 	let guestRequestIndex = 0;
+	/**
+	 * Guest callbacks are addressed directly, so they cannot ask a Member to
+	 * relay authorization. Resolve the joined Guest membership's configured
+	 * Member endpoint back to its canonical project manifest and read that
+	 * crew's registry fresh for every inbound Guest message.
+	 */
+	const authorizeGuestInbound = (input: {
+		crewId: string;
+		guestIdentity: string;
+		callbackEndpoint: string;
+		capability: string;
+	}) => {
+		const runtime = state.guestMembershipRuntime;
+		const membership = runtime?.list().find((row) => row.crew.id === input.crewId && row.status === "approved");
+		const memberSocket = runtime?.getMemberSocket(input.crewId);
+		if (!membership || !memberSocket || state.context?.isProjectTrusted?.() !== true)
+			return { ok: false as const, code: "registry-unavailable" as const };
+		try {
+			const manifestPath = getCrewManifestPathFromSocketPath(memberSocket);
+			const registry = createGuestRegistryStore({ manifestPath, crew: membership.crew });
+			return authorizeGuestSendAgainstRegistry(() => registry.load(), digestGuestCapability, input);
+		} catch {
+			return { ok: false as const, code: "registry-unavailable" as const };
+		}
+	};
 	state.guestMembershipRuntime = createGuestMembershipRuntime({
+		authorizeInbound: authorizeGuestInbound,
 		guestIdentity: () => state.context?.sessionManager.getSessionId() ?? "",
 		callbackEndpoint: () => state.socketPath ?? "",
 		createRequestId: () => `guest-request-${++guestRequestIndex}`,
