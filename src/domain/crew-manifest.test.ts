@@ -130,6 +130,16 @@ describe("crew manifest", () => {
 				message: "unsupported manifest version: 99",
 			},
 			{
+				input: { version: 99, commonInstructionsFile: "instructions/common.md", members },
+				code: "invalid-version",
+				message: "unsupported manifest version: 99",
+			},
+			{
+				input: { commonInstructionsFile: "instructions/common.md", members },
+				code: "invalid-version",
+				message: "unsupported manifest version: undefined",
+			},
+			{
 				input: { version: 2, commonInstructionsFile: "", members: [], crew: { extra: true } },
 				code: "invalid-common-instructions-file",
 				message: "commonInstructionsFile must be a non-empty relative path",
@@ -148,6 +158,21 @@ describe("crew manifest", () => {
 				},
 				code: "invalid-members",
 				message: "members must be a non-empty array",
+			},
+			{
+				input: {
+					version: 2,
+					members,
+					crew: { id: "crew", displayName: "Crew" },
+					guestAdmission: { approvers: [3], extra: true },
+				},
+				code: "invalid-guest-admission",
+				message: "guestAdmission must contain only the approvers field",
+			},
+			{
+				input: { version: 1, members, intake: { contact: 3, extra: true } },
+				code: "invalid-intake-config",
+				message: "intake must contain only the contact field",
 			},
 		];
 		for (const { input, code, message } of precedenceCases) {
