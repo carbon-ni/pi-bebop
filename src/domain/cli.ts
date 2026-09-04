@@ -9,7 +9,8 @@ export type ParsedSessionControlAction =
 	| { action: "inbox"; target: string }
 	| { action: "guest"; target: "approve" | "deny" | "remove"; value: string };
 
-const SESSION_CONTROL_USAGE = "join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume";
+const SESSION_CONTROL_USAGE =
+	"join <socket>|leave|members|guests|guest approve|deny|remove|status|stop|inbox status|cancel <id>|pause|resume";
 const INBOX_USAGE = "status|cancel <id>|pause|resume";
 
 function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: string } {

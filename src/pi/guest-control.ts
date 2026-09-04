@@ -56,7 +56,21 @@ export function registerGuestControlCommand(
 			}
 			if (parsed.action === "leave") {
 				const membership = deps.guestMembershipRuntime.list().find((row) => row.crew.id === parsed.target);
-				if (membership && state.socketPath) {
+				if (membership) {
+					try {
+						await deps.ensureControlServer(pi, state, ctx);
+					} catch (error) {
+						notify(
+							ctx,
+							`Guest leave failed: ${error instanceof Error ? error.message : "callback endpoint unavailable"}`,
+							"error",
+						);
+						return;
+					}
+					if (!state.socketPath) {
+						notify(ctx, "Guest leave failed: callback endpoint is unavailable", "error");
+						return;
+					}
 					try {
 						const remote = await (deps.sendLeave ?? sendRpcCommand)(
 							deps.guestMembershipRuntime.getMemberSocket(parsed.target) ?? parsed.target,
@@ -96,18 +110,18 @@ export function registerGuestControlCommand(
 				notify(ctx, "Guest join failed: project is not trusted", "error");
 				return;
 			}
-			await deps.ensureControlServer(pi, state, ctx);
-			if (!state.socketPath) {
-				notify(ctx, "Guest join failed: callback endpoint is unavailable", "error");
-				return;
-			}
-			const command: GuestJoinCommand = {
-				type: "guest_join",
-				guestIdentity: deps.guestIdentity(ctx),
-				guestName: parsed.guestName,
-				callbackEndpoint: state.socketPath,
-			};
 			try {
+				await deps.ensureControlServer(pi, state, ctx);
+				if (!state.socketPath) {
+					notify(ctx, "Guest join failed: callback endpoint is unavailable", "error");
+					return;
+				}
+				const command: GuestJoinCommand = {
+					type: "guest_join",
+					guestIdentity: deps.guestIdentity(ctx),
+					guestName: parsed.guestName,
+					callbackEndpoint: state.socketPath,
+				};
 				const result = await (deps.sendJoin ?? sendRpcCommand)(parsed.target, command, { timeout: 5000 });
 				if (!result.response.success || !isGuestJoinResult(result.response.data)) {
 					notify(ctx, `Guest join failed: ${result.response.error ?? "invalid admission response"}`, "error");

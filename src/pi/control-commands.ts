@@ -37,7 +37,7 @@ export type ControlCommandDeps = {
 	sendGuestJoin?: typeof sendRpcCommand;
 };
 
-const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop", "inbox"];
+const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "guests", "guest", "status", "stop", "inbox"];
 const GUEST_ACTIONS = ["join", "crews", "leave"] as const;
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
@@ -185,7 +185,7 @@ export function registerSessionControlCommand(
 											? `- pending ${row.requestId}: ${row.guestName}`
 											: `- ${row.status} ${row.guestName}${row.approvedBy ? ` (approved by ${row.approvedBy})` : ""}`,
 									),
-								].join("\\n");
+								].join("\n");
 					pi.appendEntry("crew-guests", { content });
 					return;
 				}

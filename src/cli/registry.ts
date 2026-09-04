@@ -29,6 +29,18 @@ import {
 	type SessionListCliOptions,
 } from "./commands/session-list.ts";
 import {
+	buildGuestJoinCommand,
+	buildGuestLeaveCommand,
+	guestJoinHelp,
+	guestLeaveHelp,
+	parseGuestJoinCommand,
+	parseGuestLeaveCommand,
+	runGuestJoinCommand,
+	runGuestLeaveCommand,
+	type GuestJoinCliOptions,
+	type GuestLeaveCliOptions,
+} from "./commands/guest.ts";
+import {
 	parseMemberMessageCommand,
 	runMemberMessageCommand,
 	memberMessageHelp,
@@ -125,6 +137,7 @@ function findOrCreate(parent: Command, name: string, description: string | undef
 
 const GROUP_DESCRIPTIONS: Record<string, string> = {
 	crew: "Crew commands",
+	guest: "Guest commands",
 	member: "Member commands",
 	session: "Session commands",
 };
@@ -227,6 +240,25 @@ const crewInitLeaf: CliLeaf = {
 	help: () => crewInitHelp(),
 	parse: (tokens, cwd) => parseCrewInitCommand([...tokens], cwd),
 	run: (options, context) => runCrewInitCommand(options as CrewInitCliOptions, context.cwd),
+};
+
+/** TASK-0161: `guest join` / `guest leave` wire leaves — one registry contribution each. */
+const guestJoinLeaf: CliLeaf = {
+	id: "guest-join",
+	names: ["guest", "join"],
+	build: () => buildGuestJoinCommand(),
+	help: () => guestJoinHelp(),
+	parse: (tokens) => parseGuestJoinCommand(tokens),
+	run: (options, context) => runGuestJoinCommand(options as GuestJoinCliOptions, context),
+};
+
+const guestLeaveLeaf: CliLeaf = {
+	id: "guest-leave",
+	names: ["guest", "leave"],
+	build: () => buildGuestLeaveCommand(),
+	help: () => guestLeaveHelp(),
+	parse: (tokens) => parseGuestLeaveCommand(tokens),
+	run: (options, context) => runGuestLeaveCommand(options as GuestLeaveCliOptions, context),
 };
 
 /** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
@@ -333,6 +365,8 @@ export function createCliRegistry(): CliRegistry {
 		memberInterruptLeaf,
 		memberInboxSendLeaf,
 		crewBroadcastLeaf,
+		guestJoinLeaf,
+		guestLeaveLeaf,
 	]);
 }
 

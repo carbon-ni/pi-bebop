@@ -163,3 +163,131 @@ describe("Guest membership runtime", () => {
 		]);
 	});
 });
+
+describe("Guest membership concurrency and crash recovery", () => {
+	function deferred<T>() {
+		let resolve!: (value: T) => void;
+		const promise = new Promise<T>((resolvePromise) => {
+			resolve = resolvePromise;
+		});
+		return { promise, resolve };
+	}
+
+	test("concurrent join, approve, and leave resolve deterministically per crew", async () => {
+		const gates = new Map<string, ReturnType<deferred<void>>>();
+		const { runtime } = createRuntime({
+			submitJoinRequest: async (request) => {
+				const gate = deferred<void>();
+				gates.set(request.crew.id, gate);
+				await gate.promise;
+			},
+		});
+		const firstJoin = runtime.join(input(alpha));
+		const betaJoin = runtime.join(input(beta, "Rowan"));
+		gates.get("alpha")!.resolve();
+		gates.get("beta")!.resolve();
+		const first = await firstJoin;
+		const betaPending = await betaJoin;
+		assert.deepEqual(first, { ok: true, status: "pending", requestId: "request-1", idempotent: false });
+		assert.deepEqual(betaPending, { ok: true, status: "pending", requestId: "request-2", idempotent: false });
+		const secondJoin = await runtime.join(input(beta, "Rowan"));
+		assert.deepEqual(secondJoin, { ok: true, status: "pending", requestId: "request-2", idempotent: true });
+
+		// Approve alpha while a leave for beta is in flight: crews stay isolated.
+		const approval = runtime.approve({
+			requestId: "request-1",
+			crew: alpha,
+			guestIdentity: "guest-session",
+			guestName: "Taylor",
+			callbackEndpoint: "callback.sock",
+			approver: "lead",
+		});
+		const leave = runtime.leave("beta");
+		assert.deepEqual(await approval, { ok: true, status: "approved", idempotent: false });
+		assert.deepEqual(await leave, { ok: true, left: true });
+		assert.deepEqual(
+			runtime.list().map((row) => [row.crew.id, row.status]),
+			[["alpha", "approved"]],
+		);
+	});
+
+	test("leaving one crew never mutates the persisted snapshot of another", async () => {
+		const { runtime, persisted } = createRuntime();
+		await runtime.join(input(alpha));
+		await runtime.join(input(beta, "Rowan"));
+		const approved = runtime.approve({
+			requestId: "request-1",
+			crew: alpha,
+			guestIdentity: "guest-session",
+			guestName: "Taylor",
+			callbackEndpoint: "callback.sock",
+			approver: "lead",
+		});
+		assert.deepEqual(await approved, { ok: true, status: "approved", idempotent: false });
+		const snapshotWithAlpha = persisted.at(-1) as Array<{ crew: { id: string } }>;
+		assert.deepEqual(
+			snapshotWithAlpha.map((record) => record.crew.id),
+			["alpha"],
+		);
+
+		await runtime.join(input(beta, "Rowan"));
+		await runtime.leave("beta");
+		const snapshotAfterLeave = persisted.at(-1) as Array<{ crew: { id: string } }>;
+		assert.deepEqual(
+			snapshotAfterLeave.map((record) => record.crew.id),
+			["alpha"],
+		);
+	});
+
+	test("restore regenerates capabilities so pre-crash capabilities become orphans that fail closed", async () => {
+		const { runtime, persisted } = createRuntime();
+		await runtime.join(input(alpha));
+		const approval = {
+			requestId: "request-1",
+			crew: alpha,
+			guestIdentity: "guest-session",
+			guestName: "Taylor",
+			callbackEndpoint: "callback.sock",
+			approver: "lead",
+		};
+		const firstApproval = await runtime.approve(approval, "capability-crash");
+		assert.ok(firstApproval.ok);
+
+		// Crash: rebuild from the last persisted snapshot only; the rebuilt runtime
+		// regenerates its capability deterministically.
+		const snapshot = persisted.at(-1);
+		const rebuilt = createRuntime({ createCapability: () => "regenerated-capability" });
+		const result = rebuilt.runtime.restore(snapshot);
+		assert.deepEqual(result.restored, ["alpha"]);
+		assert.deepEqual(result.rejected, []);
+
+		// The pre-crash capability is dead: replaying the original approval with it
+		// fails closed, and only the regenerated capability authorizes replays.
+		const replayWithOrphan = await rebuilt.runtime.approve(approval, "capability-crash");
+		assert.deepEqual(replayWithOrphan, { ok: false, code: "approval-mismatch" });
+		const idempotentReplay = await rebuilt.runtime.approve(approval, "regenerated-capability");
+		assert.deepEqual(idempotentReplay, { ok: true, status: "approved", idempotent: true });
+	});
+
+	test("restore rejects tampered and foreign records without losing valid crews", async () => {
+		const { runtime } = createRuntime();
+		const validRecord = {
+			crew: alpha,
+			guestIdentity: "guest-session",
+			guestName: "Taylor",
+			callbackEndpoint: "other-endpoint.sock",
+			approvedBy: "lead",
+		};
+		const result = runtime.restore([
+			validRecord,
+			{ ...validRecord, crew: beta, guestIdentity: "someone-else" },
+			{ ...validRecord, guestName: "Taylor\n" },
+			{ crew: { id: "gamma" } },
+			null,
+		]);
+		assert.deepEqual(result.restored, ["alpha"]);
+		assert.equal(runtime.list().length, 1);
+		assert.equal(runtime.getMemberSocket("alpha"), null);
+		assert.deepEqual(await runtime.leave("beta"), { ok: true, left: false });
+	});
+});
