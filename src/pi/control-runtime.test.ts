@@ -12,10 +12,73 @@ import {
 	emitIdleSettled,
 	formatIntrayFooter,
 	handleCommand,
+	handleMemberRequestList,
+	handleMemberRequestWait,
 	MEMBERSHIP_TOOLS,
 	reconcileMembershipTools,
 	refreshIntrayStatus,
 } from "./control-runtime.ts";
+
+test("Member Request list preserves lifecycle acceptance order across directions", async () => {
+	let result: any;
+	const state = createSocketState();
+	state.membershipRuntime = { getMembership: () => ({ member: { name: "Alex" } }) } as never;
+	state.memberRequestFlow = {
+		registry: {
+			outboundSummaries: () => [
+				{
+					requestId: "later",
+					member: { name: "Blake", role: "qa" },
+					state: "accepted",
+					deadlineAt: 200,
+					order: 2,
+				},
+			],
+			inboundSummaries: () => [
+				{ requestId: "first", requester: { name: "Casey", role: "dev" }, state: "idle", order: 1 },
+			],
+		},
+	} as never;
+	await handleMemberRequestList(
+		{
+			state,
+			socket: { once: () => undefined },
+			respond: (_success: boolean, _command: string, data?: unknown) => {
+				result = data;
+			},
+		} as never,
+		{ type: "member_request_list", direction: "all", id: "list-order" },
+	);
+	assert.deepEqual(
+		result.requests.map((request: { requestId: string }) => request.requestId),
+		["first", "later"],
+	);
+	assert.equal(result.omitted, 0);
+});
+
+test("Member Request list and wait require an actively joined source", async () => {
+	const responses: Array<{ success: boolean; error?: string }> = [];
+	const state = createSocketState();
+	state.memberRequestFlow = {
+		registry: {
+			outboundSummaries: () => [],
+			inboundSummaries: () => [],
+		},
+		waitForRequestOutcomeById: () => ({ ok: false, code: "unknown-request" }),
+	} as never;
+	const context = {
+		state,
+		socket: { once: () => undefined },
+		respond: (success: boolean, _command: string, _data?: unknown, error?: string) =>
+			responses.push({ success, ...(error === undefined ? {} : { error }) }),
+	} as never;
+	await handleMemberRequestList(context, { type: "member_request_list", direction: "all", id: "list-1" });
+	await handleMemberRequestWait(context, { type: "member_request_wait", requestId: "req-1", id: "wait-1" });
+	assert.deepEqual(responses, [
+		{ success: false, error: "not-joined" },
+		{ success: false, error: "not-joined" },
+	]);
+});
 
 function createThrowingContext(message: string): unknown {
 	return {

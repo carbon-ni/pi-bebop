@@ -70,6 +70,8 @@ import {
 	isMemberInterruptResult,
 	MemberRequestRequestSchema,
 	MemberResponseRequestSchema,
+	MemberRequestListResultSchema,
+	MemberRequestWaitResultSchema,
 	MemberUpdateNotificationSchema,
 	MemberInboxSendRequestSchema,
 	CrewBroadcastRequestSchema,
@@ -882,6 +884,69 @@ test("member.request/respond round-trip strict coordination contracts", () => {
 	};
 	assert.equal(Value.Check(MemberResponseRequestSchema, response), true);
 	assert.deepEqual(requestToCommand(response), { type: "member_response", ...response.params, id: "coord-2" });
+	const responseWithoutInstructions = {
+		jsonrpc: "2.0" as const,
+		id: "coord-3",
+		method: "member.respond" as const,
+		params: { requestId: "req-1", message: "No extra instructions" },
+	};
+	assert.equal(Value.Check(MemberResponseRequestSchema, responseWithoutInstructions), true);
+	assert.deepEqual(commandToRequest({ type: "member_response", ...responseWithoutInstructions.params }, "coord-3"), {
+		jsonrpc: "2.0",
+		id: "coord-3",
+		method: "member.respond",
+		params: responseWithoutInstructions.params,
+	});
+	assert.equal(
+		Value.Check(MemberRequestListResultSchema, {
+			requests: [
+				{
+					direction: "outbound",
+					requestId: "req-1",
+					member: { name: "qa", role: "reviewer" },
+					state: "accepted",
+					deadlineAt: 123,
+				},
+			],
+			omitted: 0,
+		}),
+		true,
+	);
+	assert.equal(
+		Value.Check(MemberRequestListResultSchema, {
+			requests: [
+				{
+					direction: "outbound",
+					requestId: "req-1",
+					member: { name: "qa", role: "reviewer" },
+					state: "accepted",
+					message: "secret",
+				},
+			],
+			omitted: 0,
+		}),
+		false,
+	);
+	assert.equal(
+		Value.Check(MemberRequestWaitResultSchema, {
+			kind: "response",
+			requestId: "req-1",
+			member: { name: "qa", role: "reviewer" },
+			message: "done",
+			instructions: [],
+		}),
+		true,
+	);
+	assert.equal(
+		Value.Check(MemberRequestWaitResultSchema, {
+			kind: "timeout",
+			requestId: "req-1",
+			member: { name: "qa", role: "reviewer" },
+			reason: "max-wait",
+			secret: "not allowed",
+		}),
+		false,
+	);
 	assert.equal(
 		Value.Check(MemberUpdateNotificationSchema, {
 			jsonrpc: "2.0",

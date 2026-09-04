@@ -8,6 +8,7 @@ import {
 	type MessagePayload,
 	MessageInstructionsSchema,
 	MAX_MESSAGE_CONTENT_BYTES,
+	MAX_MESSAGE_INSTRUCTIONS,
 } from "./message-payload.ts";
 import { MemberStatusSchema } from "./member-status.ts";
 import { MemberIdleWaitResultSchema } from "./member-idle-wait.ts";
@@ -769,6 +770,63 @@ export const SubscribeResultSchema = Type.Object(
 	{ additionalProperties: false },
 );
 export const EmptyResultSchema = Type.Object({}, { additionalProperties: false });
+const MemberRequestListItemSchema = Type.Object(
+	{
+		direction: Type.Union([Type.Literal("inbound"), Type.Literal("outbound")]),
+		requestId: RequestOutcomeRequestIdSchema,
+		member: Type.Object(
+			{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
+			{ additionalProperties: false },
+		),
+		state: Type.Union([Type.Literal("accepted"), Type.Literal("idle")]),
+		deadlineAt: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestListResultSchema = Type.Object(
+	{
+		requests: Type.Array(MemberRequestListItemSchema, { maxItems: 16 }),
+		omitted: Type.Integer({ minimum: 0 }),
+	},
+	{ additionalProperties: false },
+);
+const MemberRequestWaitMemberSchema = Type.Object(
+	{ name: Type.String({ minLength: 1 }), role: Type.String({ minLength: 1 }) },
+	{ additionalProperties: false },
+);
+const MemberRequestWaitResultResponseSchema = Type.Object(
+	{
+		kind: Type.Literal("response"),
+		requestId: RequestOutcomeRequestIdSchema,
+		requestAgeMs: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+		member: MemberRequestWaitMemberSchema,
+		message: Type.String({ minLength: 1, maxLength: MAX_MESSAGE_CONTENT_BYTES }),
+		instructions: Type.Array(Type.String({ minLength: 1 }), { maxItems: MAX_MESSAGE_INSTRUCTIONS }),
+	},
+	{ additionalProperties: false },
+);
+const MemberRequestWaitResultOfflineSchema = Type.Object(
+	{
+		kind: Type.Literal("offline"),
+		requestId: RequestOutcomeRequestIdSchema,
+		member: MemberRequestWaitMemberSchema,
+	},
+	{ additionalProperties: false },
+);
+const MemberRequestWaitResultTimeoutSchema = Type.Object(
+	{
+		kind: Type.Literal("timeout"),
+		requestId: RequestOutcomeRequestIdSchema,
+		member: MemberRequestWaitMemberSchema,
+		reason: Type.Union([Type.Literal("max-wait"), Type.Literal("response-after-idle")]),
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestWaitResultSchema = Type.Union([
+	MemberRequestWaitResultResponseSchema,
+	MemberRequestWaitResultOfflineSchema,
+	MemberRequestWaitResultTimeoutSchema,
+]);
 export const RpcMethodResultSchema = Type.Union([
 	StatusResultSchema,
 	SendResultSchema,
@@ -779,6 +837,8 @@ export const RpcMethodResultSchema = Type.Union([
 	PresenceHintResultSchema,
 	MemberStatusResultSchema,
 	MemberRequestResultSchema,
+	MemberRequestListResultSchema,
+	MemberRequestWaitResultSchema,
 	MemberUpdateResultSchema,
 	MemberMessageResultSchema,
 	MemberInterruptResultSchema,
@@ -1203,10 +1263,7 @@ export const COMMAND_REGISTRY: Record<RpcCommand["type"], CommandDefinition> = {
 	member_request_list: {
 		method: "member.request_list",
 		requestSchema: MemberRequestListRequestSchema,
-		resultSchema: Type.Object(
-			{ requests: Type.Array(Type.Object({}, { additionalProperties: true })) },
-			{ additionalProperties: false },
-		),
+		resultSchema: MemberRequestListResultSchema,
 		toParams: (command) => ({ direction: (command as MemberRequestListCommand).direction ?? "all" }),
 		fromParams: (params, id) =>
 			Value.Check(MemberRequestListParamsSchema, params)
@@ -1216,7 +1273,7 @@ export const COMMAND_REGISTRY: Record<RpcCommand["type"], CommandDefinition> = {
 	member_request_wait: {
 		method: "member.request_wait",
 		requestSchema: MemberRequestWaitRequestSchema,
-		resultSchema: Type.Object({}, { additionalProperties: true }),
+		resultSchema: MemberRequestWaitResultSchema,
 		toParams: (command) => ({ requestId: (command as MemberRequestWaitCommand).requestId }),
 		fromParams: (params, id) =>
 			Value.Check(MemberRequestWaitParamsSchema, params)
