@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseCrewManifest } from "../domain/index.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
+import { createGuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
 import {
 	appendMembershipContext,
 	formatMembershipContext,
 	getLatestMembershipState,
 	MEMBERSHIP_ENTRY_TYPE,
 	membershipStateFromRuntime,
+	appendGuestMembershipContext,
 } from "./membership-context.ts";
 
 const manifestPath = "/project/.pi/intray/crew.json";
@@ -49,6 +51,31 @@ test("restores latest branch-aware active or inactive membership state", () => {
 		socketPath: membership.socketPath,
 		manifestPath,
 	});
+});
+
+test("Guest context separates approved admission from presence and hides routes/capabilities", () => {
+	const runtime = createGuestMembershipRuntime({
+		guestIdentity: "guest-session",
+		callbackEndpoint: "/private/callback.sock",
+		createRequestId: () => "request-1",
+		submitJoinRequest: async () => undefined,
+	});
+	runtime.track(
+		{
+			crew: { id: "alpha", displayName: "Alpha" },
+			guestName: "Alex",
+			memberSocket: "/private/member.sock",
+			submittedByMember: "lead",
+		},
+		"request-1",
+		"approved",
+		"secret-capability",
+	);
+	const rendered = appendGuestMembershipContext("Base system", runtime);
+	assert.match(rendered, /alpha \(Alpha\) — approved/);
+	assert.match(rendered, /Presence is separate from approval/);
+	assert.doesNotMatch(rendered, /private\/(callback|member)\.sock|secret-capability/);
+	assert.equal(appendGuestMembershipContext(rendered, runtime), rendered);
 });
 
 test("injects concise identity exactly once per system prompt", () => {

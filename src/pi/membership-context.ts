@@ -117,7 +117,7 @@ export function formatGuestMembershipContext(runtime: GuestMembershipRuntime): s
 					)
 					.join(", ");
 	const capabilities = GUEST_CAPABILITIES.join(", ");
-	return `${GUEST_MEMBERSHIP_CONTEXT_MARKER}\nGuest crews: ${crews}\nGuest capabilities: ${capabilities}\nGuest messaging requires the exact crew selector on every action. Guest supports direct Follow-ups, correlated Member Requests/Responses, and transient Crew Broadcast; Guest cannot use Inbox, Redirect, Interrupt, Member administration, or Crew control.`;
+	return `${GUEST_MEMBERSHIP_CONTEXT_MARKER}\nGuest crews: ${crews}\nGuest capabilities: ${capabilities}\nGuest messaging requires the exact crew selector on every action. Guest supports direct Follow-ups, correlated Member Requests/Responses, and transient Crew Broadcast; Guest cannot use Inbox, Redirect, Interrupt, Member administration, or Crew control. Presence is separate from approval: offline or unreachable does not revoke Guest admission.`;
 }
 
 export function appendGuestMembershipContext(systemPrompt: string, runtime: GuestMembershipRuntime | null): string {
