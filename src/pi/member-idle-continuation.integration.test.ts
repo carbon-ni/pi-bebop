@@ -11,6 +11,7 @@ import {
 	type Model,
 	type Provider,
 } from "@earendil-works/pi-ai";
+import type { MessagePayload } from "../domain/index.ts";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
@@ -234,10 +235,16 @@ async function deliver(
 	id: string,
 	content: string,
 	delivery: "follow_up" | "steer",
+	payloadFields: Partial<Omit<MessagePayload, "content">> = {},
 ): Promise<void> {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
-	await handleCommand(pi, state, { type: "send", id, payload: { content }, delivery } as never, socket);
+	await handleCommand(
+		pi,
+		state,
+		{ type: "send", id, payload: { content, ...payloadFields }, delivery } as never,
+		socket,
+	);
 	assert.match(writes.at(-1) ?? "", /"deliveryId":/, "wake delivery must be accepted");
 }
 
@@ -258,6 +265,13 @@ function occurrences(context: Context, needle: string): number {
 	return textBlocks(context).filter(({ text }) => text.includes(needle)).length;
 }
 
+function renderedPayload(context: Context, needle: string): Record<string, unknown> {
+	const block = textBlocks(context).find(({ role, text }) => role === "user" && text.includes(needle));
+	assert.ok(block, `rendered payload containing ${needle} must be present`);
+	const json = block.text.slice(block.text.indexOf("\n") + 1);
+	return JSON.parse(json) as Omit<MessagePayload, "sentAt">;
+}
+
 test("TASK-0089: accepted Follow-up is consumed in the next provider context before any assistant action", async (t) => {
 	const harness = await createFakeSession();
 	t.after(() => harness.cleanup());
@@ -272,7 +286,13 @@ test("TASK-0089: accepted Follow-up is consumed in the next provider context bef
 
 	const promptDone = harness.session.prompt("wait for kelly");
 	await waitForArmedWake(harness.state);
-	await deliver(harness.pi, harness.state, "w1", WAKE_CONTENT_1, "follow_up");
+	const wakePayloadFields = {
+		instructions: ["preserve this instruction", "and this ordering"],
+		origin: { kind: "crew" as const, name: "Kelly", role: "qa" },
+		kind: "follow-up" as const,
+		sentAt: 1_754_000_000_000,
+	};
+	await deliver(harness.pi, harness.state, "w1", WAKE_CONTENT_1, "follow_up", wakePayloadFields);
 	await promptDone;
 
 	// Exactly two provider calls: the tool-call turn and the post-message turn.
@@ -284,6 +304,12 @@ test("TASK-0089: accepted Follow-up is consumed in the next provider context bef
 	// The waking message is present exactly once, rendered with its follow-up mode.
 	assert.equal(occurrences(second, WAKE_CONTENT_1), 1);
 	assert.ok(blocks.some(({ text }) => text.includes("WAKE-A") && text.includes("follow-up")));
+	assert.deepEqual(renderedPayload(second, WAKE_CONTENT_1), {
+		type: "message-context",
+		content: WAKE_CONTENT_1,
+		instructions: wakePayloadFields.instructions,
+		origin: wakePayloadFields.origin,
+	});
 
 	// Order: toolResult(message-received) then the waking message, with no
 	// assistant action between them — the message is the next consumed input.

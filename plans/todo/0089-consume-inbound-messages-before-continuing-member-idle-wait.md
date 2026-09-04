@@ -100,7 +100,12 @@ terminates. One `terminate: true` wait result plus a non-terminating sibling
 (`bebop_noop`) still produces an ordinary content-free continuation (context
 with tool results only), and the waking message is consumed one turn later.
 Nothing is dropped, but immediate consumption is NOT guaranteed for mixed
-batches. Per this plan's rule this is recorded as an upstream Pi API
+batches. Pi 0.84.2 exposes `terminate` as a per-tool-result hint, while its
+agent-core contract applies early termination only when every finalized result
+in the batch sets the hint. Its `executionMode: "sequential"` option changes
+execution order, not the all-results termination rule, and extension tool APIs
+provide no safe way for one tool to mark an unrelated sibling result as
+terminating. Per this plan's rule this is recorded as an upstream Pi API
 constraint: Bebop cannot close it from the tool side without weakening the
 guarantee. The public tool guidance already mandates a solitary/sequential
 call; the task therefore stays `doing` (open) until Pi offers per-result
