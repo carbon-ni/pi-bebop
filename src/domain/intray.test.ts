@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Value } from "@sinclair/typebox/value";
+import * as domain from "./index.ts";
 
 import {
 	isSafeAlias,
@@ -95,6 +96,12 @@ import {
 	MAX_MEMBER_IDLE_WAIT_TIMEOUT,
 	RPC_ERROR,
 } from "./index.ts";
+
+test("protocol barrel does not expose split-module internals", () => {
+	assert.equal("MemberStatusTargetSchema" in domain, false);
+	assert.equal("RequestOutcomeRequestIdSchema" in domain, false);
+	assert.equal("invalidCommandParams" in domain, false);
+});
 
 test("member.idle_wait params are strict: one bounded member label plus optional bounded timeout", () => {
 	assert.equal(Value.Check(MemberIdleWaitParamsSchema, { member: "Bob" }), true);
