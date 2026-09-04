@@ -28,7 +28,8 @@ export type RequestOutcomeFailureCode =
 	| "ambiguous-request"
 	| "unknown-request"
 	| "already-terminal"
-	| "response-expired";
+	| "response-expired"
+	| "outcome-consumed";
 
 export interface MemberRequestMember {
 	readonly name: string;
@@ -153,6 +154,7 @@ export class RequestOutcomeRegistry {
 	private readonly buffered: Array<{ readonly update: RequestOutcome; readonly sequence: number }> = [];
 	private sequence = 0;
 	private waiter: ((update: RequestOutcome) => void) | undefined;
+	private readonly exactWaiters = new Map<string, (update: RequestOutcome) => void>();
 
 	registerOutbound(input: {
 		readonly requestId: string;
@@ -421,11 +423,42 @@ export class RequestOutcomeRegistry {
 		}
 	}
 
+	waitForRequest(
+		requestId: string,
+		onUpdate: (update: RequestOutcome) => void,
+	): RequestOutcomeWaitResult | { ok: false; code: "unknown-request" | "outcome-consumed" } {
+		const bufferedIndex = this.buffered.findIndex((item) => item.update.requestId === requestId);
+		if (bufferedIndex >= 0) {
+			const [next] = this.buffered.splice(bufferedIndex, 1);
+			return { ok: true, kind: "update", update: next!.update };
+		}
+		if (!this.outbound.has(requestId))
+			return { ok: false, code: this.terminal.has(requestId) ? "outcome-consumed" : "unknown-request" };
+		if (this.exactWaiters.has(requestId) || this.waiter) return { ok: false, code: "already-waiting" };
+		let active = true;
+		const callback = (update: RequestOutcome) => {
+			if (!active) return;
+			active = false;
+			if (this.exactWaiters.get(requestId) === callback) this.exactWaiters.delete(requestId);
+			onUpdate(update);
+		};
+		this.exactWaiters.set(requestId, callback);
+		return {
+			ok: true,
+			kind: "waiting",
+			cancel: () => {
+				if (!active) return;
+				active = false;
+				if (this.exactWaiters.get(requestId) === callback) this.exactWaiters.delete(requestId);
+			},
+		};
+	}
+
 	waitForUpdate(onUpdate: (update: RequestOutcome) => void): RequestOutcomeWaitResult {
 		const next = this.buffered.shift();
 		if (next) return { ok: true, kind: "update", update: next.update };
 		if (this.outbound.size === 0) return { ok: false, code: "no-pending-requests" };
-		if (this.waiter) return { ok: false, code: "already-waiting" };
+		if (this.waiter || this.exactWaiters.size > 0) return { ok: false, code: "already-waiting" };
 		let active = true;
 		const callback = (update: RequestOutcome) => {
 			if (!active) return;
@@ -446,6 +479,11 @@ export class RequestOutcomeRegistry {
 	}
 
 	private publish(update: RequestOutcome): void {
+		const exactWaiter = this.exactWaiters.get(update.requestId);
+		if (exactWaiter) {
+			exactWaiter(update);
+			return;
+		}
 		if (this.waiter) {
 			const waiter = this.waiter;
 			this.waiter = undefined;
@@ -481,10 +519,29 @@ export class RequestOutcomeRegistry {
 	inboundRequestIds(): readonly string[] {
 		return [...this.inbound.keys()];
 	}
-	inboundSummaries(): ReadonlyArray<{ readonly requestId: string; readonly requester: MemberRequestMember }> {
+	outboundSummaries(): ReadonlyArray<{
+		readonly requestId: string;
+		readonly member: MemberRequestMember;
+		readonly state: "accepted" | "idle";
+		readonly deadlineAt: number;
+	}> {
+		return [...this.outbound.values()].map((request) => ({
+			requestId: request.requestId,
+			member: request.member,
+			state: request.idleArmed ? "idle" : "accepted",
+			deadlineAt: request.deadlineAt,
+		}));
+	}
+
+	inboundSummaries(): ReadonlyArray<{
+		readonly requestId: string;
+		readonly requester: MemberRequestMember;
+		readonly state: "accepted" | "idle";
+	}> {
 		return [...this.inbound.values()].map((request) => ({
 			requestId: request.requestId,
 			requester: request.requester,
+			state: request.idleArmed ? "idle" : "accepted",
 		}));
 	}
 }

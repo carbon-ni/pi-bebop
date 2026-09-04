@@ -371,6 +371,98 @@ export async function handleMemberRequest(
 	return;
 }
 
+export async function handleMemberRequestStart(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_request_start" }>,
+): Promise<void> {
+	const { state, respond } = context;
+	const membership = state.membershipRuntime?.getMembership();
+	const flow = state.memberRequestFlow;
+	if (!membership || !flow) {
+		respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
+		return;
+	}
+	try {
+		const accepted = await flow.sendMemberRequest({
+			membership,
+			member: command.target,
+			message: command.message,
+			instructions: command.instructions,
+			timeoutSeconds: command.timeoutSeconds,
+			maxWaitSeconds: command.maxWaitSeconds,
+		});
+		const member =
+			accepted.member.kind === "member"
+				? { name: accepted.member.name, role: accepted.member.role }
+				: { name: accepted.member.guestName, role: "guest" };
+		respond(true, command.type, { accepted: true, requestId: accepted.requestId, member });
+	} catch (error) {
+		respond(false, command.type, undefined, error instanceof Error ? error.message : "request-failed");
+	}
+}
+
+export async function handleMemberRequestList(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_request_list" }>,
+): Promise<void> {
+	const flow = context.state.memberRequestFlow;
+	if (!flow) {
+		context.respond(false, command.type, undefined, "coordination-unavailable");
+		return;
+	}
+	const direction = command.direction ?? "all";
+	const outbound =
+		direction === "inbound"
+			? []
+			: flow.registry.outboundSummaries().map((item) => ({
+					direction: "outbound" as const,
+					requestId: item.requestId,
+					member: item.member,
+					state: item.state,
+					deadlineAt: item.deadlineAt,
+				}));
+	const inbound =
+		direction === "outbound"
+			? []
+			: flow.registry.inboundSummaries().map((item) => ({
+					direction: "inbound" as const,
+					requestId: item.requestId,
+					member: item.requester,
+					state: item.state,
+				}));
+	context.respond(true, command.type, { requests: [...outbound, ...inbound], omitted: 0 });
+}
+
+export async function handleMemberRequestWait(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_request_wait" }>,
+): Promise<void> {
+	const flow = context.state.memberRequestFlow;
+	if (!flow) {
+		context.respond(false, command.type, undefined, "coordination-unavailable");
+		return;
+	}
+	let closed = false;
+	const waiting = flow.waitForRequestOutcomeById(command.requestId, (outcome) => {
+		if (closed) return;
+		context.respond(true, command.type, outcome);
+	});
+	if (waiting.ok === false) {
+		context.respond(false, command.type, undefined, waiting.code);
+		return;
+	}
+	if (waiting.kind === "update") {
+		context.respond(true, command.type, waiting.update);
+		return;
+	}
+	const cancel = () => {
+		closed = true;
+		waiting.cancel();
+	};
+	context.socket.once("close", cancel);
+	context.socket.once("error", cancel);
+}
+
 export async function handleMemberResponse(
 	context: CommandHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_response" }>,
@@ -1057,6 +1149,9 @@ export async function handleSend(
 }
 const COMMAND_HANDLERS: CommandHandlers = {
 	member_request: handleMemberRequest,
+	member_request_start: handleMemberRequestStart,
+	member_request_list: handleMemberRequestList,
+	member_request_wait: handleMemberRequestWait,
 	member_response: handleMemberResponse,
 	guest_join: handleGuestJoin,
 	guest_leave: handleGuestLeave,

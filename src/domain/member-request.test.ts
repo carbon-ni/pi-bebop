@@ -194,6 +194,27 @@ test("wait has one waiter, cancellation preserves state, and terminal updates ar
 	assert.deepEqual(updates, ["terminal-2"]);
 });
 
+test("exact wait consumes only the requested terminal and competing waiters cannot duplicate it", () => {
+	const registry = new RequestOutcomeRegistry();
+	request(registry, "first");
+	request(registry, "second");
+	const updates: string[] = [];
+	const firstWait = registry.waitForRequest("second", (update) => updates.push(update.requestId));
+	assert.equal(firstWait.ok, true);
+	assert.deepEqual(
+		registry.waitForRequest("second", () => undefined),
+		{ ok: false, code: "already-waiting" },
+	);
+	assert.equal(registry.resolveTimeout("first", "max-wait").ok, true);
+	assert.equal(registry.resolveTimeout("second", "max-wait").ok, true);
+	assert.deepEqual(updates, ["second"]);
+	assert.equal(registry.waitForRequest("first", () => undefined).kind, "update");
+	assert.deepEqual(
+		registry.waitForRequest("second", () => undefined),
+		{ ok: false, code: "outcome-consumed" },
+	);
+});
+
 test("inbound response selection defaults only for one request; idle preserves the pending selection", () => {
 	const registry = new RequestOutcomeRegistry();
 	assert.deepEqual(registry.selectInbound(), { ok: false, code: "no-pending-request" });

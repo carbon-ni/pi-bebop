@@ -1236,7 +1236,7 @@ test("unknown command exits 2 with valid alternatives before any IO", async () =
 	assert.equal(code, 2);
 	assert.match(
 		text,
-		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
+		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
 	);
 });
 
@@ -1368,6 +1368,10 @@ test("no arguments shows compact TOON home state with crew init hint when missin
 			"session list",
 			"member follow-up",
 			"member redirect",
+			"member request send",
+			"member request list",
+			"member request wait",
+			"member request respond",
 			"member interrupt",
 			"member inbox send",
 			"crew broadcast",
