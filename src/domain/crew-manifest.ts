@@ -225,24 +225,36 @@ function hasSchemaError(errors: readonly { path: string }[], prefix: string): bo
 	return errors.some((error) => error.path.startsWith(prefix));
 }
 
-function throwLegacyCrossFieldFailure(input: Record<string, unknown>, errors: readonly { path: string }[]): void {
+function throwMemberCrossFieldFailure(input: Record<string, unknown>, manifestPath: string): void {
+	if (!Array.isArray(input.members)) return;
+	const names = new Set<string>();
+	const socketPaths = new Set<string>();
+	for (const [index, rawMember] of input.members.entries()) {
+		const member = normalizeMember(rawMember, index, manifestPath);
+		if (names.has(member.name))
+			throw new CrewManifestError("duplicate-member-name", `duplicate member name: ${member.name}`);
+		names.add(member.name);
+		if (socketPaths.has(member.socketPath))
+			throw new CrewManifestError("duplicate-socket-path", `duplicate socket path: ${member.socketPath}`);
+		socketPaths.add(member.socketPath);
+	}
+}
+
+function throwLegacyCrossFieldFailure(
+	input: Record<string, unknown>,
+	errors: readonly { path: string }[],
+	manifestPath: string,
+): void {
 	if (hasSchemaError(errors, "/version") || hasSchemaError(errors, "/commonInstructionsFile")) return;
 	if (hasSchemaError(errors, "/presence") || hasSchemaError(errors, "/members")) return;
-	if (Array.isArray(input.members)) {
-		const names = input.members
-			.filter(isRecord)
-			.map((member) => member.name)
-			.filter((name): name is string => typeof name === "string");
-		if (names.length === input.members.length && new Set(names).size !== names.length)
-			throw new CrewManifestError("duplicate-member-name", `duplicate member name: ${names[0]}`);
-	}
+	throwMemberCrossFieldFailure(input, manifestPath);
 	if (input.guestAdmission !== undefined && input.crew === undefined)
 		invalid("guestAdmission requires crew identity metadata", "invalid-guest-admission");
 }
 
-function throwSchemaFailure(input: Record<string, unknown>): never {
+function throwSchemaFailure(input: Record<string, unknown>, manifestPath: string): never {
 	const errors = [...Value.Errors(CrewManifestSchema, input)];
-	throwLegacyCrossFieldFailure(input, errors);
+	throwLegacyCrossFieldFailure(input, errors, manifestPath);
 	const pointer =
 		errors.sort((left, right) => {
 			const [leftGroup, leftNested] = schemaErrorRank(left.path);
@@ -257,13 +269,13 @@ function throwSchemaFailure(input: Record<string, unknown>): never {
 	throwTopLevelSchemaFailure(pointer);
 }
 
-function validateManifestShape(input: Record<string, unknown>): void {
+function validateManifestShape(input: Record<string, unknown>, manifestPath: string): void {
 	if (input.commonInstructionsFile !== undefined && input.version === CREW_MANIFEST_VERSION)
 		throw new CrewManifestError(
 			"invalid-version",
 			"commonInstructionsFile requires manifest version 2; version 1 runtimes reject this extension",
 		);
-	if (!Value.Check(CrewManifestSchema, input)) throwSchemaFailure(input);
+	if (!Value.Check(CrewManifestSchema, input)) throwSchemaFailure(input, manifestPath);
 }
 
 function requireText(value: unknown, field: string): string {
@@ -535,7 +547,7 @@ function normalizeIntake(
 
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
 	if (!isRecord(input)) invalid("manifest must be an object");
-	validateManifestShape(input);
+	validateManifestShape(input, manifestPath);
 	if (input.version !== CREW_MANIFEST_VERSION && input.version !== CREW_MANIFEST_V2)
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
 	const commonInstructionsFile = normalizeCommonInstructionsFile(input, manifestPath);
