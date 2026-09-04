@@ -1,7 +1,7 @@
 ---
 id: TASK-0162
 title: Expose crew-scoped Guest messaging
-status: doing
+status: blocked
 depends_on: [TASK-0161]
 priority: high
 tags: [crew, guest, messaging, multi-crew, tools, cli, protocol, tdd]
@@ -99,3 +99,10 @@ is preserved (routing-agnostic selectors remain valid under direct routing).
 PO decision 2026-09-04: TASK-0161 reopened to deliver the crew-owned Guest
 registry (see 0161 plan). TASK-0162 stays stopped until that lands; messaging
 slices resume only after 0161 recloses with independent QA.
+
+## Blocked status (2026-09-04, confirmed at 0161 reclosure)
+
+TASK-0161 reclosed at `8ed0b8b` with the crew-owned Guest registry in place.
+TASK-0162 remains explicitly blocked/stopped: the domain foundation (`fc5f51f`)
+is preserved, but no messaging protocol/tool/CLI slices may resume until the
+coordinator gives explicit dependency clearance.
