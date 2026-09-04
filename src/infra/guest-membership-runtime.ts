@@ -47,6 +47,21 @@ export type GuestLeaveResult =
 	| { readonly ok: true; readonly left: boolean }
 	| { readonly ok: false; readonly code: "invalid-crew" };
 
+export type GuestInboundAuthorizationResult =
+	| { readonly ok: true; readonly guestName: string }
+	| {
+			readonly ok: false;
+			readonly code:
+				| "not-approved"
+				| "revoked"
+				| "denied"
+				| "pending"
+				| "crew-mismatch"
+				| "endpoint-mismatch"
+				| "capability-mismatch"
+				| "registry-unavailable";
+	  };
+
 export interface GuestMembershipRuntime {
 	join(input: GuestMembershipRecordInput): Promise<GuestJoinResult>;
 	track(
@@ -64,6 +79,13 @@ export interface GuestMembershipRuntime {
 		readonly callbackEndpoint: string;
 		readonly capability: string;
 	} | null;
+	/** Fresh crew-owned authorization for a Guest sender delivered to this Guest. */
+	authorizeInbound?(input: {
+		readonly crewId: string;
+		readonly guestIdentity: string;
+		readonly callbackEndpoint: string;
+		readonly capability: string;
+	}): GuestInboundAuthorizationResult;
 	getMemberSocket(crewId: string): string | null;
 	list(): readonly GuestMembershipView[];
 	restore(records: readonly unknown[]): {
@@ -95,6 +117,13 @@ export interface GuestMembershipRuntimeDependencies {
 	readonly createCapability?: () => string;
 	readonly crewOrder?: readonly string[];
 	readonly persist?: (records: readonly GuestMembershipRecord[]) => void;
+	/** Guest-to-Guest sender authorization; must read the crew registry fresh. */
+	readonly authorizeInbound?: (input: {
+		readonly crewId: string;
+		readonly guestIdentity: string;
+		readonly callbackEndpoint: string;
+		readonly capability: string;
+	}) => GuestInboundAuthorizationResult;
 }
 
 function validText(value: string): boolean {
@@ -200,6 +229,9 @@ export function createGuestMembershipRuntime(dependencies: GuestMembershipRuntim
 	};
 
 	return {
+		authorizeInbound(input) {
+			return dependencies.authorizeInbound?.(input) ?? { ok: false, code: "registry-unavailable" };
+		},
 		track,
 		async join(input) {
 			const callbackEndpoint = getCallbackEndpoint();

@@ -33,6 +33,36 @@ function input(crew = alpha, guestName = "Taylor"): GuestMembershipRecordInput {
 }
 
 describe("Guest membership runtime", () => {
+	test("revalidates inbound Guest senders through the crew authority and fails closed when unavailable", async () => {
+		const seen: unknown[] = [];
+		const { runtime } = createRuntime({
+			authorizeInbound: (input) => {
+				seen.push(input);
+				return { ok: true, guestName: "Other" };
+			},
+		});
+		assert.deepEqual(
+			runtime.authorizeInbound?.({
+				crewId: "alpha",
+				guestIdentity: "other-guest",
+				callbackEndpoint: "other.sock",
+				capability: "opaque",
+			}),
+			{ ok: true, guestName: "Other" },
+		);
+		assert.equal(seen.length, 1);
+		const unavailable = createRuntime().runtime;
+		assert.deepEqual(
+			unavailable.authorizeInbound?.({
+				crewId: "alpha",
+				guestIdentity: "other-guest",
+				callbackEndpoint: "other.sock",
+				capability: "opaque",
+			}),
+			{ ok: false, code: "registry-unavailable" },
+		);
+	});
+
 	test("submits one pending request per Crew and makes retries idempotent", async () => {
 		const { runtime, submitted } = createRuntime();
 		const first = await runtime.join(input());

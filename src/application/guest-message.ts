@@ -1,4 +1,9 @@
-import { resolveGuestTarget, validateGuestMessageInput, type GuestMessageError } from "../domain/index.ts";
+import {
+	buildGuestBroadcastRecipients,
+	resolveGuestTarget,
+	validateGuestMessageInput,
+	type GuestMessageError,
+} from "../domain/index.ts";
 import type { GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
 import type { RpcCommand, RpcCommandResponse } from "../domain/index.ts";
 
@@ -30,7 +35,8 @@ export type GuestSendErrorCode =
 	| "offline"
 	| "remote-rejected"
 	| "invalid-ack"
-	| "untrusted-project";
+	| "untrusted-project"
+	| "no-recipients";
 
 export class GuestSendError extends Error {
 	readonly code: GuestSendErrorCode;
@@ -51,6 +57,12 @@ export interface GuestManifestMember {
 export interface GuestTrustedManifest {
 	readonly crew?: { readonly id: string; readonly displayName: string };
 	readonly members: readonly GuestManifestMember[];
+	/** Fresh crew-owned approved Guest roster, in registry order. */
+	readonly approvedGuests?: readonly {
+		readonly guestIdentity: string;
+		readonly guestName: string;
+		readonly callbackEndpoint: string;
+	}[];
 }
 
 export interface GuestMessageRequest {
@@ -62,6 +74,8 @@ export interface GuestMessageRequest {
 	readonly target: string;
 	readonly message: string;
 	readonly instructions?: readonly string[];
+	/** Broadcast sends the same direct command to each selected recipient. */
+	readonly kind?: "follow-up" | "broadcast";
 	/** Loads the trusted crew manifest (routing authority) fail-closed. */
 	readonly loadManifest: (crewId: string) => Promise<GuestTrustedManifest>;
 	readonly signal?: AbortSignal;
@@ -147,6 +161,7 @@ export async function submitGuestMessage(
 		capability: credentials.capability,
 		target: resolved.name,
 		content: request.message,
+		...(request.kind === undefined ? {} : { kind: request.kind }),
 		...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
 	};
 	let result: { response: RpcCommandResponse };
@@ -176,5 +191,168 @@ export async function submitGuestMessage(
 		deliveryId: data.deliveryId,
 		disposition: data.disposition as GuestMessageOutcome["disposition"],
 		fromGuestName: data.fromGuestName,
+	};
+}
+
+export type GuestBroadcastDisposition =
+	| {
+			readonly recipientName: string;
+			readonly recipientRole: string;
+			readonly disposition: "delivered";
+			readonly deliveryId: string;
+	  }
+	| {
+			readonly recipientName: string;
+			readonly recipientRole: string;
+			readonly disposition: "failed";
+			readonly code: string;
+			readonly message: string;
+	  };
+
+export interface GuestBroadcastOutcome {
+	readonly ok: true;
+	readonly dispositions: readonly GuestBroadcastDisposition[];
+	readonly summary: { readonly delivered: number; readonly failed: number; readonly total: number };
+}
+
+function guestFailureCode(error: unknown): string {
+	if (error instanceof GuestSendError) return error.code;
+	return remoteRejectionCode(error) ?? offlineCode(error);
+}
+
+function guestFailureMessage(error: unknown, code: string): string {
+	return error instanceof Error && error.message.length > 0 ? error.message : `Guest broadcast failed: ${code}`;
+}
+
+/**
+ * Sends a transient Guest Broadcast directly to every approved participant in
+ * the selected crew. Each recipient is attempted independently. Credentials
+ * are re-read before every attempt so a local leave/revocation stops the
+ * remaining fan-out; each receiving runtime performs its own fresh registry
+ * authorization, including Guest recipients.
+ */
+export async function submitGuestBroadcast(
+	request: Omit<GuestMessageRequest, "target">,
+	dependencies: GuestMessageDependencies,
+): Promise<GuestBroadcastOutcome> {
+	const { crew } = validateGuestMessageInput({
+		crew: request.crew,
+		message: request.message,
+		instructions: request.instructions,
+	});
+	const initialCredentials = request.guestRuntime.credentials(crew);
+	if (!initialCredentials)
+		throw new GuestSendError(
+			"not-approved",
+			`No approved Guest membership for crew ${crew}; messaging requires an approved binding`,
+		);
+
+	let manifest: GuestTrustedManifest;
+	try {
+		manifest = await request.loadManifest(crew);
+	} catch (error) {
+		throw new GuestSendError(
+			"offline",
+			`trusted crew manifest for ${crew} is unavailable: ${guestFailureMessage(error, "offline")}`,
+		);
+	}
+	if (manifest.crew && manifest.crew.id !== crew)
+		throw new GuestSendError("crew-mismatch", `crew manifest ${manifest.crew.id} does not match selector ${crew}`);
+	const roster = buildGuestBroadcastRecipients({
+		crewMembers: manifest.members,
+		approvedGuests: (manifest.approvedGuests ?? []).map((guest) => ({
+			identity: guest.guestIdentity,
+			name: guest.guestName,
+		})),
+		sender: { kind: "guest", identity: initialCredentials.guestIdentity, name: initialCredentials.guestName },
+	});
+	if (roster.ok === false) throw new GuestSendError(roster.code, `Cannot broadcast: ${roster.code}`);
+
+	const dispositions: GuestBroadcastDisposition[] = [];
+	for (let index = 0; index < roster.recipients.length; index++) {
+		const recipient = roster.recipients[index]!;
+		const credentials = request.guestRuntime.credentials(crew);
+		if (!credentials) {
+			for (const remaining of roster.recipients.slice(index))
+				dispositions.push({
+					recipientName: remaining.name,
+					recipientRole: remaining.kind === "member" ? remaining.role : "guest",
+					disposition: "failed",
+					code: "revoked",
+					message: `Guest membership for ${crew} is no longer approved`,
+				});
+			break;
+		}
+		try {
+			let outcome: GuestMessageOutcome;
+			if (recipient.kind === "member") {
+				outcome = await submitGuestMessage(
+					{ ...request, target: recipient.name, kind: "broadcast" },
+					dependencies,
+				);
+			} else {
+				const guest = manifest.approvedGuests?.find(
+					(candidate) => candidate.guestIdentity === recipient.identity,
+				);
+				if (!guest) throw new GuestSendError("not-approved", `Guest ${recipient.name} is no longer approved`);
+				const response = await dependencies.transport.send(
+					guest.callbackEndpoint,
+					{
+						type: "guest_send",
+						crewId: crew,
+						guestIdentity: credentials.guestIdentity,
+						callbackEndpoint: credentials.callbackEndpoint,
+						capability: credentials.capability,
+						target: recipient.name,
+						content: request.message,
+						kind: "broadcast",
+						...(request.instructions === undefined ? {} : { instructions: [...request.instructions] }),
+					},
+					{ signal: request.signal },
+				);
+				if (!response.response.success)
+					throw new GuestSendError(
+						(response.response.error ?? "remote-rejected") as GuestSendErrorCode,
+						`Guest send rejected: ${response.response.error ?? "remote-rejected"}`,
+					);
+				const data = response.response.data as {
+					deliveryId?: unknown;
+					disposition?: unknown;
+					fromGuestName?: unknown;
+				};
+				if (
+					typeof data?.deliveryId !== "string" ||
+					typeof data?.disposition !== "string" ||
+					typeof data?.fromGuestName !== "string"
+				)
+					throw new GuestSendError("invalid-ack", "Guest recipient returned an invalid acknowledgement");
+				outcome = {
+					target: { name: recipient.name, role: "guest" },
+					deliveryId: data.deliveryId,
+					disposition: data.disposition as GuestMessageOutcome["disposition"],
+					fromGuestName: data.fromGuestName,
+				};
+			}
+			dispositions.push({
+				recipientName: outcome.target.name,
+				recipientRole: outcome.target.role,
+				disposition: "delivered",
+				deliveryId: outcome.deliveryId,
+			});
+		} catch (error) {
+			dispositions.push({
+				recipientName: recipient.name,
+				recipientRole: recipient.kind === "member" ? recipient.role : "guest",
+				disposition: "failed",
+				code: guestFailureCode(error),
+				message: guestFailureMessage(error, guestFailureCode(error)),
+			});
+		}
+	}
+	const failed = dispositions.filter((item) => item.disposition === "failed").length;
+	return {
+		ok: true,
+		dispositions,
+		summary: { delivered: dispositions.length - failed, failed, total: dispositions.length },
 	};
 }

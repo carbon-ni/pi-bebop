@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { submitGuestMessage, type GuestMessageTransport } from "./guest-message.ts";
+import { submitGuestBroadcast, submitGuestMessage, type GuestMessageTransport } from "./guest-message.ts";
 import { createGuestMembershipRuntime, type GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
 
@@ -175,5 +175,90 @@ describe("guest messaging application flow", () => {
 				return true;
 			},
 		);
+	});
+
+	test("Guest Broadcast delivers directly to Members and approved Guests, excluding the sender", async () => {
+		const capture: Array<{ endpoint: string; command: any }> = [];
+		const transport: GuestMessageTransport = {
+			send: async (endpoint, command) => {
+				capture.push({ endpoint, command });
+				return {
+					response: {
+						success: true,
+						data: {
+							deliveryId: `delivery-${capture.length}`,
+							disposition: "direct",
+							fromGuestName: "Alex",
+						},
+					},
+				};
+			},
+		};
+		const outcome = await submitGuestBroadcast(
+			request({
+				message: "crew update",
+				loadManifest: async () => ({
+					...trustedManifest(),
+					approvedGuests: [
+						{ guestIdentity: "guest-session", guestName: "Alex", callbackEndpoint: "/tmp/alex.sock" },
+						{ guestIdentity: "guest-blake", guestName: "Blake", callbackEndpoint: "/tmp/blake.sock" },
+					],
+				}),
+			}),
+			{ transport },
+		);
+		assert.deepEqual(
+			outcome.dispositions.map((item) => [item.recipientName, item.recipientRole]),
+			[
+				["lead", "lead"],
+				["dev", "developer"],
+				["Blake", "guest"],
+			],
+		);
+		assert.deepEqual(
+			capture.map(({ endpoint, command }) => [endpoint, command.type, command.target, command.kind]),
+			[
+				["/tmp/sockets/lead.sock", "guest_send", "lead", "broadcast"],
+				["/tmp/sockets/dev.sock", "guest_send", "dev", "broadcast"],
+				["/tmp/blake.sock", "guest_send", "Blake", "broadcast"],
+			],
+		);
+	});
+
+	test("Guest Broadcast stops remaining direct sends when local membership is revalidated as revoked", async () => {
+		const runtime = approvedRuntime();
+		let reads = 0;
+		const originalCredentials = runtime.credentials.bind(runtime);
+		runtime.credentials = (crewId) => {
+			reads++;
+			return reads > 3 ? null : originalCredentials(crewId);
+		};
+		const capture: string[] = [];
+		const transport: GuestMessageTransport = {
+			send: async (endpoint) => {
+				capture.push(endpoint);
+				return {
+					response: {
+						success: true,
+						data: { deliveryId: endpoint, disposition: "direct", fromGuestName: "Alex" },
+					},
+				};
+			},
+		};
+		const outcome = await submitGuestBroadcast(
+			request({
+				guestRuntime: runtime,
+				loadManifest: async () => ({
+					...trustedManifest(),
+					approvedGuests: [
+						{ guestIdentity: "guest-session", guestName: "Alex", callbackEndpoint: "/tmp/alex.sock" },
+					],
+				}),
+			}),
+			{ transport },
+		);
+		assert.deepEqual(capture, ["/tmp/sockets/lead.sock"]);
+		assert.deepEqual(outcome.summary, { delivered: 1, failed: 1, total: 2 });
+		assert.equal(outcome.dispositions[1]?.code, "revoked");
 	});
 });
