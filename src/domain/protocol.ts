@@ -422,7 +422,69 @@ export const CrewBroadcastCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-/** Delivery acknowledgement to the CLI: resolved member identity plus the
+
+/** Guest admission is deliberately a narrow request: the target Member derives
+ * Crew identity and approver context from its trusted local membership. */
+export const GuestJoinParamsSchema = Type.Object(
+	{
+		guestIdentity: Type.String({ minLength: 1, maxLength: 256, pattern: "^[^\\u0000\\r\\n]+$" }),
+		guestName: Type.String({ minLength: 1, maxLength: 256, pattern: "^[^\\u0000\\r\\n]+$" }),
+		callbackEndpoint: Type.String({ minLength: 1, maxLength: 512, pattern: "^[^\\u0000\\r\\n]+$" }),
+	},
+	{ additionalProperties: false },
+);
+export const GuestJoinRpcRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("guest.join"),
+		params: GuestJoinParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const GuestJoinCommandSchema = Type.Object(
+	{
+		type: Type.Literal("guest_join"),
+		...GuestJoinParamsSchema.properties,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+const GuestJoinCrewSchema = Type.Object(
+	{ id: Type.String({ minLength: 1 }), displayName: Type.String({ minLength: 1 }) },
+	{ additionalProperties: false },
+);
+export const GuestJoinResultSchema = Type.Object(
+	{
+		status: Type.Union([Type.Literal("pending"), Type.Literal("approved")]),
+		requestId: Type.String({ minLength: 1 }),
+		crew: GuestJoinCrewSchema,
+	},
+	{ additionalProperties: false },
+);
+export const GuestLeaveParamsSchema = Type.Object(
+	{
+		guestIdentity: Type.String({ minLength: 1, maxLength: 256, pattern: "^[^\\u0000\\r\\n]+$" }),
+		crewId: Type.String({ minLength: 1, maxLength: 256, pattern: "^[^\\u0000\\r\\n]+$" }),
+		callbackEndpoint: Type.String({ minLength: 1, maxLength: 512, pattern: "^[^\\u0000\\r\\n]+$" }),
+	},
+	{ additionalProperties: false },
+);
+export const GuestLeaveRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("guest.leave"),
+		params: GuestLeaveParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const GuestLeaveCommandSchema = Type.Object(
+	{ type: Type.Literal("guest_leave"), ...GuestLeaveParamsSchema.properties, id: Type.Optional(RpcIdSchema) },
+	{ additionalProperties: false },
+);
+/** Delivery acknowledgement
+ to the CLI: resolved member identity plus the
  * delivery ack. Accepted-delivery only; never a response correlation. */
 export const MemberMessageResultSchema = Type.Object(
 	{
@@ -551,6 +613,8 @@ export const KnownRequestSchema = Type.Union([
 	MemberInterruptRequestSchema,
 	MemberInboxSendRequestSchema,
 	CrewBroadcastRequestSchema,
+	GuestJoinRpcRequestSchema,
+	GuestLeaveRequestSchema,
 	MemberIdleWaitRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
@@ -616,6 +680,7 @@ export const RpcMethodResultSchema = Type.Union([
 	MemberInterruptResultSchema,
 	MemberInboxSendResultSchema,
 	CrewBroadcastResultSchema,
+	GuestJoinResultSchema,
 	MemberIdleWaitSubscribeResultSchema,
 	EmptyResultSchema,
 ]);
@@ -680,6 +745,11 @@ export type MemberFollowUpParams = Static<typeof MemberFollowUpParamsSchema>;
 export type MemberRedirectParams = Static<typeof MemberRedirectParamsSchema>;
 export type MemberInboxSendParams = Static<typeof MemberInboxSendParamsSchema>;
 export type CrewBroadcastParams = Static<typeof CrewBroadcastParamsSchema>;
+export type GuestJoinParams = Static<typeof GuestJoinParamsSchema>;
+export type GuestJoinResult = Static<typeof GuestJoinResultSchema>;
+export type GuestJoinCommand = Static<typeof GuestJoinCommandSchema>;
+export type GuestLeaveParams = Static<typeof GuestLeaveParamsSchema>;
+export type GuestLeaveCommand = Static<typeof GuestLeaveCommandSchema>;
 export type MemberFollowUpCommand = Static<typeof MemberFollowUpCommandSchema>;
 export type MemberRedirectCommand = Static<typeof MemberRedirectCommandSchema>;
 export type MemberMessageResult = Static<typeof MemberMessageResultSchema>;
@@ -745,6 +815,8 @@ export type RpcCommand =
 	| Static<typeof MemberRedirectCommandSchema>
 	| Static<typeof MemberInboxSendCommandSchema>
 	| Static<typeof CrewBroadcastCommandSchema>
+	| Static<typeof GuestJoinCommandSchema>
+	| Static<typeof GuestLeaveCommandSchema>
 	| Static<typeof MemberIdleWaitCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
@@ -765,6 +837,8 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof MemberRedirectCommandSchema>>
 	| RequiredId<Static<typeof MemberInboxSendCommandSchema>>
 	| RequiredId<Static<typeof CrewBroadcastCommandSchema>>
+	| RequiredId<Static<typeof GuestJoinCommandSchema>>
+	| RequiredId<Static<typeof GuestLeaveCommandSchema>>
 	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
@@ -1128,6 +1202,40 @@ export const COMMAND_REGISTRY: Record<RpcCommand["type"], CommandDefinition> = {
 			};
 		},
 	},
+	guest_join: {
+		method: "guest.join",
+		requestSchema: GuestJoinRpcRequestSchema,
+		resultSchema: GuestJoinResultSchema,
+		toParams: (command) => {
+			const join = command as GuestJoinCommand;
+			return {
+				guestIdentity: join.guestIdentity,
+				guestName: join.guestName,
+				callbackEndpoint: join.callbackEndpoint,
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(GuestJoinParamsSchema, params)) return invalidCommandParams("Invalid guest.join params");
+			return { type: "guest_join", ...(params as GuestJoinParams), id };
+		},
+	},
+	guest_leave: {
+		method: "guest.leave",
+		requestSchema: GuestLeaveRequestSchema,
+		resultSchema: EmptyResultSchema,
+		toParams: (command) => {
+			const leave = command as GuestLeaveCommand;
+			return {
+				guestIdentity: leave.guestIdentity,
+				crewId: leave.crewId,
+				callbackEndpoint: leave.callbackEndpoint,
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(GuestLeaveParamsSchema, params)) return invalidCommandParams("Invalid guest.leave params");
+			return { type: "guest_leave", ...(params as GuestLeaveParams), id };
+		},
+	},
 	member_idle_wait: {
 		method: "member.idle_wait",
 		requestSchema: MemberIdleWaitRequestSchema,
@@ -1232,6 +1340,9 @@ export function isMemberStatusResult(value: unknown): value is MemberStatusResul
 }
 export function isMemberRequestResult(value: unknown): value is MemberRequestResult {
 	return Value.Check(MemberRequestResultSchema, value);
+}
+export function isGuestJoinResult(value: unknown): value is GuestJoinResult {
+	return Value.Check(GuestJoinResultSchema, value);
 }
 export function isMemberIdleWaitSubscribeResult(
 	value: unknown,

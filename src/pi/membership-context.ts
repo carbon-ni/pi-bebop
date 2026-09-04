@@ -1,6 +1,8 @@
 import type { Membership } from "../infra/membership-runtime.ts";
+import type { GuestMembershipRecord } from "../domain/index.ts";
 
 export const MEMBERSHIP_ENTRY_TYPE = "intray-membership";
+export const GUEST_MEMBERSHIP_ENTRY_TYPE = "intray-guest-memberships";
 export const MEMBERSHIP_CONTEXT_MARKER = "## Current crew identity";
 
 export interface PersistedMembershipState {
@@ -32,6 +34,22 @@ export function getLatestMembershipState(entries: readonly unknown[]): Persisted
 
 export function membershipStateFromRuntime(membership: Membership, active = true): PersistedMembershipState {
 	return { active, socketPath: membership.socketPath, manifestPath: membership.manifestPath };
+}
+
+export function getLatestGuestMembershipRecords(entries: readonly unknown[]): readonly unknown[] {
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index] as { type?: string; customType?: string; data?: unknown };
+		if (entry.type !== "custom" || entry.customType !== GUEST_MEMBERSHIP_ENTRY_TYPE || !Array.isArray(entry.data))
+			continue;
+		return entry.data;
+	}
+	return [];
+}
+
+export function guestMembershipStateFromRuntime(
+	records: readonly GuestMembershipRecord[],
+): readonly GuestMembershipRecord[] {
+	return records.map((record) => ({ ...record, crew: { ...record.crew } }));
 }
 
 export function formatMembershipContext(membership: Membership): string {

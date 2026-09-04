@@ -550,6 +550,8 @@ test("command registry defines one bidirectional wire entry per command", () => 
 		"member_redirect",
 		"member_inbox_send",
 		"crew_broadcast",
+		"guest_join",
+		"guest_leave",
 		"member_idle_wait",
 	];
 	const entries = Object.entries(COMMAND_REGISTRY);

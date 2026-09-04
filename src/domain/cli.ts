@@ -1,12 +1,13 @@
 export const CONTROL_FLAG = "intray";
 export const CONTROL_SHORT_FLAG = "in";
 
-export type SessionControlAction = "join" | "leave" | "members" | "status" | "stop" | "inbox";
+export type SessionControlAction = "join" | "leave" | "members" | "status" | "stop" | "inbox" | "guests" | "guest";
 
 export type ParsedSessionControlAction =
-	| { action: Exclude<SessionControlAction, "join" | "inbox"> }
+	| { action: Exclude<SessionControlAction, "join" | "inbox" | "guest"> }
 	| { action: "join"; target: string }
-	| { action: "inbox"; target: string };
+	| { action: "inbox"; target: string }
+	| { action: "guest"; target: "approve" | "deny" | "remove"; value: string };
 
 const SESSION_CONTROL_USAGE = "join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume";
 const INBOX_USAGE = "status|cancel <id>|pause|resume";
@@ -53,6 +54,7 @@ function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: s
 export function parseSessionControlAction(args: string): {
 	action?: SessionControlAction;
 	target?: string;
+	value?: string;
 	error?: string;
 } {
 	const tokenized = tokenizeSessionControlArgs(args);
@@ -69,6 +71,17 @@ export function parseSessionControlAction(args: string): {
 	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
 		if (parts.length > 1) return { error: `Too many arguments. Use /crew ${SESSION_CONTROL_USAGE}.` };
 		return { action };
+	}
+	if (action === "guests") {
+		if (parts.length > 1) return { error: "Too many arguments. Use /crew guests." };
+		return { action: "guests" };
+	}
+	if (action === "guest") {
+		const sub = parts[1];
+		if (sub !== "approve" && sub !== "deny" && sub !== "remove")
+			return { error: "Unknown guest action. Use /crew guest approve|deny <request-id> or remove <guest-name>." };
+		if (parts.length !== 3 || !parts[2]) return { error: `Missing target. Use /crew guest ${sub} <value>.` };
+		return { action: "guest", target: sub, value: parts[2] };
 	}
 	if (action === "inbox") {
 		const sub = parts[1];
