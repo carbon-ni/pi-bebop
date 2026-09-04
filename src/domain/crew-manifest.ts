@@ -213,20 +213,7 @@ function throwSchemaFailure(input: Record<string, unknown>): never {
 	throwTopLevelSchemaFailure(pointer);
 }
 
-function validateNestedKeys(input: Record<string, unknown>): void {
-	const crew = input.crew;
-	if (isRecord(crew) && Object.keys(crew).some((key) => key !== "id" && key !== "displayName"))
-		invalid("crew contains unknown fields", "invalid-crew-config");
-	const guestAdmission = input.guestAdmission;
-	if (
-		isRecord(guestAdmission) &&
-		(Object.keys(guestAdmission).length !== 1 || Object.keys(guestAdmission)[0] !== "approvers")
-	)
-		invalid("guestAdmission must contain only the approvers field", "invalid-guest-admission");
-}
-
 function validateManifestShape(input: Record<string, unknown>): void {
-	validateNestedKeys(input);
 	if (!Value.Check(CrewManifestSchema, input)) throwSchemaFailure(input);
 }
 
@@ -499,7 +486,6 @@ function normalizeIntake(
 
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
 	if (!isRecord(input)) invalid("manifest must be an object");
-	validateManifestShape(input);
 	if (input.version !== CREW_MANIFEST_VERSION && input.version !== CREW_MANIFEST_V2)
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
 	const commonInstructionsFile = normalizeCommonInstructionsFile(input, manifestPath);
@@ -508,6 +494,9 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 	const crew = normalizeCrew(input);
 	const guestAdmission = normalizeGuestAdmission(input, crew, members);
 	const intake = normalizeIntake(input, manifestPath, members);
+	// Run the declarative contract after ordered diagnostics so legacy error
+	// precedence remains stable when several fields are malformed.
+	validateManifestShape(input);
 	return {
 		version: input.version as CrewManifestVersion,
 		...(commonInstructionsFile === undefined ? {} : { commonInstructionsFile }),
