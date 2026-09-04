@@ -29,6 +29,7 @@ function runtime(overrides: Partial<Parameters<typeof createGuestAdmissionRuntim
 		memberName: "lead",
 		createRequestId: () => `generated-${++nextRequest}`,
 		createCapability: () => "opaque-capability",
+		digestCapability: (capability) => `digest-of(${capability})`,
 		...overrides,
 	});
 }
@@ -172,5 +173,37 @@ describe("Guest admission restore and interleaving", () => {
 				["Taylor", "denied"],
 			],
 		);
+	});
+});
+
+describe("Guest capability one-time delivery", () => {
+	test("approved capability is consumed exactly once per runtime", () => {
+		const admission = runtime();
+		assert.ok(admission.receive(request({ requestId: "incoming" })).ok);
+		assert.ok(admission.approve("generated-1", "lead").ok);
+
+		const first = admission.consumeCapability("guest-1");
+		assert.ok(first.ok);
+		assert.equal(first.capability, "opaque-capability");
+
+		const second = admission.consumeCapability("guest-1");
+		assert.deepEqual(second, { ok: false, code: "already-delivered" });
+
+		assert.deepEqual(admission.consumeCapability("stranger"), { ok: false, code: "not-found" });
+
+		// Re-delivery is not possible through any admission surface: the list
+		// never exposes the capability and receive() stays idempotent without it.
+		assert.equal("capability" in admission.list()[0]!, false);
+	});
+
+	test("approved join snapshot carries the verifier digest, never plaintext", () => {
+		const snapshots: unknown[][] = [];
+		const admission = runtime({ persist: (records) => snapshots.push(records) });
+		assert.ok(admission.receive(request({ requestId: "incoming" })).ok);
+		assert.ok(admission.approve("generated-1", "lead").ok);
+		const approved = snapshots.at(-1)!.find((entry) => (entry as { status: string }).status === "approved") as {
+			capabilityDigest?: string;
+		};
+		assert.equal(approved.capabilityDigest, "digest-of(opaque-capability)");
 	});
 });

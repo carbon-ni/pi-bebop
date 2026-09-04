@@ -49,7 +49,12 @@ export type GuestLeaveResult =
 
 export interface GuestMembershipRuntime {
 	join(input: GuestMembershipRecordInput): Promise<GuestJoinResult>;
-	track(input: GuestMembershipRecordInput, requestId: string, status?: "pending" | "approved"): GuestJoinResult;
+	track(
+		input: GuestMembershipRecordInput,
+		requestId: string,
+		status?: "pending" | "approved",
+		capability?: string,
+	): GuestJoinResult;
 	approve(approval: GuestApproval, capability?: string): Promise<GuestApprovalResult>;
 	leave(crewId: string): Promise<GuestLeaveResult>;
 	getMemberSocket(crewId: string): string | null;
@@ -112,10 +117,15 @@ function recordWithEndpoint(record: GuestMembershipRecord, callbackEndpoint: str
 	return { ...record, callbackEndpoint };
 }
 
-function approvedRecords(states: ReadonlyMap<string, GuestMembershipState>): readonly GuestMembershipRecord[] {
+type PersistableGuestRecord = GuestMembershipRecord & { capability?: string };
+
+function approvedRecords(states: ReadonlyMap<string, GuestMembershipState>): readonly PersistableGuestRecord[] {
 	return [...states.values()]
 		.filter((state): state is ApprovedMembership => state.status === "approved")
-		.map((state) => state.record);
+		.map((state) => ({
+			...state.record,
+			...(state.capability === undefined ? {} : { capability: state.capability }),
+		}));
 }
 
 /**
@@ -139,6 +149,7 @@ export function createGuestMembershipRuntime(dependencies: GuestMembershipRuntim
 		input: GuestMembershipRecordInput,
 		requestId: string,
 		status: "pending" | "approved" = "pending",
+		capability?: string,
 	): GuestJoinResult => {
 		const callbackEndpoint = getCallbackEndpoint();
 		if (!validText(getGuestIdentity()) || !validText(callbackEndpoint) || !validText(requestId))
@@ -159,6 +170,9 @@ export function createGuestMembershipRuntime(dependencies: GuestMembershipRuntim
 		};
 		if (!isGuestJoinRequest(request)) return { ok: false, code: "join-failed" };
 		if (status === "approved") {
+			// The member-issued capability is the crew's credential for this
+			// Guest; it is adopted when delivered and retained by the runtime.
+			const issued = capability === undefined ? createCapability() : capability;
 			states.set(input.crew.id, {
 				status: "approved",
 				memberSocket: input.memberSocket,
@@ -169,7 +183,7 @@ export function createGuestMembershipRuntime(dependencies: GuestMembershipRuntim
 					callbackEndpoint,
 					approvedBy: "remote-member",
 				},
-				capability: bindGuestApprovalCapability(createCapability()),
+				capability: bindGuestApprovalCapability(issued),
 			});
 			dependencies.persist?.(approvedRecords(states));
 			return { ok: true, status: "approved", idempotent: false };
@@ -298,10 +312,22 @@ export function createGuestMembershipRuntime(dependencies: GuestMembershipRuntim
 			const restored: string[] = [];
 			const rejected: string[] = [];
 			for (const candidate of records) {
+				// Guest-session records may carry the member-issued capability as a
+				// private extra field; it is retained so the credential survives
+				// restart and keeps matching the crew registry's verifier digest.
+				const wrapper = candidate as { capability?: unknown };
+				const retainedCapability = typeof wrapper?.capability === "string" ? wrapper.capability : undefined;
+				const core =
+					retainedCapability === undefined
+						? candidate
+						: (() => {
+								const { capability: _ignored, ...rest } = wrapper as Record<string, unknown>;
+								return rest;
+							})();
 				if (
-					!isGuestMembershipRecord(candidate) ||
-					candidate.guestIdentity !== getGuestIdentity() ||
-					states.has(candidate.crew.id)
+					!isGuestMembershipRecord(core) ||
+					core.guestIdentity !== getGuestIdentity() ||
+					states.has(core.crew.id)
 				) {
 					const id =
 						candidate &&
@@ -316,13 +342,13 @@ export function createGuestMembershipRuntime(dependencies: GuestMembershipRuntim
 					rejected.push(id);
 					continue;
 				}
-				const record = recordWithEndpoint(candidate, getCallbackEndpoint());
+				const record = recordWithEndpoint(core, getCallbackEndpoint());
 				try {
 					states.set(record.crew.id, {
 						status: "approved",
 						memberSocket: null,
 						record,
-						capability: bindGuestApprovalCapability(createCapability()),
+						capability: bindGuestApprovalCapability(retainedCapability ?? createCapability()),
 					});
 					restored.push(record.crew.id);
 				} catch {

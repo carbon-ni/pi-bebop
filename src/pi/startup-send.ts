@@ -386,6 +386,7 @@ export async function maybeHandleStartupGuestJoins(
 				{ crew: result.response.data.crew, guestName, memberSocket: target, submittedByMember: "member" },
 				result.response.data.requestId,
 				result.response.data.status,
+				result.response.data.capability,
 			);
 			if (!tracked.ok) {
 				const error = "response could not be bound to this session";
