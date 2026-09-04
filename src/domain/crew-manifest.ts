@@ -210,8 +210,10 @@ function schemaErrorRank(pointer: string): [number, number] {
 	if (pointer.startsWith("/members")) return [3, 0];
 	if (pointer.startsWith("/crew/")) return [4, pointer === "/crew/id" || pointer === "/crew/displayName" ? 1 : 0];
 	if (pointer.startsWith("/crew")) return [4, 0];
-	if (pointer.startsWith("/guestAdmission/")) return [5, pointer === "/guestAdmission/approvers" ? 1 : 0];
+	if (pointer.startsWith("/guestAdmission/")) return [5, pointer.startsWith("/guestAdmission/approvers") ? 1 : 0];
+
 	if (pointer.startsWith("/guestAdmission")) return [5, 0];
+	if (pointer.startsWith("/intake/")) return [6, pointer === "/intake/contact" ? 1 : 0];
 	if (pointer.startsWith("/intake")) return [6, 0];
 	return [7, 0];
 }
@@ -232,7 +234,7 @@ function throwSchemaFailure(input: Record<string, unknown>): never {
 }
 
 function validateManifestShape(input: Record<string, unknown>): void {
-	if (input.commonInstructionsFile !== undefined && input.version !== CREW_MANIFEST_V2)
+	if (input.commonInstructionsFile !== undefined && input.version === CREW_MANIFEST_VERSION)
 		throw new CrewManifestError(
 			"invalid-version",
 			"commonInstructionsFile requires manifest version 2; version 1 runtimes reject this extension",
