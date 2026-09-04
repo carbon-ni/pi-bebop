@@ -1,7 +1,7 @@
 ---
 id: TASK-0162
 title: Expose crew-scoped Guest messaging
-status: doing
+status: done
 depends_on: [TASK-0161]
 priority: high
 tags: [crew, guest, messaging, multi-crew, tools, cli, protocol, tdd]
@@ -114,3 +114,16 @@ selected Member's current configured endpoint (trusted crew manifest is the
 routing authority), crew-owned registry/capability as the authorization
 authority with fresh validation before every operation, exact crew selector on
 every Guest action, multi-crew isolation, no Inbox/relay/sponsor fallback.
+
+## Completed and independently verified 2026-09-04
+
+Implementation commits: `2198561`, `d432213`, `0d739a0`, `97a2cb0`.
+
+Independent exact-head QA at `97a2cb0` passed with clean, unchanged worktree and
+clean diff check. `npm test` passed 1154/1154. `npm run verify:cli` passed with
+95.52% line coverage, 90.52% branch coverage, complexity/package checks
+passing. Fresh watcher generation 562 passed with fingerprint
+`35875274d1a7`. Coverage includes Guest tools and CLI, composed two-crew
+Guest-to-Guest routing, direct delivery, fresh registry revalidation, spoof
+rejection, isolation, revoke behavior, and safe model context. No actionable
+defects or final-run flakes were found.
