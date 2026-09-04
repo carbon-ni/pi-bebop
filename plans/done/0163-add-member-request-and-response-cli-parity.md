@@ -1,7 +1,7 @@
 ---
 id: TASK-0163
 title: Add Member Request and Response CLI parity
-status: doing
+status: done
 depends_on: [TASK-0154]
 priority: high
 tags: [cli, member-request, response, correlation, rpc, automation, axi, tdd]
@@ -128,6 +128,25 @@ waiters use atomic first-consumer-wins semantics; loser receives
       waiter cancellation without sleeps.
 - [ ] CLI coverage/complexity, protocol validation, package smoke, architecture,
       full watcher, and independent exact-head QA gates pass.
+
+## Completed and independently verified 2026-09-04
+
+Implementation commits: `eca03b4`, `c2f5c09`, `98b16a0`.
+
+Coordinator takeover was authorized by Mary after Dave's runtime became
+unavailable; the pre-edit WIP snapshot is recorded in
+`.tmp/reports/04-09-26/task-0163-takeover-wip.diff`. The implementation preserves
+that WIP and adds strict protocol result schemas, deterministic bounded listing,
+joined-source guards, exact-ID errors, stdin cancellation cleanup, and exact
+wait deadlines that cannot outlive the protocol ceiling.
+
+Independent exact-head QA was approved by Mary at `98b16a0`. `npm test` passed,
+`npm run verify:cli` passed at 95.86% line / 90.17% branch coverage, all CLI
+complexity checks passed (maximum 7), and package verification passed. Fresh
+watcher generation 662 passed `@agent-final` with unchanged fingerprint
+`35875274d1a7`. Focused CLI and real two-runtime integration tests cover
+send/list/respond/wait, exact outcome consumption, idle timeout, offline,
+and waiter cancellation without sleeps.
 
 ## Constraints
 
