@@ -117,6 +117,77 @@ describe("trusted crew manifest store", { concurrency: false }, () => {
 		assert.equal(manifest.members[0].instructionsFile, undefined);
 	});
 
+	test("loads the v2 common instruction file once alongside role instructions", async () => {
+		const crewDir = path.join(projectDir, ".pi", "bebop");
+		const instructionsDir = path.join(crewDir, "instructions");
+		await fs.mkdir(instructionsDir, { recursive: true });
+		await fs.writeFile(path.join(instructionsDir, "common.md"), "# Shared crew rules\n");
+		await fs.writeFile(path.join(instructionsDir, "dev.md"), "# Developer role\n");
+		const manifestPath = getDefaultCrewManifestPath(projectDir);
+		await fs.writeFile(
+			manifestPath,
+			JSON.stringify({
+				version: 2,
+				commonInstructionsFile: "instructions/common.md",
+				members: [
+					{
+						name: "dev",
+						role: "developer",
+						socket: "sockets/dev.sock",
+						instructionsFile: "instructions/dev.md",
+					},
+					{ name: "qa", role: "quality", socket: "sockets/qa.sock" },
+				],
+			}),
+		);
+		const manifest = await readTrustedCrewManifest(manifestPath, projectDir, () => true);
+		assert.equal(manifest.commonInstructionsFile, "instructions/common.md");
+		assert.equal(manifest.commonInstructions, "# Shared crew rules\n");
+		assert.equal(manifest.members[0].instructions, "# Developer role\n");
+		assert.equal(manifest.members[1].instructions, undefined);
+	});
+
+	test("fails closed with commonInstructionsFile context for missing and invalid common files", async () => {
+		const crewDir = path.join(projectDir, ".pi", "bebop");
+		const instructionsDir = path.join(crewDir, "instructions");
+		await fs.mkdir(instructionsDir, { recursive: true });
+		const manifestPath = getDefaultCrewManifestPath(projectDir);
+		const writeManifest = async () =>
+			fs.writeFile(
+				manifestPath,
+				JSON.stringify({
+					version: 2,
+					commonInstructionsFile: "instructions/common.md",
+					members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+				}),
+			);
+		await writeManifest();
+		await fs.rm(path.join(instructionsDir, "common.md"), { force: true });
+		await assert.rejects(
+			() => readTrustedCrewManifest(manifestPath, projectDir, () => true),
+			(error: unknown) =>
+				error instanceof CrewManifestReadError &&
+				error.code === "instructions-file-missing" &&
+				error.message.includes("commonInstructionsFile"),
+		);
+		await fs.writeFile(path.join(instructionsDir, "common.md"), Buffer.from([0xc3]));
+		await assert.rejects(
+			() => readTrustedCrewManifest(manifestPath, projectDir, () => true),
+			(error: unknown) =>
+				error instanceof CrewManifestReadError &&
+				error.code === "instructions-file-invalid-encoding" &&
+				error.message.includes("commonInstructionsFile"),
+		);
+		await fs.writeFile(path.join(instructionsDir, "common.md"), "shared\0rules");
+		await assert.rejects(
+			() => readTrustedCrewManifest(manifestPath, projectDir, () => true),
+			(error: unknown) =>
+				error instanceof CrewManifestReadError &&
+				error.code === "instructions-file-nul" &&
+				error.message.includes("commonInstructionsFile"),
+		);
+	});
+
 	test("rejects escaping and invalid instruction files without exposing content", async () => {
 		const crewDir = path.join(projectDir, ".pi", "bebop");
 		await fs.rm(path.join(crewDir, "instructions"), { recursive: true, force: true });

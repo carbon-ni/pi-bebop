@@ -1,6 +1,9 @@
 import * as path from "node:path";
 
+/** Legacy manifest version retained for byte-compatible version 1 callers. */
 export const CREW_MANIFEST_VERSION = 1 as const;
+export const CREW_MANIFEST_V2 = 2 as const;
+export type CrewManifestVersion = typeof CREW_MANIFEST_VERSION | typeof CREW_MANIFEST_V2;
 export const DEFAULT_CREW_MANIFEST_FILE = "crew.json";
 
 /** Maximum UTF-8 byte length of an optional inline crew-visible member description. */
@@ -27,7 +30,10 @@ export interface CrewIntakeConfig {
 }
 
 export interface CrewManifest {
-	readonly version: typeof CREW_MANIFEST_VERSION;
+	readonly version: CrewManifestVersion;
+	readonly commonInstructionsFile?: string;
+	/** Loaded snapshot for the optional commonInstructionsFile; absent in parsed manifests. */
+	readonly commonInstructions?: string;
 	readonly members: readonly CrewMember[];
 	readonly presence: CrewPresenceConfig;
 	readonly intake?: CrewIntakeConfig;
@@ -40,6 +46,7 @@ export type CrewManifestErrorCode =
 	| "invalid-member"
 	| "invalid-socket-path"
 	| "invalid-instructions-file"
+	| "invalid-common-instructions-file"
 	| "invalid-intake-config"
 	| "invalid-intake-contact"
 	| "duplicate-member-name"
@@ -143,8 +150,35 @@ export function resolveCrewMemberSocketPath(member: Pick<CrewMember, "socket">, 
 
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
 	if (!isRecord(input)) invalid("manifest must be an object");
-	if (input.version !== CREW_MANIFEST_VERSION) {
+	if (input.version !== CREW_MANIFEST_VERSION && input.version !== CREW_MANIFEST_V2) {
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
+	}
+	const commonInstructionsFile = input.commonInstructionsFile;
+	const validCommonInstructionsFile = typeof commonInstructionsFile === "string" ? commonInstructionsFile : undefined;
+	if (commonInstructionsFile !== undefined) {
+		if (input.version !== CREW_MANIFEST_V2) {
+			throw new CrewManifestError(
+				"invalid-version",
+				"commonInstructionsFile requires manifest version 2; version 1 runtimes reject this extension",
+			);
+		}
+		if (
+			typeof commonInstructionsFile !== "string" ||
+			commonInstructionsFile.trim().length === 0 ||
+			commonInstructionsFile.includes("\0") ||
+			path.isAbsolute(commonInstructionsFile)
+		) {
+			invalid("commonInstructionsFile must be a non-empty relative path", "invalid-common-instructions-file");
+		}
+		const instructionsRoot = path.resolve(path.dirname(manifestPath), "instructions");
+		const resolved = path.resolve(path.dirname(manifestPath), validCommonInstructionsFile!);
+		const relative = path.relative(instructionsRoot, resolved);
+		if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+			invalid(
+				"commonInstructionsFile must remain under the instructions directory",
+				"invalid-common-instructions-file",
+			);
+		}
 	}
 	if (!Array.isArray(input.members) || input.members.length === 0) {
 		throw new CrewManifestError("invalid-members", "members must be a non-empty array");
@@ -264,7 +298,8 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 	}
 
 	return {
-		version: CREW_MANIFEST_VERSION,
+		version: input.version as CrewManifestVersion,
+		...(validCommonInstructionsFile === undefined ? {} : { commonInstructionsFile: validCommonInstructionsFile }),
 		members,
 		presence,
 		...(intake === undefined ? {} : { intake }),

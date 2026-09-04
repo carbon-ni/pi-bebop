@@ -61,6 +61,37 @@ test("injects concise identity exactly once per system prompt", () => {
 	assert.doesNotMatch(first, /message-context|per-message|Reply with evidence/);
 });
 
+test("common crew instructions precede role instructions exactly once", () => {
+	const parsed = parseCrewManifest(
+		{
+			version: 2,
+			commonInstructionsFile: "instructions/common.md",
+			members: [
+				{ name: "dev", role: "developer", socket: "sockets/dev.sock", instructions: "Role rules" },
+				{ name: "qa", role: "reviewer", socket: "sockets/qa.sock" },
+			],
+		},
+		manifestPath,
+	);
+	const joined: Membership = {
+		manifestPath,
+		socketPath: "/project/.pi/intray/sockets/dev.sock",
+		globalSocketPath: "/tmp/global.sock",
+		member: parsed.members[0],
+		manifest: { ...parsed, commonInstructions: "Common crew rules" },
+	};
+	const first = appendMembershipContext("Base system", joined);
+	const second = appendMembershipContext(first, joined);
+	assert.equal(first, second);
+	assert.equal(
+		first.indexOf("Common crew instructions: Common crew rules"),
+		first.lastIndexOf("Common crew instructions: Common crew rules"),
+	);
+	assert.ok(first.indexOf("Common crew instructions:") < first.indexOf("Role instructions:"));
+	assert.match(first, /Common crew instructions: Common crew rules/);
+	assert.match(first, /Role instructions: Role rules/);
+});
+
 test("joined context lists manifest-order name (role): description, keeping others concise and instructions separate", () => {
 	const withDescription = parseCrewManifest(
 		{

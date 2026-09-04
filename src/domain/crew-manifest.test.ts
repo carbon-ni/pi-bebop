@@ -62,6 +62,54 @@ describe("crew manifest", () => {
 		}
 	});
 
+	test("accepts v2 common instructions and rejects v1 common extensions or unsafe paths", () => {
+		const result = parseCrewManifest(
+			{
+				version: 2,
+				commonInstructionsFile: "instructions/common.md",
+				members: [{ name: "dev", role: "developer", socket: "sockets/dev.sock" }],
+			},
+			"/repo/.pi/bebop/crew.json",
+		);
+		assert.equal(result.version, 2);
+		assert.equal(result.commonInstructionsFile, "instructions/common.md");
+		assert.equal(
+			parseCrewManifest({ version: 1, members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }] })
+				.version,
+			1,
+		);
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					version: 1,
+					commonInstructionsFile: "instructions/common.md",
+					members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+				}),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-version",
+		);
+		for (const commonInstructionsFile of [
+			"",
+			"../common.md",
+			"instructions/../common.md",
+			"/tmp/common.md",
+			"instructions/\0.md",
+		]) {
+			assert.throws(
+				() =>
+					parseCrewManifest(
+						{
+							version: 2,
+							commonInstructionsFile,
+							members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+						},
+						"/repo/.pi/bebop/crew.json",
+					),
+				(error: unknown) =>
+					error instanceof CrewManifestError && error.code === "invalid-common-instructions-file",
+			);
+		}
+	});
+
 	test("parses one file-backed instruction source and rejects unsafe or conflicting sources", () => {
 		const result = parseCrewManifest(
 			{

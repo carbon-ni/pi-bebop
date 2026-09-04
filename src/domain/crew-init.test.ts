@@ -6,6 +6,7 @@ import {
 	CREW_INIT_EXIT_OPERATIONAL,
 	CREW_INIT_EXIT_USAGE,
 	CREW_INIT_TEMPLATE_VERSION,
+	crewInitCommonInstructions,
 	crewInitCrewJson,
 	crewInitGitignore,
 	crewInitHelp,
@@ -52,6 +53,7 @@ test("managed path set is canonical .pi/bebop layout with no compatibility .pi/c
 	const paths = crewInitManagedPaths();
 	assert.ok(paths.includes(".pi/bebop/crew.json"));
 	assert.ok(paths.includes(".pi/bebop/.gitignore"));
+	assert.ok(paths.includes(".pi/bebop/instructions/common.md"));
 	assert.ok(paths.includes(".pi/bebop/instructions/lead.md"));
 	assert.ok(paths.includes(".pi/bebop/instructions/product.md"));
 	assert.ok(paths.includes(".pi/bebop/instructions/developer.md"));
@@ -60,12 +62,13 @@ test("managed path set is canonical .pi/bebop layout with no compatibility .pi/c
 	assert.ok(!paths.some((path) => path.startsWith(".pi/crew/")), "never generates compatibility layout");
 });
 
-test("generated crew.json is deterministic version 1 and passes the real manifest parser", () => {
+test("generated crew.json is deterministic version 2 with common instructions and passes the real manifest parser", () => {
 	const json = crewInitCrewJson();
 	const first = crewInitCrewJson();
 	assert.equal(json, first, "bytes must be deterministic across calls");
 	const manifest = parseCrewManifest(JSON.parse(json), manifestPath);
-	assert.equal(manifest.version, 1);
+	assert.equal(manifest.version, 2);
+	assert.equal(manifest.commonInstructionsFile, "instructions/common.md");
 	assert.equal(manifest.intake?.contact, "product");
 	assert.equal(manifest.presence.notifications, true);
 	assert.deepEqual(
@@ -91,6 +94,14 @@ test("generated .gitignore excludes sockets and inbox only", () => {
 	assert.match(gitignore, /sockets\//);
 	assert.match(gitignore, /inbox\//);
 	assert.ok(!gitignore.includes(".pi/bebop/crew.json"), "never ignores the manifest itself");
+});
+
+test("common instruction template is deterministic and clearly shared", () => {
+	const common = crewInitCommonInstructions();
+	assert.match(common, /^# Common crew instructions/);
+	assert.match(common, /every crew member/i);
+	assert.ok(!common.includes("Role instructions"));
+	assert.ok(!common.includes("\r"));
 });
 
 test("all four instruction templates exist and define mission, inputs, outputs, escalation, and DoD", () => {
@@ -129,7 +140,7 @@ test("template bytes are deterministic and versioned with a stable aggregate set
 	const setB = crewInitTemplateBytes();
 	assert.deepEqual(Object.keys(setA).sort(), Object.keys(setB).sort());
 	assert.deepEqual(setA, setB);
-	assert.equal(CREW_INIT_TEMPLATE_VERSION, "1");
+	assert.equal(CREW_INIT_TEMPLATE_VERSION, "2");
 });
 
 test("classifyCrewInitTarget: missing layout is created", () => {

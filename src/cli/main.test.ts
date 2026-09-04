@@ -537,7 +537,7 @@ test("packaged crew roles reads a real scaffolded manifest and exits 0 without m
 
 		// Manifest is byte-identical after discovery (no mutation).
 		const manifestPath = path.join(dir, ".pi/bebop/crew.json");
-		assert.equal(JSON.parse(await readFile(manifestPath, "utf8")).version, 1);
+		assert.equal(JSON.parse(await readFile(manifestPath, "utf8")).version, 2);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -1257,7 +1257,8 @@ test("crew init creates a fresh canonical scaffold in a temp project with create
 		assert.ok(parsed.data.createdPaths.includes(".pi/bebop/crew.json"));
 		// Real files exist and manifest parses.
 		const manifest = JSON.parse(await readFile(path.join(dir, ".pi/bebop/crew.json"), "utf8"));
-		assert.equal(manifest.version, 1);
+		assert.equal(manifest.version, 2);
+		assert.equal(manifest.commonInstructionsFile, "instructions/common.md");
 		assert.equal(manifest.intake.contact, "product");
 		assert.equal((await readFile(path.join(dir, ".pi/bebop/instructions/lead.md"), "utf8")) !== "", true);
 	} finally {
