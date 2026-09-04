@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
+import { mkdirSync, promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
 import { createGuestAdmissionRuntime, type GuestAdmissionRuntime } from "../infra/guest-admission-runtime.ts";
 import { createGuestMembershipRuntime, type GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
+import { digestGuestCapability, createGuestRegistryStore } from "../infra/guest-registry-store.ts";
 import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-server.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { handleGuestJoin, handleGuestLeave } from "./control-runtime.ts";
@@ -22,7 +23,9 @@ interface MemberCrew {
 }
 
 async function startMemberCrew(root: string, crewId: string, displayName: string): Promise<MemberCrew> {
-	const socketPath = path.join(root, `${crewId}-member.sock`);
+	const crewDir = path.join(root, crewId);
+	mkdirSync(path.join(crewDir, ".pi", "bebop"), { recursive: true });
+	const socketPath = path.join(crewDir, `${crewId}-member.sock`);
 	const manifest = {
 		version: 1 as const,
 		crew: { id: crewId, displayName },
@@ -30,6 +33,11 @@ async function startMemberCrew(root: string, crewId: string, displayName: string
 		members: [{ name: "lead", role: "lead", socket: `sockets/${crewId}.sock` }],
 	};
 	const snapshots: unknown[][] = [];
+	mkdirSync(path.join(root, ".pi", "bebop"), { recursive: true });
+	const registry = createGuestRegistryStore({
+		manifestPath: path.join(crewDir, ".pi", "bebop", "crew.json"),
+		crew: { id: crewId, displayName },
+	});
 	const admission = createGuestAdmissionRuntime({
 		manifest,
 		memberName: "lead",
@@ -38,7 +46,11 @@ async function startMemberCrew(root: string, crewId: string, displayName: string
 			return () => `${crewId}-generated-${++index}`;
 		})(),
 		createCapability: () => `opaque-capability-${crewId}`,
-		persist: (records) => snapshots.push(records),
+		digestCapability: digestGuestCapability,
+		persist: (records) => {
+			snapshots.push(records);
+			registry.replaceEntries(records);
+		},
 	});
 	const state = {
 		trusted: true,
@@ -334,4 +346,91 @@ test("member and guest sides restore from persisted snapshots after a simulated 
 		path.join(root, "new-callback.sock"),
 	);
 	assert.ok(remoteLeaveAfterRestart.response.success);
+});
+
+test("capability is delivered through the approved join response exactly once and survives restarts", async (t) => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "guest-wire-capability-"));
+	t.after(async () => fs.rm(root, { recursive: true, force: true }));
+	const callbackEndpoint = path.join(root, "guest-callback.sock");
+	const alpha = await startMemberCrew(root, "alpha", "Alpha");
+	t.after(async () => alpha.close());
+	const guestPersisted: unknown[][] = [];
+	const guest = createGuestMembershipRuntime({
+		guestIdentity: GUEST_IDENTITY,
+		callbackEndpoint,
+		createRequestId: () => "guest-local-1",
+		persist: (records) => guestPersisted.push(records),
+		submitJoinRequest: async () => undefined,
+	});
+
+	const pendingJoin = await wireJoin(alpha.socketPath, GUEST_IDENTITY, "Alex", callbackEndpoint);
+	assert.deepEqual(pendingJoin.response.data, {
+		status: "pending",
+		requestId: "alpha-generated-1",
+		crew: { id: "alpha", displayName: "Alpha" },
+	});
+	assert.deepEqual(
+		guest.track(
+			{
+				crew: { id: "alpha", displayName: "Alpha" },
+				guestName: "Alex",
+				memberSocket: alpha.socketPath,
+				submittedByMember: "member",
+			},
+			"alpha-generated-1",
+			"pending",
+		),
+		{ ok: true, status: "pending", requestId: "alpha-generated-1", idempotent: false },
+	);
+
+	// The Member approves; the next approved join response carries the capability.
+	assert.ok(alpha.admission.approve("alpha-generated-1", "lead").ok);
+	const approvedJoin = await wireJoin(alpha.socketPath, GUEST_IDENTITY, "Alex", callbackEndpoint);
+	const approvedData = approvedJoin.response.data as { status: string; capability?: string };
+	assert.equal(approvedData.status, "approved");
+	assert.equal(typeof approvedData.capability, "string");
+	guest.track(
+		{
+			crew: { id: "alpha", displayName: "Alpha" },
+			guestName: "Alex",
+			memberSocket: alpha.socketPath,
+			submittedByMember: "member",
+		},
+		"alpha-generated-1",
+		"approved",
+		approvedData.capability,
+	);
+
+	// The delivered capability matches the registry's verifier digest, and the
+	// plaintext never reached the registry file (runtime-only).
+	const registryRaw = await fs.readFile(path.join(root, "alpha", ".pi", "bebop", "guest-registry.json"), "utf8");
+	assert.ok(!registryRaw.includes(String(approvedData.capability)));
+	assert.ok(registryRaw.includes(digestGuestCapability(String(approvedData.capability))));
+
+	// Exactly once: a further approved join does not re-deliver the capability.
+	const repeatJoin = await wireJoin(alpha.socketPath, GUEST_IDENTITY, "Alex", callbackEndpoint);
+	assert.equal("capability" in (repeatJoin.response.data as object), false);
+
+	// The Guest runtime retained the credential across its own persistence.
+	const lastGuestSnapshot = guestPersisted.at(-1) as Array<{ capability?: string }>;
+	assert.equal(lastGuestSnapshot.at(-1)?.capability, approvedData.capability);
+
+	// Member restart: a fresh runtime re-delivers the same capability once
+	// (registry digest unchanged), so the Guest can recover a lost copy.
+	const restartedGuestRuntime = createGuestMembershipRuntime({
+		guestIdentity: GUEST_IDENTITY,
+		callbackEndpoint,
+		createRequestId: () => "guest-restart-1",
+		submitJoinRequest: async () => undefined,
+	});
+	const restoredRecords = (guestPersisted.at(-1) as unknown[]).map((entry) => {
+		const record = entry as { capability?: string };
+		const { capability, ...core } = record;
+		return capability === undefined ? core : { ...core, capability };
+	});
+	restartedGuestRuntime.restore(restoredRecords);
+	assert.deepEqual(
+		restartedGuestRuntime.list().map((row) => [row.crew.id, row.status]),
+		[["alpha", "approved"]],
+	);
 });

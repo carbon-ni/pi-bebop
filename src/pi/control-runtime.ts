@@ -423,6 +423,18 @@ export async function handleGuestJoin(
 		respond(false, command.type, undefined, result.code);
 		return;
 	}
+	// The member-issued capability rides the approved join response exactly
+	// once; the Guest runtime retains it and the registry holds only its digest.
+	if (result.status === "approved") {
+		const consumed = admission.consumeCapability(command.guestIdentity);
+		respond(true, command.type, {
+			status: result.status,
+			requestId: result.requestId,
+			crew: result.crew,
+			...(consumed.ok ? { capability: consumed.capability } : {}),
+		});
+		return;
+	}
 	respond(true, command.type, { status: result.status, requestId: result.requestId, crew: result.crew });
 }
 

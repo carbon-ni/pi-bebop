@@ -70,6 +70,12 @@ export type GuestAdmissionPersistedRecord =
 
 export interface GuestAdmissionRuntime {
 	receive(request: GuestJoinRequest): GuestAdmissionJoinResult;
+	/** Hands the member-issued capability to the Guest exactly once per runtime. */
+	consumeCapability(
+		guestIdentity: string,
+	):
+		| { ok: true; capability: GuestApprovalCapability }
+		| { ok: false; code: "not-found" | "not-approved" | "already-delivered" };
 	approve(requestId: string, approver: string, capability?: string): GuestAdmissionApprovalResult;
 	deny(requestId: string, approver: string): GuestAdmissionMutationResult;
 	remove(guestName: string, approver: string): GuestAdmissionMutationResult;
@@ -101,6 +107,7 @@ interface ApprovedEntry {
 	readonly record: GuestMembershipRecord;
 	readonly capability: GuestApprovalCapability;
 	readonly capabilityDigest?: string;
+	readonly capabilityDelivered?: boolean;
 }
 interface RevokedEntry {
 	readonly status: "revoked";
@@ -178,6 +185,13 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			.sort((a, b) => a.guestName.localeCompare(b.guestName));
 
 	return {
+		consumeCapability(guestIdentity: string) {
+			const entry = states.get(guestIdentity);
+			if (!entry || entry.status !== "approved") return { ok: false as const, code: "not-found" as const };
+			if (entry.capabilityDelivered) return { ok: false as const, code: "already-delivered" as const };
+			states.set(guestIdentity, { ...entry, capabilityDelivered: true });
+			return { ok: true as const, capability: entry.capability };
+		},
 		receive(request) {
 			if (!selector || !guestAdmissionPolicy(deps.manifest.guestAdmission).enabled)
 				return { ok: false, code: "guest-disabled" };

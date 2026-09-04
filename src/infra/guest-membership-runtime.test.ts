@@ -239,7 +239,7 @@ describe("Guest membership concurrency and crash recovery", () => {
 		);
 	});
 
-	test("restore regenerates capabilities so pre-crash capabilities become orphans that fail closed", async () => {
+	test("restore retains the member-issued capability; foreign capabilities fail closed", async () => {
 		const { runtime, persisted } = createRuntime();
 		await runtime.join(input(alpha));
 		const approval = {
@@ -250,22 +250,22 @@ describe("Guest membership concurrency and crash recovery", () => {
 			callbackEndpoint: "callback.sock",
 			approver: "lead",
 		};
-		const firstApproval = await runtime.approve(approval, "capability-crash");
+		const firstApproval = await runtime.approve(approval, "capability-lead-1");
 		assert.ok(firstApproval.ok);
 
-		// Crash: rebuild from the last persisted snapshot only; the rebuilt runtime
-		// regenerates its capability deterministically.
+		// Crash: rebuild from the last persisted snapshot only; the retained
+		// member-issued capability survives with the approved binding.
 		const snapshot = persisted.at(-1);
-		const rebuilt = createRuntime({ createCapability: () => "regenerated-capability" });
+		const rebuilt = createRuntime();
 		const result = rebuilt.runtime.restore(snapshot);
 		assert.deepEqual(result.restored, ["alpha"]);
 		assert.deepEqual(result.rejected, []);
 
-		// The pre-crash capability is dead: replaying the original approval with it
-		// fails closed, and only the regenerated capability authorizes replays.
-		const replayWithOrphan = await rebuilt.runtime.approve(approval, "capability-crash");
-		assert.deepEqual(replayWithOrphan, { ok: false, code: "approval-mismatch" });
-		const idempotentReplay = await rebuilt.runtime.approve(approval, "regenerated-capability");
+		// The retained credential still authorizes idempotent replays; a
+		// capability that was never issued for this binding fails closed.
+		const replayWithForeign = await rebuilt.runtime.approve(approval, "capability-crash");
+		assert.deepEqual(replayWithForeign, { ok: false, code: "approval-mismatch" });
+		const idempotentReplay = await rebuilt.runtime.approve(approval, "capability-lead-1");
 		assert.deepEqual(idempotentReplay, { ok: true, status: "approved", idempotent: true });
 	});
 

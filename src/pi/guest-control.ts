@@ -137,6 +137,7 @@ export function registerGuestControlCommand(
 					input,
 					result.response.data.requestId,
 					result.response.data.status,
+					result.response.data.capability,
 				);
 				if (!tracked.ok) {
 					notify(ctx, "Guest join failed: response could not be bound to this session", "error");
