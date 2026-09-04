@@ -1,4 +1,4 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { ExtractedMessageSchema, type ExtractedMessage } from "./messages.ts";
 import {
@@ -890,44 +890,332 @@ export function isTurnEndNotification(value: unknown): value is Static<typeof Tu
 export function isMemberUpdateNotification(value: unknown): value is Static<typeof MemberUpdateNotificationSchema> {
 	return Value.Check(MemberUpdateNotificationSchema, value);
 }
+export interface CommandDefinition {
+	readonly method: string;
+	readonly requestSchema: TSchema;
+	readonly resultSchema: TSchema;
+	readonly toParams: (command: RpcCommand) => unknown;
+	readonly fromParams: (params: unknown, id: RpcId) => RpcInboundCommand | ProtocolFailure;
+}
+
+const invalidCommandParams = (message: string): ProtocolFailure => ({ code: RPC_ERROR.invalidParams, message });
+
+/**
+ * The single source of truth for the legacy command ↔ JSON-RPC mapping.
+ * Each entry owns its wire schemas, result shape, and both mapping directions.
+ */
+export const COMMAND_REGISTRY: Record<RpcCommand["type"], CommandDefinition> = {
+	send: {
+		method: "message.send",
+		requestSchema: MessageSendRequestSchema,
+		resultSchema: SendResultSchema,
+		toParams: (command) => {
+			const send = command as MessageSendCommand;
+			return { ...send.payload, delivery: send.delivery ?? "follow_up" };
+		},
+		fromParams: (params, id) => {
+			const rawParams = params && typeof params === "object" ? (params as Record<string, unknown>) : undefined;
+			const payload = rawParams
+				? {
+						content: rawParams.content,
+						...(rawParams.instructions === undefined ? {} : { instructions: rawParams.instructions }),
+						...(rawParams.origin === undefined ? {} : { origin: rawParams.origin }),
+						...(rawParams.kind === undefined ? {} : { kind: rawParams.kind }),
+						...(rawParams.sentAt === undefined ? {} : { sentAt: rawParams.sentAt }),
+						...(rawParams.replyTo === undefined ? {} : { replyTo: rawParams.replyTo }),
+					}
+				: undefined;
+			if (!Value.Check(MessageSendParamsSchema, params) || !isMessagePayload(payload))
+				return invalidCommandParams("Invalid message.send params");
+			const validParams = params as MessageSendParams;
+			return {
+				type: "send",
+				payload: payload as MessagePayload,
+				delivery: validParams.delivery ?? "follow_up",
+				id,
+			};
+		},
+	},
+	interrupt: {
+		method: "message.interrupt",
+		requestSchema: InterruptRequestSchema,
+		resultSchema: InterruptResultSchema,
+		toParams: (command) => ({ payload: (command as InterruptCommand).payload }),
+		fromParams: (params, id) => {
+			if (!Value.Check(InterruptParamsSchema, params))
+				return invalidCommandParams("Invalid message.interrupt params");
+			const payload = (params as InterruptParams).payload;
+			if (!isMessagePayload(payload)) return invalidCommandParams("Invalid message.interrupt payload");
+			return { type: "interrupt", payload, id };
+		},
+	},
+	member_status: {
+		method: "member.status",
+		requestSchema: MemberStatusRequestSchema,
+		resultSchema: MemberStatusResultSchema,
+		toParams: (command) => ({ member: (command as MemberStatusCommand).member }),
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberStatusParamsSchema, params))
+				return invalidCommandParams("Invalid member.status params");
+			return { type: "member_status", member: (params as MemberStatusParams).member, id };
+		},
+	},
+	member_status_target: {
+		method: "member.status_target",
+		requestSchema: MemberStatusTargetRequestSchema,
+		resultSchema: MemberStatusResultSchema,
+		toParams: (command) => ({ target: (command as MemberStatusTargetCommand).target }),
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberStatusTargetParamsSchema, params))
+				return invalidCommandParams("Invalid member.status_target params");
+			return { type: "member_status_target", target: (params as MemberStatusTargetParams).target, id };
+		},
+	},
+	member_request: {
+		method: "member.request",
+		requestSchema: MemberRequestRequestSchema,
+		resultSchema: MemberRequestResultSchema,
+		toParams: (command) => {
+			const request = command as MemberRequestCommand;
+			return { requestId: request.requestId, payload: request.payload, timeoutSeconds: request.timeoutSeconds };
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberRequestParamsSchema, params))
+				return invalidCommandParams("Invalid member.request params");
+			const requestParams = params as MemberRequestParams;
+			if (!isMessagePayload(requestParams.payload)) return invalidCommandParams("Invalid member.request payload");
+			return { type: "member_request", ...requestParams, id };
+		},
+	},
+	member_response: {
+		method: "member.respond",
+		requestSchema: MemberResponseRequestSchema,
+		resultSchema: EmptyResultSchema,
+		toParams: (command) => {
+			const response = command as MemberResponseCommand;
+			return {
+				requestId: response.requestId,
+				message: response.message,
+				...(response.instructions === undefined ? {} : { instructions: response.instructions }),
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberResponseParamsSchema, params))
+				return invalidCommandParams("Invalid member.respond params");
+			return { type: "member_response", ...(params as MemberResponseParams), id };
+		},
+	},
+	member_interrupt: {
+		method: "member.interrupt",
+		requestSchema: MemberInterruptRequestSchema,
+		resultSchema: MemberInterruptResultSchema,
+		toParams: (command) => {
+			const interrupt = command as MemberInterruptCommand;
+			return {
+				target: interrupt.target,
+				message: interrupt.message,
+				...(interrupt.instructions === undefined ? {} : { instructions: interrupt.instructions }),
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberInterruptParamsSchema, params))
+				return invalidCommandParams("Invalid member.interrupt params");
+			const interrupt = params as MemberInterruptParams;
+			return {
+				type: "member_interrupt",
+				target: interrupt.target,
+				message: interrupt.message,
+				...(interrupt.instructions === undefined ? {} : { instructions: interrupt.instructions }),
+				id,
+			};
+		},
+	},
+	member_follow_up: {
+		method: "member.follow_up",
+		requestSchema: MemberFollowUpRequestSchema,
+		resultSchema: MemberMessageResultSchema,
+		toParams: (command) => {
+			const followUp = command as MemberFollowUpCommand;
+			return {
+				target: followUp.target,
+				message: followUp.message,
+				...(followUp.instructions === undefined ? {} : { instructions: followUp.instructions }),
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberFollowUpParamsSchema, params))
+				return invalidCommandParams("Invalid member.follow_up params");
+			const delivery = params as MemberFollowUpParams;
+			return {
+				type: "member_follow_up",
+				target: delivery.target,
+				message: delivery.message,
+				...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+				id,
+			};
+		},
+	},
+	member_redirect: {
+		method: "member.redirect",
+		requestSchema: MemberRedirectRequestSchema,
+		resultSchema: MemberMessageResultSchema,
+		toParams: (command) => {
+			const redirect = command as MemberRedirectCommand;
+			return {
+				target: redirect.target,
+				message: redirect.message,
+				...(redirect.instructions === undefined ? {} : { instructions: redirect.instructions }),
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberRedirectParamsSchema, params))
+				return invalidCommandParams("Invalid member.redirect params");
+			const delivery = params as MemberRedirectParams;
+			return {
+				type: "member_redirect",
+				target: delivery.target,
+				message: delivery.message,
+				...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+				id,
+			};
+		},
+	},
+	member_inbox_send: {
+		method: "member.inbox_send",
+		requestSchema: MemberInboxSendRequestSchema,
+		resultSchema: MemberInboxSendResultSchema,
+		toParams: (command) => {
+			const delivery = command as MemberInboxSendCommand;
+			return {
+				target: delivery.target,
+				message: delivery.message,
+				...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberInboxSendParamsSchema, params))
+				return invalidCommandParams("Invalid member.inbox_send params");
+			const delivery = params as MemberInboxSendParams;
+			return {
+				type: "member_inbox_send",
+				target: delivery.target,
+				message: delivery.message,
+				...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+				id,
+			};
+		},
+	},
+	crew_broadcast: {
+		method: "crew.broadcast",
+		requestSchema: CrewBroadcastRequestSchema,
+		resultSchema: CrewBroadcastResultSchema,
+		toParams: (command) => {
+			const broadcast = command as CrewBroadcastCommand;
+			return {
+				message: broadcast.message,
+				...(broadcast.instructions === undefined ? {} : { instructions: broadcast.instructions }),
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(CrewBroadcastParamsSchema, params))
+				return invalidCommandParams("Invalid crew.broadcast params");
+			const delivery = params as CrewBroadcastParams;
+			return {
+				type: "crew_broadcast",
+				message: delivery.message,
+				...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
+				id,
+			};
+		},
+	},
+	member_idle_wait: {
+		method: "member.idle_wait",
+		requestSchema: MemberIdleWaitRequestSchema,
+		resultSchema: MemberIdleWaitSubscribeResultSchema,
+		toParams: (command) => {
+			const wait = command as MemberIdleWaitCommand;
+			return {
+				member: wait.member,
+				...(wait.timeoutSeconds === undefined ? {} : { timeoutSeconds: wait.timeoutSeconds }),
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberIdleWaitParamsSchema, params))
+				return invalidCommandParams("Invalid member.idle_wait params");
+			const waitParams = params as MemberIdleWaitParams;
+			return {
+				type: "member_idle_wait",
+				member: waitParams.member,
+				...(waitParams.timeoutSeconds === undefined ? {} : { timeoutSeconds: waitParams.timeoutSeconds }),
+				id,
+			};
+		},
+	},
+	subscribe: {
+		method: "event.subscribe",
+		requestSchema: SubscribeRequestSchema,
+		resultSchema: SubscribeResultSchema,
+		toParams: (command) => ({ event: (command as SubscribeCommand).event }),
+		fromParams: (params, id) =>
+			Value.Check(SubscribeParamsSchema, params)
+				? { type: "subscribe", event: "turn_end", id }
+				: invalidCommandParams("Invalid event.subscribe params"),
+	},
+	status: {
+		method: "session.status",
+		requestSchema: StatusRequestSchema,
+		resultSchema: StatusResultSchema,
+		toParams: () => undefined,
+		fromParams: (params, id) =>
+			params === undefined ? { type: "status", id } : invalidCommandParams("Invalid session.status params"),
+	},
+	get_message: {
+		method: "session.get_message",
+		requestSchema: GetMessageRequestSchema,
+		resultSchema: GetMessageResultSchema,
+		toParams: () => undefined,
+		fromParams: (params, id) =>
+			params === undefined
+				? { type: "get_message", id }
+				: invalidCommandParams("Invalid session.get_message params"),
+	},
+	clear: {
+		method: "session.clear",
+		requestSchema: ClearRequestSchema,
+		resultSchema: ClearResultSchema,
+		toParams: () => undefined,
+		fromParams: (params, id) =>
+			params === undefined ? { type: "clear", id } : invalidCommandParams("Invalid session.clear params"),
+	},
+	abort: {
+		method: "session.abort",
+		requestSchema: AbortRequestSchema,
+		resultSchema: EmptyResultSchema,
+		toParams: () => undefined,
+		fromParams: (params, id) =>
+			params === undefined ? { type: "abort", id } : invalidCommandParams("Invalid session.abort params"),
+	},
+	presence_hint: {
+		method: "presence.hint",
+		requestSchema: PresenceHintRequestSchema,
+		resultSchema: PresenceHintResultSchema,
+		toParams: (command) => {
+			const hint = command as PresenceHintCommand;
+			return { member: hint.member, state: hint.state, instanceId: hint.instanceId };
+		},
+		fromParams: (params, id) =>
+			isPresenceHintParams(params)
+				? ({ type: "presence_hint", ...params, id } as RpcInboundCommand)
+				: invalidCommandParams("Invalid presence.hint params"),
+	},
+};
+
+function commandDefinitionForMethod(method: string): CommandDefinition | undefined {
+	return Object.values(COMMAND_REGISTRY).find((definition) => definition.method === method);
+}
+
 export function methodResultSchema(method: string) {
-	return method === "session.status"
-		? StatusResultSchema
-		: method === "message.send"
-			? SendResultSchema
-			: method === "message.interrupt"
-				? InterruptResultSchema
-				: method === "member.status"
-					? MemberStatusResultSchema
-					: method === "member.status_target"
-						? MemberStatusResultSchema
-						: method === "member.request"
-							? MemberRequestResultSchema
-							: method === "member.respond"
-								? EmptyResultSchema
-								: method === "member.interrupt"
-									? MemberInterruptResultSchema
-									: method === "member.follow_up"
-										? MemberMessageResultSchema
-										: method === "member.redirect"
-											? MemberMessageResultSchema
-											: method === "member.inbox_send"
-												? MemberInboxSendResultSchema
-												: method === "crew.broadcast"
-													? CrewBroadcastResultSchema
-													: method === "member.idle_wait"
-														? MemberIdleWaitSubscribeResultSchema
-														: method === "session.get_message"
-															? GetMessageResultSchema
-															: method === "session.clear"
-																? ClearResultSchema
-																: method === "session.abort"
-																	? EmptyResultSchema
-																	: method === "event.subscribe"
-																		? SubscribeResultSchema
-																		: method === "presence.hint"
-																			? PresenceHintResultSchema
-																			: undefined;
+	return commandDefinitionForMethod(method)?.resultSchema;
 }
 export function isMethodResult(method: string, value: unknown): value is RpcMethodResult {
 	const schema = methodResultSchema(method);
@@ -1011,251 +1299,24 @@ export function serializeProtocolMessage(value: RpcWireResponse | RpcNotificatio
 	return `${JSON.stringify(value)}\n`;
 }
 export function commandToRequest(command: RpcCommand, id: RpcId): RpcRequest {
-	if (command.type === "send")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "message.send",
-			params: {
-				...command.payload,
-				delivery: command.delivery ?? "follow_up",
-			},
-		};
-	if (command.type === "interrupt")
-		return { jsonrpc: JSON_RPC_VERSION, id, method: "message.interrupt", params: { payload: command.payload } };
-	if (command.type === "member_status")
-		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status", params: { member: command.member } };
-	if (command.type === "member_status_target")
-		return { jsonrpc: JSON_RPC_VERSION, id, method: "member.status_target", params: { target: command.target } };
-	if (command.type === "member_request")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "member.request",
-			params: { requestId: command.requestId, payload: command.payload, timeoutSeconds: command.timeoutSeconds },
-		};
-	if (command.type === "member_response")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "member.respond",
-			params: {
-				requestId: command.requestId,
-				message: command.message,
-				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
-			},
-		};
-	if (command.type === "member_interrupt")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "member.interrupt",
-			params: {
-				target: command.target,
-				message: command.message,
-				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
-			},
-		};
-	if (command.type === "member_follow_up")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "member.follow_up",
-			params: {
-				target: command.target,
-				message: command.message,
-				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
-			},
-		};
-	if (command.type === "member_redirect")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "member.redirect",
-			params: {
-				target: command.target,
-				message: command.message,
-				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
-			},
-		};
-	if (command.type === "member_inbox_send")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "member.inbox_send",
-			params: {
-				target: command.target,
-				message: command.message,
-				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
-			},
-		};
-	if (command.type === "crew_broadcast")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "crew.broadcast",
-			params: {
-				message: command.message,
-				...(command.instructions === undefined ? {} : { instructions: command.instructions }),
-			},
-		};
-	if (command.type === "member_idle_wait")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "member.idle_wait",
-			params: {
-				member: command.member,
-				...(command.timeoutSeconds === undefined ? {} : { timeoutSeconds: command.timeoutSeconds }),
-			},
-		};
-	if (command.type === "subscribe")
-		return { jsonrpc: JSON_RPC_VERSION, id, method: "event.subscribe", params: { event: command.event } };
-	if (command.type === "status") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.status" };
-	if (command.type === "get_message") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.get_message" };
-	if (command.type === "clear") return { jsonrpc: JSON_RPC_VERSION, id, method: "session.clear" };
-	if (command.type === "presence_hint")
-		return {
-			jsonrpc: JSON_RPC_VERSION,
-			id,
-			method: "presence.hint",
-			params: { member: command.member, state: command.state, instanceId: command.instanceId },
-		};
-	return { jsonrpc: JSON_RPC_VERSION, id, method: "session.abort" };
+	const definition = COMMAND_REGISTRY[command.type];
+	const params = definition.toParams(command);
+	return {
+		jsonrpc: JSON_RPC_VERSION,
+		id,
+		method: definition.method,
+		...(params === undefined ? {} : { params }),
+	} as RpcRequest;
 }
 export function requestToCommand(request: RpcRequest): RpcInboundCommand | ProtocolFailure {
-	const params = "params" in request ? request.params : undefined;
-	const invalid = (message: string): ProtocolFailure => ({ code: RPC_ERROR.invalidParams, message });
-	if (request.method === "message.send") {
-		const rawParams = params && typeof params === "object" ? (params as Record<string, unknown>) : undefined;
-		const payload = rawParams
-			? {
-					content: rawParams.content,
-					...(rawParams.instructions === undefined ? {} : { instructions: rawParams.instructions }),
-					...(rawParams.origin === undefined ? {} : { origin: rawParams.origin }),
-					...(rawParams.kind === undefined ? {} : { kind: rawParams.kind }),
-					...(rawParams.sentAt === undefined ? {} : { sentAt: rawParams.sentAt }),
-					...(rawParams.replyTo === undefined ? {} : { replyTo: rawParams.replyTo }),
-				}
-			: undefined;
-		if (!Value.Check(MessageSendParamsSchema, params) || !isMessagePayload(payload))
-			return invalid("Invalid message.send params");
-		const validParams = params as MessageSendParams;
+	const definition = commandDefinitionForMethod(request.method);
+	if (!definition)
 		return {
-			type: "send",
-			payload: payload as MessagePayload,
-			delivery: validParams.delivery ?? "follow_up",
-			id: request.id,
+			code: RPC_ERROR.methodNotFound,
+			message: `Method not found: ${request.method}`,
+			data: { code: "method-not-found" },
 		};
-	}
-	if (request.method === "message.interrupt") {
-		if (!Value.Check(InterruptParamsSchema, params)) return invalid("Invalid message.interrupt params");
-		const payload = (params as InterruptParams).payload;
-		if (!isMessagePayload(payload)) return invalid("Invalid message.interrupt payload");
-		return { type: "interrupt", payload, id: request.id };
-	}
-	if (request.method === "member.status") {
-		if (!Value.Check(MemberStatusParamsSchema, params)) return invalid("Invalid member.status params");
-		return { type: "member_status", member: (params as MemberStatusParams).member, id: request.id };
-	}
-	if (request.method === "member.status_target") {
-		if (!Value.Check(MemberStatusTargetParamsSchema, params)) return invalid("Invalid member.status_target params");
-		return { type: "member_status_target", target: (params as MemberStatusTargetParams).target, id: request.id };
-	}
-	if (request.method === "member.request") {
-		if (!Value.Check(MemberRequestParamsSchema, params)) return invalid("Invalid member.request params");
-		const requestParams = params as MemberRequestParams;
-		if (!isMessagePayload(requestParams.payload)) return invalid("Invalid member.request payload");
-		return { type: "member_request", ...requestParams, id: request.id };
-	}
-	if (request.method === "member.respond") {
-		if (!Value.Check(MemberResponseParamsSchema, params)) return invalid("Invalid member.respond params");
-		return { type: "member_response", ...(params as MemberResponseParams), id: request.id };
-	}
-	if (request.method === "member.interrupt") {
-		if (!Value.Check(MemberInterruptParamsSchema, params)) return invalid("Invalid member.interrupt params");
-		const interrupt = params as MemberInterruptParams;
-		return {
-			type: "member_interrupt",
-			target: interrupt.target,
-			message: interrupt.message,
-			...(interrupt.instructions === undefined ? {} : { instructions: interrupt.instructions }),
-			id: request.id,
-		};
-	}
-	if (request.method === "member.follow_up") {
-		if (!Value.Check(MemberFollowUpParamsSchema, params)) return invalid("Invalid member.follow_up params");
-		const delivery = params as MemberFollowUpParams;
-		return {
-			type: "member_follow_up",
-			target: delivery.target,
-			message: delivery.message,
-			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
-			id: request.id,
-		};
-	}
-	if (request.method === "member.redirect") {
-		if (!Value.Check(MemberRedirectParamsSchema, params)) return invalid("Invalid member.redirect params");
-		const delivery = params as MemberRedirectParams;
-		return {
-			type: "member_redirect",
-			target: delivery.target,
-			message: delivery.message,
-			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
-			id: request.id,
-		};
-	}
-	if (request.method === "member.inbox_send") {
-		if (!Value.Check(MemberInboxSendParamsSchema, params)) return invalid("Invalid member.inbox_send params");
-		const delivery = params as Static<typeof MemberInboxSendParamsSchema>;
-		return {
-			type: "member_inbox_send",
-			target: delivery.target,
-			message: delivery.message,
-			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
-			id: request.id,
-		};
-	}
-	if (request.method === "crew.broadcast") {
-		if (!Value.Check(CrewBroadcastParamsSchema, params)) return invalid("Invalid crew.broadcast params");
-		const delivery = params as Static<typeof CrewBroadcastParamsSchema>;
-		return {
-			type: "crew_broadcast",
-			message: delivery.message,
-			...(delivery.instructions === undefined ? {} : { instructions: delivery.instructions }),
-			id: request.id,
-		};
-	}
-	if (request.method === "member.idle_wait") {
-		if (!Value.Check(MemberIdleWaitParamsSchema, params)) return invalid("Invalid member.idle_wait params");
-		const waitParams = params as MemberIdleWaitParams;
-		return {
-			type: "member_idle_wait",
-			member: waitParams.member,
-			...(waitParams.timeoutSeconds === undefined ? {} : { timeoutSeconds: waitParams.timeoutSeconds }),
-			id: request.id,
-		};
-	}
-	if (request.method === "presence.hint") {
-		if (!isPresenceHintParams(params)) return invalid("Invalid presence.hint params");
-		return { type: "presence_hint", ...params, id: request.id } as RpcInboundCommand;
-	}
-	if (["session.status", "session.get_message", "session.clear", "session.abort"].includes(request.method)) {
-		if (params !== undefined) return invalid(`Invalid ${request.method} params`);
-		if (request.method === "session.status") return { type: "status", id: request.id };
-		if (request.method === "session.get_message") return { type: "get_message", id: request.id };
-		if (request.method === "session.clear") return { type: "clear", id: request.id };
-		return { type: "abort", id: request.id };
-	}
-	if (request.method === "event.subscribe")
-		return Value.Check(SubscribeParamsSchema, params)
-			? { type: "subscribe", event: "turn_end", id: request.id }
-			: invalid("Invalid event.subscribe params");
-	return {
-		code: RPC_ERROR.methodNotFound,
-		message: `Method not found: ${request.method}`,
-		data: { code: "method-not-found" },
-	};
+	return definition.fromParams("params" in request ? request.params : undefined, request.id);
 }
 export function parseRequest(line: string): { request?: RpcRequest; error?: ProtocolFailure } {
 	let value: unknown;

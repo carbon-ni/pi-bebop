@@ -1,7 +1,7 @@
 ---
 id: TASK-0160
 title: Define multi-crew Guest membership
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, guest, membership, multi-crew, admission, security, ubiquitous-language]
@@ -115,6 +115,10 @@ that crew. Joining or leaving one crew never affects another membership.
 - TASK-0161 owns admission, callback socket lifecycle, persistence, revocation,
   and fail-closed restore. TASK-0162 owns crew-scoped Guest messaging/tool
   surfaces. No runtime command or tool behavior is changed here.
+
+## Verification evidence
+
+Independent coordinator QA: `npm test` passed 930/930; watcher generation 143 passed with worktree fingerprint `8f60af8810f7`.
 
 ## Non-goals
 
