@@ -213,7 +213,20 @@ function throwSchemaFailure(input: Record<string, unknown>): never {
 	throwTopLevelSchemaFailure(pointer);
 }
 
+function validateNestedKeys(input: Record<string, unknown>): void {
+	const crew = input.crew;
+	if (isRecord(crew) && Object.keys(crew).some((key) => key !== "id" && key !== "displayName"))
+		invalid("crew contains unknown fields", "invalid-crew-config");
+	const guestAdmission = input.guestAdmission;
+	if (
+		isRecord(guestAdmission) &&
+		(Object.keys(guestAdmission).length !== 1 || Object.keys(guestAdmission)[0] !== "approvers")
+	)
+		invalid("guestAdmission must contain only the approvers field", "invalid-guest-admission");
+}
+
 function validateManifestShape(input: Record<string, unknown>): void {
+	validateNestedKeys(input);
 	if (!Value.Check(CrewManifestSchema, input)) throwSchemaFailure(input);
 }
 
