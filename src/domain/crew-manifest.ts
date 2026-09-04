@@ -117,7 +117,7 @@ export class CrewMemberLookupError extends Error {
 /** Declarative manifest shape; path and cross-field rules remain normalization steps. */
 const CrewManifestSchema = Type.Object(
 	{
-		version: Type.Optional(Type.Integer()),
+		version: Type.Optional(Type.Union([Type.Literal(CREW_MANIFEST_VERSION), Type.Literal(CREW_MANIFEST_V2)])),
 		commonInstructionsFile: Type.Optional(Type.String({ minLength: 1 })),
 		members: Type.Optional(
 			Type.Array(
@@ -203,8 +203,26 @@ function throwTopLevelSchemaFailure(pointer: string): never {
 	invalid("manifest must be an object");
 }
 
+function schemaErrorRank(pointer: string): [number, number] {
+	if (pointer.startsWith("/version")) return [0, 0];
+	if (pointer.startsWith("/commonInstructionsFile")) return [1, 0];
+	if (pointer.startsWith("/presence")) return [2, 0];
+	if (pointer.startsWith("/members")) return [3, 0];
+	if (pointer.startsWith("/crew/")) return [4, pointer === "/crew/id" || pointer === "/crew/displayName" ? 1 : 0];
+	if (pointer.startsWith("/crew")) return [4, 0];
+	if (pointer.startsWith("/guestAdmission/")) return [5, pointer === "/guestAdmission/approvers" ? 1 : 0];
+	if (pointer.startsWith("/guestAdmission")) return [5, 0];
+	if (pointer.startsWith("/intake")) return [6, 0];
+	return [7, 0];
+}
+
 function throwSchemaFailure(input: Record<string, unknown>): never {
-	const pointer = [...Value.Errors(CrewManifestSchema, input)][0]?.path ?? "";
+	const pointer =
+		[...Value.Errors(CrewManifestSchema, input)].sort((left, right) => {
+			const [leftGroup, leftNested] = schemaErrorRank(left.path);
+			const [rightGroup, rightNested] = schemaErrorRank(right.path);
+			return leftGroup - rightGroup || leftNested - rightNested || left.path.localeCompare(right.path);
+		})[0]?.path ?? "";
 	if (pointer === "/version")
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
 	if (pointer === "/members" || pointer === "")
@@ -214,6 +232,11 @@ function throwSchemaFailure(input: Record<string, unknown>): never {
 }
 
 function validateManifestShape(input: Record<string, unknown>): void {
+	if (input.commonInstructionsFile !== undefined && input.version !== CREW_MANIFEST_V2)
+		throw new CrewManifestError(
+			"invalid-version",
+			"commonInstructionsFile requires manifest version 2; version 1 runtimes reject this extension",
+		);
 	if (!Value.Check(CrewManifestSchema, input)) throwSchemaFailure(input);
 }
 
@@ -486,6 +509,7 @@ function normalizeIntake(
 
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
 	if (!isRecord(input)) invalid("manifest must be an object");
+	validateManifestShape(input);
 	if (input.version !== CREW_MANIFEST_VERSION && input.version !== CREW_MANIFEST_V2)
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
 	const commonInstructionsFile = normalizeCommonInstructionsFile(input, manifestPath);
@@ -494,9 +518,6 @@ export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MA
 	const crew = normalizeCrew(input);
 	const guestAdmission = normalizeGuestAdmission(input, crew, members);
 	const intake = normalizeIntake(input, manifestPath, members);
-	// Run the declarative contract after ordered diagnostics so legacy error
-	// precedence remains stable when several fields are malformed.
-	validateManifestShape(input);
 	return {
 		version: input.version as CrewManifestVersion,
 		...(commonInstructionsFile === undefined ? {} : { commonInstructionsFile }),
