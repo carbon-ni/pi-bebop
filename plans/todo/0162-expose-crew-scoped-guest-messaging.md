@@ -80,3 +80,21 @@ socket route.
 - Guest Inbox, Redirect/Interrupt, automatic responses, cross-crew Broadcast,
   Guest-to-Guest private messaging outside shared crew, response aggregation,
   remote networking, or a default active crew.
+
+## Blocked on dependency defect (2026-09-04)
+
+Mandatory dependency check against TASK-0161 failed. Crew-owned Guest approval
+state usable by every Member runtime does not exist:
+
+- Admission persistence is session-private (`pi.appendEntry` of
+  `intray-guest-memberships` in the approving Member's session; restore reads
+  only that session's branch — `src/extension.ts`, `src/pi/membership-context.ts`).
+- `.pi/bebop/` holds only the manifest (approvers config, no guest registry).
+- Consequence: other crew Members' runtimes hold empty admission registries, so
+  direct Guest->Member validation, Member->Guest addressing by name, crew-wide
+  `/crew guests` state, and revocation visibility are all impossible today.
+
+Protocol slice implementation is stopped. Domain foundation commit `fc5f51f`
+is preserved (routing-agnostic selectors remain valid under direct routing).
+Remediation requires a crew-owned Guest registry (crew-shared durable store)
+before the wire/protocol slice can proceed. PO decision requested.
