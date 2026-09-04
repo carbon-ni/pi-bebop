@@ -1,7 +1,7 @@
 ---
 id: TASK-0156
 title: Replace protocol command mapping if-chains with a command registry
-status: todo
+status: doing
 depends_on: []
 priority: normal
 tags: [refactor, protocol, dispatch]

@@ -1,7 +1,7 @@
 ---
 id: TASK-0154
 title: Decompose handleCommand into per-command handlers
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [refactor, control-runtime, rpc, dispatch]
@@ -44,6 +44,10 @@ dispatch, and per-command logic are visibly separate. No behavior change.
       in-progress broadcast failures, which this task must not touch or fix).
 - [ ] Handlers are individually exported for the follow-up split (TASK-0155).
 - [ ] Coverage for touched lines does not drop below the current gate.
+
+## Verification evidence
+
+Independent coordinator QA: `npm test` passed 930/930; watcher generation 143 passed with worktree fingerprint `8f60af8810f7`.
 
 ## Non-goals
 

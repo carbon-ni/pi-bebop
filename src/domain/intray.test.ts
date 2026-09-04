@@ -22,6 +22,7 @@ import {
 	ClearCommandSchema,
 	AbortCommandSchema,
 	commandToRequest,
+	COMMAND_REGISTRY,
 	MessageSendRequestSchema,
 	SubscribeRequestSchema,
 	StatusRequestSchema,
@@ -527,6 +528,38 @@ test("command and request mappings round-trip through their strict schemas", () 
 			...(command.type === "send" ? { delivery: command.delivery ?? "follow_up" } : {}),
 			id: command.id ?? `roundtrip-${i}`,
 		});
+	}
+});
+
+test("command registry defines one bidirectional wire entry per command", () => {
+	const commandNames = [
+		"send",
+		"interrupt",
+		"subscribe",
+		"status",
+		"get_message",
+		"clear",
+		"abort",
+		"presence_hint",
+		"member_status",
+		"member_status_target",
+		"member_request",
+		"member_response",
+		"member_interrupt",
+		"member_follow_up",
+		"member_redirect",
+		"member_inbox_send",
+		"crew_broadcast",
+		"member_idle_wait",
+	];
+	const entries = Object.entries(COMMAND_REGISTRY);
+	assert.deepEqual(entries.map(([command]) => command).sort(), commandNames.sort());
+	assert.equal(new Set(entries.map(([, definition]) => definition.method)).size, entries.length);
+	for (const [, definition] of entries) {
+		assert.equal(typeof definition.toParams, "function");
+		assert.equal(typeof definition.fromParams, "function");
+		assert.equal(typeof definition.requestSchema, "object");
+		assert.equal(typeof definition.resultSchema, "object");
 	}
 });
 

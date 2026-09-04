@@ -1,7 +1,7 @@
 ---
 id: TASK-0095
 title: Apply common instructions to every crew member
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [crew, manifest, instructions, system-prompt, security, scaffold, tdd]
@@ -54,6 +54,10 @@ Both are instructions. Ordering exists for readability and specialization; it do
 - [ ] `pi-bebop crew init` deterministically scaffolds a version 2 manifest plus `instructions/common.md`; exact rerun remains a byte-identical no-op and conflicts remain atomic.
 - [ ] Documentation explains the boundary: `AGENTS.md` is project-wide agent guidance, `common.md` is shared crew collaboration guidance, and member instruction files define role-specific responsibilities.
 - [ ] Focused happy/unhappy tests, typecheck, lint, package verification, and watcher final gate pass.
+
+## Verification evidence
+
+Independent coordinator QA: `npm test` passed 930/930; watcher generation 143 passed with worktree fingerprint `8f60af8810f7`.
 
 ## Non-goals
 - Multiple common files, include directives, inheritance, templating, or semantic conflict detection.
