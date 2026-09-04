@@ -447,3 +447,37 @@ test("writeResponse serializes a member.status result under the member.status me
 		result: { status },
 	});
 });
+
+test("RPC command response mapping covers every supported command", () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const commands = [
+		"status",
+		"send",
+		"interrupt",
+		"member_status",
+		"member_status_target",
+		"member_request",
+		"member_request_start",
+		"member_request_list",
+		"member_request_wait",
+		"member_response",
+		"member_interrupt",
+		"member_follow_up",
+		"member_redirect",
+		"member_inbox_send",
+		"crew_broadcast",
+		"guest_join",
+		"guest_leave",
+		"guest_send",
+		"member_idle_wait",
+		"get_message",
+		"clear",
+		"abort",
+		"subscribe",
+		"presence_hint",
+	] as const;
+	for (const command of commands)
+		writeResponse(socket, { type: "response", command, success: false, error: "covered", id: command });
+	assert.equal(writes.length, commands.length);
+});

@@ -32,6 +32,7 @@ const include = [
 ];
 const args = [
 	"--test",
+	"--test-concurrency=1",
 	"--experimental-test-coverage",
 	"--test-coverage-lines=95",
 	"--test-coverage-branches=90",
