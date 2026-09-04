@@ -25,4 +25,6 @@ export * from "./member-inbox.ts";
 export * from "./inbox-hint.ts";
 export * from "./member-request.ts";
 export * from "./guest-membership.ts";
+export * from "./guest-message.ts";
+
 export * from "./guest-control.ts";
