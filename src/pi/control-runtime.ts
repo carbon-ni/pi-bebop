@@ -47,6 +47,8 @@ import {
 	SESSION_MESSAGE_TYPE,
 } from "../domain/index.ts";
 import type { Membership, MembershipRuntime } from "../infra/membership-runtime.ts";
+import type { GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
+import type { GuestAdmissionRuntime } from "../infra/guest-admission-runtime.ts";
 import type { PresenceObserver } from "../application/presence-observer.ts";
 import { createInterruptFlow } from "../application/interrupt-flow.ts";
 import {
@@ -98,6 +100,8 @@ export interface SocketState {
 	/** TASK-0081: session-local accepted-message wake seam for the single blocking idle wait. */
 	wakeGate: AcceptedLocalMessageWakeGate;
 	membershipRuntime: MembershipRuntime | null;
+	guestMembershipRuntime?: GuestMembershipRuntime;
+	guestAdmissionRuntime?: GuestAdmissionRuntime;
 	presenceObserver?: PresenceObserver;
 	onInboxHint?: () => void;
 	/** Injectable member-status transport (TASK-0061); defaults to the shared real transport. */
@@ -388,6 +392,56 @@ export async function handleMemberResponse(
 		respond(false, command.type, undefined, error instanceof Error ? error.message : "response-failed");
 	}
 	return;
+}
+
+export async function handleGuestJoin(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "guest_join" }>,
+): Promise<void> {
+	const { state, respond } = context;
+	const membership = state.membershipRuntime?.getMembership();
+	const admission = state.guestAdmissionRuntime;
+	if (!membership || !admission) {
+		respond(false, command.type, undefined, !membership ? "not-joined" : "guest-disabled");
+		return;
+	}
+	if (state.context?.isProjectTrusted?.() !== true) {
+		respond(false, command.type, undefined, "untrusted-project");
+		return;
+	}
+	const result = admission.receive({
+		requestId: `guest-${String(command.id)}`,
+		crew: membership.manifest.crew
+			? { id: membership.manifest.crew.id, displayName: membership.manifest.crew.displayName }
+			: { id: "unknown", displayName: "unknown" },
+		guestIdentity: command.guestIdentity,
+		guestName: command.guestName,
+		callbackEndpoint: command.callbackEndpoint,
+		submittedByMember: membership.member.name,
+	});
+	if ("code" in result) {
+		respond(false, command.type, undefined, result.code);
+		return;
+	}
+	respond(true, command.type, { status: result.status, requestId: result.requestId, crew: result.crew });
+}
+
+export async function handleGuestLeave(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "guest_leave" }>,
+): Promise<void> {
+	const { state, respond } = context;
+	const admission = state.guestAdmissionRuntime;
+	if (!admission) {
+		respond(false, command.type, undefined, "guest-disabled");
+		return;
+	}
+	const result = admission.revoke(command.guestIdentity, command.crewId, command.callbackEndpoint);
+	if ("code" in result) {
+		respond(false, command.type, undefined, result.code);
+		return;
+	}
+	respond(true, command.type, {});
 }
 
 export async function handlePresenceHint(
@@ -901,6 +955,8 @@ export async function handleSend(
 const COMMAND_HANDLERS: CommandHandlers = {
 	member_request: handleMemberRequest,
 	member_response: handleMemberResponse,
+	guest_join: handleGuestJoin,
+	guest_leave: handleGuestLeave,
 	presence_hint: handlePresenceHint,
 	member_status: handleMemberStatus,
 	member_status_target: handleMemberStatusTarget,
@@ -1079,6 +1135,8 @@ export function createSocketState(now?: () => number): SocketState {
 		idleWaitSubscriptions: [],
 		wakeGate: new AcceptedLocalMessageWakeGate(),
 		membershipRuntime: null,
+		guestMembershipRuntime: undefined,
+		guestAdmissionRuntime: undefined,
 		now,
 	};
 }

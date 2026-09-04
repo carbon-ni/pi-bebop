@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
+import { registerGuestControlCommand } from "./pi/guest-control.ts";
 import {
 	renderCrewPresence,
 	renderCrewRosterEntry,
@@ -43,16 +44,22 @@ import {
 import { getSocketPath } from "./infra/intray-paths.ts";
 import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
 import { createMembershipRuntime } from "./infra/membership-runtime.ts";
+import { createGuestMembershipRuntime } from "./infra/guest-membership-runtime.ts";
+import { createGuestAdmissionRuntime } from "./infra/guest-admission-runtime.ts";
 import {
 	appendMembershipContext,
 	getLatestMembershipState,
 	MEMBERSHIP_ENTRY_TYPE,
+	GUEST_MEMBERSHIP_ENTRY_TYPE,
+	getLatestGuestMembershipRecords,
+	guestMembershipStateFromRuntime,
 	membershipStateFromRuntime,
 } from "./pi/membership-context.ts";
 import { releaseMembershipBeforeCleanup, restorePersistedMembership } from "./pi/membership-lifecycle.ts";
 import {
 	maybeHandleStartupRoleJoin,
 	maybeHandleStartupSocketJoin,
+	maybeHandleStartupGuestJoins,
 	resolveStartupCrewRole,
 	startupRoleSelectionError,
 	type StartupRoleSelection,
@@ -65,6 +72,8 @@ import { MemberRequestFlow } from "./application/member-request-flow.ts";
 const CREW_FLAG = "crew";
 const CREW_SOCKET_FLAG = "crew-socket";
 const CREW_ROLE_FLAG = "crew-role";
+const GUEST_AS_FLAG = "guest-as";
+const GUEST_JOIN_FLAG = "guest-join";
 
 /** Crew management with its own namespaced socket transport. */
 export default function (pi: ExtensionAPI) {
@@ -80,6 +89,14 @@ export default function (pi: ExtensionAPI) {
 		description: "Select a configured crew member by exact role in the current project",
 		type: "string",
 	});
+	pi.registerFlag(GUEST_AS_FLAG, {
+		description: "Guest display name for repeatable startup admission requests",
+		type: "string",
+	});
+	pi.registerFlag(GUEST_JOIN_FLAG, {
+		description: "Member socket to request Guest admission from (repeatable)",
+		type: "string",
+	});
 
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
 	pi.registerMessageRenderer("crew-presence", renderCrewPresence);
@@ -89,6 +106,14 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer("crew-inbox", renderCrewInboxEntry);
 
 	const state = createSocketState(Date.now);
+	let guestRequestIndex = 0;
+	state.guestMembershipRuntime = createGuestMembershipRuntime({
+		guestIdentity: () => state.context?.sessionManager.getSessionId() ?? "",
+		callbackEndpoint: () => state.socketPath ?? "",
+		createRequestId: () => `guest-request-${++guestRequestIndex}`,
+		submitJoinRequest: async () => undefined,
+		persist: (records) => pi.appendEntry(GUEST_MEMBERSHIP_ENTRY_TYPE, guestMembershipStateFromRuntime(records)),
+	});
 	state.membershipRuntime = createMembershipRuntime({
 		loadManifest: async (manifestPath) => {
 			const context = state.context;
@@ -97,6 +122,19 @@ export default function (pi: ExtensionAPI) {
 			return readTrustedCrewManifest(manifestPath, projectRoot, () => context.isProjectTrusted());
 		},
 	});
+	const refreshGuestAdmission = (records: readonly unknown[] = []) => {
+		const membership = state.membershipRuntime?.getMembership();
+		state.guestAdmissionRuntime = membership
+			? createGuestAdmissionRuntime({
+					manifest: membership.manifest,
+					memberName: membership.member.name,
+					createRequestId: () => `guest-request-${++guestRequestIndex}`,
+					persist: (approved) =>
+						pi.appendEntry(GUEST_MEMBERSHIP_ENTRY_TYPE, guestMembershipStateFromRuntime(approved)),
+				})
+			: undefined;
+		state.guestAdmissionRuntime?.restore(records);
+	};
 
 	const inboxBridge = createInboxBridgeController(pi, state, { now: Date.now });
 	state.onInboxHint = () => {
@@ -253,18 +291,48 @@ export default function (pi: ExtensionAPI) {
 			activateMembershipTool: () => activateMembershipTool(pi),
 			deactivateMembershipTool: () => deactivateMembershipTool(pi),
 			refreshStatus: () => refreshIntrayStatus(state),
+			refreshGuestAdmission,
 			refreshPresence,
 			stopPresence,
 			inboxBridge,
 		},
 		"crew",
 	);
+	registerGuestControlCommand(pi, state, {
+		ensureControlServer: (api, currentState, ctx) => ensureControlServer(api, currentState, ctx),
+		guestMembershipRuntime: state.guestMembershipRuntime,
+		guestIdentity: (ctx) => ctx.sessionManager.getSessionId(),
+	});
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+		const rawGuestName = pi.getFlag(GUEST_AS_FLAG);
+		const guestTargets = (() => {
+			const configured = pi.getFlag(GUEST_JOIN_FLAG);
+			if (Array.isArray(configured))
+				return configured.filter((value): value is string => typeof value === "string");
+			const values: string[] = [];
+			for (let index = 0; index < process.argv.length; index += 1) {
+				const value = process.argv[index]!;
+				if (value.startsWith(`--${GUEST_JOIN_FLAG}=`)) values.push(value.slice(GUEST_JOIN_FLAG.length + 3));
+				else if (value === `--${GUEST_JOIN_FLAG}` && process.argv[index + 1])
+					values.push(process.argv[++index]!);
+			}
+			return values;
+		})();
+		const guestRequested =
+			(typeof rawGuestName === "string" && rawGuestName.trim().length > 0) ||
+			guestTargets.length > 0 ||
+			process.argv.some((value) => value === `--${GUEST_AS_FLAG}` || value.startsWith(`--${GUEST_AS_FLAG}=`));
 		const startupSocket =
 			typeof pi.getFlag(CREW_SOCKET_FLAG) === "string" && String(pi.getFlag(CREW_SOCKET_FLAG)).trim().length > 0;
 		const rawCrewRole = pi.getFlag(CREW_ROLE_FLAG);
 		const startupRole = typeof rawCrewRole === "string" && rawCrewRole.trim().length > 0;
+		if (guestRequested && (startupRole || startupSocket || pi.getFlag(CREW_FLAG) === true)) {
+			reconcileMembershipTools(pi, false);
+			const message = "Guest startup flags cannot be combined with Member crew membership flags";
+			ctx.hasUI ? ctx.ui.notify(message, "error") : console.error(message);
+			return;
+		}
 		if (rawCrewRole !== undefined && rawCrewRole !== false && (!startupRole || typeof rawCrewRole !== "string")) {
 			reconcileMembershipTools(pi, false);
 			ctx.hasUI
@@ -304,8 +372,23 @@ export default function (pi: ExtensionAPI) {
 		}
 		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
 		const persisted = getLatestMembershipState(branch);
+		const persistedGuests = getLatestGuestMembershipRecords(branch);
 		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
-		if (crewRequested || startupSocket || startupRole || persisted?.active === true) {
+		if (guestRequested) {
+			if (persisted?.active === true) {
+				reconcileMembershipTools(pi, false);
+				const message = "Guest startup flags cannot resume a Member crew membership";
+				ctx.hasUI ? ctx.ui.notify(message, "error") : console.error(message);
+				return;
+			}
+			await ensureControlServer(pi, state, ctx);
+			state.guestMembershipRuntime?.restore(persistedGuests);
+			refreshGuestAdmission(persistedGuests);
+			await maybeHandleStartupGuestJoins(ctx, pi, state.guestMembershipRuntime!, state.socketPath!);
+			reconcileMembershipTools(pi, false);
+			return;
+		}
+		if (crewRequested || startupSocket || startupRole || persisted?.active === true || persistedGuests.length > 0) {
 			await ensureControlServer(pi, state, ctx);
 		} else {
 			state.context = ctx;
@@ -332,6 +415,7 @@ export default function (pi: ExtensionAPI) {
 					);
 			const membership = state.membershipRuntime.getMembership();
 			if (joined && membership) {
+				refreshGuestAdmission();
 				activateMembershipTool(pi);
 				refreshIntrayStatus(state);
 				await refreshPresence();
@@ -348,6 +432,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			return;
 		}
+		state.guestMembershipRuntime?.restore(persistedGuests);
 		await restorePersistedMembership({
 			runtime: state.membershipRuntime,
 			persisted,
@@ -355,6 +440,7 @@ export default function (pi: ExtensionAPI) {
 			globalSocketPath: state.socketPath,
 			manifestPathForSocket: getCrewManifestPathFromSocketPath,
 			announce: async (message) => {
+				refreshGuestAdmission();
 				activateMembershipTool(pi);
 				refreshIntrayStatus(state);
 				await refreshPresence();

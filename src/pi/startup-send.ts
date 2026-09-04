@@ -2,6 +2,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readTrustedCrewManifest, selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import type { MembershipRuntime } from "../infra/membership-runtime.ts";
+import type { GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
 import { getSocketPath } from "../infra/intray-paths.ts";
 import { isSocketAlive, resolveSessionIdFromAlias } from "../infra/control-store.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
@@ -14,6 +15,8 @@ import {
 	normalizeWaitUntil,
 	type RpcSendCommand,
 	type WaitUntil,
+	isGuestJoinResult,
+	type GuestJoinCommand,
 } from "../domain/index.ts";
 
 export type StartupControlSendFlags = {
@@ -304,6 +307,99 @@ export async function maybeHandleStartupRoleJoin(
 		`Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`,
 	);
 	return true;
+}
+
+export interface StartupGuestJoinResult {
+	readonly target: string;
+	readonly ok: boolean;
+	readonly status?: "pending" | "approved";
+	readonly requestId?: string;
+	readonly crew?: string;
+	readonly error?: string;
+}
+
+function getRepeatedFlag(pi: ExtensionAPI, name: string): string[] {
+	const value = pi.getFlag(name);
+	if (Array.isArray(value))
+		return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+	if (typeof value === "string" && value.trim().length > 0) return [value.trim()];
+	const prefix = `--${name}`;
+	const values: string[] = [];
+	for (let index = 0; index < process.argv.length; index += 1) {
+		const arg = process.argv[index]!;
+		if (arg.startsWith(`${prefix}=`)) values.push(arg.slice(prefix.length + 1));
+		else if (arg === prefix && process.argv[index + 1]) values.push(process.argv[++index]!);
+	}
+	return values.filter((item) => item.trim().length > 0).map((item) => item.trim());
+}
+
+/**
+ * Handles repeatable Guest startup joins independently. A failed target is
+ * reported without undoing successful bindings to other Crews.
+ */
+export async function maybeHandleStartupGuestJoins(
+	ctx: ExtensionContext,
+	pi: ExtensionAPI,
+	guestRuntime: GuestMembershipRuntime,
+	callbackEndpoint: string,
+): Promise<readonly StartupGuestJoinResult[]> {
+	const guestNameValue = pi.getFlag("guest-as");
+	const guestNameFromArgv = process.argv
+		.find((value) => value.startsWith("--guest-as="))
+		?.slice("--guest-as=".length);
+	const guestName = (typeof guestNameValue === "string" ? guestNameValue : (guestNameFromArgv ?? "")).trim();
+	const targets = getRepeatedFlag(pi, "guest-join");
+	if (!guestName && targets.length === 0) return [];
+	if (!guestName || targets.length === 0) {
+		const message = "Guest startup requires --guest-as <name> and at least one --guest-join <socket>.";
+		reportStartupControlSend(ctx, message, "error");
+		return targets.map((target) => ({ target, ok: false, error: message }));
+	}
+	const results: StartupGuestJoinResult[] = [];
+	for (const target of targets) {
+		const command: GuestJoinCommand = {
+			type: "guest_join",
+			guestIdentity: ctx.sessionManager.getSessionId(),
+			guestName,
+			callbackEndpoint,
+		};
+		try {
+			const result = await sendRpcCommand(target, command, { timeout: 5000 });
+			if (!result.response.success || !isGuestJoinResult(result.response.data)) {
+				const error = result.response.error ?? "invalid admission response";
+				results.push({ target, ok: false, error });
+				reportStartupControlSend(ctx, `Guest startup join failed for ${target}: ${error}`, "error");
+				continue;
+			}
+			const tracked = guestRuntime.track(
+				{ crew: result.response.data.crew, guestName, memberSocket: target, submittedByMember: "member" },
+				result.response.data.requestId,
+				result.response.data.status,
+			);
+			if (!tracked.ok) {
+				const error = "response could not be bound to this session";
+				results.push({ target, ok: false, error });
+				reportStartupControlSend(ctx, `Guest startup join failed for ${target}: ${error}`, "error");
+				continue;
+			}
+			results.push({
+				target,
+				ok: true,
+				status: result.response.data.status,
+				requestId: result.response.data.requestId,
+				crew: result.response.data.crew.displayName,
+			});
+			reportStartupControlSend(
+				ctx,
+				`Guest startup ${result.response.data.status} for ${result.response.data.crew.displayName}`,
+			);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "transport error";
+			results.push({ target, ok: false, error: message });
+			reportStartupControlSend(ctx, `Guest startup join failed for ${target}: ${message}`, "error");
+		}
+	}
+	return results;
 }
 
 export async function maybeHandleStartupControlSend(

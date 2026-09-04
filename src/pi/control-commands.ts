@@ -1,8 +1,17 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { formatCrewRoster, parseSessionControlAction, type SessionControlAction } from "../domain/index.ts";
+import {
+	formatCrewRoster,
+	parseSessionControlAction,
+	parseGuestControlAction,
+	type SessionControlAction,
+} from "../domain/index.ts";
 import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
 import { selectCrewSocketPath } from "../infra/crew-manifest-store.ts";
 import type { MembershipRuntime, Membership } from "../infra/membership-runtime.ts";
+import type { GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
+import type { GuestAdmissionRuntime } from "../infra/guest-admission-runtime.ts";
+import { sendRpcCommand } from "../infra/rpc-client.ts";
+import { isGuestJoinResult, type GuestJoinCommand } from "../domain/index.ts";
 import { deriveIntrayStatus, ensureControlServer, type SocketState } from "./control-runtime.ts";
 import { releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
 import { formatInboxStatus, type InboxBridgeController } from "../application/inbox-bridge.ts";
@@ -19,11 +28,17 @@ export type ControlCommandDeps = {
 	deactivateMembershipTool?: () => void;
 	refreshStatus?: () => void;
 	refreshPresence?: () => void | Promise<void>;
+	refreshGuestAdmission?: () => void;
 	stopPresence?: () => void | Promise<void>;
 	inboxBridge?: InboxBridgeController | null;
+	guestMembershipRuntime?: GuestMembershipRuntime;
+	guestAdmissionRuntime?: GuestAdmissionRuntime;
+	guestIdentity?: () => string;
+	sendGuestJoin?: typeof sendRpcCommand;
 };
 
 const ACTIONS: SessionControlAction[] = ["join", "leave", "members", "status", "stop", "inbox"];
+const GUEST_ACTIONS = ["join", "crews", "leave"] as const;
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
 	if (ctx.hasUI) ctx.ui.notify(message, level);
@@ -121,6 +136,7 @@ export function registerSessionControlCommand(
 					}
 					const joinedMessage = `Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`;
 					deps.persistMembership?.(true, result.membership);
+					deps.refreshGuestAdmission?.();
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
 					await deps.refreshPresence?.();
@@ -141,6 +157,7 @@ export function registerSessionControlCommand(
 					else {
 						if (result.left) {
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
+							deps.refreshGuestAdmission?.();
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
 							await deps.stopPresence?.();
@@ -149,6 +166,45 @@ export function registerSessionControlCommand(
 						}
 						notify(ctx, result.left ? "Crew membership released" : "Crew not joined");
 					}
+					return;
+				}
+				case "guests": {
+					const admission = state.guestAdmissionRuntime ?? deps.guestAdmissionRuntime;
+					if (!admission) {
+						pi.appendEntry("crew-guests", { content: "Guest admission is disabled for this Crew." });
+						return;
+					}
+					const rows = admission.list();
+					const content =
+						rows.length === 0
+							? "Crew Guests: none"
+							: [
+									"Crew Guests:",
+									...rows.map((row) =>
+										row.status === "pending"
+											? `- pending ${row.requestId}: ${row.guestName}`
+											: `- ${row.status} ${row.guestName}${row.approvedBy ? ` (approved by ${row.approvedBy})` : ""}`,
+									),
+								].join("\\n");
+					pi.appendEntry("crew-guests", { content });
+					return;
+				}
+				case "guest": {
+					const admission = state.guestAdmissionRuntime ?? deps.guestAdmissionRuntime;
+					const currentMembership = membership?.getMembership();
+					if (!admission || !currentMembership) {
+						notify(ctx, "Guest admission is unavailable", "error");
+						return;
+					}
+					const approver = currentMembership.member.name;
+					const result =
+						parsed.target === "approve"
+							? admission.approve(parsed.value, approver)
+							: parsed.target === "deny"
+								? admission.deny(parsed.value, approver)
+								: admission.remove(parsed.value, approver);
+					if ("code" in result) notify(ctx, `Guest ${parsed.target} failed: ${result.code}`, "error");
+					else notify(ctx, `Guest ${parsed.target} completed`);
 					return;
 				}
 				case "members": {

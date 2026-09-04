@@ -70,6 +70,10 @@ function methodForCommand(command: string): string | undefined {
 			return "member.inbox_send";
 		case "crew_broadcast":
 			return "crew.broadcast";
+		case "guest_join":
+			return "guest.join";
+		case "guest_leave":
+			return "guest.leave";
 		case "member_idle_wait":
 			return "member.idle_wait";
 		case "get_message":

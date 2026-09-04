@@ -157,10 +157,10 @@ test("fresh extension load registers membership tools and renderers without call
 	} as never;
 
 	assert.doesNotThrow(() => extension(pi));
-	assert.deepEqual(flags, ["crew", "crew-socket", "crew-role"]);
+	assert.deepEqual(flags, ["crew", "crew-socket", "crew-role", "guest-as", "guest-join"]);
 	// Registered (getAllTools) on fresh load.
 	assert.deepEqual(tools, MEMBERSHIP_TOOLS);
-	assert.deepEqual(commands, ["crew"]);
+	assert.deepEqual(commands, ["crew", "guest"]);
 	assert.equal(renderers.includes("crew-presence"), true);
 	assert.equal(renderers.includes("crew-interrupt"), true);
 
