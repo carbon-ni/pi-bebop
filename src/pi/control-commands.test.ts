@@ -5,6 +5,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { createSocketState } from "./control-runtime.ts";
 import { registerSessionControlCommand, type ControlCommandDeps } from "./control-commands.ts";
 import { createMembershipRuntime, type MembershipRuntime } from "../infra/membership-runtime.ts";
+import { createGuestAdmissionRuntime } from "../infra/guest-admission-runtime.ts";
 import { parseCrewManifest } from "../domain/index.ts";
 
 function setup() {
@@ -51,11 +52,11 @@ test("crew command completions expose only the consolidated command surface", as
 	const values = (setupState.getCommand().getArgumentCompletions("") as Array<{ value: string }>).map(
 		({ value }) => value,
 	);
-	assert.deepEqual(values, ["join", "leave", "members", "status", "stop", "inbox"]);
+	assert.deepEqual(values, ["join", "leave", "members", "guests", "guest", "status", "stop", "inbox"]);
 	assert.match((setupState.getCommand() as any).description, /crew members/i);
 	await setupState.getCommand().handler("list", setupState.ctx);
 	assert.deepEqual(setupState.notifications, [
-		"Unknown crew action: list. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
+		"Unknown crew action: list. Use /crew join <socket>|leave|members|guests|guest approve|deny|remove|status|stop|inbox status|cancel <id>|pause|resume.",
 	]);
 });
 
@@ -676,4 +677,115 @@ test("/crew join establishes the inbox bridge and leave invalidates it", async (
 	assert.ok(calls.includes("establish"));
 	await setupState.getCommand().handler("leave", setupState.ctx);
 	assert.ok(calls.includes("invalidate"));
+});
+
+function admissionSetup(approvers: string[] = ["lead"]) {
+	const setupState = setup();
+	const membership = {
+		manifestPath: "/project/.pi/bebop/crew.json",
+		socketPath: "/project/.pi/bebop/sockets/lead.sock",
+		globalSocketPath: "/tmp/global.sock",
+		manifest: {
+			version: 1 as const,
+			crew: { id: "alpha", displayName: "Alpha" },
+			guestAdmission: { approvers },
+			members: [{ name: "lead", role: "lead", socket: "sockets/lead.sock" }],
+		},
+		member: { name: "lead", role: "lead", socket: "sockets/lead.sock" },
+	};
+	const runtime = { getMembership: () => membership } as unknown as MembershipRuntime;
+	const snapshots: unknown[][] = [];
+	const admission = createGuestAdmissionRuntime({
+		manifest: membership.manifest,
+		memberName: "lead",
+		createRequestId: (() => {
+			let index = 0;
+			return () => `generated-${++index}`;
+		})(),
+		createCapability: () => "opaque-capability",
+		persist: (records) => snapshots.push(records),
+	});
+	setupState.state.guestAdmissionRuntime = admission;
+	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps({ membershipRuntime: runtime }));
+	const receive = (overrides: Record<string, unknown> = {}) =>
+		admission.receive({
+			requestId: "incoming",
+			crew: { id: "alpha", displayName: "Alpha" },
+			guestIdentity: "guest-identity",
+			guestName: "Taylor",
+			callbackEndpoint: "/tmp/callback.sock",
+			submittedByMember: "lead",
+			...overrides,
+		});
+	return { ...setupState, admission, receive, snapshots };
+}
+
+test("/crew guests renders each Guest state on its own line without endpoints", async () => {
+	const setupState = admissionSetup();
+	await setupState.getCommand().handler("guests", setupState.ctx);
+	assert.deepEqual((setupState.entries.at(-1)?.data as { content: string }).content, "Crew Guests: none");
+
+	setupState.receive({ guestIdentity: "pending-guest", guestName: "Pending" });
+	setupState.receive({ guestIdentity: "approved-guest", guestName: "Approved" });
+	assert.ok(setupState.admission.approve("generated-2", "lead").ok);
+	setupState.receive({ guestIdentity: "denied-guest", guestName: "Denied" });
+	assert.ok(setupState.admission.deny("generated-3", "lead").ok);
+	await setupState.getCommand().handler("guests", setupState.ctx);
+	const content = (setupState.entries.at(-1)?.data as { content: string }).content;
+	const lines = content.split("\n");
+	assert.equal(lines[0], "Crew Guests:");
+	assert.deepEqual(lines.slice(1), [
+		"- approved Approved (approved by lead)",
+		"- denied Denied",
+		"- pending generated-1: Pending",
+	]);
+	assert.ok(!content.includes("/tmp/callback.sock"), "callback endpoints must never render");
+	assert.ok(!content.includes("opaque-capability"), "capabilities must never render");
+});
+
+test("/crew guests reports disabled admission without reading a runtime", async () => {
+	const setupState = setup();
+	registerSessionControlCommand(setupState.pi, setupState.state, baseDeps());
+	await setupState.getCommand().handler("guests", setupState.ctx);
+	assert.deepEqual(
+		(setupState.entries.at(-1)?.data as { content: string }).content,
+		"Guest admission is disabled for this Crew.",
+	);
+});
+
+test("/crew guest approve records the approver and reports completion", async () => {
+	const setupState = admissionSetup();
+	setupState.receive({ guestIdentity: "guest-1", guestName: "Taylor" });
+	await setupState.getCommand().handler("guest approve generated-1", setupState.ctx);
+	assert.deepEqual(setupState.notifications, ["Guest approve completed"]);
+	assert.equal(setupState.admission.list()[0]?.status, "approved");
+	assert.equal((setupState.admission.list()[0] as { approvedBy?: string }).approvedBy, "lead");
+});
+
+test("/crew guest deny and remove surface unauthorized, not-found, and success states", async () => {
+	const setupState = admissionSetup();
+	setupState.receive({ guestIdentity: "guest-1", guestName: "Taylor" });
+	await setupState.getCommand().handler("guest deny generated-1", setupState.ctx);
+	assert.deepEqual(setupState.notifications, ["Guest deny completed"]);
+
+	await setupState.getCommand().handler("guest deny missing-id", setupState.ctx);
+	assert.deepEqual(setupState.notifications.at(-1), "Guest deny failed: not-found");
+
+	await setupState.getCommand().handler("guest remove Taylor", setupState.ctx);
+	assert.deepEqual(setupState.notifications.at(-1), "Guest remove failed: not-found");
+
+	setupState.receive({ guestIdentity: "guest-2", guestName: "Sasha" });
+	setupState.admission.approve("generated-2", "lead");
+	await setupState.getCommand().handler("guest remove Sasha", setupState.ctx);
+	assert.deepEqual(setupState.notifications.at(-1), "Guest remove completed");
+	assert.equal(setupState.admission.list()[0]?.status, "revoked");
+});
+
+test("/crew guest requires the joined Member to be an exact configured approver", async () => {
+	// Joined member is "lead" but only "gatekeeper" is configured as approver.
+	const setupState = admissionSetup(["gatekeeper"]);
+	setupState.receive({ guestIdentity: "guest-1", guestName: "Taylor" });
+	await setupState.getCommand().handler("guest approve generated-1", setupState.ctx);
+	assert.deepEqual(setupState.notifications, ["Guest approve failed: unauthorized"]);
+	assert.equal(setupState.admission.list()[0]?.status, "pending");
 });

@@ -230,8 +230,15 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 				return existing ? { ok: false, code: "approval-mismatch" } : { ok: false, code: "not-found" };
 			}
 			try {
-				const record: GuestMembershipRecord = { ...entry.request, approvedBy: approver };
-				delete (record as Partial<GuestMembershipRecord> & { submittedByMember?: string }).submittedByMember;
+				// Built explicitly: a persisted record must satisfy the strict
+				// GuestMembershipRecord schema so admission restore can accept it.
+				const record: GuestMembershipRecord = {
+					crew: entry.request.crew,
+					guestIdentity: entry.request.guestIdentity,
+					guestName: entry.request.guestName,
+					callbackEndpoint: entry.request.callbackEndpoint,
+					approvedBy: approver,
+				};
 				const bound = bindGuestApprovalCapability(capability);
 				states.set(entry.request.guestIdentity, { status: "approved", requestId, record, capability: bound });
 				persist();
@@ -307,7 +314,16 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 				if (
 					!selector ||
 					!isGuestMembershipRecord(record) ||
-					!isGuestJoinRequest({ ...record, requestId: "restore", submittedByMember: deps.memberName }) ||
+					// A record maps back to its admission request without approvedBy
+					// (join requests never carry it) and only for this crew.
+					!isGuestJoinRequest({
+						requestId: "restore",
+						crew: record.crew,
+						guestIdentity: record.guestIdentity,
+						guestName: record.guestName,
+						callbackEndpoint: record.callbackEndpoint,
+						submittedByMember: deps.memberName,
+					}) ||
 					record.crew.id !== selector.id ||
 					!authorized(record.approvedBy)
 				) {

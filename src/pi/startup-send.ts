@@ -356,6 +356,17 @@ export async function maybeHandleStartupGuestJoins(
 		return targets.map((target) => ({ target, ok: false, error: message }));
 	}
 	const results: StartupGuestJoinResult[] = [];
+	if (!ctx.isProjectTrusted()) {
+		const message = "Guest startup join failed: project is not trusted";
+		reportStartupControlSend(ctx, message, "error");
+		return targets.map((target) => ({ target, ok: false, error: message }));
+	}
+	const unique = new Set(targets);
+	if (unique.size !== targets.length) {
+		const message = `Guest startup join failed: duplicate --guest-join target.`;
+		reportStartupControlSend(ctx, message, "error");
+		return targets.map((target) => ({ target, ok: false, error: message }));
+	}
 	for (const target of targets) {
 		const command: GuestJoinCommand = {
 			type: "guest_join",

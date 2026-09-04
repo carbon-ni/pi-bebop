@@ -1,9 +1,14 @@
-import test from "node:test";
+import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createMembershipRuntime, type MembershipRuntime } from "../infra/membership-runtime.ts";
+import { createGuestMembershipRuntime, type GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
 import { parseCrewManifest } from "../domain/index.ts";
 import {
+	maybeHandleStartupGuestJoins,
 	maybeHandleStartupRoleJoin,
 	maybeHandleStartupSocketJoin,
 	normalizeStartupSocketPath,
@@ -16,6 +21,7 @@ function context(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
 		hasUI: true,
 		ui: { notify() {} },
 		isProjectTrusted: () => true,
+		sessionManager: { getSessionId: () => "startup-session" },
 		...overrides,
 	} as ExtensionContext;
 }
@@ -282,4 +288,175 @@ test("untrusted or failed startup selection is explicit and does not create memb
 	);
 	assert.equal(failed, false);
 	assert.equal(joins, 1);
+});
+describe("guest startup joins", () => {
+	async function memberServer(root: string, name: string, status: "pending" | "approved" = "pending") {
+		const { createRpcServer, closeRpcServer, writeResponse } = await import("../infra/rpc-server.ts");
+		const socketPath = path.join(root, `${name}.sock`);
+		let requests = 0;
+		const server = await createRpcServer(socketPath, (command, socket) => {
+			if (command.type !== "guest_join") return;
+			requests += 1;
+			writeResponse(socket, {
+				type: "response",
+				command: "guest_join",
+				success: true,
+				id: command.id,
+				data: {
+					status,
+					requestId: `${name}-request-1`,
+					crew: { id: name, displayName: name.toUpperCase() },
+				},
+			});
+		});
+		return { socketPath, close: () => closeRpcServer(server), requestCount: () => requests };
+	}
+
+	function guestFlags(flags: Record<string, unknown>): ExtensionAPI {
+		return { getFlag: (name: string) => flags[name] } as unknown as ExtensionAPI;
+	}
+
+	function guestRuntime(): GuestMembershipRuntime {
+		return createGuestMembershipRuntime({
+			guestIdentity: "startup-guest-session",
+			callbackEndpoint: "/tmp/startup-callback.sock",
+			createRequestId: () => "local-1",
+			submitJoinRequest: async () => undefined,
+		});
+	}
+
+	function notifyingContext(trusted = true) {
+		const notifications: string[] = [];
+		const ctx = context({
+			hasUI: true,
+			ui: { notify: (message: string) => notifications.push(message) },
+			isProjectTrusted: () => trusted,
+		});
+		return { ctx, notifications };
+	}
+
+	test("returns no outcomes when no guest flags are present", async () => {
+		const results = await maybeHandleStartupGuestJoins(
+			context(),
+			guestFlags({}),
+			guestRuntime(),
+			"/tmp/callback.sock",
+		);
+		assert.deepEqual(results, []);
+	});
+
+	test("missing --guest-as or --guest-join fails before sending any request", async () => {
+		const { ctx, notifications } = notifyingContext();
+		const dead = path.join(os.tmpdir(), `missing-flag-${process.pid}.sock`);
+		const results = await maybeHandleStartupGuestJoins(
+			ctx,
+			guestFlags({ "guest-join": dead }),
+			guestRuntime(),
+			"/tmp/callback.sock",
+		);
+		assert.deepEqual(results, [
+			{
+				target: dead,
+				ok: false,
+				error: "Guest startup requires --guest-as <name> and at least one --guest-join <socket>.",
+			},
+		]);
+		assert.equal(notifications.length, 1);
+
+		const noTargets = await maybeHandleStartupGuestJoins(
+			ctx,
+			guestFlags({ "guest-as": "Alex" }),
+			guestRuntime(),
+			"/tmp/callback.sock",
+		);
+		assert.deepEqual(noTargets, []);
+		assert.equal(notifications.length, 2);
+	});
+
+	test("duplicate --guest-join targets reject the whole startup before sending", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "guest-startup-"));
+		try {
+			const crew = await memberServer(root, "dup-crew");
+			try {
+				const { ctx, notifications } = notifyingContext();
+				const runtime = guestRuntime();
+				const results = await maybeHandleStartupGuestJoins(
+					ctx,
+					guestFlags({ "guest-as": "Alex", "guest-join": [crew.socketPath, crew.socketPath] }),
+					runtime,
+					"/tmp/callback.sock",
+				);
+				assert.ok(
+					results.every((result) => !result.ok),
+					"every duplicate outcome fails",
+				);
+				assert.ok(results.every((result) => (result.error ?? "").includes("duplicate")));
+				assert.equal(crew.requestCount(), 0, "no wire request may precede validation");
+				assert.deepEqual(runtime.list(), []);
+				assert.match(notifications[0] ?? "", /duplicate/);
+			} finally {
+				await crew.close();
+			}
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test("untrusted projects reject guest startup before sending any request", async () => {
+		const { ctx, notifications } = notifyingContext(false);
+		const runtime = guestRuntime();
+		const results = await maybeHandleStartupGuestJoins(
+			ctx,
+			guestFlags({ "guest-as": "Alex", "guest-join": ["/tmp/whatever.sock"] }),
+			runtime,
+			"/tmp/callback.sock",
+		);
+		assert.ok(results.every((result) => !result.ok));
+		assert.ok(results.every((result) => (result.error ?? "").includes("trusted")));
+		assert.deepEqual(runtime.list(), []);
+		assert.match(notifications[0] ?? "", /trusted/);
+	});
+
+	test("one unavailable crew does not roll back successful bindings to other crews", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "guest-startup-"));
+		try {
+			const alpha = await memberServer(root, "alpha");
+			const beta = await memberServer(root, "beta", "approved");
+			const dead = path.join(root, "dead.sock");
+			try {
+				const runtime = guestRuntime();
+				const results = await maybeHandleStartupGuestJoins(
+					context(),
+					guestFlags({ "guest-as": "Alex", "guest-join": [alpha.socketPath, dead, beta.socketPath] }),
+					runtime,
+					"/tmp/callback.sock",
+				);
+				assert.deepEqual(
+					results.map((result) => [
+						result.target === dead ? "dead" : result.target,
+						result.ok,
+						result.status,
+					]),
+					[
+						[alpha.socketPath, true, "pending"],
+						["dead", false, undefined],
+						[beta.socketPath, true, "approved"],
+					],
+				);
+				assert.equal(alpha.requestCount(), 1);
+				assert.deepEqual(
+					runtime.list().map((row) => [row.crew.id, row.status]),
+					[
+						["alpha", "pending"],
+						["beta", "approved"],
+					],
+				);
+			} finally {
+				await alpha.close();
+				await beta.close();
+			}
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
 });

@@ -834,11 +834,11 @@ test("parseSessionControlAction reports crew-specific quote errors", () => {
 test("parseSessionControlAction rejects removed direct actions and invalid arity", () => {
 	for (const action of ["listen", "connect", "disconnect"]) {
 		assert.deepEqual(parseSessionControlAction(action), {
-			error: `Unknown crew action: ${action}. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.`,
+			error: `Unknown crew action: ${action}. Use /crew join <socket>|leave|members|guests|guest approve|deny|remove|status|stop|inbox status|cancel <id>|pause|resume.`,
 		});
 	}
 	assert.deepEqual(parseSessionControlAction("start"), {
-		error: "Unknown crew action: start. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
+		error: "Unknown crew action: start. Use /crew join <socket>|leave|members|guests|guest approve|deny|remove|status|stop|inbox status|cancel <id>|pause|resume.",
 	});
 	assert.deepEqual(parseSessionControlAction("join"), {
 		error: "Missing target. Use /crew join <socket>.",
@@ -847,7 +847,7 @@ test("parseSessionControlAction rejects removed direct actions and invalid arity
 		error: "Join accepts exactly one target.",
 	});
 	assert.deepEqual(parseSessionControlAction("status now"), {
-		error: "Too many arguments. Use /crew join <socket>|leave|members|status|stop|inbox status|cancel <id>|pause|resume.",
+		error: "Too many arguments. Use /crew join <socket>|leave|members|guests|guest approve|deny|remove|status|stop|inbox status|cancel <id>|pause|resume.",
 	});
 });
 
