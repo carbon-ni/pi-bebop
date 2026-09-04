@@ -96,5 +96,6 @@ state usable by every Member runtime does not exist:
 
 Protocol slice implementation is stopped. Domain foundation commit `fc5f51f`
 is preserved (routing-agnostic selectors remain valid under direct routing).
-Remediation requires a crew-owned Guest registry (crew-shared durable store)
-before the wire/protocol slice can proceed. PO decision requested.
+PO decision 2026-09-04: TASK-0161 reopened to deliver the crew-owned Guest
+registry (see 0161 plan). TASK-0162 stays stopped until that lands; messaging
+slices resume only after 0161 recloses with independent QA.

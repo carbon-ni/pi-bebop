@@ -1,7 +1,7 @@
 ---
 id: TASK-0161
 title: Implement approved Guest admission and multi-crew lifecycle
-status: done
+status: doing
 depends_on: [TASK-0160]
 priority: high
 tags: [crew, guest, admission, multi-crew, lifecycle, cli, security, tdd]
@@ -74,7 +74,7 @@ publishes its new callback endpoint without repeating approval.
       secrets are redacted from tools, TUI, logs, roster, errors, and reports.
 - [x] Runtime stores zero-to-many Guest memberships keyed by stable crew
       identity. Joining/restoring/leaving one cannot mutate another.
-- [x] Restart restores only still-approved matching memberships; stale,
+- [ ] Restart restores only still-approved matching memberships; stale,
       revoked, moved, tampered, or mismatched records fail closed per crew while
       preserving independent valid memberships.
 - [x] Guest callback endpoint is never published as or allowed to replace a
@@ -93,11 +93,11 @@ publishes its new callback endpoint without repeating approval.
       stable error codes and token-light default output.
 - [x] Roster/presence distinguish pending, approved-online, approved-offline,
       left, and revoked without treating socket liveness as approval.
-- [x] Concurrent approve/revoke/join/leave is deterministic, atomic per crew,
+- [ ] Concurrent approve/revoke/join/leave is deterministic, atomic per crew,
       and leaves no orphaned capability or symlink after crash recovery.
 - [x] Existing single Member membership, Crew Intake, socket ownership, and
       trust boundaries remain regression-covered and backward compatible.
-- [x] Package smoke, storage/restart integration, architecture, coverage, final
+- [ ] Package smoke, storage/restart integration, architecture, coverage, final
       watcher, and independent exact-head QA gates pass.
 
 ## Closure evidence
@@ -128,3 +128,13 @@ publishes its new callback endpoint without repeating approval.
 
 - Guest messaging payloads (TASK-0162), remote sockets, auto-approval, role-based
   approvers, Guest role files, or migration of external Intake messages.
+
+## Reopened 2026-09-04 (PO decision via lead)
+
+Independent QA passed the earlier closure, but the TASK-0162 dependency check
+exposed a defect inside this task's own scope: Guest approval state is
+session-private (admission snapshots persist only in the approving Member's
+session via `pi.appendEntry`), so approval state is NOT crew-owned and not
+usable by every Member runtime. Reopened to implement a trusted crew-owned
+durable Guest registry under the canonical crew layout before messaging work
+(TASK-0162) resumes. Prior closure evidence below is historical.
