@@ -1,6 +1,8 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createGuestAdmissionRuntime } from "./guest-admission-runtime.ts";
+import type { GuestRegistryEntry } from "../domain/index.ts";
+import { digestGuestCapability } from "./guest-registry-store.ts";
 
 const crew = { id: "alpha", displayName: "Alpha" } as const;
 const manifest = {
@@ -205,5 +207,147 @@ describe("Guest capability one-time delivery", () => {
 			capabilityDigest?: string;
 		};
 		assert.equal(approved.capabilityDigest, "digest-of(opaque-capability)");
+	});
+});
+
+describe("fresh Guest send authorization (TASK-0162)", () => {
+	const DIGEST = digestGuestCapability("opaque-capability");
+	function authorityRuntime(options: {
+		entries: () => readonly GuestRegistryEntry[];
+		digest?: (capability: string) => string;
+	}) {
+		const snapshots: unknown[][] = [];
+		let reads = 0;
+		const admission = createGuestAdmissionRuntime({
+			manifest,
+			memberName: "lead",
+			createRequestId: () => `generated-${++reads + 100}`,
+			createCapability: () => "opaque-capability",
+			digestCapability: options.digest ?? digestGuestCapability,
+			persist: (records) => snapshots.push(records),
+			registryAuthority: () => {
+				reads += 1;
+				return {
+					version: 1,
+					crew,
+					revision: reads,
+					entries: options
+						.entries()
+						.map((entry, index) => ({
+							...entry,
+							order: entry.order ?? index + 1,
+							revision: entry.revision ?? reads,
+						})),
+				};
+			},
+		});
+		return { admission, reads: () => reads };
+	}
+
+	const approvedEntry = (overrides: Partial<GuestRegistryEntry> = {}): GuestRegistryEntry => ({
+		status: "approved",
+		crew,
+		guestIdentity: "guest-1",
+		guestName: "Alex",
+		callbackEndpoint: "/tmp/guest-callback.sock",
+		capabilityDigest: DIGEST,
+		approver: "lead",
+		order: 1,
+		revision: 1,
+		...overrides,
+	});
+
+	test("authorizes a fresh approved matching binding and returns the registry guest name", () => {
+		const { admission, reads } = authorityRuntime({ entries: () => [approvedEntry()] });
+		const result = admission.authorizeSend({
+			crewId: crew.id,
+			guestIdentity: "guest-1",
+			callbackEndpoint: "/tmp/guest-callback.sock",
+			capability: "opaque-capability",
+		});
+		assert.ok(result.ok);
+		assert.equal(result.guestName, "Alex");
+		assert.equal(reads() >= 1, true, "authorization must consult the registry authority");
+	});
+
+	test("re-reads the registry authority on every authorization so revocation is immediate", () => {
+		let revoked = false;
+		const { admission } = authorityRuntime({
+			entries: () => (revoked ? [approvedEntry({ status: "revoked" })] : [approvedEntry()]),
+		});
+		const before = admission.authorizeSend({
+			crewId: crew.id,
+			guestIdentity: "guest-1",
+			callbackEndpoint: "/tmp/guest-callback.sock",
+			capability: "opaque-capability",
+		});
+		assert.ok(before.ok);
+		revoked = true;
+		const after = admission.authorizeSend({
+			crewId: crew.id,
+			guestIdentity: "guest-1",
+			callbackEndpoint: "/tmp/guest-callback.sock",
+			capability: "opaque-capability",
+		});
+		assert.deepEqual(after, { ok: false, code: "revoked" });
+	});
+
+	test("rejects pending, denied, unknown, wrong-crew, endpoint-drift, and capability mismatch", () => {
+		const { admission } = authorityRuntime({
+			entries: () => [approvedEntry()],
+		});
+		const base = {
+			crewId: crew.id,
+			guestIdentity: "guest-1",
+			callbackEndpoint: "/tmp/guest-callback.sock",
+			capability: "opaque-capability",
+		};
+		assert.deepEqual(admission.authorizeSend({ ...base, guestIdentity: "stranger" }), {
+			ok: false,
+			code: "not-approved",
+		});
+		assert.deepEqual(admission.authorizeSend({ ...base, crewId: "beta" }), { ok: false, code: "crew-mismatch" });
+		assert.deepEqual(admission.authorizeSend({ ...base, callbackEndpoint: "/tmp/other.sock" }), {
+			ok: false,
+			code: "endpoint-mismatch",
+		});
+		assert.deepEqual(admission.authorizeSend({ ...base, capability: "wrong" }), {
+			ok: false,
+			code: "capability-mismatch",
+		});
+	});
+
+	test("fails closed when the registry authority or digest derivation is unavailable", () => {
+		const noAuthority = createGuestAdmissionRuntime({
+			manifest,
+			memberName: "lead",
+			createRequestId: () => "generated-1",
+			digestCapability: (capability) => `digest-of(${capability})`,
+		});
+		assert.deepEqual(
+			noAuthority.authorizeSend({
+				crewId: crew.id,
+				guestIdentity: "guest-1",
+				callbackEndpoint: "/tmp/guest-callback.sock",
+				capability: "x",
+			}),
+			{ ok: false, code: "registry-unavailable" },
+		);
+
+		const noDigest = createGuestAdmissionRuntime({
+			manifest,
+			memberName: "lead",
+			createRequestId: () => "generated-1",
+			registryAuthority: () => ({ version: 1, crew, revision: 1, entries: [approvedEntry()] }),
+		});
+		assert.deepEqual(
+			noDigest.authorizeSend({
+				crewId: crew.id,
+				guestIdentity: "guest-1",
+				callbackEndpoint: "/tmp/guest-callback.sock",
+				capability: "x",
+			}),
+			{ ok: false, code: "registry-unavailable" },
+		);
 	});
 });

@@ -9,7 +9,7 @@ import { createGuestMembershipRuntime, type GuestMembershipRuntime } from "../in
 import { digestGuestCapability, createGuestRegistryStore } from "../infra/guest-registry-store.ts";
 import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-server.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
-import { handleGuestJoin, handleGuestLeave } from "./control-runtime.ts";
+import { handleGuestJoin, handleGuestLeave, handleGuestSend } from "./control-runtime.ts";
 
 const GUEST_IDENTITY = "guest-session-integration";
 
@@ -18,6 +18,7 @@ interface MemberCrew {
 	socketPath: string;
 	admission: GuestAdmissionRuntime;
 	snapshots: unknown[][];
+	sentMessages: Array<{ content: string; details: unknown; options: unknown }>;
 	setTrusted: (trusted: boolean) => void;
 	close: () => Promise<void>;
 }
@@ -47,6 +48,7 @@ async function startMemberCrew(root: string, crewId: string, displayName: string
 		})(),
 		createCapability: () => `opaque-capability-${crewId}`,
 		digestCapability: digestGuestCapability,
+		registryAuthority: () => registry.load(),
 		persist: (records) => {
 			snapshots.push(records);
 			registry.replaceEntries(records);
@@ -61,22 +63,36 @@ async function startMemberCrew(root: string, crewId: string, displayName: string
 			}),
 		},
 		guestAdmissionRuntime: admission,
-		context: { isProjectTrusted: () => state.trusted },
+		context: { isProjectTrusted: () => state.trusted, isIdle: () => true },
 	};
+	const sentMessages: Array<{ content: string; details: unknown; options: unknown }> = [];
 	const server = await createRpcServer(socketPath, (command, socket) => {
-		if (command.type !== "guest_join" && command.type !== "guest_leave") return;
+		if (command.type !== "guest_join" && command.type !== "guest_leave" && command.type !== "guest_send") return;
 		const respond = (success: boolean, commandName: string, data?: unknown, error?: string) =>
 			writeResponse(socket, { type: "response", command: commandName, success, data, error, id: command.id });
-		const context = { pi: {}, state, ctx: state.context, socket, id: command.id, respond } as Parameters<
-			typeof handleGuestJoin
-		>[0];
-		return command.type === "guest_join" ? handleGuestJoin(context, command) : handleGuestLeave(context, command);
+		const context = {
+			pi: {
+				sendMessage: (message: unknown, options: unknown) => {
+					const typed = message as { content: string; details: unknown };
+					sentMessages.push({ content: typed.content, details: typed.details, options });
+				},
+			},
+			state,
+			ctx: state.context,
+			socket,
+			id: command.id,
+			respond,
+		} as unknown as Parameters<typeof handleGuestJoin>[0];
+		if (command.type === "guest_join") return handleGuestJoin(context, command);
+		if (command.type === "guest_leave") return handleGuestLeave(context, command);
+		return handleGuestSend(context, command);
 	});
 	return {
 		crewId,
 		socketPath,
 		admission,
 		snapshots,
+		sentMessages,
 		setTrusted: (trusted: boolean) => {
 			state.trusted = trusted;
 		},
@@ -98,6 +114,22 @@ function wireJoin(memberSocket: string, guestIdentity: string, guestName: string
 	return sendRpcCommand(
 		memberSocket,
 		{ type: "guest_join", guestIdentity, guestName, callbackEndpoint },
+		{ timeout: 5000 },
+	);
+}
+
+function wireSend(
+	memberSocket: string,
+	guestIdentity: string,
+	crewId: string,
+	callbackEndpoint: string,
+	capability: string,
+	target: string,
+	content: string,
+) {
+	return sendRpcCommand(
+		memberSocket,
+		{ type: "guest_send", crewId, guestIdentity, callbackEndpoint, capability, target, content },
 		{ timeout: 5000 },
 	);
 }
@@ -432,5 +464,82 @@ test("capability is delivered through the approved join response exactly once an
 	assert.deepEqual(
 		restartedGuestRuntime.list().map((row) => [row.crew.id, row.status]),
 		[["alpha", "approved"]],
+	);
+});
+
+test("guest_send delivers to the receiving member after fresh registry authorization", async (t) => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "guest-wire-send-"));
+	t.after(async () => fs.rm(root, { recursive: true, force: true }));
+	const callbackEndpoint = path.join(root, "guest-callback.sock");
+	const alpha = await startMemberCrew(root, "alpha", "Alpha");
+	t.after(async () => alpha.close());
+	const guest = guestRuntimeFor(callbackEndpoint);
+
+	const join = await wireJoin(alpha.socketPath, GUEST_IDENTITY, "Alex", callbackEndpoint);
+	assert.ok(join.response.success);
+	guest.track(
+		{
+			crew: { id: "alpha", displayName: "Alpha" },
+			guestName: "Alex",
+			memberSocket: alpha.socketPath,
+			submittedByMember: "member",
+		},
+		"alpha-generated-1",
+		"pending",
+	);
+	assert.ok(alpha.admission.approve("alpha-generated-1", "lead").ok);
+	const approvedJoin = await wireJoin(alpha.socketPath, GUEST_IDENTITY, "Alex", callbackEndpoint);
+	const capability = (approvedJoin.response.data as { capability: string }).capability;
+	guest.track(
+		{
+			crew: { id: "alpha", displayName: "Alpha" },
+			guestName: "Alex",
+			memberSocket: alpha.socketPath,
+			submittedByMember: "member",
+		},
+		"alpha-generated-1",
+		"approved",
+		capability,
+	);
+
+	// Authorized send: delivered locally as an ordinary follow-up with a
+	// registry-derived guest origin.
+	const send = await wireSend(
+		alpha.socketPath,
+		GUEST_IDENTITY,
+		"alpha",
+		callbackEndpoint,
+		capability,
+		"lead",
+		"hello from the guest",
+	);
+	assert.ok(send.response.success, `guest_send failed: ${String(send.response.error)}`);
+	const sendData = send.response.data as { deliveryId: string; disposition: string; fromGuestName: string };
+	assert.equal(sendData.fromGuestName, "Alex");
+	assert.equal(sendData.disposition, "direct");
+	assert.equal(alpha.sentMessages.length, 1);
+	const details = alpha.sentMessages[0]!.details as {
+		messagePayload: { origin: { kind: string; name: string; identity: string } };
+	};
+	assert.equal(details.messagePayload.origin.kind, "guest");
+	assert.equal(details.messagePayload.origin.name, "Alex");
+	assert.equal(details.messagePayload.origin.identity, GUEST_IDENTITY);
+
+	// Exactly-once capability: a replayed send with a fabricated capability and
+	// a stale endpoint each fail closed with the exact codes.
+	await assert.rejects(
+		() => wireSend(alpha.socketPath, GUEST_IDENTITY, "alpha", callbackEndpoint, "fabricated", "lead", "spoof"),
+		/capability-mismatch/,
+	);
+	await assert.rejects(
+		() => wireSend(alpha.socketPath, GUEST_IDENTITY, "alpha", "/tmp/other.sock", capability, "lead", "drift"),
+		/endpoint-mismatch/,
+	);
+
+	// Revocation takes effect immediately for new sends.
+	assert.ok(alpha.admission.remove("Alex", "lead").ok);
+	await assert.rejects(
+		() => wireSend(alpha.socketPath, GUEST_IDENTITY, "alpha", callbackEndpoint, capability, "lead", "after revoke"),
+		/revoked/,
 	);
 });

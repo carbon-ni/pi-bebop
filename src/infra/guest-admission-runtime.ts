@@ -3,6 +3,8 @@ import {
 	crewSelectorFromConfig,
 	guestAdmissionPolicy,
 	isGuestRegistryCapabilityDigest,
+	isGuestRegistryFile,
+	type GuestRegistryEntry,
 	isGuestApproval,
 	isGuestJoinRequest,
 	isGuestMembershipRecord,
@@ -54,6 +56,21 @@ export type GuestAdmissionApprovalResult =
 	  }
 	| { readonly ok: false; readonly code: "unauthorized" | "not-found" | "approval-mismatch" | "approval-failed" };
 
+export type GuestSendAuthorizationResult =
+	| { readonly ok: true; readonly guestName: string }
+	| {
+			readonly ok: false;
+			readonly code:
+				| "not-approved"
+				| "revoked"
+				| "denied"
+				| "pending"
+				| "crew-mismatch"
+				| "endpoint-mismatch"
+				| "capability-mismatch"
+				| "registry-unavailable";
+	  };
+
 export type GuestAdmissionMutationResult =
 	| { readonly ok: true; readonly changed: boolean }
 	| { readonly ok: false; readonly code: "unauthorized" | "not-found" | "mutation-failed" };
@@ -76,6 +93,13 @@ export interface GuestAdmissionRuntime {
 	):
 		| { ok: true; capability: GuestApprovalCapability }
 		| { ok: false; code: "not-found" | "not-approved" | "already-delivered" };
+	/** Fresh registry-backed authorization; runs before any target resolution. */
+	authorizeSend(input: {
+		crewId: string;
+		guestIdentity: string;
+		callbackEndpoint: string;
+		capability: string;
+	}): GuestSendAuthorizationResult;
 	approve(requestId: string, approver: string, capability?: string): GuestAdmissionApprovalResult;
 	deny(requestId: string, approver: string): GuestAdmissionMutationResult;
 	remove(guestName: string, approver: string): GuestAdmissionMutationResult;
@@ -94,6 +118,8 @@ export interface GuestAdmissionRuntimeDependencies {
 	readonly createCapability?: () => string;
 	/** Verifier-digest derivation for registry persistence; plaintext never persists. */
 	readonly digestCapability?: (capability: string) => string;
+	/** Fresh crew-owned registry authority; session caches never authorize. */
+	readonly registryAuthority?: () => unknown;
 	readonly persist?: (records: readonly GuestAdmissionPersistedRecord[]) => void;
 }
 
@@ -185,6 +211,35 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			.sort((a, b) => a.guestName.localeCompare(b.guestName));
 
 	return {
+		authorizeSend(input: {
+			crewId: string;
+			guestIdentity: string;
+			callbackEndpoint: string;
+			capability: string;
+		}): GuestSendAuthorizationResult {
+			const unavailable = { ok: false as const, code: "registry-unavailable" as const };
+			if (!deps.registryAuthority || !deps.digestCapability) return unavailable;
+			let raw: unknown;
+			try {
+				raw = deps.registryAuthority();
+			} catch {
+				return unavailable;
+			}
+			if (!isGuestRegistryFile(raw)) return unavailable;
+			const entry = raw.entries.find(
+				(candidate: GuestRegistryEntry) => candidate.guestIdentity === input.guestIdentity,
+			);
+			if (!entry) return { ok: false as const, code: "not-approved" as const };
+			if (entry.crew.id !== input.crewId) return { ok: false as const, code: "crew-mismatch" as const };
+			if (entry.status === "revoked") return { ok: false as const, code: "revoked" as const };
+			if (entry.status === "denied") return { ok: false as const, code: "denied" as const };
+			if (entry.status === "pending") return { ok: false as const, code: "pending" as const };
+			if (entry.callbackEndpoint !== input.callbackEndpoint)
+				return { ok: false as const, code: "endpoint-mismatch" as const };
+			if (deps.digestCapability(input.capability) !== entry.capabilityDigest)
+				return { ok: false as const, code: "capability-mismatch" as const };
+			return { ok: true as const, guestName: entry.guestName };
+		},
 		consumeCapability(guestIdentity: string) {
 			const entry = states.get(guestIdentity);
 			if (!entry || entry.status !== "approved") return { ok: false as const, code: "not-found" as const };

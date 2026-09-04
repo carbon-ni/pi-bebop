@@ -57,6 +57,15 @@ export interface GuestMembershipRuntime {
 	): GuestJoinResult;
 	approve(approval: GuestApproval, capability?: string): Promise<GuestApprovalResult>;
 	leave(crewId: string): Promise<GuestLeaveResult>;
+	/** Runtime-only send credentials for an approved crew; never model-visible. */
+	credentials(
+		crewId: string,
+	): {
+		readonly guestIdentity: string;
+		readonly guestName: string;
+		readonly callbackEndpoint: string;
+		readonly capability: string;
+	} | null;
 	getMemberSocket(crewId: string): string | null;
 	list(): readonly GuestMembershipView[];
 	restore(records: readonly unknown[]): {
@@ -282,6 +291,17 @@ export function createGuestMembershipRuntime(dependencies: GuestMembershipRuntim
 			} catch {
 				return { ok: false, code: "approval-failed" };
 			}
+		},
+
+		credentials(crewId: string) {
+			const state = states.get(crewId);
+			if (!state || state.status !== "approved") return null;
+			return {
+				guestIdentity: state.record.guestIdentity,
+				guestName: state.record.guestName,
+				callbackEndpoint: state.record.callbackEndpoint,
+				capability: state.capability,
+			};
 		},
 
 		async leave(crewId) {
