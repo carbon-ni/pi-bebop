@@ -89,13 +89,19 @@ describe("crew manifest", () => {
 					error.message === "intake.contact must be a non-empty trimmed member name",
 			);
 		}
-		assert.throws(
-			() => parseCrewManifest({ version: 2, members, crew: { id: "crew", displayName: "Crew", extra: true } }),
-			(error: unknown) =>
-				error instanceof CrewManifestError &&
-				error.code === "invalid-crew-config" &&
-				error.message === "crew contains unknown fields",
-		);
+		for (const crew of [
+			{ id: "crew", displayName: "Crew", extra: true },
+			{ id: "crew", extra: true },
+			{ displayName: "Crew", extra: true },
+		]) {
+			assert.throws(
+				() => parseCrewManifest({ version: 2, members, crew }),
+				(error: unknown) =>
+					error instanceof CrewManifestError &&
+					error.code === "invalid-crew-config" &&
+					error.message === "crew contains unknown fields",
+			);
+		}
 		assert.throws(
 			() =>
 				parseCrewManifest({
