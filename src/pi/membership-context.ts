@@ -43,7 +43,7 @@ export function getLatestGuestMembershipRecords(entries: readonly unknown[]): re
 			continue;
 		return entry.data
 			.map((candidate) => {
-				if (candidate && typeof candidate === "object" && "record" in candidate) {
+				if (candidate && typeof candidate === "object" && ("record" in candidate || "request" in candidate)) {
 					const snapshot = candidate as { status?: string; record?: unknown };
 					return snapshot.status === "approved" ? snapshot.record : undefined;
 				}

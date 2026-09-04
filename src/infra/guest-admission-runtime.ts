@@ -59,7 +59,8 @@ export type GuestAdmissionMutationResult =
 
 export type GuestAdmissionPersistedRecord =
 	| { readonly status: "approved"; readonly record: GuestMembershipRecord }
-	| { readonly status: "revoked"; readonly record: GuestMembershipRecord };
+	| { readonly status: "revoked"; readonly record: GuestMembershipRecord }
+	| { readonly status: "denied"; readonly request: GuestJoinRequest };
 
 export interface GuestAdmissionRuntime {
 	receive(request: GuestJoinRequest): GuestAdmissionJoinResult;
@@ -119,10 +120,14 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 		deps.persist?.(
 			[...states.values()]
 				.filter(
-					(entry): entry is ApprovedEntry | RevokedEntry =>
-						entry.status === "approved" || entry.status === "revoked",
+					(entry): entry is ApprovedEntry | RevokedEntry | DeniedEntry =>
+						entry.status === "approved" || entry.status === "revoked" || entry.status === "denied",
 				)
-				.map((entry) => ({ status: entry.status, record: entry.record })),
+				.map((entry) =>
+					entry.status === "denied"
+						? { status: entry.status, request: entry.request }
+						: { status: entry.status, record: entry.record },
+				),
 		);
 	};
 	const list = (): readonly GuestAdmissionView[] =>
@@ -240,6 +245,7 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			for (const [identity, entry] of states) {
 				if (entry.status === "pending" && entry.request.requestId === requestId) {
 					states.set(identity, { status: "denied", request: entry.request });
+					persist();
 					return { ok: true, changed: true };
 				}
 			}
@@ -275,18 +281,29 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			const rejected: string[] = [];
 			for (const candidate of records) {
 				const snapshot =
-					candidate && typeof candidate === "object" && "record" in candidate
-						? (candidate as { status?: string; record?: unknown })
+					candidate && typeof candidate === "object" && ("record" in candidate || "request" in candidate)
+						? (candidate as { status?: string; record?: unknown; request?: unknown })
 						: undefined;
 				if (
 					!candidate ||
 					typeof candidate !== "object" ||
-					(!("guestIdentity" in candidate) && !snapshot?.record)
+					(!("guestIdentity" in candidate) && !snapshot?.record && !snapshot?.request)
 				) {
 					rejected.push("unknown");
 					continue;
 				}
 				const record = (snapshot?.record ?? candidate) as GuestMembershipRecord;
+				const deniedRequest =
+					snapshot?.status === "denied" ? (snapshot as { request?: unknown }).request : undefined;
+				if (deniedRequest !== undefined) {
+					if (!selector || !isGuestJoinRequest(deniedRequest) || deniedRequest.crew.id !== selector.id) {
+						rejected.push("unknown");
+						continue;
+					}
+					states.set(deniedRequest.guestIdentity, { status: "denied", request: deniedRequest });
+					restored.push(deniedRequest.guestIdentity);
+					continue;
+				}
 				if (
 					!selector ||
 					!isGuestMembershipRecord(record) ||
