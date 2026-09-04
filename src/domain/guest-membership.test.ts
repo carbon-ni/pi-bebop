@@ -41,7 +41,7 @@ describe("Guest membership contract", () => {
 		assert.deepEqual(selectCrewBySelector([alpha, beta], "beta"), { kind: "match", crew: beta });
 		assert.deepEqual(selectCrewBySelector([alpha, beta], "Shared name"), {
 			kind: "no-match",
-			identity: "Shared name",
+			id: "Shared name",
 		});
 		assert.equal(selectCrewBySelector([alpha, alpha], "alpha").kind, "ambiguous");
 		assert.equal(selectCrewBySelector([alpha], "missing").kind, "no-match");
@@ -65,13 +65,13 @@ describe("Guest membership contract", () => {
 
 	test("keeps each Crew membership independent for one multi-crew Guest", () => {
 		const alpha = {
-			crew: { identity: "alpha", displayName: "Alpha" },
+			crew: { id: "alpha", displayName: "Alpha" },
 			guestIdentity: "guest-session",
 			guestName: "Taylor",
 			callbackEndpoint: "alpha.sock",
 			approvedBy: "lead",
 		};
-		const beta = { ...alpha, crew: { identity: "beta", displayName: "Beta" }, callbackEndpoint: "beta.sock" };
+		const beta = { ...alpha, crew: { id: "beta", displayName: "Beta" }, callbackEndpoint: "beta.sock" };
 		const replaced = { ...alpha, guestName: "Renamed" };
 		assert.deepEqual(replaceGuestMembership([alpha, beta], replaced), [replaced, beta]);
 		assert.deepEqual(removeGuestMembership([alpha, beta], "alpha"), [beta]);
@@ -85,7 +85,7 @@ describe("Guest membership contract", () => {
 	test("models untrusted join, Crew-local approval, and Crew-local revocation", () => {
 		const request = {
 			requestId: "request-1",
-			crew: { identity: "alpha", displayName: "Alpha" },
+			crew: { id: "alpha", displayName: "Alpha" },
 			guestIdentity: "guest-session",
 			guestName: "Taylor",
 			callbackEndpoint: "callback.sock",
@@ -126,7 +126,7 @@ describe("Guest membership contract", () => {
 		assert.equal(typeof capability, "string");
 		assert.equal(
 			isGuestMembershipRecord({
-				crew: { identity: "alpha", displayName: "Alpha" },
+				crew: { id: "alpha", displayName: "Alpha" },
 				guestIdentity: "guest-session",
 				guestName: "Taylor",
 				callbackEndpoint: "callback.sock",
@@ -136,7 +136,7 @@ describe("Guest membership contract", () => {
 		);
 		assert.equal(
 			isGuestMembershipRecord({
-				crew: { identity: "alpha", displayName: "Alpha" },
+				crew: { id: "alpha", displayName: "Alpha" },
 				guestIdentity: "guest-session",
 				guestName: "Taylor",
 				callbackEndpoint: "callback.sock",
@@ -147,7 +147,7 @@ describe("Guest membership contract", () => {
 		);
 		assert.equal(
 			isGuestMembershipRecord({
-				crew: { identity: " alpha", displayName: "Alpha" },
+				crew: { id: " alpha", displayName: "Alpha" },
 				guestIdentity: "guest-session",
 				guestName: "Taylor",
 				callbackEndpoint: "callback.sock",
