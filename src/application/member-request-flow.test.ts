@@ -61,7 +61,12 @@ test("request registers before endpoint/open and returns accepted without waitin
 		},
 	});
 	const accepted = await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
-	assert.deepEqual(accepted.member, membership.manifest.members[1]);
+	assert.deepEqual(accepted.member, {
+		kind: "member",
+		name: "qa",
+		role: "reviewer",
+		socketPath: "/project/.pi/bebop/sockets/qa.sock",
+	});
 	assert.deepEqual(events, ["resolve:/project/.pi/bebop/sockets/qa.sock", "open:request-1"]);
 	// Close the accepted request channel so this test does not leave its 300s lifecycle timer active.
 	assert.equal(flow.registry.resolveOffline("request-1").ok, true);

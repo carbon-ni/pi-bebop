@@ -115,10 +115,17 @@ export function registerSendMemberRequestTool(pi: ExtensionAPI, state: SocketSta
 					maxWaitSeconds: params.max_wait_seconds,
 					signal,
 				});
-				return success(
-					`Request accepted: ${outcome.member.name} (${outcome.member.role}), request_id=${outcome.requestId}`,
-					{ requestId: outcome.requestId, member: { name: outcome.member.name, role: outcome.member.role } },
-				);
+				const memberLabel =
+					outcome.member.kind === "member"
+						? `${outcome.member.name} (${outcome.member.role})`
+						: `${outcome.member.guestName} (guest)`;
+				return success(`Request accepted: ${memberLabel}, request_id=${outcome.requestId}`, {
+					requestId: outcome.requestId,
+					member:
+						outcome.member.kind === "member"
+							? { name: outcome.member.name, role: outcome.member.role }
+							: { name: outcome.member.guestName, role: "guest" },
+				});
 			} catch (error) {
 				if (error instanceof MemberMessageError) return failure(error.code, error.message);
 				if (error instanceof RpcProtocolError) return failure(error.code, error.message);

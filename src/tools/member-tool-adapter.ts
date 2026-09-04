@@ -36,7 +36,14 @@ function errorText(target: string, code: string, message: string): ToolResult {
 	};
 }
 
-export interface MemberToolAdapterDependencies extends MemberMessageDependencies {}
+export interface MemberToolAdapterDependencies extends MemberMessageDependencies {
+	/** Fresh crew-registry read of approved Guests, for Member->Guest addressing. */
+	readonly approvedGuests?: () => readonly {
+		readonly guestName: string;
+		readonly guestIdentity: string;
+		readonly callbackEndpoint: string;
+	}[];
+}
 
 export function registerMemberIntentTool(
 	pi: ExtensionAPI,
@@ -64,6 +71,7 @@ export function registerMemberIntentTool(
 					{
 						membership,
 						member: target,
+						approvedGuests: dependencies.approvedGuests?.(),
 						message: params.message,
 						instructions: params.instructions,
 						intent,
@@ -78,7 +86,11 @@ export function registerMemberIntentTool(
 					},
 					dependencies,
 				);
-				return resultText(`${outcome.target.name} (${outcome.target.role})`, outcome);
+				const label =
+					outcome.target.kind === "member"
+						? `${outcome.target.name} (${outcome.target.role})`
+						: `${outcome.target.guestName} (guest)`;
+				return resultText(label, outcome);
 			} catch (error) {
 				if (error instanceof MemberMessageError)
 					return errorText(target || "member", error.code, error.message);

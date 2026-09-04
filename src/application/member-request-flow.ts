@@ -14,7 +14,7 @@ import {
 	type MemberRequestInbound,
 	type MemberRequestMember,
 } from "../domain/index.ts";
-import { resolveTarget, MemberMessageError, type CrewMembership, type CrewMember } from "./member-message.ts";
+import { resolveTarget, MemberMessageError, type CrewMembership, type MessageTarget } from "./member-message.ts";
 
 export interface MemberRequestTransport {
 	open(
@@ -49,7 +49,7 @@ export interface SendMemberRequestInput {
 }
 export interface SendMemberRequestAccepted {
 	readonly requestId: string;
-	readonly member: CrewMember;
+	readonly member: MessageTarget;
 }
 
 function defaultRequestId(): string {
@@ -99,7 +99,10 @@ export class MemberRequestFlow {
 		const maxWaitSeconds = input.maxWaitSeconds ?? DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS;
 		const registration = this.registry.registerOutbound({
 			requestId,
-			member: { name: target.name, role: target.role },
+			member: {
+				name: target.kind === "member" ? target.name : target.guestName,
+				role: target.kind === "member" ? target.role : "guest",
+			},
 			now: sentAt,
 			timeoutSeconds,
 			maxWaitSeconds,
@@ -139,7 +142,9 @@ export class MemberRequestFlow {
 			this.finishRequest(requestId);
 		};
 		try {
-			const endpoint = await this.dependencies.resolveEndpoint(target.socketPath);
+			const endpoint = await this.dependencies.resolveEndpoint(
+				target.kind === "member" ? target.socketPath : target.callbackEndpoint,
+			);
 			const opened = await this.dependencies.transport.open(
 				endpoint,
 				{ type: "member_request", requestId, payload, timeoutSeconds },
