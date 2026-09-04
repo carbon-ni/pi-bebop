@@ -1,4 +1,6 @@
 import * as path from "node:path";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 
 /** Legacy manifest version retained for byte-compatible version 1 callers. */
 export const CREW_MANIFEST_VERSION = 1 as const;
@@ -112,6 +114,24 @@ export class CrewMemberLookupError extends Error {
 	}
 }
 
+/**
+ * The manifest's wire shape is intentionally permissive at the boundary: legacy
+ * callers rely on field-specific diagnostics for malformed values. Normalizers
+ * below apply the semantic constraints in one ordered pipeline.
+ */
+const CrewManifestSchema = Type.Object(
+	{
+		version: Type.Optional(Type.Unknown()),
+		commonInstructionsFile: Type.Optional(Type.Unknown()),
+		members: Type.Optional(Type.Unknown()),
+		presence: Type.Optional(Type.Unknown()),
+		intake: Type.Optional(Type.Unknown()),
+		crew: Type.Optional(Type.Unknown()),
+		guestAdmission: Type.Optional(Type.Unknown()),
+	},
+	{ additionalProperties: true },
+);
+
 function invalid(message: string, code: CrewManifestErrorCode = "invalid-manifest"): never {
 	throw new CrewManifestError(code, message);
 }
@@ -169,218 +189,237 @@ export function resolveCrewMemberSocketPath(member: Pick<CrewMember, "socket">, 
 	return socketPath;
 }
 
-export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
-	if (!isRecord(input)) invalid("manifest must be an object");
-	if (input.version !== CREW_MANIFEST_VERSION && input.version !== CREW_MANIFEST_V2) {
-		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
-	}
+function normalizeCommonInstructionsFile(input: Record<string, unknown>, manifestPath: string): string | undefined {
 	const commonInstructionsFile = input.commonInstructionsFile;
-	const validCommonInstructionsFile = typeof commonInstructionsFile === "string" ? commonInstructionsFile : undefined;
-	if (commonInstructionsFile !== undefined) {
-		if (input.version !== CREW_MANIFEST_V2) {
-			throw new CrewManifestError(
-				"invalid-version",
-				"commonInstructionsFile requires manifest version 2; version 1 runtimes reject this extension",
-			);
-		}
-		if (
-			typeof commonInstructionsFile !== "string" ||
-			commonInstructionsFile.trim().length === 0 ||
-			commonInstructionsFile.includes("\0") ||
-			path.isAbsolute(commonInstructionsFile)
-		) {
-			invalid("commonInstructionsFile must be a non-empty relative path", "invalid-common-instructions-file");
-		}
-		const instructionsRoot = path.resolve(path.dirname(manifestPath), "instructions");
-		const resolved = path.resolve(path.dirname(manifestPath), validCommonInstructionsFile!);
-		const relative = path.relative(instructionsRoot, resolved);
-		if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-			invalid(
-				"commonInstructionsFile must remain under the instructions directory",
-				"invalid-common-instructions-file",
-			);
-		}
+	if (commonInstructionsFile === undefined) return undefined;
+	if (input.version !== CREW_MANIFEST_V2) {
+		throw new CrewManifestError(
+			"invalid-version",
+			"commonInstructionsFile requires manifest version 2; version 1 runtimes reject this extension",
+		);
 	}
+	if (
+		typeof commonInstructionsFile !== "string" ||
+		commonInstructionsFile.trim().length === 0 ||
+		commonInstructionsFile.includes("\0") ||
+		path.isAbsolute(commonInstructionsFile)
+	) {
+		invalid("commonInstructionsFile must be a non-empty relative path", "invalid-common-instructions-file");
+	}
+	const instructionsRoot = path.resolve(path.dirname(manifestPath), "instructions");
+	const resolved = path.resolve(path.dirname(manifestPath), commonInstructionsFile);
+	const relative = path.relative(instructionsRoot, resolved);
+	if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+		invalid(
+			"commonInstructionsFile must remain under the instructions directory",
+			"invalid-common-instructions-file",
+		);
+	}
+	return commonInstructionsFile;
+}
+
+function normalizePresence(input: Record<string, unknown>): CrewPresenceConfig {
+	const rawPresence = input.presence;
+	if (rawPresence === undefined) return { notifications: true };
+	if (
+		!isRecord(rawPresence) ||
+		Object.keys(rawPresence).some((key) => key !== "notifications") ||
+		typeof rawPresence.notifications !== "boolean"
+	) {
+		throw new CrewManifestError("invalid-manifest", "presence must contain only boolean notifications");
+	}
+	return { notifications: rawPresence.notifications };
+}
+
+function normalizeInlineInstructions(value: unknown, index: number): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || value.trim().length === 0 || value.includes("\0")) {
+		invalid(`members[${index}].instructions must be a non-empty string without NUL`, "invalid-member");
+	}
+	return value;
+}
+
+function normalizeInstructionsFile(value: unknown, index: number, manifestPath: string): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || value.trim().length === 0 || value.includes("\0")) {
+		invalid(`members[${index}].instructionsFile must be a non-empty relative path`, "invalid-instructions-file");
+	}
+	if (path.isAbsolute(value))
+		invalid(`members[${index}].instructionsFile must be relative`, "invalid-instructions-file");
+	const instructionsRoot = path.resolve(path.dirname(manifestPath), "instructions");
+	const resolved = path.resolve(path.dirname(manifestPath), value);
+	const relative = path.relative(instructionsRoot, resolved);
+	if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+		invalid(
+			`members[${index}].instructionsFile must remain under the instructions directory`,
+			"invalid-instructions-file",
+		);
+	}
+	return value;
+}
+
+function normalizeInstructionSources(
+	rawMember: Record<string, unknown>,
+	index: number,
+	manifestPath: string,
+): Pick<CrewMember, "instructions" | "instructionsFile"> {
+	const instructions = normalizeInlineInstructions(rawMember.instructions, index);
+	const instructionsFile = normalizeInstructionsFile(rawMember.instructionsFile, index, manifestPath);
+	if (instructions !== undefined && instructionsFile !== undefined)
+		invalid(`members[${index}] must define only one of instructions or instructionsFile`, "invalid-member");
+	return {
+		...(instructions === undefined ? {} : { instructions }),
+		...(instructionsFile === undefined ? {} : { instructionsFile }),
+	};
+}
+
+function normalizeMember(rawMember: unknown, index: number, manifestPath: string): CrewMember {
+	if (!isRecord(rawMember)) invalid(`members[${index}] must be an object`, "invalid-member");
+	const name = requireText(rawMember.name, `members[${index}].name`);
+	const role = requireText(rawMember.role, `members[${index}].role`);
+	const socket = requireText(rawMember.socket, `members[${index}].socket`);
+	const instructions = normalizeInstructionSources(rawMember, index, manifestPath);
+	const description =
+		rawMember.description === undefined
+			? undefined
+			: requireDescription(rawMember.description, `members[${index}].description`);
+	return {
+		name,
+		role,
+		socket,
+		socketPath: resolveCrewMemberSocketPath({ socket }, manifestPath),
+		...instructions,
+		...(description === undefined ? {} : { description }),
+	};
+}
+
+function normalizeMembers(input: Record<string, unknown>, manifestPath: string): CrewMember[] {
 	if (!Array.isArray(input.members) || input.members.length === 0) {
 		throw new CrewManifestError("invalid-members", "members must be a non-empty array");
 	}
-	const rawPresence = input.presence;
-	let presence: CrewPresenceConfig = { notifications: true };
-	if (rawPresence !== undefined) {
-		if (
-			!isRecord(rawPresence) ||
-			Object.keys(rawPresence).some((key) => key !== "notifications") ||
-			typeof rawPresence.notifications !== "boolean"
-		) {
-			throw new CrewManifestError("invalid-manifest", "presence must contain only boolean notifications");
-		}
-		presence = { notifications: rawPresence.notifications };
-	}
-
 	const names = new Set<string>();
 	const socketPaths = new Map<string, CrewMember[]>();
-	const members: CrewMember[] = [];
-	for (const [index, rawMember] of input.members.entries()) {
-		if (!isRecord(rawMember)) invalid(`members[${index}] must be an object`, "invalid-member");
-		const name = requireText(rawMember.name, `members[${index}].name`);
-		const role = requireText(rawMember.role, `members[${index}].role`);
-		const socket = requireText(rawMember.socket, `members[${index}].socket`);
-		const instructions = rawMember.instructions;
-		if (
-			instructions !== undefined &&
-			(typeof instructions !== "string" || instructions.trim().length === 0 || instructions.includes("\0"))
-		) {
-			invalid(`members[${index}].instructions must be a non-empty string without NUL`, "invalid-member");
-		}
-		const instructionsFile = rawMember.instructionsFile;
-		if (
-			instructionsFile !== undefined &&
-			(typeof instructionsFile !== "string" ||
-				instructionsFile.trim().length === 0 ||
-				instructionsFile.includes("\0"))
-		) {
-			invalid(
-				`members[${index}].instructionsFile must be a non-empty relative path`,
-				"invalid-instructions-file",
-			);
-		}
-		if (instructions !== undefined && instructionsFile !== undefined) {
-			invalid(`members[${index}] must define only one of instructions or instructionsFile`, "invalid-member");
-		}
-		const rawDescription = rawMember.description;
-		const validDescription =
-			rawDescription === undefined
-				? undefined
-				: requireDescription(rawDescription, `members[${index}].description`);
-		const validInstructions = typeof instructions === "string" ? instructions : undefined;
-		const validInstructionsFile = typeof instructionsFile === "string" ? instructionsFile : undefined;
-		if (validInstructionsFile !== undefined) {
-			if (path.isAbsolute(validInstructionsFile))
-				invalid(`members[${index}].instructionsFile must be relative`, "invalid-instructions-file");
-			const instructionsRoot = path.resolve(path.dirname(manifestPath), "instructions");
-			const resolved = path.resolve(path.dirname(manifestPath), validInstructionsFile);
-			const relative = path.relative(instructionsRoot, resolved);
-			if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-				invalid(
-					`members[${index}].instructionsFile must remain under the instructions directory`,
-					"invalid-instructions-file",
-				);
-			}
-		}
-		if (names.has(name)) {
-			throw new CrewManifestError("duplicate-member-name", `duplicate member name: ${name}`);
-		}
-		names.add(name);
-		const member: CrewMember = {
-			name,
-			role,
-			socket,
-			socketPath: resolveCrewMemberSocketPath({ socket }, manifestPath),
-			...(validInstructions === undefined ? {} : { instructions: validInstructions }),
-			...(validInstructionsFile === undefined ? {} : { instructionsFile: validInstructionsFile }),
-			...(validDescription === undefined ? {} : { description: validDescription }),
-		};
+	const members = input.members.map((rawMember, index) => {
+		const member = normalizeMember(rawMember, index, manifestPath);
+		if (names.has(member.name))
+			throw new CrewManifestError("duplicate-member-name", `duplicate member name: ${member.name}`);
+		names.add(member.name);
 		const samePath = socketPaths.get(member.socketPath) ?? [];
 		samePath.push(member);
 		socketPaths.set(member.socketPath, samePath);
-		members.push(member);
-	}
-
+		return member;
+	});
 	for (const [socketPath, matchingMembers] of socketPaths) {
-		if (matchingMembers.length > 1) {
+		if (matchingMembers.length > 1)
 			throw new CrewManifestError("duplicate-socket-path", `duplicate socket path: ${socketPath}`);
-		}
 	}
+	return members;
+}
 
-	let crew: CrewIdentityConfig | undefined;
+function normalizeCrew(input: Record<string, unknown>): CrewIdentityConfig | undefined {
 	const rawCrew = input.crew;
-	if (rawCrew !== undefined) {
-		if (!isRecord(rawCrew)) invalid("crew must be an object", "invalid-crew-config");
-		const crewKeys = Object.keys(rawCrew);
-		if (crewKeys.some((key) => key !== "id" && key !== "displayName"))
-			invalid("crew contains unknown fields", "invalid-crew-config");
-		const id = rawCrew.id;
-		if (typeof id !== "string" || id.trim().length === 0 || id !== id.trim() || id.includes("\0"))
-			invalid("crew.id must be a non-empty trimmed string without NUL", "invalid-crew-identity");
-		const displayName = rawCrew.displayName;
-		if (
-			typeof displayName !== "string" ||
-			displayName.trim().length === 0 ||
-			displayName !== displayName.trim() ||
-			displayName.includes("\0")
-		)
-			invalid("crew.displayName must be a non-empty trimmed string without NUL", "invalid-crew-display-name");
-		crew = { id, displayName };
-	}
+	if (rawCrew === undefined) return undefined;
+	if (!isRecord(rawCrew)) invalid("crew must be an object", "invalid-crew-config");
+	if (Object.keys(rawCrew).some((key) => key !== "id" && key !== "displayName"))
+		invalid("crew contains unknown fields", "invalid-crew-config");
+	const id = rawCrew.id;
+	if (typeof id !== "string" || id.trim().length === 0 || id !== id.trim() || id.includes("\0"))
+		invalid("crew.id must be a non-empty trimmed string without NUL", "invalid-crew-identity");
+	const displayName = rawCrew.displayName;
+	if (
+		typeof displayName !== "string" ||
+		displayName.trim().length === 0 ||
+		displayName !== displayName.trim() ||
+		displayName.includes("\0")
+	)
+		invalid("crew.displayName must be a non-empty trimmed string without NUL", "invalid-crew-display-name");
+	return { id, displayName };
+}
 
-	let guestAdmission: GuestAdmissionConfig | undefined;
+function normalizeGuestAdmission(
+	input: Record<string, unknown>,
+	crew: CrewIdentityConfig | undefined,
+	members: readonly CrewMember[],
+): GuestAdmissionConfig | undefined {
 	const rawGuestAdmission = input.guestAdmission;
-	if (rawGuestAdmission !== undefined) {
-		if (!crew) invalid("guestAdmission requires crew identity metadata", "invalid-guest-admission");
-		if (!isRecord(rawGuestAdmission)) invalid("guestAdmission must be an object", "invalid-guest-admission");
-		const admissionKeys = Object.keys(rawGuestAdmission);
-		if (admissionKeys.length !== 1 || admissionKeys[0] !== "approvers")
-			invalid("guestAdmission must contain only the approvers field", "invalid-guest-admission");
-		const rawApprovers = rawGuestAdmission.approvers;
-		if (!Array.isArray(rawApprovers) || rawApprovers.length === 0)
-			invalid("guestAdmission.approvers must be a non-empty array", "invalid-guest-approvers");
-		const approvers = rawApprovers as unknown[];
-		if (
-			approvers.some(
-				(approver) =>
-					typeof approver !== "string" ||
-					approver.trim().length === 0 ||
-					approver !== approver.trim() ||
-					approver.includes("\0"),
-			)
+	if (rawGuestAdmission === undefined) return undefined;
+	if (!crew) invalid("guestAdmission requires crew identity metadata", "invalid-guest-admission");
+	if (!isRecord(rawGuestAdmission)) invalid("guestAdmission must be an object", "invalid-guest-admission");
+	const keys = Object.keys(rawGuestAdmission);
+	if (keys.length !== 1 || keys[0] !== "approvers")
+		invalid("guestAdmission must contain only the approvers field", "invalid-guest-admission");
+	const rawApprovers = rawGuestAdmission.approvers;
+	if (!Array.isArray(rawApprovers) || rawApprovers.length === 0)
+		invalid("guestAdmission.approvers must be a non-empty array", "invalid-guest-approvers");
+	if (
+		rawApprovers.some(
+			(approver) =>
+				typeof approver !== "string" ||
+				approver.trim().length === 0 ||
+				approver !== approver.trim() ||
+				approver.includes("\0"),
 		)
-			invalid("guestAdmission.approvers must contain exact trimmed member names", "invalid-guest-approver");
-		const seenApprovers = new Set<string>();
-		for (const approver of approvers as string[]) {
-			if (seenApprovers.has(approver))
-				throw new CrewManifestError("duplicate-guest-approver", `duplicate Guest approver: ${approver}`);
-			seenApprovers.add(approver);
-			if (!names.has(approver))
-				throw new CrewManifestError(
-					"invalid-guest-approver",
-					`Guest approver is not a configured member: ${approver}`,
-				);
-		}
-		const approverSet = new Set(approvers as string[]);
-		guestAdmission = {
-			approvers: members.filter((member) => approverSet.has(member.name)).map((member) => member.name),
-		};
-	}
-
-	let intake: CrewIntakeConfig | undefined;
-	const rawIntake = input.intake;
-	if (rawIntake !== undefined) {
-		if (!isRecord(rawIntake)) invalid("intake must be an object", "invalid-intake-config");
-		const keys = Object.keys(rawIntake);
-		if (keys.length !== 1 || keys[0] !== "contact")
-			invalid("intake must contain only the contact field", "invalid-intake-config");
-		const contact = rawIntake.contact;
-		if (
-			typeof contact !== "string" ||
-			contact.trim().length === 0 ||
-			contact !== contact.trim() ||
-			contact.includes("\0")
-		)
-			invalid("intake.contact must be a non-empty trimmed member name", "invalid-intake-config");
-		if (!names.has(contact)) {
-			const validMemberNames = members.map((member) => member.name);
+	)
+		invalid("guestAdmission.approvers must contain exact trimmed member names", "invalid-guest-approver");
+	const names = new Set(members.map((member) => member.name));
+	const seen = new Set<string>();
+	for (const approver of rawApprovers as string[]) {
+		if (seen.has(approver))
+			throw new CrewManifestError("duplicate-guest-approver", `duplicate Guest approver: ${approver}`);
+		seen.add(approver);
+		if (!names.has(approver))
 			throw new CrewManifestError(
-				"invalid-intake-contact",
-				`Crew configuration invalid: manifest path ${manifestPath}; intake.contact rejected value '${contact}'; valid exact member names in manifest order: [${validMemberNames.join(", ")}]. Fixes: change intake.contact to one of those exact names, or add a member named '${contact}'; remove intake to disable external intake.`,
-				{ manifestPath, validMemberNames },
+				"invalid-guest-approver",
+				`Guest approver is not a configured member: ${approver}`,
 			);
-		}
-		intake = { contact };
 	}
+	const approverSet = new Set(rawApprovers as string[]);
+	return { approvers: members.filter((member) => approverSet.has(member.name)).map((member) => member.name) };
+}
 
+function normalizeIntake(
+	input: Record<string, unknown>,
+	manifestPath: string,
+	members: readonly CrewMember[],
+): CrewIntakeConfig | undefined {
+	const rawIntake = input.intake;
+	if (rawIntake === undefined) return undefined;
+	if (!isRecord(rawIntake)) invalid("intake must be an object", "invalid-intake-config");
+	const keys = Object.keys(rawIntake);
+	if (keys.length !== 1 || keys[0] !== "contact")
+		invalid("intake must contain only the contact field", "invalid-intake-config");
+	const contact = rawIntake.contact;
+	if (
+		typeof contact !== "string" ||
+		contact.trim().length === 0 ||
+		contact !== contact.trim() ||
+		contact.includes("\0")
+	)
+		invalid("intake.contact must be a non-empty trimmed member name", "invalid-intake-config");
+	if (!members.some((member) => member.name === contact)) {
+		const validMemberNames = members.map((member) => member.name);
+		throw new CrewManifestError(
+			"invalid-intake-contact",
+			`Crew configuration invalid: manifest path ${manifestPath}; intake.contact rejected value '${contact}'; valid exact member names in manifest order: [${validMemberNames.join(", ")}]. Fixes: change intake.contact to one of those exact names, or add a member named '${contact}'; remove intake to disable external intake.`,
+			{ manifestPath, validMemberNames },
+		);
+	}
+	return { contact };
+}
+
+export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
+	if (!isRecord(input) || !Value.Check(CrewManifestSchema, input)) invalid("manifest must be an object");
+	if (input.version !== CREW_MANIFEST_VERSION && input.version !== CREW_MANIFEST_V2)
+		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
+	const commonInstructionsFile = normalizeCommonInstructionsFile(input, manifestPath);
+	const presence = normalizePresence(input);
+	const members = normalizeMembers(input, manifestPath);
+	const crew = normalizeCrew(input);
+	const guestAdmission = normalizeGuestAdmission(input, crew, members);
+	const intake = normalizeIntake(input, manifestPath, members);
 	return {
 		version: input.version as CrewManifestVersion,
-		...(validCommonInstructionsFile === undefined ? {} : { commonInstructionsFile: validCommonInstructionsFile }),
+		...(commonInstructionsFile === undefined ? {} : { commonInstructionsFile }),
 		members,
 		presence,
 		...(intake === undefined ? {} : { intake }),

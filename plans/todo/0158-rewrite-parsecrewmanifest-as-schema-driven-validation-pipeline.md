@@ -1,7 +1,7 @@
 ---
 id: TASK-0158
 title: Rewrite parseCrewManifest as schema-driven validation pipeline
-status: todo
+status: doing
 depends_on: []
 priority: normal
 tags: [refactor, manifest, validation]
@@ -53,4 +53,7 @@ No manifest format change, no version bump, no store/IO changes.
 - [ ] Criterion 2
 
 ## Notes
+
+- 2026-09-04: Coordinator remains sole implementation owner under Mary's
+  authorization for the TASK-0155 onward sequence.
 
