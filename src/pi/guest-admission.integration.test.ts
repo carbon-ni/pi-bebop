@@ -467,6 +467,100 @@ test("capability is delivered through the approved join response exactly once an
 	);
 });
 
+test("Guest recipient revalidates direct Guest Broadcast sends before delivery", async (t) => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "guest-to-guest-wire-"));
+	t.after(async () => fs.rm(root, { recursive: true, force: true }));
+	const callbackEndpoint = path.join(root, "recipient-callback.sock");
+	const sourceEndpoint = path.join(root, "source-callback.sock");
+	const recipient = createGuestMembershipRuntime({
+		guestIdentity: "guest-recipient",
+		callbackEndpoint,
+		createRequestId: () => "recipient-request",
+		submitJoinRequest: async () => undefined,
+		authorizeInbound: (input) =>
+			input.crewId === "alpha" && input.guestIdentity === GUEST_IDENTITY
+				? { ok: true, guestName: "Alex" }
+				: { ok: false, code: "not-approved" },
+	});
+	recipient.track(
+		{
+			crew: { id: "alpha", displayName: "Alpha" },
+			guestName: "Blake",
+			memberSocket: "member.sock",
+			submittedByMember: "member",
+		},
+		"recipient-request",
+		"approved",
+		"recipient-capability",
+	);
+	const sentMessages: Array<{ content: string; details: any }> = [];
+	const state = {
+		membershipRuntime: null,
+		guestMembershipRuntime: recipient,
+		context: { isProjectTrusted: () => true, isIdle: () => true },
+	};
+	const server = await createRpcServer(callbackEndpoint, (command, socket) => {
+		const respond = (success: boolean, commandName: string, data?: unknown, error?: string) =>
+			writeResponse(socket, { type: "response", command: commandName, success, data, error, id: command.id });
+		if (command.type !== "guest_send") return;
+		return handleGuestSend(
+			{
+				pi: {
+					sendMessage: (message: any) =>
+						sentMessages.push({ content: message.content, details: message.details }),
+				},
+				state,
+				ctx: state.context,
+				socket,
+				id: command.id,
+				respond,
+			} as unknown as Parameters<typeof handleGuestSend>[0],
+			command,
+		);
+	});
+	t.after(async () => closeRpcServer(server));
+	const response = await sendRpcCommand(
+		callbackEndpoint,
+		{
+			type: "guest_send",
+			crewId: "alpha",
+			guestIdentity: GUEST_IDENTITY,
+			callbackEndpoint: sourceEndpoint,
+			capability: "source-capability",
+			target: "Blake",
+			content: "hello Blake",
+			kind: "broadcast",
+		},
+		{ timeout: 5000 },
+	);
+	assert.ok(response.response.success, String(response.response.error));
+	assert.equal(sentMessages.length, 1);
+	assert.equal(sentMessages[0]!.details.messagePayload.kind, "broadcast");
+	assert.deepEqual(sentMessages[0]!.details.messagePayload.origin, {
+		kind: "guest",
+		identity: GUEST_IDENTITY,
+		name: "Alex",
+	});
+
+	await assert.rejects(
+		() =>
+			sendRpcCommand(
+				callbackEndpoint,
+				{
+					type: "guest_send",
+					crewId: "alpha",
+					guestIdentity: "spoofed",
+					callbackEndpoint: sourceEndpoint,
+					capability: "source-capability",
+					target: "Blake",
+					content: "spoof",
+				},
+				{ timeout: 5000 },
+			),
+		/not-approved/,
+	);
+});
+
 test("guest_send delivers to the receiving member after fresh registry authorization", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "guest-wire-send-"));
 	t.after(async () => fs.rm(root, { recursive: true, force: true }));
