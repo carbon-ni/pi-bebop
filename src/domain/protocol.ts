@@ -460,9 +460,7 @@ export const GuestJoinResultSchema = Type.Object(
 		requestId: Type.String({ minLength: 1 }),
 		crew: GuestJoinCrewSchema,
 		/** Member-issued capability; delivered on the approved join response only. */
-		capability: Type.Optional(
-			Type.String({ minLength: 1, maxLength: 256, pattern: "^[^\\u0000\\r\\n]+$" }),
-		),
+		capability: Type.Optional(Type.String({ minLength: 1, maxLength: 256, pattern: "^[^\\u0000\\r\\n]+$" })),
 	},
 	{ additionalProperties: false },
 );
