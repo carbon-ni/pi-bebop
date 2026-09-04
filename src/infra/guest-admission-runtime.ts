@@ -40,6 +40,7 @@ export type GuestAdmissionJoinResult =
 				| "crew-mismatch"
 				| "name-collision"
 				| "revoked"
+				| "denied"
 				| "join-failed";
 	  };
 
@@ -95,7 +96,11 @@ interface RevokedEntry {
 	readonly status: "revoked";
 	readonly record: GuestMembershipRecord;
 }
-type Entry = PendingEntry | ApprovedEntry | RevokedEntry;
+interface DeniedEntry {
+	readonly status: "denied";
+	readonly request: GuestJoinRequest;
+}
+type Entry = PendingEntry | ApprovedEntry | RevokedEntry | DeniedEntry;
 
 function validText(value: string): boolean {
 	return value.length > 0 && value.trim() === value && !value.includes("\0") && !/[\r\n]/.test(value);
@@ -131,6 +136,13 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 						guestIdentity: entry.request.guestIdentity,
 						guestName: entry.request.guestName,
 					};
+				if (entry.status === "denied")
+					return {
+						status: entry.status,
+						crew: entry.request.crew,
+						guestIdentity: entry.request.guestIdentity,
+						guestName: entry.request.guestName,
+					};
 				return {
 					status: entry.status,
 					crew: entry.record.crew,
@@ -154,6 +166,7 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 				return { ok: false, code: "crew-mismatch" };
 			const current = states.get(request.guestIdentity);
 			if (current?.status === "revoked") return { ok: false, code: "revoked" };
+			if (current?.status === "denied") return { ok: false, code: "denied" };
 			if (current?.status === "approved") {
 				if (
 					current.record.guestName !== request.guestName ||
@@ -226,7 +239,7 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			if (!authorized(approver)) return { ok: false, code: "unauthorized" };
 			for (const [identity, entry] of states) {
 				if (entry.status === "pending" && entry.request.requestId === requestId) {
-					states.delete(identity);
+					states.set(identity, { status: "denied", request: entry.request });
 					return { ok: true, changed: true };
 				}
 			}

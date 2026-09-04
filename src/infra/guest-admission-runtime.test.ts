@@ -63,6 +63,13 @@ describe("Guest admission runtime", () => {
 		if (replay.ok) assert.equal(replay.idempotent, true);
 	});
 
+	test("denies pending requests and rejects their replay", () => {
+		const admission = runtime();
+		admission.receive(request());
+		assert.deepEqual(admission.deny("generated-1", "lead"), { ok: true, changed: true });
+		assert.deepEqual(admission.receive(request({ requestId: "replay" })), { ok: false, code: "denied" });
+	});
+
 	test("rejects name collision, crew confusion, and replay after revocation", () => {
 		const admission = runtime();
 		admission.receive(request());
