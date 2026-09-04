@@ -1,7 +1,7 @@
 ---
 id: TASK-0161
 title: Implement approved Guest admission and multi-crew lifecycle
-status: todo
+status: doing
 depends_on: [TASK-0160]
 priority: high
 tags: [crew, guest, admission, multi-crew, lifecycle, cli, security, tdd]
