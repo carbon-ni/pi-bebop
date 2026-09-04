@@ -48,9 +48,9 @@ function detailsFromMessage(
 
 function claimedOrigin(payload: MessagePayload): string {
 	if (!payload.origin) return "from unknown";
-	return payload.origin.kind === "crew"
-		? `from ${payload.origin.name} (${payload.origin.role})`
-		: `from ${payload.origin.label} (unverified)`;
+	if (payload.origin.kind === "crew") return `from ${payload.origin.name} (${payload.origin.role})`;
+	if (payload.origin.kind === "guest") return `from ${payload.origin.name} (guest)`;
+	return `from ${payload.origin.label} (unverified)`;
 }
 
 export function parseSenderInfo(text: string): SenderInfo | null {

@@ -1,7 +1,7 @@
 ---
 id: TASK-0160
 title: Define multi-crew Guest membership
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [crew, guest, membership, multi-crew, admission, security, ubiquitous-language]
@@ -89,6 +89,33 @@ that crew. Joining or leaving one crew never affects another membership.
 - [ ] Threat model covers guessed/stolen socket paths, replayed approvals,
       capability leakage, stale endpoints, name collision, cross-crew confusion,
       unauthorized approval/revocation, and one compromised crew.
+
+## Threat model
+
+- A guessed or stolen Member socket may submit a join request, but cannot create
+  membership without exact Crew-local approval and a runtime-held capability.
+- Approval is bound to expected Guest identity, callback endpoint, and Crew
+  selector; replay, stale endpoint, renamed Crew, or changed approver fails closed.
+- Guest names collide with configured Member names and other Guest names inside
+  one Crew; cross-Crew names remain independent and never select by display name.
+- Approval/revocation is authorized only for exact configured approver names;
+  role labels, Crew contact, lead, and online state grant no authority.
+- Capability and filesystem/socket routes stay outside model-visible payloads;
+  Guest Origin is attribution, not content trust. A compromised Crew cannot
+  mutate another Crew's membership because every binding is Crew-local.
+
+## Implementation notes
+
+- Contract slice owns the ubiquitous language, optional `crew` manifest projection
+  (`identity`, `displayName`, exact `guestApprovers`), and pure Guest selectors,
+  capability allowlist, origin, and binding records.
+- Version 2 manifests may declare `crew`; legacy manifests may omit it (and
+  version 1 manifests reject the extension), so they cannot participate in Guest
+  membership. Missing or empty `guestApprovers` disables admission without a
+  role/contact/online fallback.
+- TASK-0161 owns admission, callback socket lifecycle, persistence, revocation,
+  and fail-closed restore. TASK-0162 owns crew-scoped Guest messaging/tool
+  surfaces. No runtime command or tool behavior is changed here.
 
 ## Non-goals
 

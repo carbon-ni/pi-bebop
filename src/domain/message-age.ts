@@ -54,7 +54,9 @@ export function formatMessageAgeBetween(sentAt: number, deliveredAt: number): st
 
 function formatHeaderOrigin(origin: MessageHeaderInput["origin"]): string {
 	if (!origin) return "from unknown";
-	return origin.kind === "crew" ? `from ${origin.name} (${origin.role})` : `from ${origin.label} (unverified)`;
+	if (origin.kind === "crew") return `from ${origin.name} (${origin.role})`;
+	if (origin.kind === "guest") return `from ${origin.name} (guest)`;
+	return `from ${origin.label} (unverified)`;
 }
 
 /** Formats the compact, model-visible provenance and timing header. */

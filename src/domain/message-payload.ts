@@ -1,5 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { GuestOriginSchema, type GuestOrigin } from "./guest-membership.ts";
 
 /** Closed semantic labels for every model-bound Bebop message surface. */
 export const MESSAGE_KINDS = [
@@ -32,7 +33,7 @@ export const ExternalOriginSchema = Type.Object(
 	{ kind: Type.Literal("external"), label: NonEmptyText },
 	{ additionalProperties: false },
 );
-export const MessageOriginSchema = Type.Union([CrewOriginSchema, ExternalOriginSchema]);
+export const MessageOriginSchema = Type.Union([CrewOriginSchema, ExternalOriginSchema, GuestOriginSchema]);
 export const MessageInstructionsSchema = Type.Optional(
 	Type.Array(NonEmptyText, { minItems: 1, maxItems: MAX_MESSAGE_INSTRUCTIONS }),
 );
@@ -54,6 +55,7 @@ export const MessagePayloadSchema = Type.Object(
 
 export type CrewOrigin = Static<typeof CrewOriginSchema>;
 export type ExternalOrigin = Static<typeof ExternalOriginSchema>;
+export type { GuestOrigin };
 export type MessageOrigin = Static<typeof MessageOriginSchema>;
 export type ReplyTo = Static<typeof ReplyToSchema>;
 export type MessagePayload = Static<typeof MessagePayloadSchema>;
@@ -76,7 +78,11 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
 	if (payload.sentAt !== undefined && (!Number.isSafeInteger(payload.sentAt) || payload.sentAt < 0)) return false;
 	if (payload.origin) {
 		const fields =
-			payload.origin.kind === "crew" ? [payload.origin.name, payload.origin.role] : [payload.origin.label];
+			payload.origin.kind === "crew"
+				? [payload.origin.name, payload.origin.role]
+				: payload.origin.kind === "guest"
+					? [payload.origin.identity, payload.origin.name]
+					: [payload.origin.label];
 		if (fields.some((field) => invalidIdentity(field, MAX_MESSAGE_ORIGIN_FIELD_BYTES))) return false;
 	}
 	if (payload.replyTo) {

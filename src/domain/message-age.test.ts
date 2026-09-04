@@ -74,6 +74,14 @@ test("formatMessageHeader uses the closed kind list and request ID only for requ
 		}),
 		"[member response] from jira-automation (unverified) · request age 1d 3h · request request_123",
 	);
+	assert.equal(
+		formatMessageHeader({
+			kind: "follow-up",
+			origin: { kind: "guest", identity: "guest-1", name: "Taylor" },
+			elapsedMs: 1_000,
+		}),
+		"[follow-up] from Taylor (guest) · age at delivery 1s",
+	);
 });
 
 test("formatMessageHeader makes missing origin and invalid timing explicit", () => {
