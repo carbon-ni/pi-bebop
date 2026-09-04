@@ -44,6 +44,19 @@ Member-facing commands operate only on current joined crew:
 current Member to be an exact configured Guest approver. All commands are
 non-agent-turn control operations with structured CLI parity.
 
+Pi also supports repeatable startup requests without inventing an active crew:
+
+```bash
+pi --intray --guest-as Alex \
+  --guest-join /path/to/crew-a/member.sock \
+  --guest-join /path/to/crew-b/member.sock
+```
+
+Each `--guest-join` creates or resumes one independent pending/approved binding.
+Startup reports each crew outcome separately; one unavailable crew does not
+roll back another. A resumed Guest session restores approved memberships and
+publishes its new callback endpoint without repeating approval.
+
 ## Acceptance criteria
 
 - [ ] TDD starts with join request, approval, multi-crew restore, leave/revoke,
@@ -69,6 +82,13 @@ non-agent-turn control operations with structured CLI parity.
 - [ ] `/guest join|crews|leave` and `/crew guests|guest approve|deny|remove`
       follow exact interface above or document a simpler equivalent with same
       unambiguous states and self-correcting errors.
+- [ ] `pi --intray --guest-as <name> --guest-join <socket>` supports repeatable
+      `--guest-join` flags, reports each outcome independently, and rejects
+      missing/duplicate/conflicting arguments before sending any request.
+- [ ] Guest startup flags imply no default crew and cannot be combined with
+      Member `--crew-role`/`--crew-socket` membership in this slice.
+- [ ] Resuming same Guest restores all still-approved crew bindings and safely
+      updates callback endpoint; a new unrelated Pi session cannot inherit them.
 - [ ] CLI provides non-interactive equivalents and text/TOON/JSON formats with
       stable error codes and token-light default output.
 - [ ] Roster/presence distinguish pending, approved-online, approved-offline,
