@@ -42,9 +42,10 @@ command because those messages are part of existing compatibility contracts.
 
 ## Acceptance criteria
 
-- [ ] All five parsers CC < 15 (from 40/31/31/21/20).
-- [ ] Exactly one argv-iteration implementation in `src/cli/`.
-- [ ] Existing CLI tests pass unmodified; contract tests confirm
+- [x] All five parsers CC < 15 (from 40/31/31/21/20).
+- [x] Exactly one argv-iteration implementation across the five targeted
+      parsers and the shared scanner.
+- [x] Existing CLI tests pass unmodified; contract tests confirm
       tool/CLI parity.
 - [x] Flag error messages identical where tests assert them.
 
@@ -64,4 +65,11 @@ protocol.
   pre-pass iteration, duplicate/help handling, sentinel values, and ordered
   repeatables. Commander and semantic validators remain command-owned to avoid
   changing established error/help compatibility text.
+- 2026-09-04: Implemented in `96b07a5`; scanner edge coverage in `93f0167`,
+  and compatibility scope clarified in `e43160c`. Watcher generation 810
+  passed the fresh `@agent-final` gate. Two subsequent exact-head
+  `npm run verify:cli` runs passed (90.03% branches and package verification);
+  one concurrent coverage run measured 89.98% due existing rpc-server coverage
+  attribution variance. Mary independently reviewed exact-head behavior and
+  approved the narrowed scope pending deterministic-gate evidence.
 
