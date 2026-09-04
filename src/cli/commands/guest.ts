@@ -54,9 +54,10 @@ function normalizeFormat(value: string | undefined, flag = "--format"): CliForma
 	return format;
 }
 
-function tokenize(args: readonly string[]): { tokens: string[]; format: string | undefined } {
+function tokenize(args: readonly string[]): { tokens: string[]; format: string | undefined; help: boolean } {
 	const tokens: string[] = [];
 	let format: string | undefined;
+	let help = false;
 	for (let index = 0; index < args.length; index += 1) {
 		const raw = args[index]!;
 		const equals = raw.indexOf("=");
@@ -66,9 +67,13 @@ function tokenize(args: readonly string[]): { tokens: string[]; format: string |
 			format = equals > 0 ? raw.slice(equals + 1) : args[++index];
 			continue;
 		}
+		if (flag === "--help") {
+			help = true;
+			continue;
+		}
 		tokens.push(raw);
 	}
-	return { tokens, format };
+	return { tokens, format, help };
 }
 
 export function buildGuestJoinCommand(): Command {
@@ -125,7 +130,17 @@ function parseWith(
 }
 
 export function parseGuestJoinCommand(args: readonly string[]): GuestJoinCliOptions {
-	const { tokens, format } = tokenize(args);
+	const { tokens, format, help } = tokenize(args);
+	if (help)
+		return {
+			command: "guest-join",
+			target: "",
+			guestIdentity: "",
+			guestName: "",
+			callback: "",
+			format: normalizeFormat(format),
+			help: true,
+		};
 	const options = parseWith(buildGuestJoinCommand(), tokens, (opts, target) => {
 		if (opts.as !== undefined && !validValue(String(opts.as)))
 			throw new UsageError("Guest --as requires a non-empty value.");
@@ -142,7 +157,17 @@ export function parseGuestJoinCommand(args: readonly string[]): GuestJoinCliOpti
 }
 
 export function parseGuestLeaveCommand(args: readonly string[]): GuestLeaveCliOptions {
-	const { tokens, format } = tokenize(args);
+	const { tokens, format, help } = tokenize(args);
+	if (help)
+		return {
+			command: "guest-leave",
+			target: "",
+			crewId: "",
+			guestIdentity: "",
+			callback: "",
+			format: normalizeFormat(format),
+			help: true,
+		};
 	const options = parseWith(buildGuestLeaveCommand(), tokens, (opts, target) => ({ ...opts, target }));
 	return {
 		command: "guest-leave",
