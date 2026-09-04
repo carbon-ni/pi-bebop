@@ -29,6 +29,15 @@ export interface CrewBroadcastRequest {
 	readonly message: string;
 	readonly instructions?: readonly string[];
 	readonly signal?: AbortSignal;
+	/**
+	 * Approved Guests of the joined crew, read fresh from the crew-owned
+	 * registry at execution; they join the transient recipient set.
+	 */
+	readonly approvedGuests?: readonly {
+		readonly guestName: string;
+		readonly guestIdentity: string;
+		readonly callbackEndpoint: string;
+	}[];
 }
 
 export interface BroadcastMembership {
@@ -78,6 +87,15 @@ export async function submitCrewBroadcast(
 	}
 	const snapshot = buildBroadcastRecipients(membership.manifest, membership.member.name);
 	if (snapshot.ok === false) return noRecipientsResult(snapshot.code);
+	// Approved Guests join the transient recipient set after every Member, in
+	// registry order; delivery is an ordinary Follow-up to the Guest callback.
+	const guestRecipients = (request.approvedGuests ?? []).map((guest) => ({
+		guestName: guest.guestName,
+		recipientName: guest.guestName,
+		recipientRole: "guest",
+		guestIdentity: guest.guestIdentity,
+		callbackEndpoint: guest.callbackEndpoint,
+	}));
 	const payload = createBroadcastPayload(membership.member, {
 		content: request.message,
 		...(request.instructions === undefined ? {} : { instructions: request.instructions }),
@@ -108,6 +126,44 @@ export async function submitCrewBroadcast(
 			dispositions.push({
 				recipientName: recipient.member.name,
 				recipientRole: recipient.member.role,
+				disposition: "failed",
+				code,
+				message: failureMessage(error, code),
+			});
+		}
+	}
+	for (const guest of guestRecipients) {
+		try {
+			const outcome = await sendMemberMessage(
+				{
+					membership: membership as never,
+					member: guest.guestName,
+					message: payload.content,
+					instructions: payload.instructions,
+					kind: "broadcast",
+					intent: "follow_up",
+					signal: request.signal,
+					approvedGuests: [
+						{
+							guestName: guest.guestName,
+							guestIdentity: guest.guestIdentity,
+							callbackEndpoint: guest.callbackEndpoint,
+						},
+					],
+				},
+				dependencies,
+			);
+			dispositions.push({
+				recipientName: guest.recipientName,
+				recipientRole: "guest",
+				deliveryId: outcome.deliveryId,
+				disposition: "delivered",
+			});
+		} catch (error) {
+			const code = failureCode(error);
+			dispositions.push({
+				recipientName: guest.recipientName,
+				recipientRole: "guest",
 				disposition: "failed",
 				code,
 				message: failureMessage(error, code),

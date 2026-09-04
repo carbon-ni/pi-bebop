@@ -102,6 +102,8 @@ export interface SocketState {
 	membershipRuntime: MembershipRuntime | null;
 	guestMembershipRuntime?: GuestMembershipRuntime;
 	guestAdmissionRuntime?: GuestAdmissionRuntime;
+	/** Fresh crew-registry reader for approved-Guest recipient sets; optional. */
+	approvedGuestsResolver?: () => readonly { guestName: string; guestIdentity: string; callbackEndpoint: string }[];
 	presenceObserver?: PresenceObserver;
 	onInboxHint?: () => void;
 	/** Injectable member-status transport (TASK-0061); defaults to the shared real transport. */
@@ -738,6 +740,7 @@ export async function handleCrewBroadcast(
 				message: command.message,
 				instructions: command.instructions,
 				signal: controller.signal,
+				approvedGuests: state.approvedGuestsResolver?.(),
 			},
 			dependencies,
 		);
