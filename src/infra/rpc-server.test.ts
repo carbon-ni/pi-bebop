@@ -448,7 +448,7 @@ test("writeResponse serializes a member.status result under the member.status me
 	});
 });
 
-test("RPC command response mapping covers every supported command", () => {
+test("RPC command response recognizes every supported command", () => {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
 	const commands = [
@@ -479,5 +479,10 @@ test("RPC command response mapping covers every supported command", () => {
 	] as const;
 	for (const command of commands)
 		writeResponse(socket, { type: "response", command, success: false, error: "covered", id: command });
-	assert.equal(writes.length, commands.length);
+	const responses = writes.map((value) => JSON.parse(value) as { id: string; error?: { message?: string } });
+	assert.deepEqual(
+		responses.map((response) => response.id),
+		commands,
+	);
+	assert.ok(responses.every((response) => response.error?.message === "covered"));
 });
