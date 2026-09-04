@@ -68,6 +68,13 @@ describe("Guest admission runtime", () => {
 		admission.receive(request());
 		assert.deepEqual(admission.deny("generated-1", "lead"), { ok: true, changed: true });
 		assert.deepEqual(admission.receive(request({ requestId: "replay" })), { ok: false, code: "denied" });
+		const persisted: unknown[] = [];
+		const source = runtime({ persist: (records) => persisted.push(records) });
+		source.receive(request());
+		source.deny("generated-1", "lead");
+		const restored = runtime();
+		assert.deepEqual(restored.restore(persisted[0] as readonly unknown[]), { restored: ["guest-1"], rejected: [] });
+		assert.deepEqual(restored.receive(request({ requestId: "replay-2" })), { ok: false, code: "denied" });
 	});
 
 	test("rejects name collision, crew confusion, and replay after revocation", () => {
