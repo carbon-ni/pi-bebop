@@ -64,7 +64,7 @@ export type Guest = Static<typeof GuestSchema>;
 /** Public selector shown to a Guest; it contains no manifest path or socket route. */
 export const CrewSelectorSchema = Type.Object(
 	{
-		identity: BoundedText(MAX_GUEST_IDENTITY_BYTES),
+		id: BoundedText(MAX_GUEST_IDENTITY_BYTES),
 		displayName: BoundedText(MAX_GUEST_NAME_BYTES),
 	},
 	{ additionalProperties: false },
@@ -73,21 +73,21 @@ export type CrewSelector = Static<typeof CrewSelectorSchema>;
 
 /** Stable identity and display metadata projected from a manifest. */
 export function crewSelectorFromConfig(config: CrewIdentityConfig): CrewSelector {
-	return { identity: config.id, displayName: config.displayName };
+	return { id: config.id, displayName: config.displayName };
 }
 
 export type CrewSelectorLookup =
 	| { readonly kind: "match"; readonly crew: CrewSelector }
-	| { readonly kind: "no-match"; readonly identity: string }
+	| { readonly kind: "no-match"; readonly id: string }
 	| { readonly kind: "ambiguous"; readonly displayName: string; readonly crews: readonly CrewSelector[] };
 
 /**
  * Selects by stable identity, never by display name. Duplicate display names
  * are therefore harmless; a UI may show them but must retain the selector.
  */
-export function selectCrewBySelector(crews: readonly CrewSelector[], identity: string): CrewSelectorLookup {
-	const matches = crews.filter((crew) => crew.identity === identity);
-	if (matches.length === 0) return { kind: "no-match", identity };
+export function selectCrewBySelector(crews: readonly CrewSelector[], id: string): CrewSelectorLookup {
+	const matches = crews.filter((crew) => crew.id === id);
+	if (matches.length === 0) return { kind: "no-match", id };
 	if (matches.length > 1) {
 		return {
 			kind: "ambiguous",
@@ -182,7 +182,7 @@ export type GuestRevocation = Static<typeof GuestRevocationSchema>;
 
 function isValidSelector(selector: CrewSelector): boolean {
 	return (
-		isBoundedText(selector.identity, MAX_GUEST_IDENTITY_BYTES) &&
+		isBoundedText(selector.id, MAX_GUEST_IDENTITY_BYTES) &&
 		isBoundedText(selector.displayName, MAX_GUEST_NAME_BYTES)
 	);
 }
@@ -248,7 +248,7 @@ export function replaceGuestMembership(
 	memberships: readonly GuestMembershipRecord[],
 	replacement: GuestMembershipRecord,
 ): readonly GuestMembershipRecord[] {
-	const index = memberships.findIndex((membership) => membership.crew.identity === replacement.crew.identity);
+	const index = memberships.findIndex((membership) => membership.crew.id === replacement.crew.id);
 	if (index < 0) return [...memberships, replacement];
 	return memberships.map((membership, candidate) => (candidate === index ? replacement : membership));
 }
@@ -258,13 +258,13 @@ export function removeGuestMembership(
 	memberships: readonly GuestMembershipRecord[],
 	crewIdentity: string,
 ): readonly GuestMembershipRecord[] {
-	return memberships.filter((membership) => membership.crew.identity !== crewIdentity);
+	return memberships.filter((membership) => membership.crew.id !== crewIdentity);
 }
 
 /** Fails closed when any restored identity, endpoint, approver, or Crew binding differs. */
 export function bindingMatchesRecord(binding: GuestMembershipBinding, record: GuestMembershipRecord): boolean {
 	return (
-		binding.crew.identity === record.crew.identity &&
+		binding.crew.id === record.crew.id &&
 		binding.crew.displayName === record.crew.displayName &&
 		binding.guestIdentity === record.guestIdentity &&
 		binding.guestName === record.guestName &&
@@ -295,7 +295,7 @@ export function isGuestMembershipRecord(value: unknown): value is GuestMembershi
 	if (!Value.Check(GuestMembershipRecordSchema, value)) return false;
 	const record = value as GuestMembershipRecord;
 	return (
-		isBoundedText(record.crew.identity, MAX_GUEST_IDENTITY_BYTES) &&
+		isBoundedText(record.crew.id, MAX_GUEST_IDENTITY_BYTES) &&
 		isBoundedText(record.crew.displayName, MAX_GUEST_NAME_BYTES) &&
 		isBoundedText(record.guestIdentity, MAX_GUEST_IDENTITY_BYTES) &&
 		isBoundedText(record.guestName, MAX_GUEST_NAME_BYTES) &&
