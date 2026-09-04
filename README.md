@@ -83,9 +83,10 @@ pi --crew-role developer
 /crew members
 ```
 
-`crew init` creates `.pi/bebop/crew.json`, role instruction templates, and a
-`sockets/` directory — deterministic, non-interactive, and a safe no-op on
-rerun. Review names, Intake contact, and instructions before joining.
+`crew init` creates a version 2 `.pi/bebop/crew.json`, shared and role
+instruction templates, and a `sockets/` directory — deterministic,
+non-interactive, and a safe no-op on rerun. Review names, Intake contact,
+common guidance, and role instructions before joining.
 `pi-bebop crew roles` prints the exact configured role values (TOON by default,
 `--format json|text`) rooted at the current working directory, so startup role
 selection never depends on opening `crew.json` manually; it never starts a

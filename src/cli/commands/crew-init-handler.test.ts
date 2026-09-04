@@ -26,7 +26,8 @@ test("crew init creates a fresh canonical scaffold with created status", async (
 		assert.equal(data.manifestPath, ".pi/bebop/crew.json");
 		assert.ok((data.createdPaths as string[]).includes(".pi/bebop/crew.json"));
 		const manifest = JSON.parse(await readFileText(path.join(dir, ".pi/bebop/crew.json")));
-		assert.equal(manifest.version, 1);
+		assert.equal(manifest.version, 2);
+		assert.equal(manifest.commonInstructionsFile, "instructions/common.md");
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

@@ -29,6 +29,7 @@ Defaults:
 ├── .gitignore
 ├── crew.json
 ├── instructions/
+│   ├── common.md
 │   ├── lead.md
 │   ├── product.md
 │   ├── developer.md
@@ -36,11 +37,12 @@ Defaults:
 └── sockets/
 ```
 
-- `crew.json` is valid version 1 configuration with generic exact names `lead`,
-  `product`, `developer`, and `quality`; matching roles, descriptions, and
+- `crew.json` is valid version 2 configuration with generic exact names `lead`,
+  `product`, `developer`, and `quality`; a shared `commonInstructionsFile` at
+  `instructions/common.md`; matching roles, descriptions, and
   `instructionsFile` values under `instructions/`; notifications enabled; exact
-  Intake contact `product`. Review names, contact, and instructions before
-  starting member processes.
+  Intake contact `product`. Review names, contact, common guidance, and role
+  instructions before starting member processes.
 - `.gitignore` excludes runtime-owned `sockets/` and private durable `inbox/`.
 - Init creates empty `sockets/` for immediate discoverability but never creates
   socket links, member processes, Inbox records, session state, Git commits, or
@@ -61,14 +63,26 @@ version 1 with exact member names/roles and socket-relative paths:
 }
 ```
 
+Version 2 may select one shared `commonInstructionsFile` under the active
+layout's `instructions/` directory. Every member receives the same loaded
+common snapshot before its role instructions, including members without a role
+file. Version 1 remains accepted for compatibility, but a version 1 runtime
+rejects the version 2 extension rather than ignoring it.
+
 A member may use either inline instructions or a Markdown file, never both;
-file paths stay beneath the active layout's `instructions/` directory and are
-rejected on symlink escapes, directories, invalid UTF-8, NULs, blank files, or
-files over 64 KiB. The file is read once during startup, restore, or explicit
-join/rejoin (no hot reload; leave and rejoin to refresh):
+common and role file paths stay beneath the active layout's `instructions/`
+directory and are rejected on symlink escapes, directories, invalid UTF-8, NULs,
+blank files, or files over 64 KiB. Files are read once during startup, restore,
+or explicit join/rejoin (no hot reload; leave and rejoin to refresh):
 
 ```json
-{ "name": "Bob", "role": "developer", "socket": "sockets/Bob.sock", "instructionsFile": "instructions/developer.md" }
+{
+	"version": 2,
+	"commonInstructionsFile": "instructions/common.md",
+	"members": [
+		{ "name": "Bob", "role": "developer", "socket": "sockets/Bob.sock", "instructionsFile": "instructions/developer.md" }
+	]
+}
 ```
 
 Descriptions are short, stable, crew-visible profiles for choosing an exact

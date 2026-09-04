@@ -95,12 +95,17 @@ legacy `{ type, ... }` envelope; JSON-RPC does not add authentication.
 
 - Reload/resume restores active membership after revalidation. Shutdown always
   attempts endpoint release before server cleanup.
-- Role instructions support one source per member: inline `instructions` or a
-  relative `instructionsFile`. File-backed instructions are loaded as a strict
-  UTF-8 snapshot during join/restore (maximum 64 KiB), only beneath the active
-  layout's `instructions/` directory after real-path checks. Blank, NUL,
-  directory, unreadable, invalid, oversized, or escaping files reject the join
-  atomically. Files are not watched; leave/rejoin refreshes the snapshot.
+- Version 2 manifests may select one shared `commonInstructionsFile` plus one
+  role source per member: inline `instructions` or a relative
+  `instructionsFile`. Common guidance is loaded once and composed before the
+  current member's role guidance; a member without role instructions still
+  receives the common section. Version 1 manifests remain byte-compatible and
+  reject the version 2 extension when encountered by an older runtime.
+  File-backed common and role instructions are loaded as strict UTF-8 snapshots
+  during join/restore (maximum 64 KiB each), only beneath the active layout's
+  `instructions/` directory after real-path checks. Blank, NUL, directory,
+  unreadable, invalid, oversized, or escaping files reject the join atomically.
+  Files are not watched; leave/rejoin refreshes the snapshot.
 
 Server status is `stopped`, `online`, or `joined`. A session publishes its
 socket and up to two aliases (session name and project/branch alias) under

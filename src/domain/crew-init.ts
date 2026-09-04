@@ -24,7 +24,7 @@
  * - Exit codes: 0 created/unchanged, 1 operational/conflict failure, 2 usage.
  */
 
-export const CREW_INIT_TEMPLATE_VERSION = "1";
+export const CREW_INIT_TEMPLATE_VERSION = "2";
 export const CREW_INIT_PROJECT_DIR = ".pi/bebop";
 export const CREW_INIT_MANIFEST_REL = `${CREW_INIT_PROJECT_DIR}/crew.json`;
 export const CREW_INIT_GITIGNORE_REL = `${CREW_INIT_PROJECT_DIR}/.gitignore`;
@@ -45,6 +45,7 @@ export function crewInitManagedPaths(): readonly string[] {
 		CREW_INIT_PROJECT_DIR + "/",
 		CREW_INIT_GITIGNORE_REL,
 		CREW_INIT_MANIFEST_REL,
+		`${CREW_INIT_INSTRUCTIONS_REL}/common.md`,
 		`${CREW_INIT_INSTRUCTIONS_REL}/lead.md`,
 		`${CREW_INIT_INSTRUCTIONS_REL}/product.md`,
 		`${CREW_INIT_INSTRUCTIONS_REL}/developer.md`,
@@ -64,11 +65,12 @@ export function crewInitGitignore(): string {
 	].join(NEWLINE);
 }
 
-/** Deterministic version 1 crew.json with generic exact names and roles. */
+/** Deterministic version 2 crew.json with generic exact names, roles, and common guidance. */
 export function crewInitCrewJson(): string {
 	return [
 		"{",
-		'  "version": 1,',
+		'  "version": 2,',
+		'  "commonInstructionsFile": "instructions/common.md",',
 		'  "presence": { "notifications": true },',
 		'  "intake": { "contact": "product" },',
 		'  "members": [',
@@ -102,6 +104,20 @@ export function crewInitCrewJson(): string {
 		"    }",
 		"  ]",
 		"}",
+		"",
+	].join(NEWLINE);
+}
+
+/** Deterministic common guidance applied to every member of the crew. */
+export function crewInitCommonInstructions(): string {
+	return [
+		"# Common crew instructions",
+		"",
+		"These instructions apply to every crew member.",
+		"",
+		"- Keep communication explicit, bounded, and evidence-based.",
+		"- Use Follow-up for information, Request for one correlated answer, and Inbox when durable delivery is required.",
+		"- Report blockers and uncertainty instead of claiming completion without verification.",
 		"",
 	].join(NEWLINE);
 }
@@ -230,6 +246,7 @@ export function crewInitTemplateBytes(): Record<string, string> {
 	return {
 		[CREW_INIT_GITIGNORE_REL]: crewInitGitignore(),
 		[CREW_INIT_MANIFEST_REL]: crewInitCrewJson(),
+		[`${CREW_INIT_INSTRUCTIONS_REL}/common.md`]: crewInitCommonInstructions(),
 		[`${CREW_INIT_INSTRUCTIONS_REL}/lead.md`]: crewInitInstructions("lead"),
 		[`${CREW_INIT_INSTRUCTIONS_REL}/product.md`]: crewInitInstructions("product"),
 		[`${CREW_INIT_INSTRUCTIONS_REL}/developer.md`]: crewInitInstructions("developer"),
@@ -400,7 +417,7 @@ export function crewInitHelp(): string {
 		"Files created (deterministic, versioned):",
 		"  .pi/bebop/crew.json",
 		"  .pi/bebop/.gitignore",
-		"  .pi/bebop/instructions/{lead,product,developer,quality}.md",
+		"  .pi/bebop/instructions/{common,lead,product,developer,quality}.md",
 		"  .pi/bebop/sockets/",
 		"",
 		"Exit codes:",
@@ -413,7 +430,7 @@ export function crewInitHelp(): string {
 		"  pi-bebop crew init --project /path/to/project",
 		"  pi-bebop crew init --format json",
 		"",
-		"Review crew.json contact/names/instructions before starting member processes.",
+		"Review crew.json contact/names/common and role instructions before starting member processes.",
 		"",
 	].join(NEWLINE);
 }

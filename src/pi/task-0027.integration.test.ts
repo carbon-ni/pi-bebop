@@ -160,6 +160,45 @@ test("restores the current instruction snapshot from the changed file", async ()
 	}
 });
 
+test("loads common instructions as a stable snapshot and refreshes them on leave/rejoin", async () => {
+	const crew = await fixture();
+	try {
+		const instructionsDir = path.join(crew.root, ".pi", "bebop", "instructions");
+		await fs.writeFile(path.join(instructionsDir, "common.md"), "old common\n");
+		await fs.writeFile(
+			crew.manifestPath,
+			JSON.stringify({
+				version: 2,
+				commonInstructionsFile: "instructions/common.md",
+				members: [
+					{
+						name: "dev",
+						role: "developer",
+						socket: "sockets/dev.sock",
+						instructionsFile: "instructions/dev.md",
+					},
+				],
+			}),
+		);
+		const request = {
+			manifestPath: crew.manifestPath,
+			socketPath: crew.socketPath,
+			globalSocketPath: crew.globalSocketPath,
+		};
+		const runtime = runtimeFor(crew);
+		assert.equal((await runtime.join(request)).ok, true);
+		const first = appendMembershipContext("Base system", runtime.getMembership());
+		assert.ok(first.indexOf("Common crew instructions: old common") < first.indexOf("Role instructions: old role"));
+		await fs.writeFile(path.join(instructionsDir, "common.md"), "new common\n");
+		assert.match(appendMembershipContext("Base system", runtime.getMembership()), /old common/);
+		assert.equal((await runtime.leave()).ok, true);
+		assert.equal((await runtime.join(request)).ok, true);
+		assert.match(appendMembershipContext("Base system", runtime.getMembership()), /new common/);
+	} finally {
+		await crew.cleanup();
+	}
+});
+
 test("refreshes instructions from old to new content after leave and rejoin", async () => {
 	const crew = await fixture();
 	try {
