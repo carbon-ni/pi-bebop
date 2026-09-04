@@ -1,7 +1,7 @@
 ---
 id: TASK-0162
 title: Expose crew-scoped Guest messaging
-status: todo
+status: doing
 depends_on: [TASK-0161]
 priority: high
 tags: [crew, guest, messaging, multi-crew, tools, cli, protocol, tdd]
