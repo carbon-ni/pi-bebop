@@ -405,9 +405,10 @@ export async function handleMemberRequestList(
 	context: CommandHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_request_list" }>,
 ): Promise<void> {
+	const membership = context.state.membershipRuntime?.getMembership();
 	const flow = context.state.memberRequestFlow;
-	if (!flow) {
-		context.respond(false, command.type, undefined, "coordination-unavailable");
+	if (!membership || !flow) {
+		context.respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
 		return;
 	}
 	const direction = command.direction ?? "all";
@@ -430,16 +431,29 @@ export async function handleMemberRequestList(
 					member: item.requester,
 					state: item.state,
 				}));
-	context.respond(true, command.type, { requests: [...outbound, ...inbound], omitted: 0 });
+	const orderByRequestId = new Map(
+		[...flow.registry.outboundSummaries(), ...flow.registry.inboundSummaries()].map((item) => [
+			item.requestId,
+			item.order,
+		]),
+	);
+	const ordered = [...outbound, ...inbound].sort(
+		(left, right) =>
+			(orderByRequestId.get(left.requestId) ?? Number.MAX_SAFE_INTEGER) -
+				(orderByRequestId.get(right.requestId) ?? Number.MAX_SAFE_INTEGER) ||
+			left.requestId.localeCompare(right.requestId),
+	);
+	context.respond(true, command.type, { requests: ordered, omitted: 0 });
 }
 
 export async function handleMemberRequestWait(
 	context: CommandHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_request_wait" }>,
 ): Promise<void> {
+	const membership = context.state.membershipRuntime?.getMembership();
 	const flow = context.state.memberRequestFlow;
-	if (!flow) {
-		context.respond(false, command.type, undefined, "coordination-unavailable");
+	if (!membership || !flow) {
+		context.respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
 		return;
 	}
 	let closed = false;

@@ -147,6 +147,8 @@ function validRequestId(requestId: string): boolean {
 export class RequestOutcomeRegistry {
 	private readonly outbound = new Map<string, MutableOutbound>();
 	private readonly inbound = new Map<string, MutableInbound>();
+	private readonly registrationOrder = new Map<string, number>();
+	private registrationSequence = 0;
 	private readonly terminal = new Map<string, TerminalState>();
 	private readonly inboundTerminal = new Map<string, "response">();
 	private readonly tombstoneOrder: string[] = [];
@@ -155,6 +157,10 @@ export class RequestOutcomeRegistry {
 	private sequence = 0;
 	private waiter: ((update: RequestOutcome) => void) | undefined;
 	private readonly exactWaiters = new Map<string, (update: RequestOutcome) => void>();
+
+	private forgetRegistration(requestId: string): void {
+		this.registrationOrder.delete(requestId);
+	}
 
 	registerOutbound(input: {
 		readonly requestId: string;
@@ -200,6 +206,7 @@ export class RequestOutcomeRegistry {
 			maxWaitSeconds,
 		};
 		this.outbound.set(request.requestId, request);
+		this.registrationOrder.set(request.requestId, this.registrationSequence++);
 		return { ok: true, value: { ...request } };
 	}
 
@@ -219,6 +226,7 @@ export class RequestOutcomeRegistry {
 		if (this.inbound.size >= MAX_MEMBER_REQUEST_INBOUND) return { ok: false, code: "inbound-capacity" };
 		const request: MutableInbound = { ...input, accepted: false, idleArmed: false };
 		this.inbound.set(request.requestId, request);
+		this.registrationOrder.set(request.requestId, this.registrationSequence++);
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
 
@@ -262,11 +270,13 @@ export class RequestOutcomeRegistry {
 		const outbound = this.outbound.get(requestId);
 		if (outbound && !outbound.accepted) {
 			this.outbound.delete(requestId);
+			this.forgetRegistration(requestId);
 			return { ok: true, value: null };
 		}
 		const inbound = this.inbound.get(requestId);
 		if (inbound && !inbound.accepted) {
 			this.inbound.delete(requestId);
+			this.forgetRegistration(requestId);
 			return { ok: true, value: null };
 		}
 		return { ok: false, code: "unknown-request" };
@@ -275,6 +285,7 @@ export class RequestOutcomeRegistry {
 	closeOutcomeUnknown(requestId: string): RequestOutcomeOperation<null> {
 		if (!this.outbound.delete(requestId) && !this.inbound.delete(requestId))
 			return { ok: false, code: "unknown-request" };
+		this.forgetRegistration(requestId);
 		return { ok: true, value: null };
 	}
 
@@ -305,6 +316,7 @@ export class RequestOutcomeRegistry {
 			...(requestAgeMs === undefined ? {} : { requestAgeMs }),
 		};
 		this.outbound.delete(input.requestId);
+		this.forgetRegistration(input.requestId);
 		this.setTerminal(input.requestId, { kind: update.kind, update });
 		this.publish(update);
 		return { ok: true, value: update };
@@ -336,6 +348,7 @@ export class RequestOutcomeRegistry {
 		if (reason === "response-after-idle" && !request.idleArmed) return { ok: false, code: "unknown-request" };
 		const update: RequestOutcomeTimeout = { kind: "timeout", requestId, member: request.member, reason };
 		this.outbound.delete(requestId);
+		this.forgetRegistration(requestId);
 		this.setTerminal(requestId, { kind: update.kind, update });
 		this.publish(update);
 		return { ok: true, value: update };
@@ -358,6 +371,7 @@ export class RequestOutcomeRegistry {
 				: { ok: false, code: "unknown-request" };
 		const update: RequestOutcomeOffline = { kind, requestId, member: request.member };
 		this.outbound.delete(requestId);
+		this.forgetRegistration(requestId);
 		this.setTerminal(requestId, { kind, update });
 		this.publish(update);
 		return { ok: true, value: update };
@@ -387,6 +401,7 @@ export class RequestOutcomeRegistry {
 				: { ok: false, code: "response-expired" };
 		}
 		this.inbound.delete(requestId);
+		this.forgetRegistration(requestId);
 		this.setInboundTerminal(requestId, "response");
 		return { ok: true, value: { ...request, instructions: [...request.instructions] } };
 	}
@@ -411,6 +426,7 @@ export class RequestOutcomeRegistry {
 
 	resolveInboundExpired(requestId: string): RequestOutcomeOperation<null> {
 		if (!this.inbound.delete(requestId)) return { ok: false, code: "unknown-request" };
+		this.forgetRegistration(requestId);
 		return { ok: true, value: null };
 	}
 
@@ -524,12 +540,14 @@ export class RequestOutcomeRegistry {
 		readonly member: MemberRequestMember;
 		readonly state: "accepted" | "idle";
 		readonly deadlineAt: number;
+		readonly order: number;
 	}> {
 		return [...this.outbound.values()].map((request) => ({
 			requestId: request.requestId,
 			member: request.member,
 			state: request.idleArmed ? "idle" : "accepted",
 			deadlineAt: request.deadlineAt,
+			order: this.registrationOrder.get(request.requestId) ?? Number.MAX_SAFE_INTEGER,
 		}));
 	}
 
@@ -537,11 +555,13 @@ export class RequestOutcomeRegistry {
 		readonly requestId: string;
 		readonly requester: MemberRequestMember;
 		readonly state: "accepted" | "idle";
+		readonly order: number;
 	}> {
 		return [...this.inbound.values()].map((request) => ({
 			requestId: request.requestId,
 			requester: request.requester,
 			state: request.idleArmed ? "idle" : "accepted",
+			order: this.registrationOrder.get(request.requestId) ?? Number.MAX_SAFE_INTEGER,
 		}));
 	}
 }

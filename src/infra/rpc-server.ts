@@ -58,6 +58,12 @@ function methodForCommand(command: string): string | undefined {
 			return "member.status_target";
 		case "member_request":
 			return "member.request";
+		case "member_request_start":
+			return "member.request_start";
+		case "member_request_list":
+			return "member.request_list";
+		case "member_request_wait":
+			return "member.request_wait";
 		case "member_response":
 			return "member.respond";
 		case "member_interrupt":

@@ -7,6 +7,21 @@ priority: high
 tags: [cli, member-request, response, correlation, rpc, automation, axi, tdd]
 ---
 
+## Ownership
+
+- 2026-09-04: Coordinator (session 01a0675d) took over implementation from Dave
+  with Mary's explicit authorization. Dave's runtime is operationally
+  unavailable (crew-channel requests unanswered; alias -11 session returns
+  stale canned output) and must not resume TASK-0163 unless ownership is
+  explicitly transferred back.
+- Takeover evidence at HEAD `eca03b4`: uncommitted WIP snapshot saved to
+  `.tmp/reports/04-09-26/task-0163-takeover-wip.diff` and
+  `.tmp/reports/04-09-26/task-0163-takeover-status.txt` before any coordinator
+  edit. WIP files: src/cli/commands/member-request.ts,
+  src/domain/member-request.ts, src/domain/protocol.ts, src/infra/rpc-server.ts,
+  src/pi/control-runtime.ts, new src/pi/member-request-cli.integration.test.ts.
+  WIP is preserved, not discarded; changes continue only with test evidence.
+
 # Add Member Request and Response CLI parity
 
 ## Problem

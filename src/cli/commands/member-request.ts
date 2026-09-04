@@ -82,7 +82,10 @@ function parserFor(
 	try {
 		program.parse(tokens, { from: "user" });
 	} catch (error) {
-		if (error instanceof CommanderError) throw new UsageError(error.message);
+		if (error instanceof CommanderError) {
+			if (help) return { options: program.opts(), positional: program.args, help, instructions };
+			throw new UsageError(error.message);
+		}
 		throw error;
 	}
 	return { options: program.opts(), positional: program.args, help, instructions };
@@ -329,13 +332,15 @@ async function runWithSource(
 	timeoutMs: number,
 ): Promise<CliOutcome> {
 	const source = sourceOrError(options, deps);
-	if (source.ok === false)
+	if (source.ok === false) {
+		const base = errorResult(source.message, options.session ?? "", source.code);
 		return {
 			kind: "result",
-			result: errorResult(source.message, options.session ?? "", source.code),
+			result: options.requestId ? { ...base, data: { requestId: options.requestId } } : base,
 			format: options.format,
 			full: false,
 		};
+	}
 	try {
 		const result = await sendSource(source, command, timeoutMs, context.signal, deps);
 		if (!result.response.success)
@@ -383,7 +388,12 @@ export async function runMemberRequestCommand(
 			),
 		};
 	if (options.command === "member-request-send") {
-		const message = options.stdin ? await deps.readStdin(context.input, context.signal) : options.message!;
+		let message: string;
+		try {
+			message = options.stdin ? await deps.readStdin(context.input, context.signal) : options.message!;
+		} catch (error) {
+			return failure(options, options.member ?? "member-request", error);
+		}
 		return runWithSource(
 			options,
 			context,
@@ -392,7 +402,7 @@ export async function runMemberRequestCommand(
 				type: "member_request_start",
 				target: options.member!,
 				message,
-				instructions: options.instructions,
+				...(options.instructions.length === 0 ? {} : { instructions: options.instructions }),
 				timeoutSeconds: options.responseGraceSeconds,
 				maxWaitSeconds: options.maxWaitSeconds,
 			},
@@ -408,12 +418,22 @@ export async function runMemberRequestCommand(
 			10000,
 		);
 	if (options.command === "member-request-respond") {
-		const message = options.stdin ? await deps.readStdin(context.input, context.signal) : options.message!;
+		let message: string;
+		try {
+			message = options.stdin ? await deps.readStdin(context.input, context.signal) : options.message!;
+		} catch (error) {
+			return failure(options, options.requestId ?? "member-request", error);
+		}
 		return runWithSource(
 			options,
 			context,
 			deps,
-			{ type: "member_response", requestId: options.requestId!, message, instructions: options.instructions },
+			{
+				type: "member_response",
+				requestId: options.requestId!,
+				message,
+				...(options.instructions.length === 0 ? {} : { instructions: options.instructions }),
+			},
 			10000,
 		);
 	}
