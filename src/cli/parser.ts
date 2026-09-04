@@ -4,6 +4,7 @@ import { isCliFormat } from "./commands/crew-init.ts";
 import { buildCrewInitCommand } from "./commands/crew-init.ts";
 import { buildSendCommand, readSendLeafOptions, type SendLeafOptions } from "./commands/send.ts";
 import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
+import { scanCliFlags } from "./flag-scanner.ts";
 import { UsageError, type CliFormat, type SendCliOptions } from "./arguments.ts";
 
 export interface DeclarativeCrewInitOptions {
@@ -200,53 +201,21 @@ function validateSendSemantics(leaf: SendLeafOptions, seen: Set<string>, cwd: st
  * semantics as the characterized parser.
  */
 export function parseSendCommand(args: string[], cwd = process.cwd()): SendCliOptions & { help?: boolean } {
-	// 1. Pre-pass: help, duplicates, `--` sentinel escape.
-	const tokens: string[] = [];
-	let help = false;
-	const seen = new Set<string>();
-	const instructionValues: string[] = [];
-	for (let index = 0; index < args.length; index += 1) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--instruction") {
-			let value: string | undefined;
-			let escaped = false;
-			if (equals > 0) value = raw.slice(equals + 1);
-			else if (args[index + 1] === "--" && args[index + 2] !== undefined) {
-				value = args[index + 2];
-				escaped = true;
-				index += 2;
-			} else value = args[++index];
-			if (value === undefined || (equals < 0 && !escaped && value.startsWith("--")))
-				throw new UsageError("Missing value for --instruction");
-			instructionValues.push(value);
-			if (instructionValues.length > MAX_MESSAGE_INSTRUCTIONS)
-				throw new UsageError(`Too many --instruction values; maximum is ${MAX_MESSAGE_INSTRUCTIONS}`);
-			continue;
-		}
-		if (SEND_SINGLE_VALUE_FLAGS.has(flag) || SEND_BOOLEAN_FLAGS.has(flag)) {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-			if (SEND_BOOLEAN_FLAGS.has(flag) || equals > 0) {
-				tokens.push(raw);
-				continue;
-			}
-			if (args[index + 1] === "--" && args[index + 2] !== undefined) {
-				tokens.push(`${flag}=${args[index + 2]}`);
-				index += 2;
-				continue;
-			}
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
+	// 1. Shared pre-pass: help, duplicates, repeatable instructions, and `--` sentinel escape.
+	const scanned = scanCliFlags(args, [
+		...Array.from(SEND_SINGLE_VALUE_FLAGS, (name) => ({ name, kind: "value" as const, allowSentinelValue: true })),
+		...Array.from(SEND_BOOLEAN_FLAGS, (name) => ({ name, kind: "boolean" as const })),
+		{
+			name: "--instruction",
+			kind: "repeatable",
+			allowSentinelValue: true,
+			missingValueMessage: "Missing value for --instruction",
+			maxValues: MAX_MESSAGE_INSTRUCTIONS,
+			tooManyValuesMessage: `Too many --instruction values; maximum is ${MAX_MESSAGE_INSTRUCTIONS}`,
+		},
+	]);
+	const { tokens, help } = scanned;
+	const instructionValues = [...(scanned.repeatedValues["--instruction"] ?? [])];
 
 	// 2. Commander tokenization.
 	const program = buildSendCommand()
@@ -290,7 +259,7 @@ export function parseSendCommand(args: string[], cwd = process.cwd()): SendCliOp
 			help: true,
 		};
 	}
-	const options = validateSendSemantics(leaf, seen, cwd);
+	const options = validateSendSemantics(leaf, new Set(scanned.seen), cwd);
 	return options;
 }
 

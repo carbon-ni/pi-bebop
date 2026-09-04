@@ -8,6 +8,7 @@ import {
 	type MemberInboxSendResult,
 } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
+import { scanCliFlags } from "../flag-scanner.ts";
 import { errorResult, usageResult } from "../errors.ts";
 import type { CliContext } from "../context.ts";
 import type { CliOutcome } from "../output.ts";
@@ -132,38 +133,53 @@ function validateInstructions(instructions: readonly string[]): void {
 	}
 }
 
+function scanDurableMessageFlags(args: readonly string[]) {
+	return scanCliFlags(args, [
+		{ name: "--session", kind: "value" },
+		{ name: "--message", kind: "value" },
+		{ name: "--stdin", kind: "boolean" },
+		{ name: "--format", kind: "value" },
+		{ name: "--instruction", kind: "repeatable", missingValueMessage: "Missing value for --instruction" },
+	]);
+}
+
+function validateDurableOptions(
+	intent: DurableMessageIntent,
+	help: boolean,
+	member: string | undefined,
+	opts: { session?: string; message?: string; stdin?: boolean; format?: string },
+	instructions: string[],
+): { format: string; hasMessage: boolean; hasStdin: boolean } {
+	const format = (opts.format ?? "toon") as string;
+	if (!isCliFormat(format))
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
+	validateInstructions(instructions);
+	const hasMessage = opts.message !== undefined;
+	const hasStdin = opts.stdin === true;
+	if (!help && intent === "inbox" && (!member || member.trim().length === 0))
+		throw new UsageError("Missing <member>");
+	if (
+		!help &&
+		intent === "inbox" &&
+		(member !== member!.trim() || Buffer.byteLength(member!, "utf8") > MAX_TARGET_BYTES)
+	)
+		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
+	if (!help) {
+		if (hasMessage === hasStdin)
+			throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
+		if (hasMessage) validateContent(opts.message!, "message");
+	}
+	return { format, hasMessage, hasStdin };
+}
+
 export function parseDurableMessageCommand(
 	args: string[],
 	intent: DurableMessageIntent,
 	cwd = process.cwd(),
 ): DurableMessageCliOptions {
-	const tokens: string[] = [];
-	const instructions: string[] = [];
-	let help = false;
-	const seen = new Set<string>();
-	for (let index = 0; index < args.length; index += 1) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--instruction") {
-			const value = equals > 0 ? raw.slice(equals + 1) : args[++index];
-			if (value === undefined || value.startsWith("--")) throw new UsageError("Missing value for --instruction");
-			instructions.push(value);
-			continue;
-		}
-		if (["--session", "--message", "--stdin", "--format"].includes(flag)) {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
+	const scanned = scanDurableMessageFlags(args);
+	const { tokens, help } = scanned;
+	const instructions = [...(scanned.repeatedValues["--instruction"] ?? [])];
 	const program = buildDurableMessageCommand(intent)
 		.exitOverride()
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
@@ -175,26 +191,8 @@ export function parseDurableMessageCommand(
 		if (error instanceof CommanderError) throw mapCommanderError(error);
 		throw error;
 	}
-	const format = (opts.format ?? "toon") as string;
-	if (!isCliFormat(format))
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	validateInstructions(instructions);
 	const member = intent === "inbox" ? (program.args[0] ?? "") : undefined;
-	if (!help && intent === "inbox" && (!member || member.trim().length === 0))
-		throw new UsageError("Missing <member>");
-	if (
-		!help &&
-		intent === "inbox" &&
-		(member !== member!.trim() || Buffer.byteLength(member!, "utf8") > MAX_TARGET_BYTES)
-	)
-		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
-	const hasMessage = opts.message !== undefined;
-	const hasStdin = opts.stdin === true;
-	if (!help) {
-		if (hasMessage === hasStdin)
-			throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
-		if (hasMessage) validateContent(opts.message!, "message");
-	}
+	const { format, hasMessage, hasStdin } = validateDurableOptions(intent, help, member, opts, instructions);
 	return {
 		command: intent === "inbox" ? "member-inbox-send" : "crew-broadcast",
 		intent,
