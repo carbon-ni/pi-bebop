@@ -230,6 +230,706 @@ async function syncAlias(state: SocketState, ctx: ExtensionContext): Promise<voi
 // Command Handlers
 // ============================================================================
 
+export interface CommandHandlerContext {
+	readonly pi: ExtensionAPI;
+	readonly state: SocketState;
+	readonly ctx: ExtensionContext;
+	readonly socket: RpcSocket;
+	readonly id: RpcInboundCommand["id"];
+	readonly respond: (success: boolean, commandName: string, data?: unknown, error?: string) => void;
+}
+
+type CommandType = RpcInboundCommand["type"];
+type CommandHandler<K extends CommandType> = (
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: K }>,
+) => Promise<void>;
+type CommandHandlers = { [K in CommandType]: CommandHandler<K> };
+
+function isAbortError(error: unknown): boolean {
+	return error instanceof Error && error.name === "AbortError";
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+	return error instanceof Error && "code" in error && error.code === code;
+}
+
+function isOfflineError(error: unknown): boolean {
+	const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+	return code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTCONN";
+}
+
+function isTimeoutError(error: unknown): boolean {
+	return error instanceof Error && /timed? ?out|timeout/i.test(error.message);
+}
+
+function memberMessageErrorCode(error: unknown): string {
+	if (error instanceof MemberMessageError) return error.code;
+	if (isAbortError(error)) return "aborted";
+	if (hasErrorCode(error, "outcome-unknown")) return "outcome-unknown";
+	if (isOfflineError(error)) return "offline";
+	if (isTimeoutError(error)) return "timeout";
+	return "transport-error";
+}
+
+function memberInterruptErrorCode(error: unknown): string {
+	const remoteCode = error instanceof Error ? /^remote-error:\s*(\S+)$/.exec(error.message)?.[1] : undefined;
+	const targetCodes = new Set([
+		"invalid-payload",
+		"already-pending",
+		"abort-failed",
+		"no-context",
+		"handoff-failed",
+		"aborted",
+	]);
+	if (isAbortError(error)) return "aborted";
+	if (remoteCode !== undefined && targetCodes.has(remoteCode)) return remoteCode;
+	if (hasErrorCode(error, "outcome-unknown")) return "outcome-unknown";
+	if (isOfflineError(error)) return "offline";
+	if (isTimeoutError(error)) return "timeout";
+	return "transport-error";
+}
+
+export async function handleMemberRequest(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_request" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const membership = state.membershipRuntime?.getMembership();
+	const flow = state.memberRequestFlow;
+	const origin = command.payload.origin;
+	if (!membership || !flow) {
+		respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
+		return;
+	}
+	if (state.context?.isProjectTrusted?.() !== true) {
+		respond(false, command.type, undefined, "untrusted");
+		return;
+	}
+	if (!origin || origin.kind !== "crew") {
+		respond(false, command.type, undefined, "invalid-payload");
+		return;
+	}
+	const configuredOrigin = membership.manifest.members.find(
+		(member) => member.name === origin.name && member.role === origin.role,
+	);
+	if (!configuredOrigin || configuredOrigin.name === membership.member.name) {
+		respond(false, command.type, undefined, "invalid-origin");
+		return;
+	}
+	try {
+		flow.registerInboundRequest({
+			requestId: command.requestId,
+			requester: { name: origin.name, role: origin.role },
+			message: command.payload.content,
+			instructions: command.payload.instructions ?? [],
+			channel: {
+				send: async (update) => writeMemberUpdateEvent(socket, update),
+				close: () => undefined,
+			},
+		});
+		const cleanupInbound = () => {
+			flow.removeInboundRequest(command.requestId);
+		};
+		socket.once("close", cleanupInbound);
+		socket.once("error", cleanupInbound);
+		// Registration precedes Pi visibility. Once sendMessage accepts the
+		// request into context, arm idle handling and acknowledge delivery.
+		// TASK-0081: accepted Bebop model delivery wakes a local blocking idle wait.
+		const deliveredAt = state.now?.();
+		const message = renderMemberRequestModelContent(command.payload, command.requestId, deliveredAt);
+		notifyAcceptedMessage(state, command.requestId);
+		pi.sendMessage(
+			{
+				customType: SESSION_MESSAGE_TYPE,
+				content: message,
+				details: {
+					messagePayload: command.payload,
+					crewRequestId: command.requestId,
+					...(deliveredAt === undefined ? {} : { deliveredAt }),
+				},
+				display: true,
+			},
+			{ triggerTurn: true },
+		);
+		flow.acceptInboundRequest(command.requestId);
+		respond(true, command.type, {
+			accepted: true,
+			requestId: command.requestId,
+			member: { name: membership.member.name, role: membership.member.role },
+		});
+	} catch (error) {
+		flow.registry.failBeforeAcceptance(command.requestId);
+		respond(false, command.type, undefined, error instanceof Error ? error.message : "delivery-failed");
+	}
+	return;
+}
+
+export async function handleMemberResponse(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_response" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const membership = state.membershipRuntime?.getMembership();
+	const flow = state.memberRequestFlow;
+	if (!membership || !flow) {
+		respond(false, command.type, undefined, !membership ? "not-joined" : "no-pending-request");
+		return;
+	}
+	try {
+		await flow.respondToMemberRequest({
+			message: command.message,
+			instructions: command.instructions,
+			requestId: command.requestId,
+			member: { name: membership.member.name, role: membership.member.role },
+		});
+		respond(true, command.type, {});
+	} catch (error) {
+		respond(false, command.type, undefined, error instanceof Error ? error.message : "response-failed");
+	}
+	return;
+}
+
+export async function handlePresenceHint(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "presence_hint" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const accepted =
+		state.presenceObserver?.acceptHint({
+			member: command.member,
+			state: command.state,
+			instanceId: command.instanceId,
+		}) ?? false;
+	respond(true, "presence_hint", { accepted });
+	return;
+}
+
+export async function handleMemberStatus(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_status" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const membership = state.membershipRuntime?.getMembership();
+	if (!membership) {
+		respond(false, "member_status", undefined, "not-joined");
+		return;
+	}
+	const observedAt = new Date().toISOString();
+	let status: MemberStatus;
+	try {
+		status = createOnlineMemberStatus({
+			member: { name: membership.member.name, role: membership.member.role },
+			isIdle: ctx.isIdle(),
+			isCompacting: contextIsCompacting(ctx),
+			hasPendingMessages: ctx.hasPendingMessages(),
+			observedAt,
+		});
+	} catch {
+		respond(false, "member_status", undefined, "invalid-status");
+		return;
+	}
+	respond(true, "member_status", { status });
+	return;
+}
+
+export async function handleMemberStatusTarget(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_status_target" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const transport = state.memberStatusTransport ?? createMemberStatusTransport(5000);
+	const controller = new AbortController();
+	const onDisconnect = () => controller.abort();
+	socket.once("close", onDisconnect);
+	socket.once("error", onDisconnect);
+	const surface: MemberStatusSurface = {
+		getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+		isTrusted: () => state.context?.isProjectTrusted?.() === true,
+		isIdle: () => ctx.isIdle(),
+		isCompacting: () => contextIsCompacting(ctx),
+		hasPendingMessages: () => ctx.hasPendingMessages(),
+		probeEndpoint: transport.probeEndpoint,
+		requestStatus: transport.requestStatus,
+		signal: controller.signal,
+		now: () => new Date().toISOString(),
+	};
+	const flow = createMemberStatusFlow(surface);
+	try {
+		const status = await flow.queryStatus(command.target);
+		respond(true, "member_status_target", { status });
+	} catch (error) {
+		if (error instanceof MemberStatusFlowError) respond(false, "member_status_target", undefined, error.code);
+		else respond(false, "member_status_target", undefined, "transport-error");
+	} finally {
+		controller.abort();
+	}
+	return;
+}
+
+async function handleMemberMessageCommand(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_follow_up" | "member_redirect" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const membership = state.membershipRuntime?.getMembership() ?? null;
+	if (!membership) {
+		respond(false, command.type, undefined, "not-joined");
+		return;
+	}
+	if (state.context?.isProjectTrusted?.() !== true) {
+		respond(false, command.type, undefined, "untrusted");
+		return;
+	}
+	const dependencies = state.memberMessageDependencies ?? {
+		transport: { send: sendRpcCommand },
+		resolveEndpoint: resolveMemberEndpoint,
+		coordinator: createMemberMessageCoordinator(),
+	};
+	const controller = new AbortController();
+	const onDisconnect = () => controller.abort();
+	socket.once("close", onDisconnect);
+	socket.once("error", onDisconnect);
+	try {
+		const outcome = await sendMemberMessage(
+			{
+				membership,
+				member: command.target,
+				message: command.message,
+				instructions: command.instructions,
+				intent: command.type === "member_redirect" ? "immediate" : "follow_up",
+				signal: controller.signal,
+			},
+			dependencies,
+		);
+		respond(true, command.type, {
+			member: { name: outcome.target.name, role: outcome.target.role },
+			deliveryId: outcome.deliveryId,
+			disposition: outcome.disposition,
+		});
+	} catch (error) {
+		respond(false, command.type, undefined, memberMessageErrorCode(error));
+	} finally {
+		controller.abort();
+	}
+	return;
+}
+
+export async function handleMemberFollowUp(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_follow_up" }>,
+): Promise<void> {
+	return handleMemberMessageCommand(context, command);
+}
+
+export async function handleMemberRedirect(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_redirect" }>,
+): Promise<void> {
+	return handleMemberMessageCommand(context, command);
+}
+
+export async function handleMemberInboxSend(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_inbox_send" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const membership = state.membershipRuntime?.getMembership() ?? null;
+	const dependencies = state.memberInboxMessageDependencies ?? {
+		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+		openStore: async (options) =>
+			openTrustedMemberInboxStore({
+				manifestPath: options.manifestPath,
+				projectRoot: options.projectRoot,
+				isProjectTrusted: options.isProjectTrusted,
+				member: options.member,
+			}),
+		hintTransport: {
+			sendHint: async (endpoint: string, hintCommand: RpcCommand, options: { signal?: AbortSignal }) =>
+				await sendRpcCommand(endpoint, hintCommand, { ...options, timeout: 1000 }),
+		},
+		resolveEndpoint: resolveMemberEndpoint,
+	};
+	const controller = new AbortController();
+	const onDisconnect = () => controller.abort();
+	socket.once("close", onDisconnect);
+	socket.once("error", onDisconnect);
+	try {
+		const outcome = await enqueueMemberInboxMessage(
+			{
+				membership: membership as never,
+				member: command.target,
+				message: command.message,
+				instructions: command.instructions,
+				now: state.now?.() ?? Date.now(),
+				signal: controller.signal,
+			},
+			dependencies,
+		);
+		respond(true, command.type, {
+			member: { name: outcome.target.name, role: outcome.target.role },
+			itemId: outcome.itemId,
+			persisted: true,
+			hint: outcome.hint,
+		});
+	} catch (error) {
+		if (error instanceof MemberInboxMessageError) respond(false, command.type, undefined, error.code);
+		else if (error instanceof Error && error.name === "AbortError")
+			respond(false, command.type, undefined, "aborted");
+		else respond(false, command.type, undefined, "storage-failed");
+	} finally {
+		controller.abort();
+	}
+	return;
+}
+
+export async function handleCrewBroadcast(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "crew_broadcast" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	if (state.context?.isProjectTrusted?.() !== true) {
+		respond(false, command.type, undefined, "untrusted-project");
+		return;
+	}
+	const membership = state.membershipRuntime?.getMembership() ?? null;
+	const dependencies = state.memberMessageDependencies ?? {
+		transport: { send: sendRpcCommand },
+		resolveEndpoint: resolveMemberEndpoint,
+		coordinator: createMemberMessageCoordinator(),
+	};
+	const controller = new AbortController();
+	const onDisconnect = () => controller.abort();
+	socket.once("close", onDisconnect);
+	socket.once("error", onDisconnect);
+	try {
+		const outcome = await submitCrewBroadcast(
+			{
+				membership: membership as never,
+				message: command.message,
+				instructions: command.instructions,
+				signal: controller.signal,
+			},
+			dependencies,
+		);
+		if (outcome.ok === false) {
+			respond(false, command.type, undefined, outcome.code);
+		} else {
+			respond(true, command.type, {
+				dispositions: outcome.dispositions.map((item) => ({
+					member: item.recipientName,
+					role: item.recipientRole,
+					disposition: item.disposition,
+					...(item.deliveryId === undefined ? {} : { deliveryId: item.deliveryId }),
+					...(item.code === undefined ? {} : { code: item.code }),
+				})),
+				summary: outcome.summary,
+			});
+		}
+	} catch (error) {
+		if (error instanceof CrewBroadcastApplicationError) respond(false, command.type, undefined, error.code);
+		else respond(false, command.type, undefined, "transport-error");
+	} finally {
+		controller.abort();
+	}
+	return;
+}
+
+export async function handleMemberIdleWait(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_idle_wait" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const membership = state.membershipRuntime?.getMembership();
+	if (!membership) {
+		respond(false, "member_idle_wait", undefined, "not-joined");
+		return;
+	}
+	const ownName = membership.member.name;
+	const activeTargets = new Set(state.idleWaitSubscriptions.map((sub) => ownName));
+	const gate = tryAcquireIdleWaitSubscription(activeTargets, ownName, state.idleWaitSubscriptions.length);
+	if (gate.ok === false) {
+		respond(false, "member_idle_wait", undefined, gate.code);
+		return;
+	}
+	const subscriptionId = String(id);
+	if (ctx.isIdle() && !contextIsCompacting(ctx)) {
+		// Already fully idle: complete directly without registering a lingering subscription.
+		const observedAt = new Date().toISOString();
+		const result = createMemberIdleWaitResult(
+			{ name: membership.member.name, role: membership.member.role },
+			{ outcome: "idle", disposition: "already-idle" },
+			observedAt,
+		);
+		respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
+		writeMemberIdleWaitEvent(socket, { subscriptionId, result });
+		return;
+	}
+	state.idleWaitSubscriptions.push({ socket, subscriptionId });
+	const cleanup = () => {
+		const idx = state.idleWaitSubscriptions.findIndex((sub) => sub.subscriptionId === subscriptionId);
+		if (idx !== -1) state.idleWaitSubscriptions.splice(idx, 1);
+	};
+	socket.once("close", cleanup);
+	socket.once("error", cleanup);
+	respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
+	return;
+}
+
+export async function handleStatus(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "status" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	respond(true, "status", {
+		status: deriveIntrayStatus(Boolean(state.server), Boolean(state.membershipRuntime?.getMembership())),
+	});
+	return;
+}
+
+export async function handleAbort(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "abort" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	ctx.abort();
+	respond(true, "abort", {});
+	return;
+}
+
+export async function handleMemberInterrupt(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_interrupt" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const membership = state.membershipRuntime?.getMembership() ?? null;
+	if (!membership) {
+		respond(false, command.type, undefined, "not-joined");
+		return;
+	}
+	if (state.context?.isProjectTrusted?.() !== true) {
+		respond(false, command.type, undefined, "untrusted");
+		return;
+	}
+	const resolution = resolveInterruptTarget(membership.manifest, membership.member.name, command.target);
+	if (resolution.ok === false) {
+		respond(false, command.type, undefined, resolution.code);
+		return;
+	}
+	const request: MemberInterruptRequest = {
+		senderName: membership.member.name,
+		targetName: resolution.target.name,
+		message: command.message,
+		instructions: command.instructions,
+		requestedAt: state.now?.() ?? Date.now(),
+	};
+	try {
+		const payload = createInterruptRecoveryPayload(membership.member, request);
+		const endpoint = await (state.memberInterruptResolveEndpoint ?? resolveMemberEndpoint)(
+			resolution.target.socketPath,
+		);
+		const controller = new AbortController();
+		const onDisconnect = () => controller.abort();
+		socket.once("close", onDisconnect);
+		socket.once("error", onDisconnect);
+		const removeDisconnectListeners = () => {
+			const removable = socket as RpcSocket & {
+				removeListener?: (event: "close" | "error", listener: () => void) => void;
+			};
+			removable.removeListener?.("close", onDisconnect);
+			removable.removeListener?.("error", onDisconnect);
+		};
+		try {
+			const { response } = await (state.memberInterruptSend ?? sendRpcCommand)(
+				endpoint,
+				{ type: "interrupt", payload },
+				{ timeout: 5000, signal: controller.signal, classifyLostAck: true },
+			);
+			if (!response.success) {
+				respond(false, command.type, undefined, response.error ?? "remote-rejected");
+				return;
+			}
+			if (!isInterruptResult(response.data)) {
+				respond(false, command.type, undefined, "invalid-ack");
+				return;
+			}
+			respond(true, command.type, {
+				member: { name: resolution.target.name, role: resolution.target.role },
+				interruptId: response.data.interruptId,
+				disposition: response.data.disposition,
+			});
+		} finally {
+			controller.abort();
+			removeDisconnectListeners();
+		}
+	} catch (error) {
+		respond(false, command.type, undefined, memberInterruptErrorCode(error));
+	}
+	return;
+}
+
+export async function handleInterrupt(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "interrupt" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const interruptFlow = createInterruptFlow({
+		isIdle: () => ctx.isIdle() && !contextIsCompacting(ctx),
+		abort: () => ctx.abort(),
+		sendMessage: (message, options) => pi.sendMessage(message as never, options as never),
+		appendEntry: (customType, data) => pi.appendEntry(customType, data),
+		getEntries: () => ctx.sessionManager.getEntries() as readonly unknown[],
+		now: state.now,
+	});
+	const result = await interruptFlow.interrupt(command.payload);
+	if (result.ok === false) {
+		respond(false, "interrupt", undefined, result.code);
+		return;
+	}
+	respond(true, "interrupt", { interruptId: result.interruptId, disposition: result.disposition });
+	return;
+}
+
+export async function handleSubscribe(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "subscribe" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	if (command.event === "turn_end") {
+		const subscriptionId = String(id);
+		state.turnEndSubscriptions.push({ socket, subscriptionId });
+
+		const cleanup = () => {
+			const idx = state.turnEndSubscriptions.findIndex((s) => s.subscriptionId === subscriptionId);
+			if (idx !== -1) state.turnEndSubscriptions.splice(idx, 1);
+		};
+		socket.once("close", cleanup);
+		socket.once("error", cleanup);
+
+		respond(true, "subscribe", { subscriptionId, event: "turn_end" });
+		return;
+	}
+	respond(false, "subscribe", undefined, `Unknown event type: ${command.event}`);
+	return;
+}
+
+export async function handleGetMessage(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "get_message" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const message = getLastAssistantMessage(ctx.sessionManager.getBranch());
+	if (!message) {
+		respond(true, "get_message", { message: null });
+		return;
+	}
+	respond(true, "get_message", { message });
+	return;
+}
+
+export async function handleClear(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "clear" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	if (!ctx.isIdle() || contextIsCompacting(ctx)) {
+		respond(false, "clear", undefined, "Session is busy - wait for turn to complete");
+		return;
+	}
+
+	const firstEntryId = getFirstEntryId(ctx.sessionManager.getEntries());
+	if (!firstEntryId) {
+		respond(false, "clear", undefined, "No entries in session");
+		return;
+	}
+
+	const currentLeafId = ctx.sessionManager.getLeafId();
+	if (currentLeafId === firstEntryId) {
+		respond(true, "clear", { cleared: true, alreadyAtRoot: true });
+		return;
+	}
+
+	// Access internal session manager to rewind (type assertion to access non-readonly methods)
+	try {
+		const sessionManager = ctx.sessionManager as unknown as { rewindTo(id: string): void };
+		sessionManager.rewindTo(firstEntryId);
+		respond(true, "clear", { cleared: true, targetId: firstEntryId });
+	} catch (error) {
+		respond(false, "clear", undefined, error instanceof Error ? error.message : "Clear failed");
+	}
+	return;
+}
+
+export async function handleSend(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "send" }>,
+): Promise<void> {
+	const { ctx, state, socket, pi, respond, id } = context;
+	const payload = command.payload;
+	if (!isMessagePayload(payload)) {
+		respond(false, "send", undefined, "Invalid structured message payload");
+		return;
+	}
+	if (isInboxHint(payload)) state.onInboxHint?.();
+	const deliveredAt = state.now?.();
+	const message = renderFollowUpModelContent(payload, deliveredAt);
+	const mode = command.delivery ?? "follow_up";
+	const isIdle = ctx.isIdle() && !contextIsCompacting(ctx);
+	const customMessage = {
+		customType: SESSION_MESSAGE_TYPE,
+		content: message,
+		details: { messagePayload: payload, ...(deliveredAt === undefined ? {} : { deliveredAt }) },
+		display: true,
+	};
+
+	// TASK-0081: accepted Bebop model delivery (Follow-up/Redirect) wakes a
+	// local blocking idle wait; the unchanged message keeps its mode/FIFO.
+	notifyAcceptedMessage(state, `delivery-${id}`);
+	if (isIdle) {
+		pi.sendMessage(customMessage, { triggerTurn: true });
+	} else {
+		pi.sendMessage(customMessage, {
+			triggerTurn: true,
+			deliverAs: mode === "follow_up" ? "followUp" : "steer",
+		});
+	}
+
+	const disposition = isIdle ? "direct" : mode === "follow_up" ? "queued" : "steered";
+	respond(true, "send", { deliveryId: `delivery-${id}`, disposition });
+	return;
+}
+const COMMAND_HANDLERS: CommandHandlers = {
+	member_request: handleMemberRequest,
+	member_response: handleMemberResponse,
+	presence_hint: handlePresenceHint,
+	member_status: handleMemberStatus,
+	member_status_target: handleMemberStatusTarget,
+	member_follow_up: handleMemberFollowUp,
+	member_redirect: handleMemberRedirect,
+	member_inbox_send: handleMemberInboxSend,
+	crew_broadcast: handleCrewBroadcast,
+	member_idle_wait: handleMemberIdleWait,
+	status: handleStatus,
+	abort: handleAbort,
+	member_interrupt: handleMemberInterrupt,
+	interrupt: handleInterrupt,
+	subscribe: handleSubscribe,
+	get_message: handleGetMessage,
+	clear: handleClear,
+	send: handleSend,
+};
+
+function createCommandResponder(
+	state: SocketState,
+	socket: RpcSocket,
+	id: RpcInboundCommand["id"],
+): CommandHandlerContext["respond"] {
+	return (success, commandName, data, error) => {
+		if (state.context) void syncAlias(state, state.context);
+		writeResponse(socket, { type: "response", command: commandName, success, data, error, id });
+	};
+}
+
 export async function handleCommand(
 	pi: ExtensionAPI,
 	state: SocketState,
@@ -237,618 +937,16 @@ export async function handleCommand(
 	socket: RpcSocket,
 ): Promise<void> {
 	const id = command.id;
-	const respond = (success: boolean, commandName: string, data?: unknown, error?: string) => {
-		if (state.context) {
-			void syncAlias(state, state.context);
-		}
-		writeResponse(socket, { type: "response", command: commandName, success, data, error, id });
-	};
-
+	const respond = createCommandResponder(state, socket, id);
 	const ctx = state.context;
 	if (!ctx) {
 		respond(false, command.type, undefined, "Session not ready");
 		return;
 	}
-
 	void syncAlias(state, ctx);
-
-	if (command.type === "member_request") {
-		const membership = state.membershipRuntime?.getMembership();
-		const flow = state.memberRequestFlow;
-		const origin = command.payload.origin;
-		if (!membership || !flow) {
-			respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
-			return;
-		}
-		if (state.context?.isProjectTrusted?.() !== true) {
-			respond(false, command.type, undefined, "untrusted");
-			return;
-		}
-		if (!origin || origin.kind !== "crew") {
-			respond(false, command.type, undefined, "invalid-payload");
-			return;
-		}
-		const configuredOrigin = membership.manifest.members.find(
-			(member) => member.name === origin.name && member.role === origin.role,
-		);
-		if (!configuredOrigin || configuredOrigin.name === membership.member.name) {
-			respond(false, command.type, undefined, "invalid-origin");
-			return;
-		}
-		try {
-			flow.registerInboundRequest({
-				requestId: command.requestId,
-				requester: { name: origin.name, role: origin.role },
-				message: command.payload.content,
-				instructions: command.payload.instructions ?? [],
-				channel: {
-					send: async (update) => writeMemberUpdateEvent(socket, update),
-					close: () => undefined,
-				},
-			});
-			const cleanupInbound = () => {
-				flow.removeInboundRequest(command.requestId);
-			};
-			socket.once("close", cleanupInbound);
-			socket.once("error", cleanupInbound);
-			// Registration precedes Pi visibility. Once sendMessage accepts the
-			// request into context, arm idle handling and acknowledge delivery.
-			// TASK-0081: accepted Bebop model delivery wakes a local blocking idle wait.
-			const deliveredAt = state.now?.();
-			const message = renderMemberRequestModelContent(command.payload, command.requestId, deliveredAt);
-			notifyAcceptedMessage(state, command.requestId);
-			pi.sendMessage(
-				{
-					customType: SESSION_MESSAGE_TYPE,
-					content: message,
-					details: {
-						messagePayload: command.payload,
-						crewRequestId: command.requestId,
-						...(deliveredAt === undefined ? {} : { deliveredAt }),
-					},
-					display: true,
-				},
-				{ triggerTurn: true },
-			);
-			flow.acceptInboundRequest(command.requestId);
-			respond(true, command.type, {
-				accepted: true,
-				requestId: command.requestId,
-				member: { name: membership.member.name, role: membership.member.role },
-			});
-		} catch (error) {
-			flow.registry.failBeforeAcceptance(command.requestId);
-			respond(false, command.type, undefined, error instanceof Error ? error.message : "delivery-failed");
-		}
-		return;
-	}
-
-	if (command.type === "member_response") {
-		const membership = state.membershipRuntime?.getMembership();
-		const flow = state.memberRequestFlow;
-		if (!membership || !flow) {
-			respond(false, command.type, undefined, !membership ? "not-joined" : "no-pending-request");
-			return;
-		}
-		try {
-			await flow.respondToMemberRequest({
-				message: command.message,
-				instructions: command.instructions,
-				requestId: command.requestId,
-				member: { name: membership.member.name, role: membership.member.role },
-			});
-			respond(true, command.type, {});
-		} catch (error) {
-			respond(false, command.type, undefined, error instanceof Error ? error.message : "response-failed");
-		}
-		return;
-	}
-
-	if (command.type === "presence_hint") {
-		const accepted =
-			state.presenceObserver?.acceptHint({
-				member: command.member,
-				state: command.state,
-				instanceId: command.instanceId,
-			}) ?? false;
-		respond(true, "presence_hint", { accepted });
-		return;
-	}
-
-	// Member status (read-only snapshot, TASK-0047). Computes activity/pending
-	// at request time and responds without triggering any turn.
-	if (command.type === "member_status") {
-		const membership = state.membershipRuntime?.getMembership();
-		if (!membership) {
-			respond(false, "member_status", undefined, "not-joined");
-			return;
-		}
-		const observedAt = new Date().toISOString();
-		let status: MemberStatus;
-		try {
-			status = createOnlineMemberStatus({
-				member: { name: membership.member.name, role: membership.member.role },
-				isIdle: ctx.isIdle(),
-				isCompacting: contextIsCompacting(ctx),
-				hasPendingMessages: ctx.hasPendingMessages(),
-				observedAt,
-			});
-		} catch {
-			respond(false, "member_status", undefined, "invalid-status");
-			return;
-		}
-		respond(true, "member_status", { status });
-		return;
-	}
-
-	// Delegated member status (TASK-0061): a CLI asks this joined session for
-	// the status of a TARGET member. The session derives membership/trust from
-	// its own active runtime (never from request fields) and runs the same
-	// member-status flow/dependencies as the in-agent tool, so target
-	// resolution and privacy validation are never copied into the CLI. The
-	// CLI path uses a fixed 5s target probe, and the CLI's disconnect aborts
-	// the in-flight probe/RPC so a cancelled CLI cannot continue target IO.
-	if (command.type === "member_status_target") {
-		const transport = state.memberStatusTransport ?? createMemberStatusTransport(5000);
-		const controller = new AbortController();
-		const onDisconnect = () => controller.abort();
-		socket.once("close", onDisconnect);
-		socket.once("error", onDisconnect);
-		const surface: MemberStatusSurface = {
-			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
-			isTrusted: () => state.context?.isProjectTrusted?.() === true,
-			isIdle: () => ctx.isIdle(),
-			isCompacting: () => contextIsCompacting(ctx),
-			hasPendingMessages: () => ctx.hasPendingMessages(),
-			probeEndpoint: transport.probeEndpoint,
-			requestStatus: transport.requestStatus,
-			signal: controller.signal,
-			now: () => new Date().toISOString(),
-		};
-		const flow = createMemberStatusFlow(surface);
-		try {
-			const status = await flow.queryStatus(command.target);
-			respond(true, "member_status_target", { status });
-		} catch (error) {
-			if (error instanceof MemberStatusFlowError) respond(false, "member_status_target", undefined, error.code);
-			else respond(false, "member_status_target", undefined, "transport-error");
-		} finally {
-			controller.abort();
-		}
-		return;
-	}
-
-	// Delegated message delivery (TASK-0062): a CLI asks this joined session to
-	// deliver a follow-up or redirect to a TARGET member. The session derives
-	// membership/trust from its own active runtime (never from request fields)
-	// and runs the SAME member-message application operation the in-agent tools
-	// use, with delivery intent from the command type. Accepted-delivery only:
-	// the acknowledgement carries resolved identity, deliveryId, and
-	// disposition; no response correlation is invented. The CLI's disconnect
-	// aborts the in-flight transport so a cancelled CLI cannot continue target IO.
-	if (command.type === "member_follow_up" || command.type === "member_redirect") {
-		const membership = state.membershipRuntime?.getMembership() ?? null;
-		if (!membership) {
-			respond(false, command.type, undefined, "not-joined");
-			return;
-		}
-		if (state.context?.isProjectTrusted?.() !== true) {
-			respond(false, command.type, undefined, "untrusted");
-			return;
-		}
-		const dependencies = state.memberMessageDependencies ?? {
-			transport: { send: sendRpcCommand },
-			resolveEndpoint: resolveMemberEndpoint,
-			coordinator: createMemberMessageCoordinator(),
-		};
-		const controller = new AbortController();
-		const onDisconnect = () => controller.abort();
-		socket.once("close", onDisconnect);
-		socket.once("error", onDisconnect);
-		try {
-			const outcome = await sendMemberMessage(
-				{
-					membership,
-					member: command.target,
-					message: command.message,
-					instructions: command.instructions,
-					intent: command.type === "member_redirect" ? "immediate" : "follow_up",
-					signal: controller.signal,
-				},
-				dependencies,
-			);
-			respond(true, command.type, {
-				member: { name: outcome.target.name, role: outcome.target.role },
-				deliveryId: outcome.deliveryId,
-				disposition: outcome.disposition,
-			});
-		} catch (error) {
-			if (error instanceof MemberMessageError) respond(false, command.type, undefined, error.code);
-			else if (error instanceof Error && error.name === "AbortError")
-				respond(false, command.type, undefined, "aborted");
-			else if (error instanceof Error && "code" in error && error.code === "outcome-unknown")
-				respond(false, command.type, undefined, "outcome-unknown");
-			else {
-				const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-				if (systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN")
-					respond(false, command.type, undefined, "offline");
-				else if (error instanceof Error && /timed? ?out|timeout/i.test(error.message))
-					respond(false, command.type, undefined, "timeout");
-				else respond(false, command.type, undefined, "transport-error");
-			}
-		} finally {
-			controller.abort();
-		}
-		return;
-	}
-
-	// Durable Inbox enqueue (TASK-0064): source membership/trust and trusted
-	// store paths come only from this active runtime; the CLI supplies no
-	// manifest, socket, source, origin, or reply metadata.
-	if (command.type === "member_inbox_send") {
-		const membership = state.membershipRuntime?.getMembership() ?? null;
-		const dependencies = state.memberInboxMessageDependencies ?? {
-			isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
-			openStore: async (options) =>
-				openTrustedMemberInboxStore({
-					manifestPath: options.manifestPath,
-					projectRoot: options.projectRoot,
-					isProjectTrusted: options.isProjectTrusted,
-					member: options.member,
-				}),
-			hintTransport: {
-				sendHint: async (endpoint: string, hintCommand: RpcCommand, options: { signal?: AbortSignal }) =>
-					await sendRpcCommand(endpoint, hintCommand, { ...options, timeout: 1000 }),
-			},
-			resolveEndpoint: resolveMemberEndpoint,
-		};
-		const controller = new AbortController();
-		const onDisconnect = () => controller.abort();
-		socket.once("close", onDisconnect);
-		socket.once("error", onDisconnect);
-		try {
-			const outcome = await enqueueMemberInboxMessage(
-				{
-					membership: membership as never,
-					member: command.target,
-					message: command.message,
-					instructions: command.instructions,
-					now: state.now?.() ?? Date.now(),
-					signal: controller.signal,
-				},
-				dependencies,
-			);
-			respond(true, command.type, {
-				member: { name: outcome.target.name, role: outcome.target.role },
-				itemId: outcome.itemId,
-				persisted: true,
-				hint: outcome.hint,
-			});
-		} catch (error) {
-			if (error instanceof MemberInboxMessageError) respond(false, command.type, undefined, error.code);
-			else if (error instanceof Error && error.name === "AbortError")
-				respond(false, command.type, undefined, "aborted");
-			else respond(false, command.type, undefined, "storage-failed");
-		} finally {
-			controller.abort();
-		}
-		return;
-	}
-
-	// Live broadcast fan-out (TASK-0153): use the same ordinary Follow-up
-	// application seam as send_follow_up. Every recipient is attempted in
-	// manifest order; no Inbox store, fallback, redirect, or interrupt exists.
-	if (command.type === "crew_broadcast") {
-		if (state.context?.isProjectTrusted?.() !== true) {
-			respond(false, command.type, undefined, "untrusted-project");
-			return;
-		}
-		const membership = state.membershipRuntime?.getMembership() ?? null;
-		const dependencies = state.memberMessageDependencies ?? {
-			transport: { send: sendRpcCommand },
-			resolveEndpoint: resolveMemberEndpoint,
-			coordinator: createMemberMessageCoordinator(),
-		};
-		const controller = new AbortController();
-		const onDisconnect = () => controller.abort();
-		socket.once("close", onDisconnect);
-		socket.once("error", onDisconnect);
-		try {
-			const outcome = await submitCrewBroadcast(
-				{
-					membership: membership as never,
-					message: command.message,
-					instructions: command.instructions,
-					signal: controller.signal,
-				},
-				dependencies,
-			);
-			if (outcome.ok === false) {
-				respond(false, command.type, undefined, outcome.code);
-			} else {
-				respond(true, command.type, {
-					dispositions: outcome.dispositions.map((item) => ({
-						member: item.recipientName,
-						role: item.recipientRole,
-						disposition: item.disposition,
-						...(item.deliveryId === undefined ? {} : { deliveryId: item.deliveryId }),
-						...(item.code === undefined ? {} : { code: item.code }),
-					})),
-					summary: outcome.summary,
-				});
-			}
-		} catch (error) {
-			if (error instanceof CrewBroadcastApplicationError) respond(false, command.type, undefined, error.code);
-			else respond(false, command.type, undefined, "transport-error");
-		} finally {
-			controller.abort();
-		}
-		return;
-	}
-
-	// One-shot member idle wait (TASK-0051). Registration plus the initial
-	// ctx.isIdle() snapshot are atomic in this synchronous handler so an idle
-	// transition cannot be lost between separate check/subscribe calls. The
-	// terminal event is emitted only from Pi `agent_settled` (emitIdleSettled),
-	// never from `agent_end` or `turn_end`.
-	if (command.type === "member_idle_wait") {
-		const membership = state.membershipRuntime?.getMembership();
-		if (!membership) {
-			respond(false, "member_idle_wait", undefined, "not-joined");
-			return;
-		}
-		const ownName = membership.member.name;
-		const activeTargets = new Set(state.idleWaitSubscriptions.map((sub) => ownName));
-		const gate = tryAcquireIdleWaitSubscription(activeTargets, ownName, state.idleWaitSubscriptions.length);
-		if (gate.ok === false) {
-			respond(false, "member_idle_wait", undefined, gate.code);
-			return;
-		}
-		const subscriptionId = String(id);
-		if (ctx.isIdle() && !contextIsCompacting(ctx)) {
-			// Already fully idle: complete directly without registering a lingering subscription.
-			const observedAt = new Date().toISOString();
-			const result = createMemberIdleWaitResult(
-				{ name: membership.member.name, role: membership.member.role },
-				{ outcome: "idle", disposition: "already-idle" },
-				observedAt,
-			);
-			respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
-			writeMemberIdleWaitEvent(socket, { subscriptionId, result });
-			return;
-		}
-		state.idleWaitSubscriptions.push({ socket, subscriptionId });
-		const cleanup = () => {
-			const idx = state.idleWaitSubscriptions.findIndex((sub) => sub.subscriptionId === subscriptionId);
-			if (idx !== -1) state.idleWaitSubscriptions.splice(idx, 1);
-		};
-		socket.once("close", cleanup);
-		socket.once("error", cleanup);
-		respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
-		return;
-	}
-
-	if (command.type === "status") {
-		respond(true, "status", {
-			status: deriveIntrayStatus(Boolean(state.server), Boolean(state.membershipRuntime?.getMembership())),
-		});
-		return;
-	}
-
-	// Abort
-	if (command.type === "abort") {
-		ctx.abort();
-		respond(true, "abort", {});
-		return;
-	}
-
-	// Delegated hard recovery (CLI -> source session -> target, TASK-0065).
-	if (command.type === "member_interrupt") {
-		const membership = state.membershipRuntime?.getMembership() ?? null;
-		if (!membership) {
-			respond(false, command.type, undefined, "not-joined");
-			return;
-		}
-		if (state.context?.isProjectTrusted?.() !== true) {
-			respond(false, command.type, undefined, "untrusted");
-			return;
-		}
-		const resolution = resolveInterruptTarget(membership.manifest, membership.member.name, command.target);
-		if (resolution.ok === false) {
-			respond(false, command.type, undefined, resolution.code);
-			return;
-		}
-		const request: MemberInterruptRequest = {
-			senderName: membership.member.name,
-			targetName: resolution.target.name,
-			message: command.message,
-			instructions: command.instructions,
-			requestedAt: state.now?.() ?? Date.now(),
-		};
-		try {
-			const payload = createInterruptRecoveryPayload(membership.member, request);
-			const endpoint = await (state.memberInterruptResolveEndpoint ?? resolveMemberEndpoint)(
-				resolution.target.socketPath,
-			);
-			const controller = new AbortController();
-			const onDisconnect = () => controller.abort();
-			socket.once("close", onDisconnect);
-			socket.once("error", onDisconnect);
-			const removeDisconnectListeners = () => {
-				const removable = socket as RpcSocket & {
-					removeListener?: (event: "close" | "error", listener: () => void) => void;
-				};
-				removable.removeListener?.("close", onDisconnect);
-				removable.removeListener?.("error", onDisconnect);
-			};
-			try {
-				const { response } = await (state.memberInterruptSend ?? sendRpcCommand)(
-					endpoint,
-					{ type: "interrupt", payload },
-					{ timeout: 5000, signal: controller.signal, classifyLostAck: true },
-				);
-				if (!response.success) {
-					respond(false, command.type, undefined, response.error ?? "remote-rejected");
-					return;
-				}
-				if (!isInterruptResult(response.data)) {
-					respond(false, command.type, undefined, "invalid-ack");
-					return;
-				}
-				respond(true, command.type, {
-					member: { name: resolution.target.name, role: resolution.target.role },
-					interruptId: response.data.interruptId,
-					disposition: response.data.disposition,
-				});
-			} finally {
-				controller.abort();
-				removeDisconnectListeners();
-			}
-		} catch (error) {
-			const remoteCode = error instanceof Error ? /^remote-error:\s*(\S+)$/.exec(error.message)?.[1] : undefined;
-			const targetCode = new Set([
-				"invalid-payload",
-				"already-pending",
-				"abort-failed",
-				"no-context",
-				"handoff-failed",
-				"aborted",
-			]);
-			const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-			const code =
-				error instanceof Error && error.name === "AbortError"
-					? "aborted"
-					: remoteCode !== undefined && targetCode.has(remoteCode)
-						? remoteCode
-						: error instanceof Error && "code" in error && error.code === "outcome-unknown"
-							? "outcome-unknown"
-							: systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN"
-								? "offline"
-								: error instanceof Error && /timed? ?out|timeout/i.test(error.message)
-									? "timeout"
-									: "transport-error";
-			respond(false, command.type, undefined, code);
-		}
-		return;
-	}
-
-	// Interrupt (target-owned recovery flow, TASK-0045)
-	if (command.type === "interrupt") {
-		const interruptFlow = createInterruptFlow({
-			isIdle: () => ctx.isIdle() && !contextIsCompacting(ctx),
-			abort: () => ctx.abort(),
-			sendMessage: (message, options) => pi.sendMessage(message as never, options as never),
-			appendEntry: (customType, data) => pi.appendEntry(customType, data),
-			getEntries: () => ctx.sessionManager.getEntries() as readonly unknown[],
-			now: state.now,
-		});
-		const result = await interruptFlow.interrupt(command.payload);
-		if (result.ok === false) {
-			respond(false, "interrupt", undefined, result.code);
-			return;
-		}
-		respond(true, "interrupt", { interruptId: result.interruptId, disposition: result.disposition });
-		return;
-	}
-
-	// Subscribe to turn_end
-	if (command.type === "subscribe") {
-		if (command.event === "turn_end") {
-			const subscriptionId = String(id);
-			state.turnEndSubscriptions.push({ socket, subscriptionId });
-
-			const cleanup = () => {
-				const idx = state.turnEndSubscriptions.findIndex((s) => s.subscriptionId === subscriptionId);
-				if (idx !== -1) state.turnEndSubscriptions.splice(idx, 1);
-			};
-			socket.once("close", cleanup);
-			socket.once("error", cleanup);
-
-			respond(true, "subscribe", { subscriptionId, event: "turn_end" });
-			return;
-		}
-		respond(false, "subscribe", undefined, `Unknown event type: ${command.event}`);
-		return;
-	}
-
-	// Get last message
-	if (command.type === "get_message") {
-		const message = getLastAssistantMessage(ctx.sessionManager.getBranch());
-		if (!message) {
-			respond(true, "get_message", { message: null });
-			return;
-		}
-		respond(true, "get_message", { message });
-		return;
-	}
-
-	// Clear session
-	if (command.type === "clear") {
-		if (!ctx.isIdle() || contextIsCompacting(ctx)) {
-			respond(false, "clear", undefined, "Session is busy - wait for turn to complete");
-			return;
-		}
-
-		const firstEntryId = getFirstEntryId(ctx.sessionManager.getEntries());
-		if (!firstEntryId) {
-			respond(false, "clear", undefined, "No entries in session");
-			return;
-		}
-
-		const currentLeafId = ctx.sessionManager.getLeafId();
-		if (currentLeafId === firstEntryId) {
-			respond(true, "clear", { cleared: true, alreadyAtRoot: true });
-			return;
-		}
-
-		// Access internal session manager to rewind (type assertion to access non-readonly methods)
-		try {
-			const sessionManager = ctx.sessionManager as unknown as { rewindTo(id: string): void };
-			sessionManager.rewindTo(firstEntryId);
-			respond(true, "clear", { cleared: true, targetId: firstEntryId });
-		} catch (error) {
-			respond(false, "clear", undefined, error instanceof Error ? error.message : "Clear failed");
-		}
-		return;
-	}
-
-	// Send message
-	if (command.type === "send") {
-		const payload = command.payload;
-		if (!isMessagePayload(payload)) {
-			respond(false, "send", undefined, "Invalid structured message payload");
-			return;
-		}
-		if (isInboxHint(payload)) state.onInboxHint?.();
-		const deliveredAt = state.now?.();
-		const message = renderFollowUpModelContent(payload, deliveredAt);
-		const mode = command.delivery ?? "follow_up";
-		const isIdle = ctx.isIdle() && !contextIsCompacting(ctx);
-		const customMessage = {
-			customType: SESSION_MESSAGE_TYPE,
-			content: message,
-			details: { messagePayload: payload, ...(deliveredAt === undefined ? {} : { deliveredAt }) },
-			display: true,
-		};
-
-		// TASK-0081: accepted Bebop model delivery (Follow-up/Redirect) wakes a
-		// local blocking idle wait; the unchanged message keeps its mode/FIFO.
-		notifyAcceptedMessage(state, `delivery-${id}`);
-		if (isIdle) {
-			pi.sendMessage(customMessage, { triggerTurn: true });
-		} else {
-			pi.sendMessage(customMessage, {
-				triggerTurn: true,
-				deliverAs: mode === "follow_up" ? "followUp" : "steer",
-			});
-		}
-
-		const disposition = isIdle ? "direct" : mode === "follow_up" ? "queued" : "steered";
-		respond(true, "send", { deliveryId: `delivery-${id}`, disposition });
-		return;
-	}
-
-	respond(false, "unsupported", undefined, "Unsupported command");
+	const handler = COMMAND_HANDLERS[command.type];
+	if (handler) await handler({ pi, state, ctx, socket, respond, id }, command as never);
+	else respond(false, "unsupported", undefined, "Unsupported command");
 }
 
 // ============================================================================
