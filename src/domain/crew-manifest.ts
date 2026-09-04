@@ -114,20 +114,41 @@ export class CrewMemberLookupError extends Error {
 	}
 }
 
-/**
- * The manifest's wire shape is intentionally permissive at the boundary: legacy
- * callers rely on field-specific diagnostics for malformed values. Normalizers
- * below apply the semantic constraints in one ordered pipeline.
- */
+/** Declarative manifest shape; path and cross-field rules remain normalization steps. */
 const CrewManifestSchema = Type.Object(
 	{
-		version: Type.Optional(Type.Unknown()),
-		commonInstructionsFile: Type.Optional(Type.Unknown()),
-		members: Type.Optional(Type.Unknown()),
-		presence: Type.Optional(Type.Unknown()),
-		intake: Type.Optional(Type.Unknown()),
-		crew: Type.Optional(Type.Unknown()),
-		guestAdmission: Type.Optional(Type.Unknown()),
+		version: Type.Optional(Type.Integer()),
+		commonInstructionsFile: Type.Optional(Type.String({ minLength: 1 })),
+		members: Type.Optional(
+			Type.Array(
+				Type.Object(
+					{
+						name: Type.String({ minLength: 1 }),
+						role: Type.String({ minLength: 1 }),
+						socket: Type.String({ minLength: 1 }),
+						instructions: Type.Optional(Type.String({ minLength: 1 })),
+						instructionsFile: Type.Optional(Type.String({ minLength: 1 })),
+						description: Type.Optional(Type.String({ minLength: 1 })),
+					},
+					{ additionalProperties: true },
+				),
+				{ minItems: 1 },
+			),
+		),
+		presence: Type.Optional(Type.Object({ notifications: Type.Boolean() }, { additionalProperties: false })),
+		intake: Type.Optional(Type.Object({ contact: Type.String({ minLength: 1 }) }, { additionalProperties: false })),
+		crew: Type.Optional(
+			Type.Object(
+				{ id: Type.String({ minLength: 1 }), displayName: Type.String({ minLength: 1 }) },
+				{ additionalProperties: false },
+			),
+		),
+		guestAdmission: Type.Optional(
+			Type.Object(
+				{ approvers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }) },
+				{ additionalProperties: false },
+			),
+		),
 	},
 	{ additionalProperties: true },
 );
@@ -138,6 +159,55 @@ function invalid(message: string, code: CrewManifestErrorCode = "invalid-manifes
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function throwMemberSchemaFailure(pointer: string): never {
+	const memberField = /^\/members\/(\d+)(?:\/(\w+))?/.exec(pointer);
+	if (!memberField) invalid("members must be a non-empty array", "invalid-members");
+	const field = memberField[2];
+	if (field === "instructionsFile")
+		invalid(
+			`members[${memberField[1]}].instructionsFile must be a non-empty relative path`,
+			"invalid-instructions-file",
+		);
+	if (field === "description")
+		invalid(`members[${memberField[1]}].description must be a non-empty string`, "invalid-member");
+	if (field === "instructions")
+		invalid(`members[${memberField[1]}].instructions must be a non-empty string without NUL`, "invalid-member");
+	if (field === "name" || field === "role" || field === "socket")
+		invalid(`members[${memberField[1]}].${field} must be a non-empty string`, "invalid-member");
+	invalid(`members[${memberField[1]}] must be an object`, "invalid-member");
+}
+
+function throwTopLevelSchemaFailure(pointer: string): never {
+	if (pointer.startsWith("/presence"))
+		throw new CrewManifestError("invalid-manifest", "presence must contain only boolean notifications");
+	if (pointer.startsWith("/intake")) invalid("intake must contain only the contact field", "invalid-intake-config");
+	if (pointer.startsWith("/crew/id"))
+		invalid("crew.id must be a non-empty trimmed string without NUL", "invalid-crew-identity");
+	if (pointer.startsWith("/crew/displayName"))
+		invalid("crew.displayName must be a non-empty trimmed string without NUL", "invalid-crew-display-name");
+	if (pointer.startsWith("/crew")) invalid("crew must be an object", "invalid-crew-config");
+	if (pointer.startsWith("/guestAdmission/approvers"))
+		invalid("guestAdmission.approvers must be a non-empty array", "invalid-guest-approvers");
+	if (pointer.startsWith("/guestAdmission")) invalid("guestAdmission must be an object", "invalid-guest-admission");
+	if (pointer.startsWith("/commonInstructionsFile"))
+		invalid("commonInstructionsFile must be a non-empty relative path", "invalid-common-instructions-file");
+	invalid("manifest must be an object");
+}
+
+function throwSchemaFailure(input: Record<string, unknown>): never {
+	const pointer = [...Value.Errors(CrewManifestSchema, input)][0]?.path ?? "";
+	if (pointer === "/version")
+		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
+	if (pointer === "/members" || pointer === "")
+		throw new CrewManifestError("invalid-members", "members must be a non-empty array");
+	if (pointer.startsWith("/members/")) throwMemberSchemaFailure(pointer);
+	throwTopLevelSchemaFailure(pointer);
+}
+
+function validateManifestShape(input: Record<string, unknown>): void {
+	if (!Value.Check(CrewManifestSchema, input)) throwSchemaFailure(input);
 }
 
 function requireText(value: unknown, field: string): string {
@@ -408,7 +478,8 @@ function normalizeIntake(
 }
 
 export function parseCrewManifest(input: unknown, manifestPath = DEFAULT_CREW_MANIFEST_FILE): CrewManifest {
-	if (!isRecord(input) || !Value.Check(CrewManifestSchema, input)) invalid("manifest must be an object");
+	if (!isRecord(input)) invalid("manifest must be an object");
+	validateManifestShape(input);
 	if (input.version !== CREW_MANIFEST_VERSION && input.version !== CREW_MANIFEST_V2)
 		throw new CrewManifestError("invalid-version", `unsupported manifest version: ${String(input.version)}`);
 	const commonInstructionsFile = normalizeCommonInstructionsFile(input, manifestPath);

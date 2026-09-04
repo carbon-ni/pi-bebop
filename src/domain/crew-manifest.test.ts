@@ -38,6 +38,31 @@ describe("crew manifest", () => {
 		assert.equal(DEFAULT_CREW_MANIFEST_FILE, "crew.json");
 	});
 
+	test("schema rejects malformed structural shapes before normalization", () => {
+		const cases: Array<{ input: unknown; code: string }> = [
+			{ input: { version: 1, members: "not-an-array" }, code: "invalid-members" },
+			{ input: { version: 1, members: [{ name: 3, role: "dev", socket: "dev.sock" }] }, code: "invalid-member" },
+			{
+				input: { version: 1, members: [{ name: "dev", role: "dev", socket: "dev.sock" }], presence: {} },
+				code: "invalid-manifest",
+			},
+			{
+				input: {
+					version: 2,
+					members: [{ name: "dev", role: "dev", socket: "dev.sock" }],
+					guestAdmission: { approvers: "dev" },
+				},
+				code: "invalid-guest-approvers",
+			},
+		];
+		for (const { input, code } of cases) {
+			assert.throws(
+				() => parseCrewManifest(input),
+				(error: unknown) => error instanceof CrewManifestError && error.code === code,
+			);
+		}
+	});
+
 	test("rejects invalid versions, member values, roles, instructions, and sockets", () => {
 		const cases: unknown[] = [
 			{ version: 2, members: [] },
