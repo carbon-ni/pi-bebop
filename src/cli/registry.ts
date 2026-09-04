@@ -73,6 +73,19 @@ import {
 	type CrewRolesCliOptions,
 } from "./commands/crew-roles.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./arguments.ts";
+import {
+	buildMemberRequestSendCommand,
+	buildMemberRequestListCommand,
+	buildMemberRequestWaitCommand,
+	buildMemberRequestRespondCommand,
+	memberRequestHelp,
+	parseMemberRequestSendCommand,
+	parseMemberRequestListCommand,
+	parseMemberRequestWaitCommand,
+	parseMemberRequestRespondCommand,
+	runMemberRequestCommand,
+	type MemberRequestCliOptions,
+} from "./commands/member-request.ts";
 import type { CliContext } from "./context.ts";
 import type { CliOutcome } from "./output.ts";
 
@@ -296,6 +309,40 @@ const crewRolesLeaf: CliLeaf = {
 	run: (options, context) => runCrewRolesCommand(options as CrewRolesCliOptions, context),
 };
 
+/** TASK-0163: correlated Member Request lifecycle leaves. */
+const memberRequestSendLeaf: CliLeaf = {
+	id: "member-request-send",
+	names: ["member", "request", "send"],
+	build: () => buildMemberRequestSendCommand(),
+	help: () => memberRequestHelp("send"),
+	parse: (tokens) => parseMemberRequestSendCommand(tokens),
+	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
+};
+const memberRequestListLeaf: CliLeaf = {
+	id: "member-request-list",
+	names: ["member", "request", "list"],
+	build: () => buildMemberRequestListCommand(),
+	help: () => memberRequestHelp("list"),
+	parse: (tokens) => parseMemberRequestListCommand(tokens),
+	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
+};
+const memberRequestWaitLeaf: CliLeaf = {
+	id: "member-request-wait",
+	names: ["member", "request", "wait"],
+	build: () => buildMemberRequestWaitCommand(),
+	help: () => memberRequestHelp("wait"),
+	parse: (tokens) => parseMemberRequestWaitCommand(tokens),
+	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
+};
+const memberRequestRespondLeaf: CliLeaf = {
+	id: "member-request-respond",
+	names: ["member", "request", "respond"],
+	build: () => buildMemberRequestRespondCommand(),
+	help: () => memberRequestHelp("respond"),
+	parse: (tokens) => parseMemberRequestRespondCommand(tokens),
+	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
+};
+
 /** TASK-0061: `member status <member>` leaf — one registry contribution. */
 const memberStatusLeaf: CliLeaf = {
 	id: "member-status",
@@ -387,6 +434,10 @@ export function createCliRegistry(): CliRegistry {
 		sessionListLeaf,
 		memberFollowUpLeaf,
 		memberRedirectLeaf,
+		memberRequestSendLeaf,
+		memberRequestListLeaf,
+		memberRequestWaitLeaf,
+		memberRequestRespondLeaf,
 		memberInterruptLeaf,
 		memberInboxSendLeaf,
 		crewBroadcastLeaf,

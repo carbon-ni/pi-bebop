@@ -221,6 +221,10 @@ export class MemberRequestFlow {
 		return this.registry.waitForUpdate(onUpdate);
 	}
 
+	waitForRequestOutcomeById(requestId: string, onUpdate: (update: RequestOutcome) => void) {
+		return this.registry.waitForRequest(requestId, onUpdate);
+	}
+
 	/** TASK-0077: true when a Request outcome is already pending or buffered. */
 	hasPendingRequestOutcome(): boolean {
 		return this.registry.hasPendingOutcome();

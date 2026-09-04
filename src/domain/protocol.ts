@@ -261,6 +261,75 @@ export const MemberRequestResultSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+export const MemberRequestStartParamsSchema = Type.Object(
+	{
+		target: MemberStatusTargetSchema,
+		message: MemberMessageContentSchema,
+		instructions: Type.Optional(MessageInstructionsSchema),
+		timeoutSeconds: RequestOutcomeTimeoutSchema,
+		maxWaitSeconds: Type.Integer({ minimum: 60, maximum: 7200 }),
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestStartRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.request_start"),
+		params: MemberRequestStartParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestStartCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_request_start"),
+		...MemberRequestStartParamsSchema.properties,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestListParamsSchema = Type.Object(
+	{ direction: Type.Optional(Type.Union([Type.Literal("inbound"), Type.Literal("outbound"), Type.Literal("all")])) },
+	{ additionalProperties: false },
+);
+export const MemberRequestListRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.request_list"),
+		params: MemberRequestListParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestListCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_request_list"),
+		...MemberRequestListParamsSchema.properties,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestWaitParamsSchema = Type.Object(
+	{ requestId: RequestOutcomeRequestIdSchema },
+	{ additionalProperties: false },
+);
+export const MemberRequestWaitRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.request_wait"),
+		params: MemberRequestWaitParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberRequestWaitCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_request_wait"),
+		...MemberRequestWaitParamsSchema.properties,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
 export const MemberResponseParamsSchema = Type.Object(
 	{
 		requestId: RequestOutcomeRequestIdSchema,
@@ -766,6 +835,10 @@ export type MemberStatusTargetParams = Static<typeof MemberStatusTargetParamsSch
 export type MemberStatusTargetCommand = Static<typeof MemberStatusTargetCommandSchema>;
 export type MemberRequestParams = Static<typeof MemberRequestParamsSchema>;
 export type MemberRequestCommand = Static<typeof MemberRequestCommandSchema>;
+export type MemberRequestStartParams = Static<typeof MemberRequestStartParamsSchema>;
+export type MemberRequestStartCommand = Static<typeof MemberRequestStartCommandSchema>;
+export type MemberRequestListCommand = Static<typeof MemberRequestListCommandSchema>;
+export type MemberRequestWaitCommand = Static<typeof MemberRequestWaitCommandSchema>;
 export type MemberRequestResult = Static<typeof MemberRequestResultSchema>;
 export type MemberResponseParams = Static<typeof MemberResponseParamsSchema>;
 export type MemberUpdateResult = Static<typeof MemberUpdateResultSchema>;
@@ -848,6 +921,9 @@ export type RpcCommand =
 	| Static<typeof MemberStatusCommandSchema>
 	| Static<typeof MemberStatusTargetCommandSchema>
 	| Static<typeof MemberRequestCommandSchema>
+	| Static<typeof MemberRequestStartCommandSchema>
+	| Static<typeof MemberRequestListCommandSchema>
+	| Static<typeof MemberRequestWaitCommandSchema>
 	| Static<typeof MemberResponseCommandSchema>
 	| Static<typeof MemberInterruptCommandSchema>
 	| Static<typeof MemberFollowUpCommandSchema>
@@ -871,6 +947,9 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof MemberStatusCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusTargetCommandSchema>>
 	| RequiredId<Static<typeof MemberRequestCommandSchema>>
+	| RequiredId<Static<typeof MemberRequestStartCommandSchema>>
+	| RequiredId<Static<typeof MemberRequestListCommandSchema>>
+	| RequiredId<Static<typeof MemberRequestWaitCommandSchema>>
 	| RequiredId<Static<typeof MemberResponseCommandSchema>>
 	| RequiredId<Static<typeof MemberInterruptCommandSchema>>
 	| RequiredId<Static<typeof MemberFollowUpCommandSchema>>
@@ -1101,6 +1180,48 @@ export const COMMAND_REGISTRY: Record<RpcCommand["type"], CommandDefinition> = {
 			if (!isMessagePayload(requestParams.payload)) return invalidCommandParams("Invalid member.request payload");
 			return { type: "member_request", ...requestParams, id };
 		},
+	},
+	member_request_start: {
+		method: "member.request_start",
+		requestSchema: MemberRequestStartRequestSchema,
+		resultSchema: MemberRequestResultSchema,
+		toParams: (command) => {
+			const request = command as MemberRequestStartCommand;
+			return {
+				target: request.target,
+				message: request.message,
+				...(request.instructions === undefined ? {} : { instructions: request.instructions }),
+				timeoutSeconds: request.timeoutSeconds,
+				maxWaitSeconds: request.maxWaitSeconds,
+			};
+		},
+		fromParams: (params, id) =>
+			Value.Check(MemberRequestStartParamsSchema, params)
+				? { type: "member_request_start", ...(params as MemberRequestStartParams), id }
+				: invalidCommandParams("Invalid member.request_start params"),
+	},
+	member_request_list: {
+		method: "member.request_list",
+		requestSchema: MemberRequestListRequestSchema,
+		resultSchema: Type.Object(
+			{ requests: Type.Array(Type.Object({}, { additionalProperties: true })) },
+			{ additionalProperties: false },
+		),
+		toParams: (command) => ({ direction: (command as MemberRequestListCommand).direction ?? "all" }),
+		fromParams: (params, id) =>
+			Value.Check(MemberRequestListParamsSchema, params)
+				? { type: "member_request_list", ...(params as MemberRequestListCommand), id }
+				: invalidCommandParams("Invalid member.request_list params"),
+	},
+	member_request_wait: {
+		method: "member.request_wait",
+		requestSchema: MemberRequestWaitRequestSchema,
+		resultSchema: Type.Object({}, { additionalProperties: true }),
+		toParams: (command) => ({ requestId: (command as MemberRequestWaitCommand).requestId }),
+		fromParams: (params, id) =>
+			Value.Check(MemberRequestWaitParamsSchema, params)
+				? { type: "member_request_wait", ...(params as MemberRequestWaitCommand), id }
+				: invalidCommandParams("Invalid member.request_wait params"),
 	},
 	member_response: {
 		method: "member.respond",
