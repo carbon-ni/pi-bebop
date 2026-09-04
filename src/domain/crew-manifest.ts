@@ -189,11 +189,14 @@ function throwTopLevelSchemaFailure(pointer: string): never {
 		invalid("crew.id must be a non-empty trimmed string without NUL", "invalid-crew-identity");
 	if (pointer.startsWith("/crew/displayName"))
 		invalid("crew.displayName must be a non-empty trimmed string without NUL", "invalid-crew-display-name");
+	if (pointer.startsWith("/crew/")) invalid("crew contains unknown fields", "invalid-crew-config");
 	if (pointer.startsWith("/crew")) invalid("crew must be an object", "invalid-crew-config");
 	if (/^\/guestAdmission\/approvers\/\d+/.test(pointer))
 		invalid("guestAdmission.approvers must contain exact trimmed member names", "invalid-guest-approver");
 	if (pointer.startsWith("/guestAdmission/approvers"))
 		invalid("guestAdmission.approvers must be a non-empty array", "invalid-guest-approvers");
+	if (pointer.startsWith("/guestAdmission/"))
+		invalid("guestAdmission must contain only the approvers field", "invalid-guest-admission");
 	if (pointer.startsWith("/guestAdmission")) invalid("guestAdmission must be an object", "invalid-guest-admission");
 	if (pointer.startsWith("/commonInstructionsFile"))
 		invalid("commonInstructionsFile must be a non-empty relative path", "invalid-common-instructions-file");
