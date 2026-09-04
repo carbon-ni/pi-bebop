@@ -1,7 +1,7 @@
 ---
 id: TASK-0156
 title: Replace protocol command mapping if-chains with a command registry
-status: doing
+status: done
 depends_on: []
 priority: normal
 tags: [refactor, protocol, dispatch]
@@ -43,6 +43,10 @@ two chains.
 - [ ] Wire format unchanged: existing protocol tests pass unmodified except
       where they only asserted internal call shapes.
 - [ ] Domain stays pure (typebox only, no IO).
+
+## Verification evidence
+
+Independent coordinator QA: watcher generation 151 passed on exact commit `9e83356`; targeted protocol coverage passed 43/43 (`src/domain/intray.test.ts`).
 
 ## Non-goals
 
