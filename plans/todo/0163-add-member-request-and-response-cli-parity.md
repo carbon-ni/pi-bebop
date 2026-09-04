@@ -68,7 +68,8 @@ unchanged: `respond_to_member_request` may select sole inbound request and
   counterpart name/role, lifecycle state, and remaining deadline where known.
   It never exposes message/instruction content, response channel, or socket.
 - `wait`: blocks for exact outbound Request and returns one terminal outcome:
-  `response`, `idle-without-response`, `offline`, or `timeout`. Buffered outcome
+  `response`, `offline`, or `timeout` (with `response-after-idle` or `max-wait`
+  reason). Buffered outcome
   returns immediately. Cancellation stops only CLI waiter and preserves Request.
 - `respond`: resolves requester/channel only from exact active inbound Request,
   sends one Response, and returns `response-accepted`. It never claims requester
