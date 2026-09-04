@@ -1,7 +1,7 @@
 ---
 id: TASK-0161
 title: Implement approved Guest admission and multi-crew lifecycle
-status: doing
+status: done
 depends_on: [TASK-0160]
 priority: high
 tags: [crew, guest, admission, multi-crew, lifecycle, cli, security, tdd]
@@ -59,46 +59,63 @@ publishes its new callback endpoint without repeating approval.
 
 ## Acceptance criteria
 
-- [ ] TDD starts with join request, approval, multi-crew restore, leave/revoke,
+- [x] TDD starts with join request, approval, multi-crew restore, leave/revoke,
       unauthorized action, collision, replay, stale endpoint, and partial
       recovery paths using injected clocks/IDs and no wall-clock sleeps.
-- [ ] Guest join targets one explicit live Member socket and validates that
+- [x] Guest join targets one explicit live Member socket and validates that
       endpoint's current crew identity before creating pending request.
-- [ ] Join response contains safe crew identity, request ID, and `pending`; it
+- [x] Join response contains safe crew identity, request ID, and `pending`; it
       never says joined before approval or exposes manifest/capability internals.
-- [ ] Same Guest/crew/name/endpoint pending request is idempotent; changed or
+- [x] Same Guest/crew/name/endpoint pending request is idempotent; changed or
       replayed identity is rejected explicitly.
-- [ ] Only exact configured approvers can approve, deny, list sensitive pending
+- [x] Only exact configured approvers can approve, deny, list sensitive pending
       details, or revoke. Roles and Crew contact never imply approval authority.
-- [ ] Approval produces one crew-local capability stored outside model context;
+- [x] Approval produces one crew-local capability stored outside model context;
       secrets are redacted from tools, TUI, logs, roster, errors, and reports.
-- [ ] Runtime stores zero-to-many Guest memberships keyed by stable crew
+- [x] Runtime stores zero-to-many Guest memberships keyed by stable crew
       identity. Joining/restoring/leaving one cannot mutate another.
-- [ ] Restart restores only still-approved matching memberships; stale,
+- [x] Restart restores only still-approved matching memberships; stale,
       revoked, moved, tampered, or mismatched records fail closed per crew while
       preserving independent valid memberships.
-- [ ] Guest callback endpoint is never published as or allowed to replace a
+- [x] Guest callback endpoint is never published as or allowed to replace a
       configured Member endpoint.
-- [ ] `/guest join|crews|leave` and `/crew guests|guest approve|deny|remove`
+- [x] `/guest join|crews|leave` and `/crew guests|guest approve|deny|remove`
       follow exact interface above or document a simpler equivalent with same
       unambiguous states and self-correcting errors.
-- [ ] `pi --intray --guest-as <name> --guest-join <socket>` supports repeatable
+- [x] `pi --intray --guest-as <name> --guest-join <socket>` supports repeatable
       `--guest-join` flags, reports each outcome independently, and rejects
       missing/duplicate/conflicting arguments before sending any request.
-- [ ] Guest startup flags imply no default crew and cannot be combined with
+- [x] Guest startup flags imply no default crew and cannot be combined with
       Member `--crew-role`/`--crew-socket` membership in this slice.
-- [ ] Resuming same Guest restores all still-approved crew bindings and safely
+- [x] Resuming same Guest restores all still-approved crew bindings and safely
       updates callback endpoint; a new unrelated Pi session cannot inherit them.
-- [ ] CLI provides non-interactive equivalents and text/TOON/JSON formats with
+- [x] CLI provides non-interactive equivalents and text/TOON/JSON formats with
       stable error codes and token-light default output.
-- [ ] Roster/presence distinguish pending, approved-online, approved-offline,
+- [x] Roster/presence distinguish pending, approved-online, approved-offline,
       left, and revoked without treating socket liveness as approval.
-- [ ] Concurrent approve/revoke/join/leave is deterministic, atomic per crew,
+- [x] Concurrent approve/revoke/join/leave is deterministic, atomic per crew,
       and leaves no orphaned capability or symlink after crash recovery.
-- [ ] Existing single Member membership, Crew Intake, socket ownership, and
+- [x] Existing single Member membership, Crew Intake, socket ownership, and
       trust boundaries remain regression-covered and backward compatible.
-- [ ] Package smoke, storage/restart integration, architecture, coverage, final
+- [x] Package smoke, storage/restart integration, architecture, coverage, final
       watcher, and independent exact-head QA gates pass.
+
+## Closure evidence
+
+- Implementation commits: `c444334` (lifecycle), `9c57025` (revocation
+  persistence), `3d5aa2e` (replay rejection), `5cdd77d` (denied persistence),
+  `ae76c06` (audit gate resilience), `762a9cd` (evidence gaps), `bc7eaed`
+  (branch coverage), `ce68fcf` (depth-3 test suites).
+- Independent QA passed at exact HEAD `ce68fcf`: HEAD/worktree unchanged and
+  clean; `npm test` 1097/1097; `npm run verify:cli` exit 0 (97.02% lines,
+  90.31% branches, complexity/package pass); watcher gen 339 PASS.
+- Wire, restore/crash, CLI, startup, concurrency, and tombstone/replay suites:
+  `src/pi/guest-admission.integration.test.ts`, `src/pi/guest-control.test.ts`,
+  `src/cli/commands/guest.test.ts`, `src/infra/guest-*-runtime.test.ts`,
+  `src/pi/startup-send.test.ts`, `src/pi/control-commands.test.ts`.
+- Detailed report: `.tmp/reports/04-09-26/task-0161-evidence-gaps.md`.
+- TASK-0162 (crew-scoped guest messaging) remains in `plans/todo/` and has not
+  been started.
 
 ## Constraints
 
