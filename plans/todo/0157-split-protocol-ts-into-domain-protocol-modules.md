@@ -1,7 +1,7 @@
 ---
 id: TASK-0157
 title: Split protocol.ts into domain/protocol/ modules
-status: todo
+status: doing
 depends_on: [TASK-0156]
 priority: normal
 tags: [refactor, protocol]
@@ -52,4 +52,7 @@ No schema or wire changes, no renaming of exported types.
 - [ ] Criterion 2
 
 ## Notes
+
+- 2026-09-04: Coordinator remains sole implementation owner under Mary's
+  authorization for the TASK-0155 onward sequence.
 
