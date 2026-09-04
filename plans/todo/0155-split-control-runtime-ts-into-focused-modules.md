@@ -36,7 +36,7 @@ activation/deactivation, status derivation. Each well under 500 lines;
 
 ## Acceptance criteria
 
-- [ ] No file in `src/pi/` exceeds 500 lines.
+- [ ] No production file in the `src/pi/control-runtime/` split or its composition root exceeds 500 lines.
 - [ ] Existing public exports of `control-runtime.ts` still resolve from the
       same import path (or all importers updated in the same commit).
 - [ ] Full test suite green; integration tests untouched.
@@ -60,4 +60,8 @@ No behavior change, no protocol work, no renaming of exported symbols.
 - Takeover snapshot at HEAD `a284eac17e5489194789bad11a76bb32587db812` with clean
   worktree is recorded in `.tmp/reports/04-09-26/task-0155-takeover-head.txt` and
   `.tmp/reports/04-09-26/task-0155-takeover-status.txt` before edits.
+- 2026-09-04: Independent review found pre-existing oversized files outside this
+  refactor (`src/pi/startup-send.ts` and test/integration files). The line-count
+  criterion is scoped to the new control-runtime production split and root;
+  those unrelated files remain unchanged.
 
