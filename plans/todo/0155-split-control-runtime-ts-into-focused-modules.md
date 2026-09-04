@@ -1,7 +1,7 @@
 ---
 id: TASK-0155
 title: Split control-runtime.ts into focused modules
-status: todo
+status: doing
 depends_on: [TASK-0154]
 priority: high
 tags: [refactor, control-runtime]
@@ -54,4 +54,10 @@ No behavior change, no protocol work, no renaming of exported symbols.
 - [ ] Criterion 2
 
 ## Notes
+
+- 2026-09-04: Mary authorized the coordinator (session 01a0675d) as sole
+  implementation owner. Dave's unavailable runtime will not receive work.
+- Takeover snapshot at HEAD `a284eac17e5489194789bad11a76bb32587db812` with clean
+  worktree is recorded in `.tmp/reports/04-09-26/task-0155-takeover-head.txt` and
+  `.tmp/reports/04-09-26/task-0155-takeover-status.txt` before edits.
 
