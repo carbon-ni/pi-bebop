@@ -21,6 +21,45 @@ test("scanCliFlags supports sentinel values and strips help", () => {
 	assert.deepEqual(result.tokens, ["--session=--looks-like-a-value", "member"]);
 });
 
+test("scanCliFlags handles sentinel repeatables and default limit errors", () => {
+	const result = scanCliFlags(
+		["--instruction", "--", "--dash"],
+		[{ name: "--instruction", kind: "repeatable", allowSentinelValue: true }],
+	);
+	assert.deepEqual(result.repeatedValues["--instruction"], ["--dash"]);
+	assert.throws(
+		() =>
+			scanCliFlags(
+				["--instruction", "one", "--instruction", "two"],
+				[{ name: "--instruction", kind: "repeatable", maxValues: 1 }],
+			),
+		(error: unknown) => error instanceof UsageError && error.message === "Too many values for --instruction",
+	);
+	assert.throws(
+		() =>
+			scanCliFlags(
+				["--instruction", "--"],
+				[{ name: "--instruction", kind: "repeatable", allowSentinelValue: true }],
+			),
+		(error: unknown) => error instanceof UsageError && error.message === "Missing value for --instruction",
+	);
+});
+
+test("scanCliFlags enforces repeatable limits and boolean duplicates", () => {
+	assert.throws(
+		() =>
+			scanCliFlags(
+				["--instruction", "one", "--instruction", "two"],
+				[{ name: "--instruction", kind: "repeatable", maxValues: 1, tooManyValuesMessage: "too many" }],
+			),
+		(error: unknown) => error instanceof UsageError && error.message === "too many",
+	);
+	assert.throws(
+		() => scanCliFlags(["--stdin", "--stdin"], [{ name: "--stdin", kind: "boolean" }]),
+		(error: unknown) => error instanceof UsageError && error.message === "Duplicate flag: --stdin",
+	);
+});
+
 test("scanCliFlags rejects duplicate flags and missing repeatable values", () => {
 	assert.throws(
 		() => scanCliFlags(["--format", "toon", "--format", "json"], [{ name: "--format", kind: "value" }]),
