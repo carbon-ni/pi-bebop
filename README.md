@@ -105,9 +105,10 @@ project socket paths.
 | `broadcast_to_crew`   | a shared team-wide constraint                           | transient Broadcast Follow-up to every other member; per-recipient delivery outcomes |
 
 `wait_for_member_idle` blocks the current run until the target settles to mechanical idle, goes offline, the bounded timeout expires, or an accepted
-Bebop message releases the wait under its original delivery mode. A waking message is consumed immediately in the next model continuation;
-message-received never implies idle or completion. Call this coordination wait alone, not in a parallel tool batch, because its terminating
-result must be the only result in the batch. The bounded timeout is always the fallback.
+Bebop message releases the wait under its original delivery mode. When this is the only call in the tool batch, the waking message is consumed
+immediately in the next model continuation; message-received never implies idle or completion. Call this coordination wait alone, not in a
+parallel tool batch: Pi only skips the content-free continuation when every result terminates, so a mixed batch may consume the waking message
+one continuation later. The bounded timeout is always the fallback.
 `wait_for_request_outcome` blocks the current tool call until a terminal
 outcome or bounded safeguard releases it; it does not guarantee another Member
 will respond.
