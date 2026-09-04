@@ -92,7 +92,22 @@ their existing behavior.
 - [x] Already-idle, became-idle, offline, timeout, abort, and error paths do not gain accidental terminating behavior. (`wait-for-member-idle.test.ts` asserts `terminate` falsy for offline/became-idle; mapping `terminate: outcome === "message-received"` unchanged.)
 - [x] Solitary/sequential invocation and Pi's all-results termination constraint are covered by tests and public tool guidance. Mixed-batch behavior is characterized below, but remains an upstream limitation.
 - [x] `docs/MEMBER-IDLE-WAIT.md` and README describe immediate consumption without claiming task completion or response correlation. (The standalone doc file was removed by `538d2a9`; the contract lives in README "consumed immediately in the next model continuation" and the tool description "Call this coordination wait alone/sequentially, never in a parallel tool batch".)
-- [ ] Focused tests, Bebop final gate, and unchanged-worktree freshness proof pass. (The new Pi-host suite passes 4/4 locally; final gate and exact-head freshness remain lead-owned after this characterization commit.)
+- [ ] Focused tests, Bebop final gate, and unchanged-worktree freshness proof pass. (The focused matrix passes 19/19 locally; a fresh final gate/fingerprint for this exact HEAD remains outstanding.)
+
+## Acceptance status and regression guard
+
+Criteria 1–10 above are satisfied by the Pi-host characterization, existing
+TASK-0081 suites, README/tool guidance, and the focused 19/19 matrix. Criterion
+11 is intentionally blocked: the local tests and clean worktree pass, but the
+approved mixed-batch guarantee cannot be provided by the current Pi API and no
+fresh final watcher fingerprint is recorded for this exact HEAD.
+
+`member-idle-continuation.integration.test.ts` test 4 is the durable local
+regression guard. It must continue to assert Pi's mixed-batch scheduling rule:
+a terminating idle-wait result plus a non-terminating sibling yields exactly one
+content-free continuation, then consumes the waking message exactly once. Do
+not change that test to expect immediate mixed-batch consumption unless a Pi
+release changes the documented batch termination contract.
 
 ## Upstream Pi API blocker (28-08, characterized mechanically)
 
