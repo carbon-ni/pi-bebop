@@ -1,7 +1,7 @@
 ---
 id: TASK-0155
 title: Split control-runtime.ts into focused modules
-status: doing
+status: done
 depends_on: [TASK-0154]
 priority: high
 tags: [refactor, control-runtime]
@@ -36,11 +36,11 @@ activation/deactivation, status derivation. Each well under 500 lines;
 
 ## Acceptance criteria
 
-- [ ] No production file in the `src/pi/control-runtime/` split or its composition root exceeds 500 lines.
-- [ ] Existing public exports of `control-runtime.ts` still resolve from the
+- [x] No production file in the `src/pi/control-runtime/` split or its composition root exceeds 500 lines.
+- [x] Existing public exports of `control-runtime.ts` still resolve from the
       same import path (or all importers updated in the same commit).
-- [ ] Full test suite green; integration tests untouched.
-- [ ] No domain-layer imports introduced; layering rules respected.
+- [x] Full test suite green; integration tests untouched.
+- [x] No domain-layer imports introduced; layering rules respected.
 
 ## Non-goals
 
@@ -48,10 +48,6 @@ No behavior change, no protocol work, no renaming of exported symbols.
 
 ## Context
 (Optional: approach, links, related tasks.)
-
-## Acceptance criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
 
 ## Notes
 
@@ -64,4 +60,7 @@ No behavior change, no protocol work, no renaming of exported symbols.
   refactor (`src/pi/startup-send.ts` and test/integration files). The line-count
   criterion is scoped to the new control-runtime production split and root;
   those unrelated files remain unchanged.
+- 2026-09-04: Implemented in `fa94b90`; public `IntrayStatus` compatibility fix
+  and compile-time regression test in `f0d3881`. Watcher generation 689 passed
+  the fresh `@agent-final` gate; Mary independently approved exact-head closure.
 
