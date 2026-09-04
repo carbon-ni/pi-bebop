@@ -41,7 +41,24 @@ export function getLatestGuestMembershipRecords(entries: readonly unknown[]): re
 		const entry = entries[index] as { type?: string; customType?: string; data?: unknown };
 		if (entry.type !== "custom" || entry.customType !== GUEST_MEMBERSHIP_ENTRY_TYPE || !Array.isArray(entry.data))
 			continue;
-		return entry.data;
+		return entry.data
+			.map((candidate) => {
+				if (candidate && typeof candidate === "object" && "record" in candidate) {
+					const snapshot = candidate as { status?: string; record?: unknown };
+					return snapshot.status === "approved" ? snapshot.record : undefined;
+				}
+				return candidate;
+			})
+			.filter((candidate): candidate is unknown => candidate !== undefined);
+	}
+	return [];
+}
+
+export function getLatestGuestAdmissionRecords(entries: readonly unknown[]): readonly unknown[] {
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index] as { type?: string; customType?: string; data?: unknown };
+		if (entry.type === "custom" && entry.customType === GUEST_MEMBERSHIP_ENTRY_TYPE && Array.isArray(entry.data))
+			return entry.data;
 	}
 	return [];
 }
