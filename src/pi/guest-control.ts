@@ -12,6 +12,7 @@ export interface GuestControlCommandDeps {
 	readonly guestIdentity: (ctx: ExtensionContext) => string;
 	readonly sendJoin?: typeof sendRpcCommand;
 	readonly sendLeave?: typeof sendRpcCommand;
+	readonly onMembershipChanged?: () => void;
 }
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
@@ -97,13 +98,15 @@ export function registerGuestControlCommand(
 				}
 				const result = await deps.guestMembershipRuntime.leave(parsed.target);
 				if ("code" in result) notify(ctx, `Guest leave failed: ${result.code}`, "error");
-				else
+				else {
+					deps.onMembershipChanged?.();
 					notify(
 						ctx,
 						result.left
 							? `Guest left crew ${parsed.target}`
 							: `Guest is not joined to crew ${parsed.target}`,
 					);
+				}
 				return;
 			}
 			if (!ctx.isProjectTrusted()) {
@@ -143,6 +146,7 @@ export function registerGuestControlCommand(
 					notify(ctx, "Guest join failed: response could not be bound to this session", "error");
 					return;
 				}
+				deps.onMembershipChanged?.();
 				notify(
 					ctx,
 					tracked.status === "pending"

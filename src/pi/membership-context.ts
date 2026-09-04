@@ -1,9 +1,12 @@
 import type { Membership } from "../infra/membership-runtime.ts";
+import { GUEST_CAPABILITIES } from "../domain/index.ts";
 import type { GuestMembershipRecord } from "../domain/index.ts";
+import type { GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
 
 export const MEMBERSHIP_ENTRY_TYPE = "intray-membership";
 export const GUEST_MEMBERSHIP_ENTRY_TYPE = "intray-guest-memberships";
 export const MEMBERSHIP_CONTEXT_MARKER = "## Current crew identity";
+export const GUEST_MEMBERSHIP_CONTEXT_MARKER = "## Current Guest identity";
 
 export interface PersistedMembershipState {
 	readonly active: boolean;
@@ -99,4 +102,25 @@ export function formatMembershipContext(membership: Membership): string {
 export function appendMembershipContext(systemPrompt: string, membership: Membership | null): string {
 	if (!membership || systemPrompt.includes(MEMBERSHIP_CONTEXT_MARKER)) return systemPrompt;
 	return `${systemPrompt}\n\n${formatMembershipContext(membership)}`;
+}
+
+/** Model-visible Guest context contains selectors and capabilities, never routes or credentials. */
+export function formatGuestMembershipContext(runtime: GuestMembershipRuntime): string {
+	const memberships = runtime.list();
+	const crews =
+		memberships.length === 0
+			? "none"
+			: memberships
+					.map(
+						(row) =>
+							`${row.crew.id} (${row.crew.displayName}) — ${row.status}${row.status === "pending" ? ` (${row.requestId})` : ""}`,
+					)
+					.join(", ");
+	const capabilities = GUEST_CAPABILITIES.join(", ");
+	return `${GUEST_MEMBERSHIP_CONTEXT_MARKER}\nGuest crews: ${crews}\nGuest capabilities: ${capabilities}\nGuest messaging requires the exact crew selector on every action. Guest supports direct Follow-ups, correlated Member Requests/Responses, and transient Crew Broadcast; Guest cannot use Inbox, Redirect, Interrupt, Member administration, or Crew control.`;
+}
+
+export function appendGuestMembershipContext(systemPrompt: string, runtime: GuestMembershipRuntime | null): string {
+	if (!runtime || systemPrompt.includes(GUEST_MEMBERSHIP_CONTEXT_MARKER)) return systemPrompt;
+	return `${systemPrompt}\n\n${formatGuestMembershipContext(runtime)}`;
 }

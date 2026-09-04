@@ -10,3 +10,4 @@ export {
 	registerRespondToMemberRequestTool,
 	registerWaitForRequestOutcomeTool,
 } from "./member-request.ts";
+export { registerGuestMessagingTools, reconcileGuestMessagingTools, GUEST_MESSAGING_TOOLS } from "./guest-message.ts";

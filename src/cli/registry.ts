@@ -33,6 +33,10 @@ import {
 	buildGuestLeaveCommand,
 	guestJoinHelp,
 	guestLeaveHelp,
+	guestMessageHelp,
+	buildGuestMessageCommand,
+	parseGuestMessageCommand,
+	runGuestMessageCommand,
 	parseGuestJoinCommand,
 	parseGuestLeaveCommand,
 	runGuestJoinCommand,
@@ -261,6 +265,27 @@ const guestLeaveLeaf: CliLeaf = {
 	run: (options, context) => runGuestLeaveCommand(options as GuestLeaveCliOptions, context),
 };
 
+/** TASK-0162: Guest direct and Broadcast messaging leaves. */
+const guestSendLeaf: CliLeaf = {
+	id: "guest-send",
+	names: ["guest", "send"],
+	build: () => buildGuestMessageCommand("send"),
+	help: () => guestMessageHelp("send"),
+	parse: (tokens) => parseGuestMessageCommand(tokens, "send"),
+	run: (options, context) =>
+		runGuestMessageCommand(options as import("./commands/guest.ts").GuestMessageCliOptions, context),
+};
+
+const guestBroadcastLeaf: CliLeaf = {
+	id: "guest-broadcast",
+	names: ["guest", "broadcast"],
+	build: () => buildGuestMessageCommand("broadcast"),
+	help: () => guestMessageHelp("broadcast"),
+	parse: (tokens) => parseGuestMessageCommand(tokens, "broadcast"),
+	run: (options, context) =>
+		runGuestMessageCommand(options as import("./commands/guest.ts").GuestMessageCliOptions, context),
+};
+
 /** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
 const crewRolesLeaf: CliLeaf = {
 	id: "crew-roles",
@@ -367,6 +392,8 @@ export function createCliRegistry(): CliRegistry {
 		crewBroadcastLeaf,
 		guestJoinLeaf,
 		guestLeaveLeaf,
+		guestSendLeaf,
+		guestBroadcastLeaf,
 	]);
 }
 
