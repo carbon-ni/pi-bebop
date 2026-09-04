@@ -68,7 +68,7 @@ test("synthetic nested/top-level leaves work through real parse/help/root/dispat
 	// Unknown commands list the full ordered vocabulary including the new leaves.
 	assert.throws(
 		() => registry.parseCliCommand(["nope"], "/p"),
-		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast, guest join, guest leave, ping, crew audit/,
+		/valid commands: send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast, ping, crew audit/,
 	);
 
 	// Command-tree metadata derives from the registry: top-level leaf + nested leaf under the crew group.
@@ -111,7 +111,7 @@ test("composeRegistry yields deterministic ordered parse/help/dispatch without s
 	);
 	assert.equal(
 		first.vocabulary().join(", "),
-		"send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast, guest join, guest leave, ping, crew audit",
+		"send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast, ping, crew audit",
 	);
 	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), second.parseCliCommand(["ping", "a"], "/p"));
 	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), first.parseCliCommand(["ping", "a"], "/p"));
@@ -139,11 +139,13 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 			"crew-broadcast",
 			"guest-join",
 			"guest-leave",
+			"guest-send",
+			"guest-broadcast",
 		],
 	);
 	assert.equal(
 		registry.vocabulary().join(", "),
-		"send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast, guest join, guest leave",
+		"send, crew init, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast",
 	);
 	assert.equal((registry.parseCliCommand([], "/p") as { command: string }).command, "home");
 	assert.equal(
@@ -229,6 +231,8 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 		"crew broadcast",
 		"guest join",
 		"guest leave",
+		"guest send",
+		"guest broadcast",
 	]);
 });
 

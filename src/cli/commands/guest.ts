@@ -1,5 +1,11 @@
 import { Command, CommanderError } from "commander";
 import { isGuestJoinResult } from "../../domain/index.ts";
+import type { GuestTrustedManifest } from "../../application/guest-message.ts";
+import { promises as fs } from "node:fs";
+import { submitGuestBroadcast, submitGuestMessage } from "../../application/guest-message.ts";
+import { createGuestMembershipRuntime } from "../../infra/guest-membership-runtime.ts";
+import { getTrustedCrewManifestPaths, readTrustedCrewManifest } from "../../infra/crew-manifest-store.ts";
+import { createGuestRegistryStore } from "../../infra/guest-registry-store.ts";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { UsageError, type CliFormat } from "../arguments.ts";
 import { errorCode, errorResult } from "../errors.ts";
@@ -34,6 +40,24 @@ export interface GuestLeaveCliOptions {
 }
 
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
+
+export interface GuestMessageCliOptions {
+	readonly command: "guest-send" | "guest-broadcast";
+	readonly crew: string;
+	readonly target?: string;
+	readonly guestIdentity: string;
+	readonly guestName: string;
+	readonly callback: string;
+	readonly capability: string;
+	readonly message: string;
+	readonly instructions: string[];
+	readonly format: CliFormat;
+	readonly help?: boolean;
+}
+
+function collect(value: string, previous: string[]): string[] {
+	return previous.concat([value]);
+}
 
 function isCliFormat(value: string): value is CliFormat {
 	return (FORMATS as readonly string[]).includes(value);
@@ -86,6 +110,23 @@ export function buildGuestJoinCommand(): Command {
 		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
 		.showHelpAfterError(false)
 		.helpOption(false);
+}
+
+export function buildGuestMessageCommand(kind: "send" | "broadcast"): Command {
+	const command = new Command(kind)
+		.description(kind === "send" ? "Send a direct Guest Follow-up" : "Broadcast directly to an approved Crew")
+		.requiredOption("--crew <crew-id>", "Exact approved crew selector")
+		.requiredOption("--identity <guest-identity>", "Stable Guest identity")
+		.requiredOption("--as <guest-name>", "Approved Guest display name")
+		.requiredOption("--callback <socket>", "This Guest callback socket")
+		.requiredOption("--capability <capability>", "Member-issued Guest capability")
+		.requiredOption("--message <text>", "Message text")
+		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
+		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.showHelpAfterError(false)
+		.helpOption(false);
+	if (kind === "send") command.requiredOption("--target <member>", "Exact Member name or unique role");
+	return command;
 }
 
 export function buildGuestLeaveCommand(): Command {
@@ -156,6 +197,37 @@ export function parseGuestJoinCommand(args: readonly string[]): GuestJoinCliOpti
 	};
 }
 
+export function parseGuestMessageCommand(args: readonly string[], kind: "send" | "broadcast"): GuestMessageCliOptions {
+	const { tokens, format, help } = tokenize(args);
+	if (help)
+		return {
+			command: kind === "send" ? "guest-send" : "guest-broadcast",
+			crew: "",
+			target: undefined,
+			guestIdentity: "",
+			guestName: "",
+			callback: "",
+			capability: "",
+			message: "",
+			instructions: [],
+			format: normalizeFormat(format),
+			help: true,
+		};
+	const options = parseWith(buildGuestMessageCommand(kind), tokens, (opts) => opts);
+	return {
+		command: kind === "send" ? "guest-send" : "guest-broadcast",
+		crew: requireValue(String(options.crew ?? ""), "--crew <crew-id>"),
+		target: kind === "send" ? requireValue(String(options.target ?? ""), "--target <member>") : undefined,
+		guestIdentity: requireValue(String(options.identity ?? ""), "--identity <guest-identity>"),
+		guestName: requireValue(String(options.as ?? ""), "--as <guest-name>"),
+		callback: requireValue(String(options.callback ?? ""), "--callback <socket>"),
+		capability: requireValue(String(options.capability ?? ""), "--capability <capability>"),
+		message: requireValue(String(options.message ?? ""), "--message <text>"),
+		instructions: (options.instruction as string[] | undefined) ?? [],
+		format: normalizeFormat(format),
+	};
+}
+
 export function parseGuestLeaveCommand(args: readonly string[]): GuestLeaveCliOptions {
 	const { tokens, format, help } = tokenize(args);
 	if (help)
@@ -198,6 +270,19 @@ export function guestJoinHelp(): string {
 	].join("\n");
 }
 
+export function guestMessageHelp(kind: "send" | "broadcast"): string {
+	const target = kind === "send" ? " --target <member>" : "";
+	return [
+		`pi-bebop guest ${kind}${target} --crew <crew-id> --identity <guest-identity> --as <guest-name> --callback <socket> --capability <capability> --message <text> [--format toon|json|text]`,
+		"",
+		kind === "send"
+			? "Send one direct Guest Follow-up to an exact Member in the selected Crew."
+			: "Send one transient Guest Broadcast directly to every other approved Crew participant.",
+		"Every call requires an exact crew selector. Credentials are used only for the wire command and never rendered.",
+		"",
+	].join("\\n");
+}
+
 export function guestLeaveHelp(): string {
 	return [
 		"pi-bebop guest leave <member-socket> --crew <crew-id> --identity <guest-identity> --callback <socket> [--format toon|json|text]",
@@ -219,6 +304,118 @@ export interface GuestCliDependencies {
 }
 
 export const defaultGuestCliDependencies: GuestCliDependencies = { sendCommand: sendRpcCommand };
+
+async function loadGuestManifest(cwd: string, crewId: string): Promise<GuestTrustedManifest> {
+	const candidates = getTrustedCrewManifestPaths(cwd);
+	const matches: GuestTrustedManifest[] = [];
+	for (const manifestPath of candidates) {
+		try {
+			await fs.access(manifestPath);
+			const manifest = await readTrustedCrewManifest(manifestPath, cwd, () => true);
+			if (manifest.crew?.id !== crewId) continue;
+			const registry = createGuestRegistryStore({ manifestPath, crew: manifest.crew }).load();
+			matches.push({
+				crew: manifest.crew,
+				members: manifest.members,
+				approvedGuests: registry.entries
+					.filter((entry) => entry.status === "approved")
+					.map((entry) => ({
+						guestIdentity: entry.guestIdentity,
+						guestName: entry.guestName,
+						callbackEndpoint: entry.callbackEndpoint,
+					})),
+			});
+		} catch {
+			// Missing or untrusted layouts are not candidates.
+		}
+	}
+	if (matches.length !== 1)
+		throw new UsageError(
+			matches.length === 0
+				? `No trusted crew manifest found for crew '${crewId}'.`
+				: `Crew selector '${crewId}' matches multiple trusted manifests.`,
+		);
+	return matches[0]!;
+}
+
+function guestRuntime(options: GuestMessageCliOptions) {
+	const runtime = createGuestMembershipRuntime({
+		guestIdentity: options.guestIdentity,
+		callbackEndpoint: options.callback,
+		createRequestId: () => "cli-guest-request",
+		submitJoinRequest: async () => undefined,
+	});
+	runtime.track(
+		{
+			crew: { id: options.crew, displayName: options.crew },
+			guestName: options.guestName,
+			memberSocket: "cli",
+			submittedByMember: "cli",
+		},
+		"cli-guest-request",
+		"approved",
+		options.capability,
+	);
+	return runtime;
+}
+
+export async function runGuestMessageCommand(
+	options: GuestMessageCliOptions,
+	context: CliContext,
+	deps: GuestCliDependencies = defaultGuestCliDependencies,
+): Promise<CliOutcome> {
+	if (options.help)
+		return { kind: "help", text: guestMessageHelp(options.command === "guest-send" ? "send" : "broadcast") };
+	try {
+		const manifest = await loadGuestManifest(context.cwd, options.crew);
+		const runtime = guestRuntime(options);
+		const applicationDeps = { transport: { send: deps.sendCommand } };
+		const result =
+			options.command === "guest-send"
+				? await submitGuestMessage(
+						{
+							guestRuntime: runtime,
+							guestIdentity: options.guestIdentity,
+							crew: options.crew,
+							target: options.target!,
+							message: options.message,
+							instructions: options.instructions,
+							loadManifest: async () => manifest,
+							signal: context.signal,
+						},
+						applicationDeps,
+					)
+				: await submitGuestBroadcast(
+						{
+							guestRuntime: runtime,
+							guestIdentity: options.guestIdentity,
+							crew: options.crew,
+							message: options.message,
+							instructions: options.instructions,
+							loadManifest: async () => manifest,
+							signal: context.signal,
+						},
+						applicationDeps,
+					);
+		return {
+			kind: "result",
+			result: { ok: true, target: options.target ?? options.crew, status: "accepted", data: result },
+			format: options.format,
+			full: false,
+		};
+	} catch (error) {
+		const code =
+			error instanceof Error && "code" in error
+				? String((error as { code: unknown }).code)
+				: guestWireErrorCode(error);
+		return {
+			kind: "result",
+			result: errorResult(targetFromError(error), options.target ?? options.crew, code),
+			format: options.format,
+			full: false,
+		};
+	}
+}
 
 /**
  * Maps transport failures to stable member-side codes: wire rejections carry

@@ -21,6 +21,8 @@ import {
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
 	registerWaitForRequestOutcomeTool,
+	registerGuestMessagingTools,
+	reconcileGuestMessagingTools,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
@@ -49,6 +51,7 @@ import { authorizeGuestSendAgainstRegistry, createGuestAdmissionRuntime } from "
 import { createGuestRegistryStore, digestGuestCapability } from "./infra/guest-registry-store.ts";
 import {
 	appendMembershipContext,
+	appendGuestMembershipContext,
 	getLatestMembershipState,
 	MEMBERSHIP_ENTRY_TYPE,
 	GUEST_MEMBERSHIP_ENTRY_TYPE,
@@ -394,10 +397,52 @@ export default function (pi: ExtensionAPI) {
 		},
 		"crew",
 	);
+	const loadGuestManifest = async (crewId: string) => {
+		const runtime = state.guestMembershipRuntime;
+		const membership = runtime?.list().find((row) => row.crew.id === crewId && row.status === "approved");
+		const memberSocket = runtime?.getMemberSocket(crewId);
+		if (!membership || !memberSocket) throw new Error(`No approved Guest membership for crew ${crewId}`);
+		const manifestPath = getCrewManifestPathFromSocketPath(memberSocket);
+		const projectRoot = path.resolve(path.dirname(manifestPath), "..", "..");
+		const manifest = await readTrustedCrewManifest(
+			manifestPath,
+			projectRoot,
+			() => state.context?.isProjectTrusted?.() === true,
+		);
+		if (!manifest.crew || manifest.crew.id !== crewId)
+			throw new Error(`Crew manifest does not match selector ${crewId}`);
+		const registry = createGuestRegistryStore({ manifestPath, crew: manifest.crew }).load();
+		return {
+			crew: manifest.crew,
+			members: manifest.members,
+			approvedGuests: registry.entries
+				.filter((entry) => entry.status === "approved")
+				.map((entry) => ({
+					guestIdentity: entry.guestIdentity,
+					guestName: entry.guestName,
+					callbackEndpoint: entry.callbackEndpoint,
+				})),
+		};
+	};
+	let guestMessagingRegistered = false;
+	const ensureGuestMessagingTools = () => {
+		if (
+			guestMessagingRegistered ||
+			state.guestMembershipRuntime?.list().some((row) => row.status === "approved") !== true
+		)
+			return;
+		registerGuestMessagingTools(pi, state, {
+			transport: { send: sendRpcCommand },
+			loadManifest: loadGuestManifest,
+		});
+		guestMessagingRegistered = true;
+		reconcileGuestMessagingTools(pi, state);
+	};
 	registerGuestControlCommand(pi, state, {
 		ensureControlServer: (api, currentState, ctx) => ensureControlServer(api, currentState, ctx),
 		guestMembershipRuntime: state.guestMembershipRuntime,
 		guestIdentity: (ctx) => ctx.sessionManager.getSessionId(),
+		onMembershipChanged: ensureGuestMessagingTools,
 	});
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
@@ -481,6 +526,7 @@ export default function (pi: ExtensionAPI) {
 			state.guestMembershipRuntime?.restore(persistedGuests);
 			refreshGuestAdmission();
 			await maybeHandleStartupGuestJoins(ctx, pi, state.guestMembershipRuntime!, state.socketPath!);
+			ensureGuestMessagingTools();
 			reconcileMembershipTools(pi, false);
 			return;
 		}
@@ -529,6 +575,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		state.guestMembershipRuntime?.restore(persistedGuests);
+		ensureGuestMessagingTools();
 		refreshGuestAdmission();
 		await restorePersistedMembership({
 			runtime: state.membershipRuntime,
@@ -561,8 +608,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event) => {
 		const membership = state.membershipRuntime?.getMembership();
-		if (!membership) return;
-		return { systemPrompt: appendMembershipContext(event.systemPrompt, membership) };
+		if (membership) return { systemPrompt: appendMembershipContext(event.systemPrompt, membership) };
+		const guestRuntime = state.guestMembershipRuntime;
+		if (guestRuntime?.list().some((row) => row.status === "approved"))
+			return { systemPrompt: appendGuestMembershipContext(event.systemPrompt, guestRuntime) };
 	});
 
 	pi.on("session_shutdown", async () => {
