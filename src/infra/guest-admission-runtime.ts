@@ -2,6 +2,7 @@ import {
 	bindGuestApprovalCapability,
 	crewSelectorFromConfig,
 	guestAdmissionPolicy,
+	isGuestRegistryCapabilityDigest,
 	isGuestApproval,
 	isGuestJoinRequest,
 	isGuestMembershipRecord,
@@ -58,9 +59,14 @@ export type GuestAdmissionMutationResult =
 	| { readonly ok: false; readonly code: "unauthorized" | "not-found" | "mutation-failed" };
 
 export type GuestAdmissionPersistedRecord =
-	| { readonly status: "approved"; readonly record: GuestMembershipRecord }
+	| {
+			readonly status: "approved";
+			readonly record: GuestMembershipRecord;
+			/** Verifier digest of the runtime-held capability; never plaintext. */
+			readonly capabilityDigest?: string;
+	  }
 	| { readonly status: "revoked"; readonly record: GuestMembershipRecord }
-	| { readonly status: "denied"; readonly request: GuestJoinRequest };
+	| { readonly status: "denied"; readonly request: GuestJoinRequest; readonly approver?: string };
 
 export interface GuestAdmissionRuntime {
 	receive(request: GuestJoinRequest): GuestAdmissionJoinResult;
@@ -80,6 +86,8 @@ export interface GuestAdmissionRuntimeDependencies {
 	readonly memberName: string;
 	readonly createRequestId: () => string;
 	readonly createCapability?: () => string;
+	/** Verifier-digest derivation for registry persistence; plaintext never persists. */
+	readonly digestCapability?: (capability: string) => string;
 	readonly persist?: (records: readonly GuestAdmissionPersistedRecord[]) => void;
 }
 
@@ -92,6 +100,7 @@ interface ApprovedEntry {
 	readonly requestId: string;
 	readonly record: GuestMembershipRecord;
 	readonly capability: GuestApprovalCapability;
+	readonly capabilityDigest?: string;
 }
 interface RevokedEntry {
 	readonly status: "revoked";
@@ -100,6 +109,7 @@ interface RevokedEntry {
 interface DeniedEntry {
 	readonly status: "denied";
 	readonly request: GuestJoinRequest;
+	readonly approver?: string;
 }
 type Entry = PendingEntry | ApprovedEntry | RevokedEntry | DeniedEntry;
 
@@ -123,11 +133,20 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 					(entry): entry is ApprovedEntry | RevokedEntry | DeniedEntry =>
 						entry.status === "approved" || entry.status === "revoked" || entry.status === "denied",
 				)
-				.map((entry) =>
-					entry.status === "denied"
-						? { status: entry.status, request: entry.request }
-						: { status: entry.status, record: entry.record },
-				),
+				.map((entry) => {
+					if (entry.status === "denied")
+						return {
+							status: entry.status,
+							request: entry.request,
+							...(entry.approver === undefined ? {} : { approver: entry.approver }),
+						};
+					if (entry.status === "revoked") return { status: entry.status, record: entry.record };
+					return {
+						status: entry.status,
+						record: entry.record,
+						...(entry.capabilityDigest === undefined ? {} : { capabilityDigest: entry.capabilityDigest }),
+					};
+				}),
 		);
 	};
 	const list = (): readonly GuestAdmissionView[] =>
@@ -240,7 +259,14 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 					approvedBy: approver,
 				};
 				const bound = bindGuestApprovalCapability(capability);
-				states.set(entry.request.guestIdentity, { status: "approved", requestId, record, capability: bound });
+				const capabilityDigest = deps.digestCapability?.(bound);
+				states.set(entry.request.guestIdentity, {
+					status: "approved",
+					requestId,
+					record,
+					capability: bound,
+					...(capabilityDigest === undefined ? {} : { capabilityDigest }),
+				});
 				persist();
 				return { ok: true, record, capability: bound, idempotent: false };
 			} catch {
@@ -251,7 +277,7 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			if (!authorized(approver)) return { ok: false, code: "unauthorized" };
 			for (const [identity, entry] of states) {
 				if (entry.status === "pending" && entry.request.requestId === requestId) {
-					states.set(identity, { status: "denied", request: entry.request });
+					states.set(identity, { status: "denied", request: entry.request, approver });
 					persist();
 					return { ok: true, changed: true };
 				}
@@ -332,13 +358,24 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 				}
 				try {
 					if (snapshot?.status === "revoked") states.set(record.guestIdentity, { status: "revoked", record });
-					else
+					else {
+						const rawDigest = (snapshot as { capabilityDigest?: unknown } | undefined)?.capabilityDigest;
+						let capabilityDigest: string | undefined;
+						if (rawDigest !== undefined) {
+							if (!isGuestRegistryCapabilityDigest(rawDigest)) {
+								rejected.push(record.guestIdentity);
+								continue;
+							}
+							capabilityDigest = rawDigest;
+						}
 						states.set(record.guestIdentity, {
 							status: "approved",
 							requestId: "restored",
 							record,
 							capability: bindGuestApprovalCapability(createCapability()),
+							...(capabilityDigest === undefined ? {} : { capabilityDigest }),
 						});
+					}
 					restored.push(record.guestIdentity);
 				} catch {
 					rejected.push(record.guestIdentity);
