@@ -1,7 +1,7 @@
 ---
 id: TASK-0158
 title: Rewrite parseCrewManifest as schema-driven validation pipeline
-status: doing
+status: done
 depends_on: []
 priority: normal
 tags: [refactor, manifest, validation]
@@ -36,10 +36,10 @@ where tests assert them.
 
 ## Acceptance criteria
 
-- [ ] parseCrewManifest CC < 15; no function in the file above 15.
-- [ ] Manifest schema is a single declarative artifact, not scattered ifs.
-- [ ] Existing accepted/rejected manifest tests pass unmodified.
-- [ ] Domain purity preserved (typebox only).
+- [x] parseCrewManifest CC < 15; no function in the file above 15.
+- [x] Manifest schema is a single declarative artifact, not scattered ifs.
+- [x] Existing accepted/rejected manifest tests pass unmodified.
+- [x] Domain purity preserved (typebox only).
 
 ## Non-goals
 
@@ -48,12 +48,12 @@ No manifest format change, no version bump, no store/IO changes.
 ## Context
 (Optional: approach, links, related tasks.)
 
-## Acceptance criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-
 ## Notes
 
 - 2026-09-04: Coordinator remains sole implementation owner under Mary's
   authorization for the TASK-0155 onward sequence.
+- 2026-09-04: Implemented in `4f159d8`; typed schema/error ranking and
+  characterization fixes in `5b9cc45`, `b761e66`, `6786357`, `51a1f99`,
+  `a46de6e`, and `cc52605`. Watcher generation 780 passed the fresh
+  `@agent-final` gate; Mary independently approved exact-head closure.
 
