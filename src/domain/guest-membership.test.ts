@@ -10,6 +10,7 @@ import {
 	isGuestNameAvailable,
 	isGuestOrigin,
 	bindingMatchesRecord,
+	bindingMatchesCapability,
 	removeGuestMembership,
 	replaceGuestMembership,
 	selectCrewBySelector,
@@ -70,17 +71,11 @@ describe("Guest membership contract", () => {
 		const replaced = { ...alpha, guestName: "Renamed" };
 		assert.deepEqual(replaceGuestMembership([alpha, beta], replaced), [replaced, beta]);
 		assert.deepEqual(removeGuestMembership([alpha, beta], "alpha"), [beta]);
-		assert.equal(
-			bindingMatchesRecord({ ...alpha, capability: bindGuestApprovalCapability("runtime") }, alpha),
-			true,
-		);
-		assert.equal(
-			bindingMatchesRecord(
-				{ ...alpha, callbackEndpoint: "other.sock", capability: bindGuestApprovalCapability("runtime") },
-				alpha,
-			),
-			false,
-		);
+		const capability = bindGuestApprovalCapability("runtime");
+		assert.equal(bindingMatchesRecord({ ...alpha, capability }, alpha), true);
+		assert.equal(bindingMatchesCapability({ ...alpha, capability }, capability), true);
+		assert.equal(bindingMatchesCapability({ ...alpha, capability }, bindGuestApprovalCapability("other")), false);
+		assert.equal(bindingMatchesRecord({ ...alpha, callbackEndpoint: "other.sock", capability }, alpha), false);
 	});
 
 	test("validates the persistable binding while keeping approval capability runtime-only", () => {
