@@ -1,7 +1,7 @@
 ---
 id: TASK-0154
 title: Decompose handleCommand into per-command handlers
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [refactor, control-runtime, rpc, dispatch]
