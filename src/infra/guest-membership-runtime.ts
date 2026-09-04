@@ -58,9 +58,7 @@ export interface GuestMembershipRuntime {
 	approve(approval: GuestApproval, capability?: string): Promise<GuestApprovalResult>;
 	leave(crewId: string): Promise<GuestLeaveResult>;
 	/** Runtime-only send credentials for an approved crew; never model-visible. */
-	credentials(
-		crewId: string,
-	): {
+	credentials(crewId: string): {
 		readonly guestIdentity: string;
 		readonly guestName: string;
 		readonly callbackEndpoint: string;

@@ -231,13 +231,11 @@ describe("fresh Guest send authorization (TASK-0162)", () => {
 					version: 1,
 					crew,
 					revision: reads,
-					entries: options
-						.entries()
-						.map((entry, index) => ({
-							...entry,
-							order: entry.order ?? index + 1,
-							revision: entry.revision ?? reads,
-						})),
+					entries: options.entries().map((entry, index) => ({
+						...entry,
+						order: entry.order ?? index + 1,
+						revision: entry.revision ?? reads,
+					})),
 				};
 			},
 		});
