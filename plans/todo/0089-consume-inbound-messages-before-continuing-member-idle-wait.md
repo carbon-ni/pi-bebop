@@ -80,17 +80,31 @@ their existing behavior.
 
 ## Acceptance criteria
 
-- [ ] A red test reproduces the bug through Pi's real tool/agent continuation loop, not a mocked `sendMessage` assertion.
-- [ ] Accepted Follow-up resolves the wait once, cancels the remote subscription, and returns `message-received` with `terminate: true`.
-- [ ] The next model continuation contains the exact waking message; no intermediate provider call sees only the wait result.
-- [ ] The waking message is consumed exactly once and retains its original payload, instructions, origin, and FIFO position.
-- [ ] Redirect still preserves steer semantics and is consumed at its documented turn boundary.
-- [ ] A second accepted message remains ordered behind the first and is not dropped by termination cleanup.
-- [ ] Same-boundary message/idle arbitration and all listener, timer, signal, and socket cleanup behavior remain unchanged.
-- [ ] Already-idle, became-idle, offline, timeout, abort, and error paths do not gain accidental terminating behavior.
-- [ ] Solitary/sequential invocation and Pi's all-results termination constraint are covered by tests and public tool guidance; unresolved mixed-batch behavior blocks completion.
-- [ ] `docs/MEMBER-IDLE-WAIT.md` and README describe immediate consumption without claiming task completion or response correlation.
-- [ ] Focused tests, Bebop final gate, and unchanged-worktree freshness proof pass.
+- [x] A red test reproduces the bug through Pi's real tool/agent continuation loop, not a mocked `sendMessage` assertion. (RED validated 28-08: with `terminate` disabled, `member-idle-continuation.integration.test.ts` tests 1 and 3 fail with a content-free continuation; re-enabled they pass. Fake provider + real registered tool + real `handleCommand` send path + real Pi queue.)
+- [x] Accepted Follow-up resolves the wait once, cancels the remote subscription, and returns `message-received` with `terminate: true`. (Host test 1 + existing TASK-0081 suites.)
+- [x] The next model continuation contains the exact waking message; no intermediate provider call sees only the wait result. (Host test 1: exactly 2 provider calls; context 2 = [user, assistant toolCall, toolResult, waking message].)
+- [x] The waking message is consumed exactly once and retains its original payload, instructions, origin, and FIFO position. (Host tests 1 and 3; rendered model content keeps follow-up header and exact payload; FIFO across drain turns.)
+- [x] Redirect still preserves steer semantics and is consumed at its documented turn boundary. (Host test 2; characterized: steer is delivered before the next LLM call regardless of termination — Pi steer semantics, no dependency on `terminate`.)
+- [x] A second accepted message remains ordered behind the first and is not dropped by termination cleanup. (Host test 3: msg1 drives turn 2, msg2 drives turn 3 — Pi drains one queued Follow-up per turn; neither dropped.)
+- [x] Same-boundary message/idle arbitration and all listener, timer, signal, and socket cleanup behavior remain unchanged. (No production code changed; existing TASK-0080/0081 suites green.)
+- [x] Already-idle, became-idle, offline, timeout, abort, and error paths do not gain accidental terminating behavior. (`wait-for-member-idle.test.ts` asserts `terminate` falsy for offline/became-idle; mapping `terminate: outcome === "message-received"` unchanged.)
+- [x] Solitary/sequential invocation and Pi's all-results termination constraint are covered by tests and public tool guidance. Mixed-batch behavior is characterized below, but remains an upstream limitation.
+- [x] `docs/MEMBER-IDLE-WAIT.md` and README describe immediate consumption without claiming task completion or response correlation. (The standalone doc file was removed by `538d2a9`; the contract lives in README "consumed immediately in the next model continuation" and the tool description "Call this coordination wait alone/sequentially, never in a parallel tool batch".)
+- [ ] Focused tests, Bebop final gate, and unchanged-worktree freshness proof pass. (The new Pi-host suite passes 4/4 locally; final gate and exact-head freshness remain lead-owned after this characterization commit.)
+
+## Upstream Pi API blocker (28-08, characterized mechanically)
+
+`member-idle-continuation.integration.test.ts` test 4 pins the rule: Pi
+skips the tool-result continuation only when EVERY result in the batch
+terminates. One `terminate: true` wait result plus a non-terminating sibling
+(`bebop_noop`) still produces an ordinary content-free continuation (context
+with tool results only), and the waking message is consumed one turn later.
+Nothing is dropped, but immediate consumption is NOT guaranteed for mixed
+batches. Per this plan's rule this is recorded as an upstream Pi API
+constraint: Bebop cannot close it from the tool side without weakening the
+guarantee. The public tool guidance already mandates a solitary/sequential
+call; the task therefore stays `doing` (open) until Pi offers per-result
+batch termination semantics or the crew accepts the constraint as final.
 
 ## Out of scope
 
