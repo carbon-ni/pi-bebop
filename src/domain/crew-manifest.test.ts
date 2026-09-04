@@ -63,6 +63,34 @@ describe("crew manifest", () => {
 		}
 	});
 
+	test("schema diagnostics preserve guest approver and intake field errors", () => {
+		const members = [{ name: "lead", role: "lead", socket: "sockets/lead.sock" }];
+		for (const approvers of [[""], [3]]) {
+			assert.throws(
+				() =>
+					parseCrewManifest({
+						version: 2,
+						members,
+						crew: { id: "crew", displayName: "Crew" },
+						guestAdmission: { approvers },
+					}),
+				(error: unknown) =>
+					error instanceof CrewManifestError &&
+					error.code === "invalid-guest-approver" &&
+					error.message === "guestAdmission.approvers must contain exact trimmed member names",
+			);
+		}
+		for (const contact of ["", 3]) {
+			assert.throws(
+				() => parseCrewManifest({ version: 1, members, intake: { contact } }),
+				(error: unknown) =>
+					error instanceof CrewManifestError &&
+					error.code === "invalid-intake-config" &&
+					error.message === "intake.contact must be a non-empty trimmed member name",
+			);
+		}
+	});
+
 	test("rejects invalid versions, member values, roles, instructions, and sockets", () => {
 		const cases: unknown[] = [
 			{ version: 2, members: [] },

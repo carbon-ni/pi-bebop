@@ -182,12 +182,16 @@ function throwMemberSchemaFailure(pointer: string): never {
 function throwTopLevelSchemaFailure(pointer: string): never {
 	if (pointer.startsWith("/presence"))
 		throw new CrewManifestError("invalid-manifest", "presence must contain only boolean notifications");
+	if (pointer.startsWith("/intake/contact"))
+		invalid("intake.contact must be a non-empty trimmed member name", "invalid-intake-config");
 	if (pointer.startsWith("/intake")) invalid("intake must contain only the contact field", "invalid-intake-config");
 	if (pointer.startsWith("/crew/id"))
 		invalid("crew.id must be a non-empty trimmed string without NUL", "invalid-crew-identity");
 	if (pointer.startsWith("/crew/displayName"))
 		invalid("crew.displayName must be a non-empty trimmed string without NUL", "invalid-crew-display-name");
 	if (pointer.startsWith("/crew")) invalid("crew must be an object", "invalid-crew-config");
+	if (/^\/guestAdmission\/approvers\/\d+/.test(pointer))
+		invalid("guestAdmission.approvers must contain exact trimmed member names", "invalid-guest-approver");
 	if (pointer.startsWith("/guestAdmission/approvers"))
 		invalid("guestAdmission.approvers must be a non-empty array", "invalid-guest-approvers");
 	if (pointer.startsWith("/guestAdmission")) invalid("guestAdmission must be an object", "invalid-guest-admission");
