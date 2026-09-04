@@ -41,15 +41,23 @@ describe("crew manifest", () => {
 	test("schema rejects malformed structural shapes before normalization", () => {
 		const cases: Array<{ input: unknown; code: string }> = [
 			{ input: { version: 1, members: "not-an-array" }, code: "invalid-members" },
-			{ input: { version: 1, members: [{ name: 3, role: "dev", socket: "dev.sock" }] }, code: "invalid-member" },
 			{
-				input: { version: 1, members: [{ name: "dev", role: "dev", socket: "dev.sock" }], presence: {} },
+				input: { version: 1, members: [{ name: 3, role: "dev", socket: "sockets/dev.sock" }] },
+				code: "invalid-member",
+			},
+			{
+				input: {
+					version: 1,
+					members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+					presence: {},
+				},
 				code: "invalid-manifest",
 			},
 			{
 				input: {
 					version: 2,
-					members: [{ name: "dev", role: "dev", socket: "dev.sock" }],
+					members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+					crew: { id: "crew", displayName: "Crew" },
 					guestAdmission: { approvers: "dev" },
 				},
 				code: "invalid-guest-approvers",
@@ -115,6 +123,40 @@ describe("crew manifest", () => {
 				error.code === "invalid-guest-admission" &&
 				error.message === "guestAdmission must contain only the approvers field",
 		);
+		const precedenceCases: Array<{ input: unknown; code: string; message: string }> = [
+			{
+				input: { version: 99, members, crew: { extra: true } },
+				code: "invalid-version",
+				message: "unsupported manifest version: 99",
+			},
+			{
+				input: { version: 2, commonInstructionsFile: "", members: [], crew: { extra: true } },
+				code: "invalid-common-instructions-file",
+				message: "commonInstructionsFile must be a non-empty relative path",
+			},
+			{
+				input: { version: 2, members: [], crew: { extra: true } },
+				code: "invalid-members",
+				message: "members must be a non-empty array",
+			},
+			{
+				input: {
+					version: 2,
+					members: [],
+					crew: { id: "crew", displayName: "Crew" },
+					guestAdmission: { extra: true },
+				},
+				code: "invalid-members",
+				message: "members must be a non-empty array",
+			},
+		];
+		for (const { input, code, message } of precedenceCases) {
+			assert.throws(
+				() => parseCrewManifest(input),
+				(error: unknown) =>
+					error instanceof CrewManifestError && error.code === code && error.message === message,
+			);
+		}
 	});
 
 	test("rejects invalid versions, member values, roles, instructions, and sockets", () => {
