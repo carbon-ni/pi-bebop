@@ -203,24 +203,48 @@ function throwTopLevelSchemaFailure(pointer: string): never {
 	invalid("manifest must be an object");
 }
 
-function schemaErrorRank(pointer: string): [number, number] {
-	if (pointer.startsWith("/version")) return [0, 0];
-	if (pointer.startsWith("/commonInstructionsFile")) return [1, 0];
-	if (pointer.startsWith("/presence")) return [2, 0];
-	if (pointer.startsWith("/members")) return [3, 0];
-	if (pointer.startsWith("/crew/")) return [4, pointer === "/crew/id" || pointer === "/crew/displayName" ? 1 : 0];
-	if (pointer.startsWith("/crew")) return [4, 0];
-	if (pointer.startsWith("/guestAdmission/")) return [5, pointer.startsWith("/guestAdmission/approvers") ? 1 : 0];
+const SCHEMA_ERROR_GROUPS = [
+	"/version",
+	"/commonInstructionsFile",
+	"/presence",
+	"/members",
+	"/crew",
+	"/guestAdmission",
+	"/intake",
+] as const;
 
-	if (pointer.startsWith("/guestAdmission")) return [5, 0];
-	if (pointer.startsWith("/intake/")) return [6, pointer === "/intake/contact" ? 1 : 0];
-	if (pointer.startsWith("/intake")) return [6, 0];
-	return [7, 0];
+function schemaErrorRank(pointer: string): [number, number] {
+	const group = SCHEMA_ERROR_GROUPS.findIndex((prefix) => pointer.startsWith(prefix));
+	if (group === 4) return [group, pointer === "/crew/id" || pointer === "/crew/displayName" ? 1 : 0];
+	if (group === 5) return [group, pointer.startsWith("/guestAdmission/approvers") ? 1 : 0];
+	if (group === 6) return [group, pointer === "/intake/contact" ? 1 : 0];
+	return [group === -1 ? SCHEMA_ERROR_GROUPS.length : group, 0];
+}
+
+function hasSchemaError(errors: readonly { path: string }[], prefix: string): boolean {
+	return errors.some((error) => error.path.startsWith(prefix));
+}
+
+function throwLegacyCrossFieldFailure(input: Record<string, unknown>, errors: readonly { path: string }[]): void {
+	if (hasSchemaError(errors, "/version") || hasSchemaError(errors, "/commonInstructionsFile")) return;
+	if (hasSchemaError(errors, "/presence") || hasSchemaError(errors, "/members")) return;
+	if (Array.isArray(input.members)) {
+		const names = input.members
+			.filter(isRecord)
+			.map((member) => member.name)
+			.filter((name): name is string => typeof name === "string");
+		if (names.length === input.members.length && new Set(names).size !== names.length)
+			throw new CrewManifestError("duplicate-member-name", `duplicate member name: ${names[0]}`);
+	}
+	if (input.guestAdmission !== undefined && input.crew === undefined)
+		invalid("guestAdmission requires crew identity metadata", "invalid-guest-admission");
 }
 
 function throwSchemaFailure(input: Record<string, unknown>): never {
+	const errors = [...Value.Errors(CrewManifestSchema, input)];
+	throwLegacyCrossFieldFailure(input, errors);
 	const pointer =
-		[...Value.Errors(CrewManifestSchema, input)].sort((left, right) => {
+		errors.sort((left, right) => {
 			const [leftGroup, leftNested] = schemaErrorRank(left.path);
 			const [rightGroup, rightNested] = schemaErrorRank(right.path);
 			return leftGroup - rightGroup || leftNested - rightNested || left.path.localeCompare(right.path);

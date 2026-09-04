@@ -170,6 +170,23 @@ describe("crew manifest", () => {
 				message: "guestAdmission must contain only the approvers field",
 			},
 			{
+				input: {
+					version: 2,
+					members: [
+						{ ...members[0], name: "lead" },
+						{ ...members[0], name: "lead" },
+					],
+					crew: { extra: true },
+				},
+				code: "duplicate-member-name",
+				message: "duplicate member name: lead",
+			},
+			{
+				input: { version: 2, members, guestAdmission: { approvers: [3], extra: true } },
+				code: "invalid-guest-admission",
+				message: "guestAdmission requires crew identity metadata",
+			},
+			{
 				input: { version: 1, members, intake: { contact: 3, extra: true } },
 				code: "invalid-intake-config",
 				message: "intake must contain only the contact field",
