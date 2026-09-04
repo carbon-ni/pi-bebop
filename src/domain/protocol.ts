@@ -472,6 +472,38 @@ export const GuestLeaveParamsSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+
+const GuestSendBoundedText = (maxLength: number) =>
+	Type.String({ minLength: 1, maxLength, pattern: "^[^\\u0000\\r\\n]+$" });
+
+export const GuestSendParamsSchema = Type.Object(
+	{
+		crewId: GuestSendBoundedText(256),
+		guestIdentity: GuestSendBoundedText(256),
+		callbackEndpoint: GuestSendBoundedText(512),
+		capability: GuestSendBoundedText(256),
+		target: GuestSendBoundedText(256),
+		content: Type.String({ minLength: 1, maxLength: 1_000_000 }),
+		instructions: Type.Optional(Type.Array(GuestSendBoundedText(100_000), { maxItems: 32 })),
+	},
+	{ additionalProperties: false },
+);
+export const GuestSendResultSchema = Type.Object(
+	{
+		deliveryId: Type.String({ minLength: 1 }),
+		disposition: Type.Union([Type.Literal("direct"), Type.Literal("queued"), Type.Literal("steered")]),
+		fromGuestName: Type.String({ minLength: 1 }),
+	},
+	{ additionalProperties: false },
+);
+export const GuestSendCommandSchema = Type.Object(
+	{
+		type: Type.Literal("guest_send"),
+		...GuestSendParamsSchema.properties,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
 export const GuestLeaveRequestSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSON_RPC_VERSION),
@@ -683,6 +715,7 @@ export const RpcMethodResultSchema = Type.Union([
 	MemberInboxSendResultSchema,
 	CrewBroadcastResultSchema,
 	GuestJoinResultSchema,
+	GuestSendResultSchema,
 	MemberIdleWaitSubscribeResultSchema,
 	EmptyResultSchema,
 ]);
@@ -750,6 +783,9 @@ export type CrewBroadcastParams = Static<typeof CrewBroadcastParamsSchema>;
 export type GuestJoinParams = Static<typeof GuestJoinParamsSchema>;
 export type GuestJoinResult = Static<typeof GuestJoinResultSchema>;
 export type GuestJoinCommand = Static<typeof GuestJoinCommandSchema>;
+export type GuestSendCommand = Static<typeof GuestSendCommandSchema>;
+export type GuestSendParams = Static<typeof GuestSendParamsSchema>;
+export type GuestSendResult = Static<typeof GuestSendResultSchema>;
 export type GuestLeaveParams = Static<typeof GuestLeaveParamsSchema>;
 export type GuestLeaveCommand = Static<typeof GuestLeaveCommandSchema>;
 export type MemberFollowUpCommand = Static<typeof MemberFollowUpCommandSchema>;
@@ -819,6 +855,7 @@ export type RpcCommand =
 	| Static<typeof CrewBroadcastCommandSchema>
 	| Static<typeof GuestJoinCommandSchema>
 	| Static<typeof GuestLeaveCommandSchema>
+	| Static<typeof GuestSendCommandSchema>
 	| Static<typeof MemberIdleWaitCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
@@ -841,6 +878,7 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof CrewBroadcastCommandSchema>>
 	| RequiredId<Static<typeof GuestJoinCommandSchema>>
 	| RequiredId<Static<typeof GuestLeaveCommandSchema>>
+	| RequiredId<Static<typeof GuestSendCommandSchema>>
 	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
@@ -1219,6 +1257,27 @@ export const COMMAND_REGISTRY: Record<RpcCommand["type"], CommandDefinition> = {
 		fromParams: (params, id) => {
 			if (!Value.Check(GuestJoinParamsSchema, params)) return invalidCommandParams("Invalid guest.join params");
 			return { type: "guest_join", ...(params as GuestJoinParams), id };
+		},
+	},
+	guest_send: {
+		method: "guest.send",
+		requestSchema: GuestSendCommandSchema,
+		resultSchema: GuestSendResultSchema,
+		toParams: (command) => {
+			const send = command as GuestSendCommand;
+			return {
+				crewId: send.crewId,
+				guestIdentity: send.guestIdentity,
+				callbackEndpoint: send.callbackEndpoint,
+				capability: send.capability,
+				target: send.target,
+				content: send.content,
+				...(send.instructions === undefined ? {} : { instructions: send.instructions }),
+			};
+		},
+		fromParams: (params, id) => {
+			if (!Value.Check(GuestSendParamsSchema, params)) return invalidCommandParams("Invalid guest.send params");
+			return { type: "guest_send", ...(params as GuestSendParams), id };
 		},
 	},
 	guest_leave: {

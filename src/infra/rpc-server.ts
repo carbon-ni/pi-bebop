@@ -74,6 +74,8 @@ function methodForCommand(command: string): string | undefined {
 			return "guest.join";
 		case "guest_leave":
 			return "guest.leave";
+		case "guest_send":
+			return "guest.send";
 		case "member_idle_wait":
 			return "member.idle_wait";
 		case "get_message":

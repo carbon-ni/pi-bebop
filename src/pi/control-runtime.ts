@@ -438,6 +438,66 @@ export async function handleGuestJoin(
 	respond(true, command.type, { status: result.status, requestId: result.requestId, crew: result.crew });
 }
 
+export async function handleGuestSend(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "guest_send" }>,
+): Promise<void> {
+	const { state, respond, pi, ctx, id } = context;
+	const membership = state.membershipRuntime?.getMembership();
+	const admission = state.guestAdmissionRuntime;
+	if (!membership || !admission) {
+		respond(false, command.type, undefined, !membership ? "not-joined" : "guest-disabled");
+		return;
+	}
+	if (state.context?.isProjectTrusted?.() !== true) {
+		respond(false, command.type, undefined, "untrusted-project");
+		return;
+	}
+	// Authorization (fresh registry read) always precedes target resolution or
+	// payload delivery; the origin is rebuilt from the crew-owned registry.
+	const authorization = admission.authorizeSend({
+		crewId: command.crewId,
+		guestIdentity: command.guestIdentity,
+		callbackEndpoint: command.callbackEndpoint,
+		capability: command.capability,
+	});
+	if (!authorization.ok) {
+		respond(false, command.type, undefined, "code" in authorization ? authorization.code : "authorization-failed");
+		return;
+	}
+	const deliveredAt = state.now?.();
+	const payload = {
+		content: command.content,
+		...(command.instructions === undefined ? {} : { instructions: [...command.instructions] }),
+		origin: { kind: "guest" as const, identity: command.guestIdentity, name: authorization.guestName },
+		kind: "follow-up" as const,
+		...(deliveredAt === undefined ? {} : { sentAt: deliveredAt }),
+	};
+	if (!isMessagePayload(payload)) {
+		respond(false, command.type, undefined, "invalid-payload");
+		return;
+	}
+	const message = renderFollowUpModelContent(payload, deliveredAt);
+	const customMessage = {
+		customType: SESSION_MESSAGE_TYPE,
+		content: message,
+		details: { messagePayload: payload, ...(deliveredAt === undefined ? {} : { deliveredAt }) },
+		display: true,
+	};
+	const isIdle = ctx.isIdle() && !contextIsCompacting(ctx);
+	notifyAcceptedMessage(state, `delivery-${id}`);
+	pi.sendMessage(customMessage, {
+		triggerTurn: true,
+		deliverAs: isIdle ? undefined : "followUp",
+	});
+	const disposition = isIdle ? "direct" : "queued";
+	respond(true, "guest_send", {
+		deliveryId: `delivery-${id}`,
+		disposition,
+		fromGuestName: authorization.guestName,
+	});
+}
+
 export async function handleGuestLeave(
 	context: CommandHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "guest_leave" }>,
@@ -969,6 +1029,7 @@ const COMMAND_HANDLERS: CommandHandlers = {
 	member_response: handleMemberResponse,
 	guest_join: handleGuestJoin,
 	guest_leave: handleGuestLeave,
+	guest_send: handleGuestSend,
 	presence_hint: handlePresenceHint,
 	member_status: handleMemberStatus,
 	member_status_target: handleMemberStatusTarget,
