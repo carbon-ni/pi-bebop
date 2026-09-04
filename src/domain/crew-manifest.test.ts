@@ -66,7 +66,8 @@ describe("crew manifest", () => {
 		const result = parseCrewManifest(
 			{
 				version: 2,
-				crew: { identity: "crew-alpha", displayName: "Alpha Crew", guestApprovers: ["lead"] },
+				crew: { id: "crew-alpha", displayName: "Alpha Crew" },
+				guestAdmission: { approvers: ["lead"] },
 				members: [
 					{ name: "lead", role: "lead", socket: "sockets/lead.sock" },
 					{ name: "dev", role: "developer", socket: "sockets/dev.sock" },
@@ -74,27 +75,36 @@ describe("crew manifest", () => {
 			},
 			"/repo/.pi/bebop/crew.json",
 		);
-		assert.deepEqual(result.crew, {
-			identity: "crew-alpha",
-			displayName: "Alpha Crew",
-			guestApprovers: ["lead"],
-		});
+		assert.deepEqual(result.crew, { id: "crew-alpha", displayName: "Alpha Crew" });
+		assert.deepEqual(result.guestAdmission, { approvers: ["lead"] });
+		assert.deepEqual(
+			parseCrewManifest({
+				version: 1,
+				crew: { id: "crew-alpha", displayName: "Alpha Crew" },
+				guestAdmission: { approvers: ["dev", "lead"] },
+				members: [
+					{ name: "lead", role: "lead", socket: "sockets/lead.sock" },
+					{ name: "dev", role: "developer", socket: "sockets/dev.sock" },
+				],
+			}).guestAdmission,
+			{ approvers: ["lead", "dev"] },
+		);
 		assert.deepEqual(
 			parseCrewManifest({
 				version: 2,
-				crew: { identity: "legacy", displayName: "Legacy Crew" },
+				crew: { id: "legacy", displayName: "Legacy Crew" },
 				members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
-			}).crew?.guestApprovers,
+			}).guestAdmission,
 			undefined,
 		);
-		assert.throws(
-			() =>
-				parseCrewManifest({
-					version: 1,
-					crew: { identity: "legacy", displayName: "Legacy Crew" },
-					members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
-				}),
-			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-version",
+		assert.deepEqual(
+			parseCrewManifest({
+				version: 1,
+				crew: { id: "legacy", displayName: "Legacy Crew" },
+				guestAdmission: { approvers: ["dev"] },
+				members: [{ name: "dev", role: "dev", socket: "sockets/dev.sock" }],
+			}).guestAdmission,
+			{ approvers: ["dev"] },
 		);
 	});
 
@@ -103,25 +113,24 @@ describe("crew manifest", () => {
 			version: 2,
 			members: [{ name: "lead", role: "lead", socket: "sockets/lead.sock" }],
 		};
-		for (const crew of [
-			{ identity: "", displayName: "Crew" },
-			{ identity: "crew", displayName: "" },
-			{ identity: "crew", displayName: "Crew", guestApprovers: "lead" },
-			{ identity: "crew", displayName: "Crew", guestApprovers: ["missing"] },
-			{ identity: "crew", displayName: "Crew", guestApprovers: ["lead", "lead"] },
+		for (const value of [
+			{ ...base, crew: { id: "", displayName: "Crew" } },
+			{ ...base, crew: { id: "crew", displayName: "" } },
+			{ ...base, crew: { id: "crew", displayName: "Crew", extra: true } },
+			{ ...base, guestAdmission: { approvers: [] } },
+			{ ...base, guestAdmission: { approvers: "lead" } },
+			{ ...base, guestAdmission: { approvers: ["missing"] } },
+			{ ...base, guestAdmission: { approvers: ["lead", "lead"] } },
+			{ ...base, guestAdmission: { approvers: ["lead"] } },
 		]) {
 			assert.throws(
-				() => parseCrewManifest({ ...base, crew }),
+				() => parseCrewManifest(value),
 				(error: unknown) => error instanceof CrewManifestError,
 			);
 		}
 		assert.throws(
-			() =>
-				parseCrewManifest({
-					...base,
-					crew: { identity: "crew", displayName: "Crew", guestApprovers: ["lead"], extra: true },
-				}),
-			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-crew-config",
+			() => parseCrewManifest({ ...base, guestAdmission: { approvers: ["lead"] } }),
+			(error: unknown) => error instanceof CrewManifestError && error.code === "invalid-guest-admission",
 		);
 	});
 
