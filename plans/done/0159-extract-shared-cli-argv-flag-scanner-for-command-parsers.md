@@ -1,7 +1,7 @@
 ---
 id: TASK-0159
 title: Extract shared CLI argv flag scanner for command parsers
-status: doing
+status: done
 depends_on: []
 priority: normal
 tags: [refactor, cli, parsers]
@@ -66,10 +66,9 @@ protocol.
   repeatables. Commander and semantic validators remain command-owned to avoid
   changing established error/help compatibility text.
 - 2026-09-04: Implemented in `96b07a5`; scanner edge coverage in `93f0167`,
-  and compatibility scope clarified in `e43160c`. Watcher generation 810
-  passed the fresh `@agent-final` gate. Two subsequent exact-head
-  `npm run verify:cli` runs passed (90.03% branches and package verification);
-  one concurrent coverage run measured 89.98% due existing rpc-server coverage
-  attribution variance. Mary independently reviewed exact-head behavior and
-  approved the narrowed scope pending deterministic-gate evidence.
+  deterministic coverage margin and serial gate in `55f0499`, and scope
+  evidence in `e43160c`. Watcher generation 824 passed the fresh
+  `@agent-final` gate. Three sequential exact-head `npm run verify:cli` runs
+  passed at 90.10%, 90.15%, and 90.10% branches, with CLI complexity and
+  package verification green. Mary independently approved exact-head closure.
 
