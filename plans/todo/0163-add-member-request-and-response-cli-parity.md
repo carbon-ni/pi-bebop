@@ -1,7 +1,7 @@
 ---
 id: TASK-0163
 title: Add Member Request and Response CLI parity
-status: todo
+status: doing
 depends_on: [TASK-0154]
 priority: high
 tags: [cli, member-request, response, correlation, rpc, automation, axi, tdd]
