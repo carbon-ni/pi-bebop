@@ -56,6 +56,10 @@ export type GuestAdmissionMutationResult =
 	| { readonly ok: true; readonly changed: boolean }
 	| { readonly ok: false; readonly code: "unauthorized" | "not-found" | "mutation-failed" };
 
+export type GuestAdmissionPersistedRecord =
+	| { readonly status: "approved"; readonly record: GuestMembershipRecord }
+	| { readonly status: "revoked"; readonly record: GuestMembershipRecord };
+
 export interface GuestAdmissionRuntime {
 	receive(request: GuestJoinRequest): GuestAdmissionJoinResult;
 	approve(requestId: string, approver: string, capability?: string): GuestAdmissionApprovalResult;
@@ -74,7 +78,7 @@ export interface GuestAdmissionRuntimeDependencies {
 	readonly memberName: string;
 	readonly createRequestId: () => string;
 	readonly createCapability?: () => string;
-	readonly persist?: (records: readonly GuestMembershipRecord[]) => void;
+	readonly persist?: (records: readonly GuestAdmissionPersistedRecord[]) => void;
 }
 
 interface PendingEntry {
@@ -109,8 +113,11 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 	const persist = () => {
 		deps.persist?.(
 			[...states.values()]
-				.filter((entry): entry is ApprovedEntry => entry.status === "approved")
-				.map((entry) => entry.record),
+				.filter(
+					(entry): entry is ApprovedEntry | RevokedEntry =>
+						entry.status === "approved" || entry.status === "revoked",
+				)
+				.map((entry) => ({ status: entry.status, record: entry.record })),
 		);
 	};
 	const list = (): readonly GuestAdmissionView[] =>
@@ -254,11 +261,19 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			const restored: string[] = [];
 			const rejected: string[] = [];
 			for (const candidate of records) {
-				if (!candidate || typeof candidate !== "object" || !("guestIdentity" in candidate)) {
+				const snapshot =
+					candidate && typeof candidate === "object" && "record" in candidate
+						? (candidate as { status?: string; record?: unknown })
+						: undefined;
+				if (
+					!candidate ||
+					typeof candidate !== "object" ||
+					(!("guestIdentity" in candidate) && !snapshot?.record)
+				) {
 					rejected.push("unknown");
 					continue;
 				}
-				const record = candidate as GuestMembershipRecord;
+				const record = (snapshot?.record ?? candidate) as GuestMembershipRecord;
 				if (
 					!selector ||
 					!isGuestMembershipRecord(record) ||
@@ -270,12 +285,14 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 					continue;
 				}
 				try {
-					states.set(record.guestIdentity, {
-						status: "approved",
-						requestId: "restored",
-						record,
-						capability: bindGuestApprovalCapability(createCapability()),
-					});
+					if (snapshot?.status === "revoked") states.set(record.guestIdentity, { status: "revoked", record });
+					else
+						states.set(record.guestIdentity, {
+							status: "approved",
+							requestId: "restored",
+							record,
+							capability: bindGuestApprovalCapability(createCapability()),
+						});
 					restored.push(record.guestIdentity);
 				} catch {
 					rejected.push(record.guestIdentity);

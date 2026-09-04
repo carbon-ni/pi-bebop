@@ -52,6 +52,7 @@ import {
 	MEMBERSHIP_ENTRY_TYPE,
 	GUEST_MEMBERSHIP_ENTRY_TYPE,
 	getLatestGuestMembershipRecords,
+	getLatestGuestAdmissionRecords,
 	guestMembershipStateFromRuntime,
 	membershipStateFromRuntime,
 } from "./pi/membership-context.ts";
@@ -129,8 +130,7 @@ export default function (pi: ExtensionAPI) {
 					manifest: membership.manifest,
 					memberName: membership.member.name,
 					createRequestId: () => `guest-request-${++guestRequestIndex}`,
-					persist: (approved) =>
-						pi.appendEntry(GUEST_MEMBERSHIP_ENTRY_TYPE, guestMembershipStateFromRuntime(approved)),
+					persist: (approved) => pi.appendEntry(GUEST_MEMBERSHIP_ENTRY_TYPE, approved),
 				})
 			: undefined;
 		state.guestAdmissionRuntime?.restore(records);
@@ -373,6 +373,7 @@ export default function (pi: ExtensionAPI) {
 		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
 		const persisted = getLatestMembershipState(branch);
 		const persistedGuests = getLatestGuestMembershipRecords(branch);
+		const persistedGuestAdmissions = getLatestGuestAdmissionRecords(branch);
 		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
 		if (guestRequested) {
 			if (persisted?.active === true) {
@@ -383,7 +384,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			await ensureControlServer(pi, state, ctx);
 			state.guestMembershipRuntime?.restore(persistedGuests);
-			refreshGuestAdmission(persistedGuests);
+			refreshGuestAdmission(persistedGuestAdmissions);
 			await maybeHandleStartupGuestJoins(ctx, pi, state.guestMembershipRuntime!, state.socketPath!);
 			reconcileMembershipTools(pi, false);
 			return;
@@ -433,6 +434,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		state.guestMembershipRuntime?.restore(persistedGuests);
+		refreshGuestAdmission(persistedGuestAdmissions);
 		await restorePersistedMembership({
 			runtime: state.membershipRuntime,
 			persisted,
