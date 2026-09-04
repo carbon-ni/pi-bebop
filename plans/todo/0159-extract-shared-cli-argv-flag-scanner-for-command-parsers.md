@@ -1,7 +1,7 @@
 ---
 id: TASK-0159
 title: Extract shared CLI argv flag scanner for command parsers
-status: todo
+status: doing
 depends_on: []
 priority: normal
 tags: [refactor, cli, parsers]
@@ -59,4 +59,7 @@ protocol.
 - [ ] Criterion 2
 
 ## Notes
+
+- 2026-09-04: Coordinator remains sole implementation owner under Mary's
+  authorization for the TASK-0155 onward sequence.
 
