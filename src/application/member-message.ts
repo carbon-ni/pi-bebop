@@ -56,6 +56,8 @@ export interface MemberMessageDependencies {
 	readonly coordinator: MemberMessageCoordinator;
 	/** Source-owned send instant; callers cannot provide message timestamps. */
 	readonly now?: () => number;
+	/** Fresh crew-registry reader for approved-Guest recipient sets; optional. */
+	readonly approvedGuests?: () => readonly { guestName: string; guestIdentity: string; callbackEndpoint: string }[];
 }
 export interface MemberMessageOutcome {
 	readonly target: MessageTarget;

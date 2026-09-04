@@ -42,6 +42,7 @@ export function registerBroadcastToCrewTool(
 						message: params.message,
 						instructions: params.instructions,
 						signal,
+						approvedGuests: dependencies.approvedGuests?.(),
 					},
 					dependencies,
 				);

@@ -134,6 +134,7 @@ export default function (pi: ExtensionAPI) {
 		if (!membership) {
 			state.guestAdmissionRuntime = undefined;
 			activeGuestRegistry = null;
+			state.approvedGuestsResolver = undefined;
 			return;
 		}
 		try {
@@ -142,6 +143,15 @@ export default function (pi: ExtensionAPI) {
 				crew: membership.manifest.crew ?? { id: "unknown", displayName: "unknown" },
 			});
 			activeGuestRegistry = registry;
+			state.approvedGuestsResolver = () =>
+				registry
+					.load()
+					.entries.filter((entry) => entry.status === "approved")
+					.map((entry) => ({
+						guestName: entry.guestName,
+						guestIdentity: entry.guestIdentity,
+						callbackEndpoint: entry.callbackEndpoint,
+					}));
 			state.guestAdmissionRuntime = createGuestAdmissionRuntime({
 				manifest: membership.manifest,
 				memberName: membership.member.name,

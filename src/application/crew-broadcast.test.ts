@@ -123,3 +123,76 @@ describe("submitCrewBroadcast", () => {
 		assert.equal(calls.length, 0);
 	});
 });
+
+test("approved Guests join the transient recipient set after Members, in registry order", async () => {
+	const calls: Call[] = [];
+	const result = await submitCrewBroadcast(
+		{
+			membership: membership("Bob"),
+			message: "crew update",
+			approvedGuests: [
+				{
+					guestName: "Alex",
+					guestIdentity: "guest-a",
+					callbackEndpoint: "/tmp/alex-callback.sock",
+				},
+				{
+					guestName: "Blake",
+					guestIdentity: "guest-b",
+					callbackEndpoint: "/tmp/blake-callback.sock",
+				},
+			],
+		},
+		dependencies(calls),
+	);
+	assert.ok(result.ok);
+	if (!result.ok) return;
+	assert.deepEqual(
+		result.dispositions.map((disposition) => [disposition.recipientName, disposition.recipientRole]),
+		[
+			["Tony", "lead"],
+			["Mary", "po"],
+			["Kelly", "qa"],
+			["Alex", "guest"],
+			["Blake", "guest"],
+		],
+	);
+	const guestCalls = calls.filter((call) => String(call.endpoint).includes("callback.sock"));
+	assert.deepEqual(
+		guestCalls.map((call) => call.endpoint),
+		["/tmp/alex-callback.sock", "/tmp/blake-callback.sock"],
+	);
+	for (const call of guestCalls) {
+		const payload = call.command.payload as { kind: string; origin: { kind: string; name: string } };
+		assert.equal(payload.kind, "broadcast");
+		assert.equal(payload.origin.kind, "crew");
+		assert.equal(payload.origin.name, "Bob");
+	}
+});
+
+test("offline Guests fail explicitly in the dispositions without Inbox fallback", async () => {
+	const failures = new Map<string, Error>([
+		["/tmp/alex-callback.sock", Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })],
+	]);
+	const calls: Call[] = [];
+	const result = await submitCrewBroadcast(
+		{
+			membership: membership("Bob"),
+			message: "crew update",
+			approvedGuests: [
+				{
+					guestName: "Alex",
+					guestIdentity: "guest-a",
+					callbackEndpoint: "/tmp/alex-callback.sock",
+				},
+			],
+		},
+		dependencies(calls, failures),
+	);
+	assert.ok(result.ok);
+	if (!result.ok) return;
+	const guestDisposition = result.dispositions.find((disposition) => disposition.recipientName === "Alex");
+	assert.equal(guestDisposition?.disposition, "failed");
+	assert.equal(guestDisposition?.code, "offline");
+	assert.equal(result.summary.failed, 1);
+});
