@@ -484,6 +484,7 @@ export const GuestSendParamsSchema = Type.Object(
 		capability: GuestSendBoundedText(256),
 		target: GuestSendBoundedText(256),
 		content: Type.String({ minLength: 1, maxLength: 1_000_000 }),
+		kind: Type.Optional(Type.Union([Type.Literal("follow-up"), Type.Literal("broadcast")])),
 		instructions: Type.Optional(Type.Array(GuestSendBoundedText(100_000), { maxItems: 32 })),
 	},
 	{ additionalProperties: false },
@@ -1272,6 +1273,7 @@ export const COMMAND_REGISTRY: Record<RpcCommand["type"], CommandDefinition> = {
 				capability: send.capability,
 				target: send.target,
 				content: send.content,
+				...(send.kind === undefined ? {} : { kind: send.kind }),
 				...(send.instructions === undefined ? {} : { instructions: send.instructions }),
 			};
 		},

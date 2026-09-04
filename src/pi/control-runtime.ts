@@ -447,8 +447,9 @@ export async function handleGuestSend(
 	const { state, respond, pi, ctx, id } = context;
 	const membership = state.membershipRuntime?.getMembership();
 	const admission = state.guestAdmissionRuntime;
-	if (!membership || !admission) {
-		respond(false, command.type, undefined, !membership ? "not-joined" : "guest-disabled");
+	const guestRuntime = state.guestMembershipRuntime;
+	if (!membership && !guestRuntime) {
+		respond(false, command.type, undefined, "not-joined");
 		return;
 	}
 	if (state.context?.isProjectTrusted?.() !== true) {
@@ -456,23 +457,44 @@ export async function handleGuestSend(
 		return;
 	}
 	// Authorization (fresh registry read) always precedes target resolution or
-	// payload delivery; the origin is rebuilt from the crew-owned registry.
-	const authorization = admission.authorizeSend({
-		crewId: command.crewId,
-		guestIdentity: command.guestIdentity,
-		callbackEndpoint: command.callbackEndpoint,
-		capability: command.capability,
-	});
-	if (!authorization.ok) {
-		respond(false, command.type, undefined, "code" in authorization ? authorization.code : "authorization-failed");
+	// payload delivery. Member runtimes validate their admission registry;
+	// Guest runtimes validate the sender against the same crew authority.
+	const authorization =
+		membership && admission
+			? admission.authorizeSend({
+					crewId: command.crewId,
+					guestIdentity: command.guestIdentity,
+					callbackEndpoint: command.callbackEndpoint,
+					capability: command.capability,
+				})
+			: guestRuntime?.authorizeInbound?.({
+					crewId: command.crewId,
+					guestIdentity: command.guestIdentity,
+					callbackEndpoint: command.callbackEndpoint,
+					capability: command.capability,
+				});
+	if (!authorization?.ok) {
+		respond(
+			false,
+			command.type,
+			undefined,
+			authorization && "code" in authorization ? authorization.code : "registry-unavailable",
+		);
 		return;
+	}
+	if (!membership && guestRuntime) {
+		const recipient = guestRuntime.credentials(command.crewId);
+		if (!recipient || recipient.guestName !== command.target) {
+			respond(false, command.type, undefined, "crew-mismatch");
+			return;
+		}
 	}
 	const deliveredAt = state.now?.();
 	const payload = {
 		content: command.content,
 		...(command.instructions === undefined ? {} : { instructions: [...command.instructions] }),
 		origin: { kind: "guest" as const, identity: command.guestIdentity, name: authorization.guestName },
-		kind: "follow-up" as const,
+		kind: command.kind ?? ("follow-up" as const),
 		...(deliveredAt === undefined ? {} : { sentAt: deliveredAt }),
 	};
 	if (!isMessagePayload(payload)) {
