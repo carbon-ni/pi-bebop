@@ -46,13 +46,13 @@ import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./in
 import { createMembershipRuntime } from "./infra/membership-runtime.ts";
 import { createGuestMembershipRuntime } from "./infra/guest-membership-runtime.ts";
 import { createGuestAdmissionRuntime } from "./infra/guest-admission-runtime.ts";
+import { createGuestRegistryStore, digestGuestCapability } from "./infra/guest-registry-store.ts";
 import {
 	appendMembershipContext,
 	getLatestMembershipState,
 	MEMBERSHIP_ENTRY_TYPE,
 	GUEST_MEMBERSHIP_ENTRY_TYPE,
 	getLatestGuestMembershipRecords,
-	getLatestGuestAdmissionRecords,
 	guestMembershipStateFromRuntime,
 	membershipStateFromRuntime,
 } from "./pi/membership-context.ts";
@@ -123,17 +123,64 @@ export default function (pi: ExtensionAPI) {
 			return readTrustedCrewManifest(manifestPath, projectRoot, () => context.isProjectTrusted());
 		},
 	});
-	const refreshGuestAdmission = (records: readonly unknown[] = []) => {
+	/**
+	 * Crew-owned Guest registry is the admission authority: persistence goes to
+	 * the durable crew-shared store (never session-private entries), restore
+	 * reads the registry, and verifier digests keep plaintext capabilities off
+	 * disk. Registry failures disable admission fail-closed.
+	 */
+	const refreshGuestAdmission = () => {
 		const membership = state.membershipRuntime?.getMembership();
-		state.guestAdmissionRuntime = membership
-			? createGuestAdmissionRuntime({
-					manifest: membership.manifest,
-					memberName: membership.member.name,
-					createRequestId: () => `guest-request-${++guestRequestIndex}`,
-					persist: (approved) => pi.appendEntry(GUEST_MEMBERSHIP_ENTRY_TYPE, approved),
-				})
-			: undefined;
-		state.guestAdmissionRuntime?.restore(records);
+		if (!membership) {
+			state.guestAdmissionRuntime = undefined;
+			return;
+		}
+		try {
+			const registry = createGuestRegistryStore({
+				manifestPath: membership.manifestPath,
+				crew: membership.manifest.crew ?? { id: "unknown", displayName: "unknown" },
+			});
+			state.guestAdmissionRuntime = createGuestAdmissionRuntime({
+				manifest: membership.manifest,
+				memberName: membership.member.name,
+				createRequestId: () => `guest-request-${++guestRequestIndex}`,
+				digestCapability: digestGuestCapability,
+				persist: (approved) => registry.replaceEntries(approved),
+			});
+			state.guestAdmissionRuntime?.restore(
+				registry.load().entries.map((entry) =>
+					entry.status === "denied"
+						? {
+								status: entry.status,
+								request: {
+									requestId: `registry-${entry.order}`,
+									crew: entry.crew,
+									guestIdentity: entry.guestIdentity,
+									guestName: entry.guestName,
+									callbackEndpoint: entry.callbackEndpoint,
+									submittedByMember: membership.member.name,
+								},
+								approver: entry.approver,
+							}
+						: {
+								status: entry.status,
+								record: {
+									crew: entry.crew,
+									guestIdentity: entry.guestIdentity,
+									guestName: entry.guestName,
+									callbackEndpoint: entry.callbackEndpoint,
+									approvedBy: entry.approver,
+								},
+								...(entry.status === "approved" ? { capabilityDigest: entry.capabilityDigest } : {}),
+							},
+				),
+			);
+		} catch (error) {
+			// Fail closed: a registry that cannot be trusted disables admission.
+			state.guestAdmissionRuntime = undefined;
+			const message = `Crew guest registry unavailable: ${error instanceof Error ? error.message : String(error)}`;
+			console.error(message);
+		}
 	};
 
 	const inboxBridge = createInboxBridgeController(pi, state, { now: Date.now });
@@ -373,7 +420,6 @@ export default function (pi: ExtensionAPI) {
 		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
 		const persisted = getLatestMembershipState(branch);
 		const persistedGuests = getLatestGuestMembershipRecords(branch);
-		const persistedGuestAdmissions = getLatestGuestAdmissionRecords(branch);
 		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
 		if (guestRequested) {
 			if (persisted?.active === true) {
@@ -384,7 +430,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			await ensureControlServer(pi, state, ctx);
 			state.guestMembershipRuntime?.restore(persistedGuests);
-			refreshGuestAdmission(persistedGuestAdmissions);
+			refreshGuestAdmission();
 			await maybeHandleStartupGuestJoins(ctx, pi, state.guestMembershipRuntime!, state.socketPath!);
 			reconcileMembershipTools(pi, false);
 			return;
@@ -434,7 +480,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		state.guestMembershipRuntime?.restore(persistedGuests);
-		refreshGuestAdmission(persistedGuestAdmissions);
+		refreshGuestAdmission();
 		await restorePersistedMembership({
 			runtime: state.membershipRuntime,
 			persisted,

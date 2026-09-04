@@ -43,6 +43,7 @@
 		"src/domain/crew-role.ts",
 		"src/domain/member-request.ts",
 		"src/domain/guest-membership.ts",
+		"src/domain/guest-registry.ts",
 		"src/domain/guest-message.ts",
 		"src/domain/guest-control.ts",
 		"src/domain/member-inbox.ts",
