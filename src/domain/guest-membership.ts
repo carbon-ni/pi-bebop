@@ -153,6 +153,11 @@ export function bindingMatchesRecord(binding: GuestMembershipBinding, record: Gu
 	);
 }
 
+/** Capability equality is checked separately because the capability is never persisted in a model-facing record. */
+export function bindingMatchesCapability(binding: GuestMembershipBinding, expected: GuestApprovalCapability): boolean {
+	return binding.capability === expected;
+}
+
 /** Persistable identity/endpoint binding; approval capability is runtime-only. */
 export const GuestMembershipRecordSchema = Type.Object(
 	{
