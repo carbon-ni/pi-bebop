@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RpcProtocolError } from "../../infra/rpc-client.ts";
+import { MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS, MAX_MEMBER_REQUEST_TIMEOUT_SECONDS } from "../../domain/index.ts";
 import {
 	parseMemberRequestSendCommand,
 	parseMemberRequestListCommand,
@@ -175,6 +176,7 @@ test("Member Request CLI maps transport, remote, timeout, and abort failures", a
 
 test("Member Request CLI dispatches list, wait, and respond leaves", async () => {
 	const calls: any[] = [];
+	const timeouts: number[] = [];
 	const deps = {
 		resolveSource: () => ({
 			ok: true as const,
@@ -182,8 +184,9 @@ test("Member Request CLI dispatches list, wait, and respond leaves", async () =>
 			idSocketPath: "/id.sock",
 			aliasSocketPath: "/alias.sock",
 		}),
-		send: async (_source: unknown, command: any) => {
+		send: async (_source: unknown, command: any, timeoutMs: number) => {
 			calls.push(command);
+			timeouts.push(timeoutMs);
 			if (command.type === "member_request_list")
 				return { response: { success: true, data: { requests: [], omitted: 0 } } as any };
 			if (command.type === "member_request_wait")
@@ -217,6 +220,7 @@ test("Member Request CLI dispatches list, wait, and respond leaves", async () =>
 		calls.map((command) => command.type),
 		["member_request_list", "member_request_wait", "member_response"],
 	);
+	assert.equal(timeouts[1], (MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS + MAX_MEMBER_REQUEST_TIMEOUT_SECONDS + 10) * 1000);
 });
 
 test("Member Request CLI maps stdin cancellation to a stable failure", async () => {

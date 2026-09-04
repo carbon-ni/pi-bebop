@@ -437,11 +437,15 @@ export async function runMemberRequestCommand(
 			10000,
 		);
 	}
+	// The Request's max-wait is source-owned and is not carried by the exact
+	// wait command. Use the protocol maximum so a valid non-default Request
+	// cannot outlive this CLI transport deadline.
+	const exactWaitTimeoutMs = (MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS + MAX_MEMBER_REQUEST_TIMEOUT_SECONDS + 10) * 1000;
 	return runWithSource(
 		options,
 		context,
 		deps,
 		{ type: "member_request_wait", requestId: options.requestId! },
-		(options.maxWaitSeconds + options.responseGraceSeconds + 10) * 1000,
+		exactWaitTimeoutMs,
 	);
 }
