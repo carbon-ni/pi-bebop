@@ -22,6 +22,7 @@ export {
 } from "./control-runtime/membership-tools.ts";
 export { contextIsCompacting, notifyAcceptedMessage } from "./control-runtime/utils.ts";
 export { deriveIntrayStatus } from "./control-runtime/status.ts";
+export type { IntrayStatus } from "./control-runtime/status.ts";
 export { handleCommand } from "./control-runtime/dispatch.ts";
 export * from "./control-runtime/member-request-handlers.ts";
 export * from "./control-runtime/guest-handlers.ts";

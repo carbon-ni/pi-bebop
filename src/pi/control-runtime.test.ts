@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createPresenceObserver } from "../application/presence-observer.ts";
 import { createMemberMessageCoordinator } from "../application/member-message.ts";
 
+import type { IntrayStatus } from "./control-runtime.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -18,6 +19,11 @@ import {
 	reconcileMembershipTools,
 	refreshIntrayStatus,
 } from "./control-runtime.ts";
+
+test("control runtime preserves its public IntrayStatus type", () => {
+	const status: IntrayStatus = deriveIntrayStatus(true, false);
+	assert.equal(status, "online");
+});
 
 test("Member Request list preserves lifecycle acceptance order across directions", async () => {
 	let result: any;
