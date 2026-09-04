@@ -459,20 +459,23 @@ export async function handleGuestSend(
 	// Authorization (fresh registry read) always precedes target resolution or
 	// payload delivery. Member runtimes validate their admission registry;
 	// Guest runtimes validate the sender against the same crew authority.
-	const authorization =
-		membership && admission
-			? admission.authorizeSend({
-					crewId: command.crewId,
-					guestIdentity: command.guestIdentity,
-					callbackEndpoint: command.callbackEndpoint,
-					capability: command.capability,
-				})
-			: guestRuntime?.authorizeInbound?.({
-					crewId: command.crewId,
-					guestIdentity: command.guestIdentity,
-					callbackEndpoint: command.callbackEndpoint,
-					capability: command.capability,
-				});
+	if (membership && !admission) {
+		respond(false, command.type, undefined, "guest-disabled");
+		return;
+	}
+	const authorization = membership
+		? admission!.authorizeSend({
+				crewId: command.crewId,
+				guestIdentity: command.guestIdentity,
+				callbackEndpoint: command.callbackEndpoint,
+				capability: command.capability,
+			})
+		: guestRuntime?.authorizeInbound?.({
+				crewId: command.crewId,
+				guestIdentity: command.guestIdentity,
+				callbackEndpoint: command.callbackEndpoint,
+				capability: command.capability,
+			});
 	if (!authorization?.ok) {
 		respond(
 			false,
