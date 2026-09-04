@@ -3,6 +3,7 @@ import * as net from "node:net";
 import test from "node:test";
 import {
 	defaultMemberIdleWaitCliDependencies,
+	memberIdleWaitHelp,
 	mapIdleWaitTransportError,
 	normalizeIdleWaitTransportOutcome,
 	parseMemberIdleWaitCommand,
@@ -65,9 +66,11 @@ test("member wait-idle parser accepts default and exact whole-second durations",
 });
 
 test("member wait-idle parser covers help, duplicate, unknown, and target validation", () => {
+	assert.match(memberIdleWaitHelp(), /wait-idle/);
 	assert.equal(parseMemberIdleWaitCommand(["--help"]).help, true);
 	assert.throws(() => parseMemberIdleWaitCommand(["--help", "--help"]), /Duplicate flag/);
 	assert.throws(() => parseMemberIdleWaitCommand(["--bogus"]), /unknown option|Unknown flag/i);
+	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--timeout"]), /Missing value/);
 	assert.throws(() => parseMemberIdleWaitCommand([]), /Missing <member>/);
 	assert.throws(() => parseMemberIdleWaitCommand([" Bob"]), /trimmed/);
 	assert.throws(() => parseMemberIdleWaitCommand(["x", "--format", "xml"]), /Invalid --format/);
