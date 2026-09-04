@@ -55,6 +55,7 @@
 		"src/domain/message-renderer.ts",
 		"src/domain/presence.ts",
 		"src/domain/protocol.ts",
+		"src/domain/protocol/",
 		"src/domain/response-policy.ts",
 		"src/domain/session-filter.ts",
 		"src/domain/session-id.ts",
