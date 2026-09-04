@@ -27,9 +27,11 @@ message must be consumed by the agent in the immediate queued continuation.
   it until the agent has no more tool calls.
 - `wait_for_member_idle` currently returns an ordinary `message-received` tool
   result, permitting another model call before Pi drains the Follow-up queue.
-- Pi 0.84.2 supports `terminate: true` on a tool result. When every result in
-  the current tool batch terminates, Pi skips the ordinary tool-result model
-  continuation; its post-run loop can then drain the queued Follow-up.
+- The lockfile pins `@earendil-works/pi-coding-agent` 0.84.2 and its nested
+  `@earendil-works/pi-agent-core` 0.84.2. That Pi version supports
+  `terminate: true` on a tool result, but its agent loop skips the ordinary
+  tool-result continuation only when every finalized result in the batch
+  terminates.
 - Existing tests prove wake, cancellation, and `sendMessage` submission, but
   stop at the adapter boundary. They do not prove which message the model
   consumes next.
@@ -100,12 +102,20 @@ terminates. One `terminate: true` wait result plus a non-terminating sibling
 (`bebop_noop`) still produces an ordinary content-free continuation (context
 with tool results only), and the waking message is consumed one turn later.
 Nothing is dropped, but immediate consumption is NOT guaranteed for mixed
-batches. Pi 0.84.2 exposes `terminate` as a per-tool-result hint, while its
-agent-core contract applies early termination only when every finalized result
-in the batch sets the hint. Its `executionMode: "sequential"` option changes
-execution order, not the all-results termination rule, and extension tool APIs
-provide no safe way for one tool to mark an unrelated sibling result as
-terminating. Per this plan's rule this is recorded as an upstream Pi API
+batches. The lockfile's Pi agent-core 0.84.2 `dist/agent-loop.js` implements
+`shouldTerminateToolBatch` as `finalizedCalls.length > 0 &&
+finalizedCalls.every((finalized) => finalized.result.terminate === true)`.
+The installed checkout is 0.84.3 (not the lockfile's 0.84.2), and the registry
+latest is 0.84.4; the published 0.84.4 agent-loop and README retain the same
+all-results rule. The host test run used installed 0.84.3; the exact 0.84.2
+published agent-core was separately inspected from the lockfile version. Therefore upgrading within the package's declared
+`>=0.84.2 <0.85.0` range does not provide a known fix. Its `executionMode:
+"sequential"` option changes execution order, not the termination rule, and
+extension tool APIs provide no safe way for one tool to mark an unrelated
+sibling result as terminating. The actionable upstream request is a batch
+termination policy/API that lets a designated terminating result suppress the
+content-free continuation while preserving every sibling result and queued
+message. Per this plan's rule this is recorded as an upstream Pi API
 constraint: Bebop cannot close it from the tool side without weakening the
 guarantee. The public tool guidance already mandates a solitary/sequential
 call; the task therefore stays `doing` (open) until Pi offers per-result
