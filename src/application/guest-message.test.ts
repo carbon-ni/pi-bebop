@@ -225,6 +225,79 @@ describe("guest messaging application flow", () => {
 		);
 	});
 
+	test("two-crew Guest-to-Guest sends stay scoped to the selected Crew", async () => {
+		const runtime = guestRuntime();
+		runtime.track(
+			{
+				crew: { id: "alpha", displayName: "Alpha" },
+				guestName: "Alex",
+				memberSocket: "/tmp/alpha-member.sock",
+				submittedByMember: "lead",
+			},
+			"alpha-request",
+			"approved",
+			"alpha-capability",
+		);
+		runtime.track(
+			{
+				crew: { id: "beta", displayName: "Beta" },
+				guestName: "Alex",
+				memberSocket: "/tmp/beta-member.sock",
+				submittedByMember: "lead",
+			},
+			"beta-request",
+			"approved",
+			"beta-capability",
+		);
+		const manifests = {
+			alpha: {
+				crew: { id: "alpha", displayName: "Alpha" },
+				members: [],
+				approvedGuests: [
+					{ guestIdentity: "guest-session", guestName: "Alex", callbackEndpoint: "/tmp/alex.sock" },
+					{ guestIdentity: "guest-blake", guestName: "Blake", callbackEndpoint: "/tmp/alpha-blake.sock" },
+				],
+			},
+			beta: {
+				crew: { id: "beta", displayName: "Beta" },
+				members: [],
+				approvedGuests: [
+					{ guestIdentity: "guest-session", guestName: "Alex", callbackEndpoint: "/tmp/alex.sock" },
+					{ guestIdentity: "guest-casey", guestName: "Casey", callbackEndpoint: "/tmp/beta-casey.sock" },
+				],
+			},
+		};
+		const capture: Array<{ endpoint: string; command: any }> = [];
+		const transport: GuestMessageTransport = {
+			send: async (endpoint, command) => {
+				capture.push({ endpoint, command });
+				return {
+					response: {
+						success: true,
+						data: { deliveryId: endpoint, disposition: "direct", fromGuestName: "Alex" },
+					},
+				};
+			},
+		};
+		const requestFor = (crewId: "alpha" | "beta", target: string) => ({
+			guestRuntime: runtime,
+			guestIdentity: "guest-session",
+			crew: crewId,
+			target,
+			message: "hello guest",
+			loadManifest: async () => manifests[crewId],
+		});
+		await submitGuestBroadcast(requestFor("alpha", "Blake"), { transport });
+		await submitGuestBroadcast(requestFor("beta", "Casey"), { transport });
+		assert.deepEqual(
+			capture.map(({ endpoint, command }) => [endpoint, command.crewId, command.target]),
+			[
+				["/tmp/alpha-blake.sock", "alpha", "Blake"],
+				["/tmp/beta-casey.sock", "beta", "Casey"],
+			],
+		);
+	});
+
 	test("Guest Broadcast stops remaining direct sends when local membership is revalidated as revoked", async () => {
 		const runtime = approvedRuntime();
 		let reads = 0;
