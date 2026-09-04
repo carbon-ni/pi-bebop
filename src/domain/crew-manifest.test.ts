@@ -201,6 +201,48 @@ describe("crew manifest", () => {
 		}
 	});
 
+	test("member schema diagnostics retain manifest-order field precedence", () => {
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					version: 2,
+					members: [{ name: 3, role: "dev", socket: "sockets/dev.sock", instructions: "" }],
+					crew: { extra: true },
+				}),
+			(error: unknown) =>
+				error instanceof CrewManifestError &&
+				error.code === "invalid-member" &&
+				error.message === "members[0].name must be a non-empty string",
+		);
+		const members = Array.from({ length: 11 }, (_, index) => ({
+			name: `member-${index}`,
+			role: index === 2 || index === 10 ? 3 : "dev",
+			socket: `sockets/member-${index}.sock`,
+		}));
+		assert.throws(
+			() => parseCrewManifest({ version: 2, members, crew: { extra: true } }),
+			(error: unknown) =>
+				error instanceof CrewManifestError &&
+				error.code === "invalid-member" &&
+				error.message === "members[2].role must be a non-empty string",
+		);
+		assert.throws(
+			() =>
+				parseCrewManifest({
+					version: 2,
+					members: [
+						{ name: "dev", role: "dev", socket: "/tmp/dev.sock" },
+						{ name: "other", role: 3, socket: "sockets/other.sock" },
+					],
+					crew: { extra: true },
+				}),
+			(error: unknown) =>
+				error instanceof CrewManifestError &&
+				error.code === "invalid-socket-path" &&
+				error.message === "member socket path must be relative to the crew manifest",
+		);
+	});
+
 	test("rejects invalid versions, member values, roles, instructions, and sockets", () => {
 		const cases: unknown[] = [
 			{ version: 2, members: [] },

@@ -246,8 +246,9 @@ function throwLegacyCrossFieldFailure(
 	manifestPath: string,
 ): void {
 	if (hasSchemaError(errors, "/version") || hasSchemaError(errors, "/commonInstructionsFile")) return;
-	if (hasSchemaError(errors, "/presence") || hasSchemaError(errors, "/members")) return;
-	throwMemberCrossFieldFailure(input, manifestPath);
+	if (hasSchemaError(errors, "/presence")) return;
+	if (Array.isArray(input.members) && input.members.length > 0) throwMemberCrossFieldFailure(input, manifestPath);
+	if (hasSchemaError(errors, "/members")) return;
 	if (input.guestAdmission !== undefined && input.crew === undefined)
 		invalid("guestAdmission requires crew identity metadata", "invalid-guest-admission");
 }
