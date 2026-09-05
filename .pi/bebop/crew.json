@@ -1,5 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
+  "commonInstructionsFile": "instructions/common.md",
   "presence": { "notifications": true },
   "intake": { "contact": "Mary" },
   "members": [
