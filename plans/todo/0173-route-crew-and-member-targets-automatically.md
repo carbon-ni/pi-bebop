@@ -21,11 +21,11 @@ As a Crew coordinator, I want to supply `crew` or `crew/member` so that Bebop se
 
 - [ ] One application-level resolver accepts the TASK-0171 Crew/Member target and returns either one authorized route or one typed product error; CLI handlers do not select sessions themselves.
 - [ ] Exact Crew selector and exact Member name route deterministically across zero, one, or multiple live local candidates; duplicate selector/worktree matches require an explicit trusted Crew Locator.
-- [ ] Duplicate display names, unknown Crew, unknown Member, ambiguous Member, unjoined Crew, offline target, stale route, and malformed peer state produce distinct actionable errors.
+- [ ] Duplicate display names, ambiguous Crew Selector/worktree, unknown Crew, unknown Member, duplicate-name invalid manifest, unjoined Crew, offline target, canonical-endpoint route conflict, stale route, and malformed peer state produce distinct actionable errors.
 - [ ] Routing preserves the caller's current joined Member or approved Guest identity. It never selects an arbitrary joined Member as source; self-target is a typed product error unless the caller has a separate authorized Guest route.
 - [ ] Crew-level targets resolve only to the manifest-authored Crew contact where that action permits it; no lead/role/first-online fallback is inferred.
 - [ ] Authorization, Crew membership, Guest capability boundaries, and action-specific permissions are checked before transport. Crew Locator access alone grants none of them.
-- [ ] Selection order is deterministic and independent of directory iteration, probe completion, alias order, or wall-clock races.
+- [ ] Selection order is deterministic and independent of directory iteration, probe completion, alias order, or wall-clock races. Multiple runtimes visible for one Member never compete: only the canonical endpoint owner may route, and mismatched ownership fails `route-conflict`.
 - [ ] Public success/error objects contain product identities only. Session IDs and sockets remain internal except in explicit routing diagnostics.
 - [ ] Resolution and action deadlines are separate, bounded, cancellable, and documented; timeout errors include the failed phase and a safe retry command.
 - [ ] Unit and integration tests cover all state-table paths, same-boundary races, no dependency call after ambiguity, and no private identifier leakage.

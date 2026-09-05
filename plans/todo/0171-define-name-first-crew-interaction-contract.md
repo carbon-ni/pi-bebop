@@ -56,17 +56,11 @@ pi-bebop ask funzzy/Mony "What is blocked?"
 
 ## Review status
 
-- Product: Mary — approved `docs/CREW-INTERACTION.md` at `20a07d6`.
-- Security/lead: Mony — approved Crew Locator only as strict local lookup root; path access never authenticates or grants Ask/Guest authority.
-- Development: Dave — approved feasibility; identified directory resolver plus existing trusted-manifest, RPC, and Member Request seams.
-- QA: pending independent review; durable request `inbox-0-bac0a855` queued for Kelly.
-
-## Review status
-
-- Product: Mary approved the target/outcome/provenance contract.
+- Product: Mary approved the target/outcome/provenance contract and the 2026-09-05 review-condition resolution.
 - Security/lead: Mony approved the strict Crew Locator boundary. Locator access is consent to inspect one trusted manifest, never authentication or Member/Guest authority.
-- Development: Dave approved feasibility against current domain/protocol seams at `1bd5f19`.
-- QA: pending independent review; durable review request `inbox-0-bac0a855` is queued for Kelly.
+- Development: Dave approved feasibility against current domain/protocol seams.
+- Independent QA-lens review: Dave conditionally approved and identified three pre-implementation gaps. They are resolved: duplicate Member names map only to `invalid-manifest`; the Ask outcome/exit registry is explicit; and multiple visible runtimes route only through the canonical endpoint owner. Non-blocking discovery cap/timeout and delivery-cancellation uncertainty are also specified.
+- Named QA: pending Kelly review; durable request `inbox-0-bac0a855` is queued.
 
 ## Non-goals
 

@@ -67,6 +67,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Redirected**            | Accepted redirect entered target active turn.                                                                                                                                                    | steered in product-facing language                    |
 | **Response**              | Assistant output correlated to exactly one Member request. Ordinary Follow-up has no implicit Response expectation.                                                                              | turn end, completion proof                            |
 | **Ask**                   | One non-interactive request from an authorized current Member or approved Guest to one exact Crew/Member Target, yielding one correlated Response or one terminal non-Response outcome.            | direct external message, turn-end wait, task command  |
+| **Ask outcome**           | Stable public result of one Ask. It maps Member Request lifecycle into `response`, resolution/delivery failures, bounded timeouts, malformed response, route loss/conflict, or caller cancellation without exposing Request ID. | new Request outcome, completion proof                 |
 | **Presence activity**     | Non-interrupting chat record that reports observed crew reachability changes.                                                                                                                    | notification when referring to model-visible activity |
 | **Guest Origin**          | Typed message attribution labelled `(guest)` with Guest identity and display name; approval authenticates the current capability binding but does not make content trusted or grant a role.      | Member origin, trusted content, role claim            |
 
@@ -188,6 +189,7 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Idle wait/Member Status:** Member Status is an immediate snapshot; idle wait blocks until a mechanical transition or deadline.
 - **Accepted/persisted/delivered/completed:** accepted acknowledges live delivery request; persisted acknowledges durable inbox storage; neither proves work completed or Response produced.
 - **Member request/Follow-up:** a Member request expects exactly one correlated Response; ordinary Follow-up has no implicit Response expectation.
+- **Request outcome/Ask outcome:** Request outcome is the low-level correlated Member Request lifecycle. Ask outcome is its product view; for example, lower-level `timeout max-wait` renders as `timeout-total`. This mapping never creates a new response or completion claim.
 - **Request outcome/activity:** Request outcome wait returns only the oldest terminal outbound Member request outcome; it never monitors or returns unrelated Crew activity.
 - **Follow-up/inbox:** follow-up requires online target and uses transient Pi delivery; inbox survives recipient downtime and restarts.
 - **Follow-up:** in ordinary conversation it can mean another conversational message; in Bebop it specifically means safe queued delivery when target is busy.
