@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { decode } from "@toon-format/toon";
 import { parseCliArguments } from "./parser.ts";
 import { parseCliCommand } from "./registry.ts";
 import { UsageError } from "./arguments.ts";
@@ -236,6 +237,55 @@ test("crew roles result renders the same TOON/JSON schema with role values and c
 // ---------------------------------------------------------------------------
 // output formats round-trip and exit codes
 // ---------------------------------------------------------------------------
+
+test("TASK-0165 canonical audience samples have measured TOON/JSON parity", () => {
+	const samples: Array<{ result: CliResult; toonBytes: number; jsonBytes: number }> = [
+		{
+			result: {
+				ok: true,
+				target: "crew roles",
+				status: "completed",
+				data: {
+					roles: [
+						{ role: "lead", members: 1 },
+						{ role: "developer", members: 2 },
+						{ role: "po", members: 1 },
+						{ role: "qa", members: 1 },
+					],
+				},
+			},
+			toonBytes: 122,
+			jsonBytes: 186,
+		},
+		{
+			result: {
+				ok: true,
+				target: "member follow-up Kelly",
+				status: "accepted",
+				data: { member: { name: "Kelly", role: "qa" }, disposition: "queued" },
+			},
+			toonBytes: 123,
+			jsonBytes: 135,
+		},
+		{
+			result: {
+				ok: true,
+				target: "session list",
+				status: "completed",
+				data: { sessions: [], total: 0 },
+			},
+			toonBytes: 79,
+			jsonBytes: 89,
+		},
+	];
+	for (const sample of samples) {
+		const toon = renderCliResult(sample.result, "toon", false);
+		const json = renderCliResult(sample.result, "json", false);
+		assert.deepEqual(decode(toon), JSON.parse(json));
+		assert.equal(Buffer.byteLength(toon), sample.toonBytes);
+		assert.equal(Buffer.byteLength(json), sample.jsonBytes);
+	}
+});
 
 test("structured result: TOON and JSON encode the same semantic payload", () => {
 	const result: CliResult = {
