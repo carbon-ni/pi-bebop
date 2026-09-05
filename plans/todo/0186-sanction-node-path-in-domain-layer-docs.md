@@ -1,7 +1,7 @@
 ---
 id: TASK-0186
 title: Sanction node:path in domain layer docs
-status: todo
+status: doing
 depends_on: []
 priority: low
 tags: [techdebt, docs, domain, agents-md]

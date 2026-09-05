@@ -1,7 +1,7 @@
 ---
 id: TASK-0184
 title: Remove unwired startup control send path
-status: todo
+status: doing
 depends_on: []
 priority: normal
 tags: [techdebt, pi, dead-code, startup-send]
