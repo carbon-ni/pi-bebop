@@ -1,7 +1,7 @@
 ---
 id: TASK-0185
 title: Require explicit argv in domain CLI parsing
-status: doing
+status: done
 depends_on: []
 priority: normal
 tags: [techdebt, domain, purity, cli]
