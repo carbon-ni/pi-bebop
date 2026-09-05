@@ -1,7 +1,7 @@
 ---
 id: TASK-0089
 title: Consume inbound messages before continuing Member Idle Wait
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [member-idle, messaging, lifecycle, pi-api, regression, tdd]
@@ -92,15 +92,16 @@ their existing behavior.
 - [x] Already-idle, became-idle, offline, timeout, abort, and error paths do not gain accidental terminating behavior. (`wait-for-member-idle.test.ts` asserts `terminate` falsy for offline/became-idle; mapping `terminate: outcome === "message-received"` unchanged.)
 - [x] Solitary/sequential invocation and Pi's all-results termination constraint are covered by tests and public tool guidance. Mixed-batch behavior is characterized below, but remains an upstream limitation.
 - [x] `docs/MEMBER-IDLE-WAIT.md` and README describe immediate consumption without claiming task completion or response correlation. (The standalone doc file was removed by `538d2a9`; the contract lives in README "consumed immediately in the next model continuation" and the tool description "Call this coordination wait alone/sequentially, never in a parallel tool batch".)
-- [ ] Focused tests, Bebop final gate, and unchanged-worktree freshness proof pass. (The focused matrix passes 19/19 locally; a fresh final gate/fingerprint for this exact HEAD remains outstanding.)
+- [x] Focused tests, Bebop final gate, and unchanged-worktree freshness proof pass. (05-09 at exact HEAD 0e2de0e, clean detached checkout in the dave worktree: focused host/lifecycle matrix 24/24 — the recorded 19/19 has since grown with new suites; `make all` PASS end-to-end; `verify:cli` PASS twice consecutively at a stable 90.20% branch coverage after TASK-0193's stabilization. Mixed-batch is explicitly UNSUPPORTED as a final supported boundary per the 05-09 product decision — solitary/sequential invocation is the documented contract — so it is not a blocker for this criterion.)
 
 ## Acceptance status and regression guard
 
-Criteria 1–10 above are satisfied by the Pi-host characterization, existing
-TASK-0081 suites, README/tool guidance, and the focused 19/19 matrix. Criterion
-11 is intentionally blocked: the local tests and clean worktree pass, but the
-approved mixed-batch guarantee cannot be provided by the current Pi API and no
-fresh final watcher fingerprint is recorded for this exact HEAD.
+Criteria 1–11 are satisfied. Per the 05-09 product decision, Pi's mixed-batch
+all-results termination rule is accepted as the final supported boundary:
+`wait_for_member_idle` is a solitary/sequential coordination call, exactly as
+its tool affordance and README already mandate. Mixed batches are explicitly
+unsupported — a waking message in a mixed batch is consumed one continuation
+later — and this is documented product behavior, not an open blocker.
 
 `member-idle-continuation.integration.test.ts` test 4 is the durable local
 regression guard. It must continue to assert Pi's mixed-batch scheduling rule:
@@ -109,7 +110,7 @@ content-free continuation, then consumes the waking message exactly once. Do
 not change that test to expect immediate mixed-batch consumption unless a Pi
 release changes the documented batch termination contract.
 
-## Upstream Pi API blocker (28-08, characterized mechanically)
+## Mixed-batch boundary (characterized 28-08, accepted as final 05-09)
 
 `member-idle-continuation.integration.test.ts` test 4 pins the rule: Pi
 skips the tool-result continuation only when EVERY result in the batch
@@ -119,22 +120,13 @@ with tool results only), and the waking message is consumed one turn later.
 Nothing is dropped, but immediate consumption is NOT guaranteed for mixed
 batches. The lockfile's Pi agent-core 0.84.2 `dist/agent-loop.js` implements
 `shouldTerminateToolBatch` as `finalizedCalls.length > 0 &&
-finalizedCalls.every((finalized) => finalized.result.terminate === true)`.
-The installed checkout is 0.84.3 (not the lockfile's 0.84.2), and the registry
-latest is 0.84.4; the published 0.84.4 agent-loop and README retain the same
-all-results rule. The host test run used installed 0.84.3; the exact 0.84.2
-published agent-core was separately inspected from the lockfile version. Therefore upgrading within the package's declared
-`>=0.84.2 <0.85.0` range does not provide a known fix. Its `executionMode:
-"sequential"` option changes execution order, not the termination rule, and
-extension tool APIs provide no safe way for one tool to mark an unrelated
-sibling result as terminating. The actionable upstream request is a batch
-termination policy/API that lets a designated terminating result suppress the
-content-free continuation while preserving every sibling result and queued
-message. Per this plan's rule this is recorded as an upstream Pi API
-constraint: Bebop cannot close it from the tool side without weakening the
-guarantee. The public tool guidance already mandates a solitary/sequential
-call; the task therefore stays `doing` (open) until Pi offers per-result
-batch termination semantics or the crew accepts the constraint as final.
+finalizedCalls.every((finalized) => finalized.result.terminate === true)`;
+the same rule holds through published 0.84.4, and neither `executionMode:
+"sequential"` nor the extension tool APIs let one tool mark an unrelated
+sibling result as terminating. Bebop therefore does not promise mixed-batch
+immediate consumption: the supported contract is the solitary/sequential call
+already enforced by the tool affordance ("Call this coordination wait
+alone/sequentially, never in a parallel tool batch") and README guidance.
 
 ## Out of scope
 
