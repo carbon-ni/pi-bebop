@@ -125,16 +125,13 @@ async function loadInstructionText(
 	return text;
 }
 
-export async function readTrustedCrewManifest(
-	manifestPath: string,
-	projectRoot: string,
-	isProjectTrusted: ManifestTrust,
-	readFile: ReadManifestFile = (filePath, encoding) => fs.readFile(filePath, encoding),
-	readInstructionFile: ReadInstructionFile = readInstructionFileBounded,
-): Promise<CrewManifest> {
+function checkProjectTrust(isProjectTrusted: ManifestTrust): void {
 	const trusted = typeof isProjectTrusted === "function" ? isProjectTrusted() : isProjectTrusted;
 	if (!trusted)
 		throw new CrewManifestReadError("untrusted-project", "cannot read crew manifest from an untrusted project");
+}
+
+function resolveTrustedManifestPath(manifestPath: string, projectRoot: string): string {
 	const normalizedPath = path.resolve(manifestPath);
 	if (!isTrustedCrewManifestPath(normalizedPath, projectRoot)) {
 		throw new CrewManifestReadError(
@@ -142,6 +139,10 @@ export async function readTrustedCrewManifest(
 			`crew manifest is not trusted project-local configuration: ${manifestPath}`,
 		);
 	}
+	return normalizedPath;
+}
+
+async function readAndParseManifest(normalizedPath: string, readFile: ReadManifestFile): Promise<CrewManifest> {
 	let contents: string;
 	try {
 		contents = await readFile(normalizedPath, "utf8");
@@ -158,11 +159,10 @@ export async function readTrustedCrewManifest(
 			cause: error,
 		});
 	}
-	const manifest = parseCrewManifest(input, normalizedPath);
-	const hasCommonInstructions = manifest.commonInstructionsFile !== undefined;
-	const hasRoleInstructions = manifest.members.some((member) => member.instructionsFile !== undefined);
-	if (!hasCommonInstructions && !hasRoleInstructions) return manifest;
-	const crewRoot = path.dirname(normalizedPath);
+	return parseCrewManifest(input, normalizedPath);
+}
+
+async function resolveInstructionsRoot(crewRoot: string): Promise<string> {
 	let realCrewRoot: string;
 	let realInstructionsRoot: string;
 	try {
@@ -181,32 +181,48 @@ export async function readTrustedCrewManifest(
 		rootRelative === ".." ||
 		rootRelative.startsWith(`..${path.sep}`) ||
 		path.isAbsolute(rootRelative)
-	) {
+	)
 		throw new CrewManifestReadError(
 			"instructions-file-unsafe",
 			"crew instructions directory is outside the trusted crew directory",
 		);
+	return realInstructionsRoot;
+}
+
+async function resolveInstructionFile(requested: string, realInstructionsRoot: string, label: string): Promise<string> {
+	let realFile: string;
+	try {
+		realFile = await fs.realpath(requested);
+	} catch (error) {
+		const code =
+			(error as NodeJS.ErrnoException).code === "ENOENT"
+				? "instructions-file-missing"
+				: "instructions-file-unreadable";
+		throw new CrewManifestReadError(code, `${label} could not be resolved`, { cause: error });
 	}
+	const relative = path.relative(realInstructionsRoot, realFile);
+	if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+		throw new CrewManifestReadError("instructions-file-unsafe", `${label} is outside instructions/`);
+	return realFile;
+}
+
+async function loadManifestInstructions(
+	manifest: CrewManifest,
+	normalizedPath: string,
+	readInstructionFile: ReadInstructionFile,
+): Promise<CrewManifest> {
+	const hasCommonInstructions = manifest.commonInstructionsFile !== undefined;
+	const hasRoleInstructions = manifest.members.some((member) => member.instructionsFile !== undefined);
+	if (!hasCommonInstructions && !hasRoleInstructions) return manifest;
+	const crewRoot = path.dirname(normalizedPath);
+	const realInstructionsRoot = await resolveInstructionsRoot(crewRoot);
 	let commonInstructions: string | undefined;
 	if (manifest.commonInstructionsFile !== undefined) {
-		const requested = path.resolve(crewRoot, manifest.commonInstructionsFile);
-		let realFile: string;
-		try {
-			realFile = await fs.realpath(requested);
-		} catch (error) {
-			const code =
-				(error as NodeJS.ErrnoException).code === "ENOENT"
-					? "instructions-file-missing"
-					: "instructions-file-unreadable";
-			throw new CrewManifestReadError(code, "commonInstructionsFile could not be resolved", { cause: error });
-		}
-		const relative = path.relative(realInstructionsRoot, realFile);
-		if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-			throw new CrewManifestReadError(
-				"instructions-file-unsafe",
-				"commonInstructionsFile is outside instructions/",
-			);
-		}
+		const realFile = await resolveInstructionFile(
+			path.resolve(crewRoot, manifest.commonInstructionsFile),
+			realInstructionsRoot,
+			"commonInstructionsFile",
+		);
 		commonInstructions = await loadInstructionText(realFile, "commonInstructionsFile", readInstructionFile);
 	}
 	const members = [] as CrewManifest["members"] extends readonly (infer T)[] ? T[] : never;
@@ -215,26 +231,11 @@ export async function readTrustedCrewManifest(
 			members.push(member);
 			continue;
 		}
-		const requested = path.resolve(crewRoot, member.instructionsFile);
-		let realFile: string;
-		try {
-			realFile = await fs.realpath(requested);
-		} catch (error) {
-			const code =
-				(error as NodeJS.ErrnoException).code === "ENOENT"
-					? "instructions-file-missing"
-					: "instructions-file-unreadable";
-			throw new CrewManifestReadError(code, `members.${member.name}.instructionsFile could not be resolved`, {
-				cause: error,
-			});
-		}
-		const relative = path.relative(realInstructionsRoot, realFile);
-		if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-			throw new CrewManifestReadError(
-				"instructions-file-unsafe",
-				`members.${member.name}.instructionsFile is outside instructions/`,
-			);
-		}
+		const realFile = await resolveInstructionFile(
+			path.resolve(crewRoot, member.instructionsFile),
+			realInstructionsRoot,
+			`members.${member.name}.instructionsFile`,
+		);
 		const text = await loadInstructionText(
 			realFile,
 			`members.${member.name}.instructionsFile`,
@@ -247,4 +248,18 @@ export async function readTrustedCrewManifest(
 		...(commonInstructions === undefined ? {} : { commonInstructions }),
 		members,
 	};
+}
+
+export async function readTrustedCrewManifest(
+	manifestPath: string,
+	projectRoot: string,
+	isProjectTrusted: ManifestTrust,
+	readFile: ReadManifestFile = (filePath, encoding) => fs.readFile(filePath, encoding),
+	readInstructionFile: ReadInstructionFile = readInstructionFileBounded,
+): Promise<CrewManifest> {
+	// Trust is deliberately the first phase: no manifest path or file IO precedes it.
+	checkProjectTrust(isProjectTrusted);
+	const normalizedPath = resolveTrustedManifestPath(manifestPath, projectRoot);
+	const manifest = await readAndParseManifest(normalizedPath, readFile);
+	return loadManifestInstructions(manifest, normalizedPath, readInstructionFile);
 }
