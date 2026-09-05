@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Command } from "commander";
 import { PassThrough } from "node:stream";
-import { composeRegistry, type CliLeaf } from "./registry.ts";
+import { composeRegistry, createCliRegistry, type CliLeaf } from "./registry.ts";
 import { createCliExecutionAdapter, rejectDuplicateScalarOptions } from "./execution-adapter.ts";
 import { UsageError } from "./support/arguments.ts";
 import type { CliContext } from "./support/context.ts";
@@ -90,6 +90,29 @@ test("root, group, leaf help and version stay inside the returned outcome bounda
 	assert.match(String((await adapter.execute(request(["crew", "--help"]))).text), /Usage:.*crew/s);
 	assert.match(String((await adapter.execute(request(["crew", "member", "ping", "-h"]))).text), /ping help/);
 	assert.equal((await adapter.execute(request(["--version"]))).kind, "result");
+});
+
+test("all communication leaves use Commander readers while retaining semantic parser facades", () => {
+	const communication = new Set([
+		"send",
+		"guest-join",
+		"guest-leave",
+		"guest-send",
+		"guest-broadcast",
+		"member-follow-up",
+		"member-redirect",
+		"member-request-send",
+		"member-request-list",
+		"member-request-wait",
+		"member-request-respond",
+		"member-inbox-send",
+		"member-interrupt",
+		"crew-broadcast",
+	]);
+	const leaves = createCliRegistry().leaves.filter((leaf) => communication.has(leaf.id));
+	assert.equal(leaves.length, communication.size);
+	assert.ok(leaves.every((leaf) => leaf.read !== undefined));
+	assert.ok(leaves.every((leaf) => leaf.parse !== undefined));
 });
 
 test("migrated read leaves reject unknown options and excess arguments before handlers", async () => {

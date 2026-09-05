@@ -183,6 +183,15 @@ export function createCliExecutionAdapter(registry: CliRegistry) {
 						throw new UsageError(
 							`Invalid command '${request.args[0]}'; valid commands: ${registry.vocabulary().join(", ")}`,
 						);
+					if (
+						error.code === "commander.unknownOption" &&
+						request.args.includes("member") &&
+						(request.args.includes("follow-up") || request.args.includes("redirect")) &&
+						request.args.some((token) => token === "--wait" || token.startsWith("--wait="))
+					)
+						throw new UsageError(
+							"Unknown flag '--wait'; this command is accepted-delivery only and never waits for a reply",
+						);
 					throw mapCommanderError(error, request.args, registry.vocabulary());
 				}
 				throw error;
