@@ -1,7 +1,7 @@
 ---
 id: TASK-0165
 title: Define CLI audience and compatibility contract
-status: doing
+status: todo
 depends_on: []
 priority: high
 tags: [cli, commander, output, toon, text, axi, contract]
@@ -35,20 +35,16 @@ Every result-producing leaf keeps explicit `--format text|toon|json` for compati
 - Exact legacy help/error bytes are not a goal. Exit codes remain 0 success/help/no-op, 1 operational failure, and 2 usage failure.
 - Successful command semantics, protocol payloads, ordering, cancellation, and authorization do not change.
 
-## Normative contract
-
-`docs/CLI-CONTRACT.md` owns the audience matrix, hierarchy, format defaults, vocabulary, rendering boundary, and intentional Commander compatibility decisions.
-
 ## Acceptance criteria
 
-- [x] Dedicated CLI contract records every current command, primary audience, default, overrides, and next decision.
-- [x] Command hierarchy groups operations by intent and defines joined/source session, socket, Intake, Redirect/legacy steer, Follow-up, Response grace, Accepted, Persisted, Completed, and Response at point of use.
-- [x] CLI help and recovery hints must reference runnable CLI commands, never agent-only tool names.
-- [x] Representative happy, empty, usage-error, operational-error, and truncated output observations are captured before implementation.
-- [x] Equivalent canonical results are measured as UTF-8 text/TOON/JSON; all TOON samples decode and deep-equal JSON-normalized values.
-- [x] Intentional help, duplicate, sentinel, error-wording, and exit-code compatibility choices are explicit migration baselines.
-- [x] Contract distinguishes serialization from semantic views and forbids rendering internal details blindly.
-- [ ] Lead review approves the product-authored matrix before parser work starts.
+- [ ] README or a dedicated CLI contract records every current command, primary audience, default, overrides, and next decision.
+- [ ] The command hierarchy groups operations by user intent and defines joined/source session, socket, Intake, Redirect/legacy steer, Follow-up, Response grace, Accepted, Persisted, Completed, and Response at point of use or through one canonical delivery guide.
+- [ ] CLI help and recovery hints reference runnable CLI commands, never agent-only tool names.
+- [ ] Representative happy, empty, usage-error, operational-error, and truncated outputs are captured before implementation.
+- [ ] Equivalent canonical results are measured as UTF-8 text/TOON/JSON; TOON samples decode and deep-equal the JSON-normalized value.
+- [ ] The intentional help, duplicate, sentinel, and error-wording compatibility choices above are explicit and tested as the migration baseline.
+- [ ] Contract distinguishes serialization from semantic views and forbids rendering internal details blindly.
+- [ ] Lead and product review the matrix before parser work starts.
 
 ## Non-goals
 
@@ -58,6 +54,4 @@ Every result-producing leaf keeps explicit `--format text|toon|json` for compati
 
 ## Evidence
 
-Product review: Mary approved `docs/CLI-CONTRACT.md` as the intended behavior for TASK-0166–0170.
-
-Measured canonical samples: Crew roles 50/122/186 B, queued Follow-up 41/123/135 B, and empty session list 24/79/89 B for text/TOON/JSON. `@toon-format/toon` decode deep-equaled every JSON-normalized sample. Current representative output also shows why audience matters: `crew roles` is 296 B as default TOON versus 37 B as text; `session list --format text` loses its rows and prints only `Message completed`; home is a 552 B structured agent state view. These samples guide the plan but are not universal size claims.
+Current representative output shows why audience matters: `crew roles` is 296 bytes as default TOON versus 37 bytes as text; `session list --format text` currently loses its rows and prints only `Message completed`; home is a 552-byte structured agent state view. These samples guide the plan but are not universal size claims.
