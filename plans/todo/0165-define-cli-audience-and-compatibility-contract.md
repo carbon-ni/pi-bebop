@@ -20,8 +20,8 @@ One reviewed contract classifies commands by the next decision their output supp
 | Default | Commands |
 | --- | --- |
 | TOON — LLM/automation-first | home; `send`; `crew roles`; `session list`; all `member` commands; `crew broadcast`; all `guest` commands |
-| Text — human-first | `crew init` |
-| Text only | root/leaf help and version |
+| Text — human-first | `crew init`; future `doctor` (with explicit TOON/JSON overrides) |
+| Text only | root/leaf help and version; future `help delivery` and `quickstart` guidance |
 
 Every result-producing leaf keeps explicit `--format text|toon|json` for compatibility and interoperability. Home gains an explicit format route while remaining TOON by default. Help and version do not gain structured wrappers.
 
@@ -38,6 +38,8 @@ Every result-producing leaf keeps explicit `--format text|toon|json` for compati
 ## Acceptance criteria
 
 - [ ] README or a dedicated CLI contract records every current command, primary audience, default, overrides, and next decision.
+- [ ] The command hierarchy groups operations by user intent and defines joined/source session, socket, Intake, Redirect/legacy steer, Follow-up, Response grace, Accepted, Persisted, Completed, and Response at point of use or through one canonical delivery guide.
+- [ ] CLI help and recovery hints reference runnable CLI commands, never agent-only tool names.
 - [ ] Representative happy, empty, usage-error, operational-error, and truncated outputs are captured before implementation.
 - [ ] Equivalent canonical results are measured as UTF-8 text/TOON/JSON; TOON samples decode and deep-equal the JSON-normalized value.
 - [ ] The intentional help, duplicate, sentinel, and error-wording compatibility choices above are explicit and tested as the migration baseline.
