@@ -203,8 +203,8 @@ export function emitIdleSettled(state: SocketState, ctx?: ExtensionContext): voi
 		{ outcome: "idle", disposition: "became-idle" },
 		observedAt,
 	);
-	const subscriptions = [...state.idleWaitSubscriptions];
-	state.idleWaitSubscriptions = [];
+	const subscriptions = state.idleWaitSubscriptions.filter((sub) => !sub.delegated);
+	state.idleWaitSubscriptions = state.idleWaitSubscriptions.filter((sub) => sub.delegated);
 	for (const sub of subscriptions) {
 		try {
 			writeMemberIdleWaitEvent(sub.socket, { subscriptionId: sub.subscriptionId, result });

@@ -38,6 +38,7 @@ export type MemberIdleWaitClientOutcome =
 				| "offline"
 				| "aborted"
 				| "malformed-response"
+				| "identity-mismatch"
 				| "remote-rejected"
 				| "capacity-exceeded"
 				| "transport-error";
@@ -47,6 +48,10 @@ export type MemberIdleWaitClientOutcome =
 export interface MemberIdleWaitClientOptions {
 	timeoutSeconds: number;
 	signal?: AbortSignal;
+	/** Called after the remote one-shot subscription has been accepted. */
+	onAcknowledged?: (subscriptionId: string) => void;
+	/** Canonical target identity expected from the terminal peer. */
+	expectedMember?: { name: string; role: string };
 }
 export class RpcProtocolError extends Error {
 	readonly code: string;
@@ -252,8 +257,9 @@ export function mapIdleSocketError(error: unknown): MemberIdleWaitClientOutcome 
 	return { ok: false, code: "transport-error" };
 }
 
-export function mapIdleRemoteError(message: unknown): "capacity-exceeded" | "remote-rejected" {
+export function mapIdleRemoteError(message: unknown): "capacity-exceeded" | "identity-mismatch" | "remote-rejected" {
 	const text = String(message ?? "");
+	if (/identity-mismatch/i.test(text)) return "identity-mismatch";
 	return /capacity/i.test(text)
 		? "capacity-exceeded"
 		: /not-joined|unknown|ambiguous|self-wait/i.test(text)
@@ -266,7 +272,7 @@ export async function sendMemberIdleWait(
 	command: MemberIdleWaitCommand,
 	options: MemberIdleWaitClientOptions,
 ): Promise<MemberIdleWaitClientOutcome> {
-	const { timeoutSeconds, signal } = options;
+	const { timeoutSeconds, signal, onAcknowledged, expectedMember } = options;
 	const requestId = command.id ?? nextId();
 	const request = commandToRequest(command, requestId);
 	return new Promise((resolve) => {
@@ -323,6 +329,14 @@ export async function sendMemberIdleWait(
 						finish({ ok: false, code: "malformed-response" });
 						return;
 					}
+					if (
+						expectedMember &&
+						(value.params.result.member.name !== expectedMember.name ||
+							value.params.result.member.role !== expectedMember.role)
+					) {
+						finish({ ok: false, code: "identity-mismatch" });
+						return;
+					}
 					terminalReceived = true;
 					finish({ ok: true, result: value.params.result });
 					return;
@@ -336,7 +350,7 @@ export async function sendMemberIdleWait(
 					return;
 				}
 				if ("error" in value) {
-					finish({ ok: false, code: mapIdleRemoteError(value.error.message) });
+					finish({ ok: false, code: mapIdleRemoteError(value.error.data?.code ?? value.error.message) });
 					return;
 				}
 				if (!isMemberIdleWaitSubscribeResult(value.result)) {
@@ -344,6 +358,7 @@ export async function sendMemberIdleWait(
 					return;
 				}
 				subscriptionAcknowledged = true;
+				onAcknowledged?.(value.result.subscriptionId);
 			}
 		});
 		socket.on("error", (error) => finish(mapIdleSocketError(error)));

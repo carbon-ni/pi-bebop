@@ -7,8 +7,8 @@ import * as net from "node:net";
 
 import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-server.ts";
 import { sendMemberIdleWait } from "../infra/rpc-client.ts";
-import { emitIdleSettled, type SocketState } from "../pi/control-runtime.ts";
-import { createSocketState } from "../pi/control-runtime.ts";
+import { parseMemberIdleWaitCommand, runMemberIdleWaitCommand } from "../cli/commands/member-idle-wait.ts";
+import { createSocketState, emitIdleSettled, handleCommand, type SocketState } from "../pi/control-runtime.ts";
 
 /**
  * Real-host member idle wait round trip (TASK-0051 evidence).
@@ -142,6 +142,88 @@ test("member idle wait round-trips over a real socket: busy -> settled becomes i
 		assert.equal(outcome.result.outcome, "idle");
 		assert.equal(outcome.result.disposition, "became-idle");
 		assert.equal(outcome.result.member.name, "Tony");
+	}
+});
+
+test("CLI/RPC wait for Mary never returns the source member Dave", async (t) => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "intray-idle-wait-routing-"));
+	const sourcePath = path.join(root, "dave.sock");
+	const maryPath = path.join(root, "mary.sock");
+	const state = createSocketState();
+	state.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: path.join(root, "crew.json"),
+			socketPath: sourcePath,
+			member: { name: "Dave", role: "developer", socketPath: sourcePath },
+			manifest: {
+				members: [
+					{ name: "Dave", role: "developer", socketPath: sourcePath },
+					{ name: "Mary", role: "po", socketPath: maryPath },
+				],
+			},
+		}),
+	} as never;
+	state.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "dave", getEntries: () => [] },
+		isIdle: () => true,
+		isProjectTrusted: () => true,
+	} as never;
+	const maryState = createSocketState();
+	maryState.membershipRuntime = {
+		getMembership: () => ({
+			manifestPath: path.join(root, "crew.json"),
+			socketPath: maryPath,
+			member: { name: "Mary", role: "po", socketPath: maryPath },
+			manifest: {
+				members: [
+					{ name: "Dave", role: "developer", socketPath: sourcePath },
+					{ name: "Mary", role: "po", socketPath: maryPath },
+				],
+			},
+		}),
+	} as never;
+	maryState.context = {
+		hasUI: false,
+		sessionManager: { getSessionId: () => "mary", getEntries: () => [] },
+		isIdle: () => true,
+		isProjectTrusted: () => true,
+	} as never;
+	const server = await createRpcServer(sourcePath, (command, socket) =>
+		handleCommand({} as never, state, command, socket),
+	);
+	const maryServer = await createRpcServer(maryPath, (command, socket) =>
+		handleCommand({} as never, maryState, command, socket),
+	);
+	t.after(async () => {
+		await closeRpcServer(server);
+		await closeRpcServer(maryServer);
+		await fs.rm(root, { recursive: true, force: true });
+	});
+
+	const outcome = await runMemberIdleWaitCommand(
+		parseMemberIdleWaitCommand(["Mary", "--timeout", "1s", "--format", "json"]),
+		{ cwd: root, input: process.stdin, signal: new AbortController().signal },
+		{
+			resolveSource: () => ({
+				ok: true as const,
+				kind: "id" as const,
+				idSocketPath: sourcePath,
+				aliasSocketPath: sourcePath,
+			}),
+			environmentSession: () => undefined,
+			sendWait: async (_source, target, timeoutSeconds, signal) =>
+				sendMemberIdleWait(
+					sourcePath,
+					{ type: "member_idle_wait", member: target },
+					{ timeoutSeconds, signal },
+				),
+		},
+	);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") {
+		assert.equal(outcome.result.ok, true);
+		assert.equal((outcome.result.data as { result: { member: { name: string } } }).result.member.name, "Mary");
 	}
 });
 

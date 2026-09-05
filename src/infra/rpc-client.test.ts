@@ -43,6 +43,7 @@ test("idle socket error mapping preserves stable endpoint categories", () => {
 
 test("idle remote error mapping preserves stable rejection categories", () => {
 	assert.equal(mapIdleRemoteError("capacity exceeded"), "capacity-exceeded");
+	assert.equal(mapIdleRemoteError("identity-mismatch"), "identity-mismatch");
 	for (const message of ["not-joined", "unknown member", "ambiguous member", "self-wait"])
 		assert.equal(mapIdleRemoteError(message), "remote-rejected");
 	assert.equal(mapIdleRemoteError("other remote failure"), "remote-rejected");
@@ -838,6 +839,49 @@ test("sendMemberIdleWait resolves the terminal event for a busy target that sett
 				assert.equal(outcome.result.outcome, "idle");
 				assert.equal(outcome.result.disposition, "became-idle");
 			}
+		},
+	);
+});
+
+test("sendMemberIdleWait validates canonical target identity and exposes acceptance", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) => {
+				if (request.method !== "member.idle_wait") return;
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					result: { subscriptionId: String(request.id), event: "member_idle" },
+				});
+				send(socket, {
+					jsonrpc: "2.0",
+					method: "member.idle_wait",
+					params: {
+						subscriptionId: String(request.id),
+						result: {
+							member: { name: "Dave", role: "developer" },
+							outcome: "idle",
+							disposition: "already-idle",
+							observedAt: "2026-08-23T12:03:00.000Z",
+						},
+					},
+				});
+			}),
+		async (socketPath) => {
+			let acknowledged = "";
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Mary" },
+				{
+					timeoutSeconds: 1,
+					expectedMember: { name: "Mary", role: "po" },
+					onAcknowledged: (id) => {
+						acknowledged = id;
+					},
+				},
+			);
+			assert.equal(acknowledged.startsWith("rpc_"), true);
+			assert.deepEqual(outcome, { ok: false, code: "identity-mismatch" });
 		},
 	);
 });

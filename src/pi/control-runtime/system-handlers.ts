@@ -1,6 +1,8 @@
 import {
 	createInterruptRecoveryPayload,
 	createMemberIdleWaitResult,
+	resolveMemberIdleWaitTarget,
+	MEMBER_IDLE_WAIT_TIMEOUT_SECONDS,
 	getFirstEntryId,
 	getLastAssistantMessage,
 	isInboxHint,
@@ -9,17 +11,19 @@ import {
 	renderFollowUpModelContent,
 	resolveInterruptTarget,
 	SESSION_MESSAGE_TYPE,
+	RPC_ERROR,
 	type MemberInterruptRequest,
 	type RpcInboundCommand,
 } from "../../domain/index.ts";
 import { createInterruptFlow } from "../../application/interrupt-flow.ts";
-import { sendRpcCommand } from "../../infra/rpc-client.ts";
+import { sendRpcCommand, sendMemberIdleWait } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
-import { writeMemberIdleWaitEvent, type RpcSocket } from "../../infra/rpc-server.ts";
+import { writeMemberIdleWaitEvent, writeWireError, type RpcSocket } from "../../infra/rpc-server.ts";
 import type { CommandHandlerContext } from "./types.ts";
 import { contextIsCompacting, memberInterruptErrorCode, notifyAcceptedMessage } from "./utils.ts";
 import { deriveIntrayStatus } from "./status.ts";
 import { tryAcquireIdleWaitSubscription } from "../../domain/index.ts";
+import { probeMemberEndpoint } from "../../infra/member-endpoint.ts";
 export async function handleMemberIdleWait(
 	context: CommandHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_idle_wait" }>,
@@ -30,34 +34,120 @@ export async function handleMemberIdleWait(
 		respond(false, "member_idle_wait", undefined, "not-joined");
 		return;
 	}
-	const ownName = membership.member.name;
-	const activeTargets = new Set(state.idleWaitSubscriptions.map((sub) => ownName));
-	const gate = tryAcquireIdleWaitSubscription(activeTargets, ownName, state.idleWaitSubscriptions.length);
+	if (state.context?.isProjectTrusted?.() === false) {
+		respond(false, "member_idle_wait", undefined, "untrusted");
+		return;
+	}
+	const localTarget = command.forwarded === true && command.member === membership.member.name;
+	const resolution = localTarget
+		? ({ ok: true as const, target: membership.member } as const)
+		: resolveMemberIdleWaitTarget(membership.manifest, membership.member.name, command.member);
+	// Empty manifests are retained as a narrow compatibility fixture for direct
+	// target runtimes; configured manifests never use this fallback.
+	if (resolution.ok === false && membership.manifest.members.length > 0) {
+		respond(false, "member_idle_wait", undefined, resolution.code);
+		return;
+	}
+	const target = resolution.ok ? resolution.target : membership.member;
+	const subscriptionId = String(id);
+	const activeTargets = new Set(state.idleWaitSubscriptions.map((sub) => sub.targetName ?? membership.member.name));
+	const gate = tryAcquireIdleWaitSubscription(activeTargets, target.name, state.idleWaitSubscriptions.length);
 	if (gate.ok === false) {
 		respond(false, "member_idle_wait", undefined, gate.code);
 		return;
 	}
-	const subscriptionId = String(id);
-	if (ctx.isIdle() && !contextIsCompacting(ctx)) {
-		// Already fully idle: complete directly without registering a lingering subscription.
-		const observedAt = new Date().toISOString();
-		const result = createMemberIdleWaitResult(
-			{ name: membership.member.name, role: membership.member.role },
-			{ outcome: "idle", disposition: "already-idle" },
-			observedAt,
-		);
+	const targetIdentity = { name: target.name, role: target.role };
+	if (localTarget || membership.manifest.members.length === 0) {
+		if (ctx.isIdle() && !contextIsCompacting(ctx)) {
+			const result = createMemberIdleWaitResult(
+				targetIdentity,
+				{ outcome: "idle", disposition: "already-idle" },
+				new Date().toISOString(),
+			);
+			respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
+			writeMemberIdleWaitEvent(socket, { subscriptionId, result });
+			return;
+		}
+		state.idleWaitSubscriptions.push({ socket, subscriptionId, targetName: target.name });
+		const cleanup = () => {
+			const idx = state.idleWaitSubscriptions.findIndex((sub) => sub.subscriptionId === subscriptionId);
+			if (idx !== -1) state.idleWaitSubscriptions.splice(idx, 1);
+		};
+		socket.once("close", cleanup);
+		socket.once("error", cleanup);
 		respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
-		writeMemberIdleWaitEvent(socket, { subscriptionId, result });
 		return;
 	}
-	state.idleWaitSubscriptions.push({ socket, subscriptionId });
-	const cleanup = () => {
+	const controller = new AbortController();
+	state.idleWaitSubscriptions.push({ socket, subscriptionId, targetName: target.name, delegated: true });
+	const cleanupDelegated = () => {
 		const idx = state.idleWaitSubscriptions.findIndex((sub) => sub.subscriptionId === subscriptionId);
 		if (idx !== -1) state.idleWaitSubscriptions.splice(idx, 1);
 	};
-	socket.once("close", cleanup);
-	socket.once("error", cleanup);
-	respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
+	const onDisconnect = () => {
+		cleanupDelegated();
+		controller.abort();
+	};
+	socket.once("close", onDisconnect);
+	socket.once("error", onDisconnect);
+	const finishWithResult = (result: import("../../domain/index.ts").MemberIdleWaitResult) => {
+		try {
+			writeMemberIdleWaitEvent(socket, { subscriptionId, result });
+		} catch {
+			/* Caller socket may have closed. */
+		}
+	};
+	const runRemoteWait = async (): Promise<void> => {
+		try {
+			const alive = await probeMemberEndpoint(target.socketPath, { timeoutMs: 500, signal: controller.signal });
+			if (!alive) {
+				respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
+				finishWithResult(
+					createMemberIdleWaitResult(targetIdentity, { outcome: "offline" }, new Date().toISOString()),
+				);
+				return;
+			}
+			const endpoint = await resolveMemberEndpoint(target.socketPath);
+			const outcome = await sendMemberIdleWait(
+				endpoint,
+				{ type: "member_idle_wait", member: target.name, forwarded: true },
+				{
+					timeoutSeconds: command.timeoutSeconds ?? MEMBER_IDLE_WAIT_TIMEOUT_SECONDS,
+					signal: controller.signal,
+					expectedMember: targetIdentity,
+					onAcknowledged: (remoteSubscriptionId) => {
+						void remoteSubscriptionId;
+						respond(true, "member_idle_wait", { subscriptionId, event: "member_idle" });
+					},
+				},
+			);
+			if (outcome.ok) {
+				finishWithResult(outcome.result);
+				return;
+			}
+			if (!("code" in outcome)) {
+				writeWireError(socket, id, RPC_ERROR.internal, "Member idle wait failed", { code: "transport-error" });
+				return;
+			}
+			const failureCode = outcome.code;
+			if (failureCode === "timeout" || failureCode === "offline") {
+				finishWithResult(
+					createMemberIdleWaitResult(targetIdentity, { outcome: failureCode }, new Date().toISOString()),
+				);
+				return;
+			}
+			writeWireError(socket, id, RPC_ERROR.internal, "Member idle wait failed", { code: failureCode });
+		} catch (error) {
+			if (!controller.signal.aborted)
+				writeWireError(socket, id, RPC_ERROR.internal, "Member idle wait failed", {
+					code: error instanceof Error ? error.name : "transport-error",
+				});
+		}
+	};
+	void runRemoteWait().finally(() => {
+		cleanupDelegated();
+		controller.abort();
+	});
 	return;
 }
 
