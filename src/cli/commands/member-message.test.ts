@@ -8,10 +8,10 @@ import {
 	type MemberMessageCliDependencies,
 	type MemberMessageIntent,
 } from "./member-message.ts";
-import { UsageError } from "../arguments.ts";
-import { writeOutcome, type CliOutcome } from "../output.ts";
-import type { CliContext } from "../context.ts";
-import type { SourceResolution } from "../source-session.ts";
+import { UsageError } from "../support/arguments.ts";
+import { writeOutcome, type CliOutcome } from "../support/output.ts";
+import type { CliContext } from "../support/context.ts";
+import type { SourceResolution } from "../support/source-session.ts";
 
 function context(): CliContext {
 	return { cwd: "/project", input: new PassThrough(), signal: new AbortController().signal };

@@ -2,12 +2,12 @@ import { Command, CommanderError } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberStatusResult, formatMemberStatus, type MemberStatus } from "../../domain/index.ts";
-import { UsageError, type CliFormat } from "../arguments.ts";
-import { scanCliFlags } from "../flag-scanner.ts";
-import { errorResult, usageResult } from "../errors.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
-import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../source-session.ts";
+import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { scanCliFlags } from "../support/flag-scanner.ts";
+import { errorResult, usageResult } from "../support/errors.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
+import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
 
 /**
  * TASK-0061: `member status <member>` leaf — the walking skeleton for the

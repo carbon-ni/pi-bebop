@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { CliOutcome } from "../output.ts";
+import type { CliOutcome } from "../support/output.ts";
 
 /**
  * TASK-0063: `home` handler — compact project state for the no-argument

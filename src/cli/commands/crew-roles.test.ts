@@ -3,8 +3,8 @@ import test from "node:test";
 import { PassThrough } from "node:stream";
 import { CrewManifestReadError } from "../../infra/crew-manifest-store.ts";
 import { CrewManifestError, type CrewManifest } from "../../domain/index.ts";
-import { UsageError } from "../arguments.ts";
-import type { CliContext } from "../context.ts";
+import { UsageError } from "../support/arguments.ts";
+import type { CliContext } from "../support/context.ts";
 import {
 	buildCrewRolesCommand,
 	crewRolesHelp,

@@ -12,9 +12,9 @@ import {
 	runMemberStatusCommand,
 	type MemberStatusCliDependencies,
 } from "./commands/member-status.ts";
-import { writeOutcome } from "./output.ts";
-import type { CliContext } from "./context.ts";
-import type { SourceResolution } from "./source-session.ts";
+import { writeOutcome } from "./support/output.ts";
+import type { CliContext } from "./support/context.ts";
+import type { SourceResolution } from "./support/source-session.ts";
 
 /**
  * TASK-0061 real-wire proof: the CLI leaf against a real Unix-socket RPC

@@ -4,8 +4,8 @@ import { Command } from "commander";
 import { PassThrough } from "node:stream";
 import { composeRegistry, type CliLeaf } from "./registry.ts";
 import { createCliExecutionAdapter, rejectDuplicateScalarOptions } from "./execution-adapter.ts";
-import { UsageError } from "./arguments.ts";
-import type { CliContext } from "./context.ts";
+import { UsageError } from "./support/arguments.ts";
+import type { CliContext } from "./support/context.ts";
 
 function context(): CliContext {
 	return { cwd: "/project", input: new PassThrough(), signal: new AbortController().signal };

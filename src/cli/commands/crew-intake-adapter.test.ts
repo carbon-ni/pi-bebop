@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deliverCrewIntake, type CrewIntakeDependencies } from "./crew-intake-adapter.ts";
-import type { SendCliOptions } from "../arguments.ts";
-import type { CliContext } from "../context.ts";
+import type { SendCliOptions } from "../support/arguments.ts";
+import type { CliContext } from "../support/context.ts";
 import { PassThrough } from "node:stream";
 
 function options(overrides: Partial<SendCliOptions> = {}): SendCliOptions {

@@ -1,5 +1,5 @@
-import { getAliasPath, getSocketPath } from "../infra/intray-paths.ts";
-import { isSafeAlias, isSafeSessionId } from "../domain/index.ts";
+import { getAliasPath, getSocketPath } from "../../infra/intray-paths.ts";
+import { isSafeAlias, isSafeSessionId } from "../../domain/index.ts";
 
 /**
  * TASK-0061: leaf-command-local source-session resolution. Deterministic and

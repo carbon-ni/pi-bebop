@@ -3,8 +3,8 @@ import test from "node:test";
 import { Command } from "commander";
 import { PassThrough } from "node:stream";
 import { composeRegistry, createCliRegistry, type CliContext, type CliLeaf } from "./registry.ts";
-import { UsageError } from "./arguments.ts";
-import { writeOutcome, type CliOutcome } from "./output.ts";
+import { UsageError } from "./support/arguments.ts";
+import { writeOutcome, type CliOutcome } from "./support/output.ts";
 
 function context(): CliContext {
 	return { cwd: "/project", input: new PassThrough(), signal: new AbortController().signal };

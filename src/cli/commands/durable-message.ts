@@ -7,13 +7,13 @@ import {
 	type CrewBroadcastRpcResult,
 	type MemberInboxSendResult,
 } from "../../domain/index.ts";
-import { UsageError, type CliFormat } from "../arguments.ts";
-import { scanCliFlags } from "../flag-scanner.ts";
-import { errorResult, usageResult } from "../errors.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
-import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../source-session.ts";
-import { readStdinMessage } from "../message-input.ts";
+import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { scanCliFlags } from "../support/flag-scanner.ts";
+import { errorResult, usageResult } from "../support/errors.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
+import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
+import { readStdinMessage } from "../support/message-input.ts";
 
 export type DurableMessageIntent = "inbox" | "broadcast";
 export interface DurableMessageCliOptions {

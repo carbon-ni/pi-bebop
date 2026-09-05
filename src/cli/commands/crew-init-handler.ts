@@ -1,9 +1,9 @@
 import { createCrewInitFlow } from "../../application/crew-init-flow.ts";
 import { createNodeCrewInitFsAdapter } from "../../infra/crew-init-fs.ts";
 import { crewInitHelp } from "../../domain/index.ts";
-import { errorResult } from "../errors.ts";
-import type { CrewInitCliOptions } from "../arguments.ts";
-import type { CliOutcome } from "../output.ts";
+import { errorResult } from "../support/errors.ts";
+import type { CrewInitCliOptions } from "../support/arguments.ts";
+import type { CliOutcome } from "../support/output.ts";
 
 /**
  * TASK-0063: `crew init` handler — owns the scaffold flow result mapping and

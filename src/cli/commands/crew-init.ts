@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { UsageError, type CliFormat } from "../arguments.ts";
+import { UsageError, type CliFormat } from "../support/arguments.ts";
 
 /**
  * TASK-0057: the first per-action command module (PO sequencing review:

@@ -1,7 +1,7 @@
 import type { CliFormat } from "./arguments.ts";
 import type { CliResult } from "./output.ts";
-import { ExternalIntakeError } from "../application/external-intake.ts";
-import { DirectMessageError } from "../application/direct-message.ts";
+import { ExternalIntakeError } from "../../application/external-intake.ts";
+import { DirectMessageError } from "../../application/direct-message.ts";
 
 /**
  * TASK-0063: shared CLI error mapping. Stable codes and exit-2 usage results

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { UsageError } from "./arguments.ts";
-import { scanCliFlags } from "./flag-scanner.ts";
+import { UsageError } from "./support/arguments.ts";
+import { scanCliFlags } from "./support/flag-scanner.ts";
 
 test("scanCliFlags collects repeatable values in order and preserves unknown tokens", () => {
 	const result = scanCliFlags(

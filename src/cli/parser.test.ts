@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { parseCrewInitCommand } from "./parser.ts";
-import { UsageError } from "./arguments.ts";
+import { UsageError } from "./support/arguments.ts";
 
 /**
  * TASK-0057 facade tests: the Commander-backed declarative crew init parser.

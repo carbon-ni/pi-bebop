@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
 import { runSendCommand, type SendHandlerAdapters } from "./send-handler.ts";
-import { UsageError, type SendCliOptions } from "../arguments.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
+import { UsageError, type SendCliOptions } from "../support/arguments.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
 import { buildSendCommand, readSendLeafOptions, sendHelp } from "./send.ts";
 
 function sendOptions(overrides: Partial<SendCliOptions> = {}): SendCliOptions {

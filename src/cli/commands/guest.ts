@@ -7,10 +7,10 @@ import { createGuestMembershipRuntime } from "../../infra/guest-membership-runti
 import { getTrustedCrewManifestPaths, readTrustedCrewManifest } from "../../infra/crew-manifest-store.ts";
 import { createGuestRegistryStore } from "../../infra/guest-registry-store.ts";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
-import { UsageError, type CliFormat } from "../arguments.ts";
-import { errorCode, errorResult } from "../errors.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
+import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { errorCode, errorResult } from "../support/errors.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
 
 /**
  * TASK-0161: non-interactive Guest wire commands. `guest join` and

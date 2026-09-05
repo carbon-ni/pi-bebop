@@ -16,9 +16,9 @@ import {
 	runMemberMessageCommand,
 	type MemberMessageCliDependencies,
 } from "./commands/member-message.ts";
-import { writeOutcome } from "./output.ts";
-import type { CliContext } from "./context.ts";
-import type { SourceResolution } from "./source-session.ts";
+import { writeOutcome } from "./support/output.ts";
+import type { CliContext } from "./support/context.ts";
+import type { SourceResolution } from "./support/source-session.ts";
 
 /**
  * TASK-0062 real-wire proof: the CLI leaf against two real Unix-socket RPC

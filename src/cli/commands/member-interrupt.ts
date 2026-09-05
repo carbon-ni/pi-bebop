@@ -2,12 +2,12 @@ import { Command } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberInterruptResult, type MemberInterruptResult } from "../../domain/index.ts";
-import { UsageError, type CliFormat } from "../arguments.ts";
-import { errorResult, usageResult } from "../errors.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
-import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../source-session.ts";
-import { readStdinMessage } from "../message-input.ts";
+import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { errorResult, usageResult } from "../support/errors.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
+import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
+import { readStdinMessage } from "../support/message-input.ts";
 import { parseMemberMessageCommand } from "./member-message.ts";
 
 export interface MemberInterruptCliOptions {

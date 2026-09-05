@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { parseSendCommand } from "./parser.ts";
-import { UsageError } from "./arguments.ts";
+import { UsageError } from "./support/arguments.ts";
 import { MAX_MESSAGE_INSTRUCTIONS } from "../domain/index.ts";
 
 /**

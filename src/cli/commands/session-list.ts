@@ -5,10 +5,10 @@ import { CONTROL_DIR } from "../../infra/intray-paths.ts";
 import { probeMemberEndpoint } from "../../infra/member-endpoint.ts";
 import { sendRpcCommand } from "../../infra/rpc-client.ts";
 import { isSafeAlias, isSafeSessionId } from "../../domain/index.ts";
-import { UsageError, type CliFormat } from "../arguments.ts";
-import { errorResult } from "../errors.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
+import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { errorResult } from "../support/errors.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
 
 /**
  * TASK-0061: `session list` discovery surface. Bounded, deterministic, and

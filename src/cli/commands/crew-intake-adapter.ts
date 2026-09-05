@@ -5,9 +5,9 @@ import { openTrustedMemberInboxStore } from "../../infra/member-inbox-store.ts";
 import { CrewManifestReadError } from "../../infra/crew-manifest-store.ts";
 import { isTrustedCrewManifestPath } from "../../infra/crew-layout.ts";
 import { parseCrewManifest, type CrewManifest, type ExternalIntakeAck } from "../../domain/index.ts";
-import type { SendCliOptions } from "../arguments.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
+import type { SendCliOptions } from "../support/arguments.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
 
 /**
  * TASK-0063: durable Crew Intake adapter. Owns the manifest loader with

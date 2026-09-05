@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { RpcProtocolError } from "../../infra/rpc-client.ts";
-import { UsageError } from "../arguments.ts";
+import { UsageError } from "../support/arguments.ts";
 import {
 	guestJoinHelp,
 	guestLeaveHelp,
@@ -18,7 +18,7 @@ import {
 	runGuestMessageCommand,
 	type GuestCliDependencies,
 } from "./guest.ts";
-import type { CliContext } from "../context.ts";
+import type { CliContext } from "../support/context.ts";
 import { runCli } from "../run.ts";
 import { createGuestRegistryStore, digestGuestCapability } from "../../infra/guest-registry-store.ts";
 
