@@ -168,6 +168,16 @@ export function registerWaitForMemberIdleTool(
 				// message is submitted; the message keeps its FIFO/steer mode.
 				let result: ReturnType<typeof createMemberIdleWaitResult>;
 				if (terminal.ok === true) {
+					if (
+						terminal.result.member.name !== targetIdentity.name ||
+						terminal.result.member.role !== targetIdentity.role
+					) {
+						return errorResult(
+							memberLabel || "member",
+							"identity-mismatch",
+							"Member idle wait returned a different identity",
+						);
+					}
 					result = terminal.result;
 				} else if (terminal.code === "timeout") {
 					result = createMemberIdleWaitResult(targetIdentity, { outcome: "timeout" }, observedAt());

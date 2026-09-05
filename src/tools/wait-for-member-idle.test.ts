@@ -140,6 +140,24 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		assert.match(result.content[0]!.text, /became-idle/);
 	});
 
+	test("rejects a terminal result whose identity differs from the resolved target", async () => {
+		const { tool } = setup(membership, {
+			requestIdleWait: async () => ({
+				ok: true,
+				result: {
+					member: { name: "Dave", role: "dev" },
+					outcome: "idle",
+					disposition: "already-idle",
+					observedAt: "2026-08-23T12:03:00.000Z",
+				},
+			}),
+		});
+		const result = await tool.execute("id", { member: "Bob" });
+		assert.equal(result.isError, true);
+		assert.deepEqual(result.details, { error: "identity-mismatch" });
+		assert.doesNotMatch(result.content[0]!.text, /Dave/);
+	});
+
 	test("TASK-0081: already-idle, offline, and timeout outcomes return directly as terminal results", async () => {
 		const already = setup(membership, {
 			requestIdleWait: async () => ({
