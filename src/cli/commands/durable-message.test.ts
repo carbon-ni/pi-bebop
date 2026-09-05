@@ -77,10 +77,26 @@ test("durable commands parse target/message sources and preserve instruction ord
 		() => parseDurableMessageCommand(["--wait", "response", "--message", "x"], "broadcast"),
 		/never waits for delivery/,
 	);
+	assert.throws(() => parseDurableMessageCommand(["--bogus", "x", "--message", "hello"], "broadcast"), /valid flags/);
+	assert.throws(() => parseDurableMessageCommand(["extra", "--message", "hello"], "broadcast"), /Too many arguments/);
 });
 
 test("durable parsers cover help, duplicate flags, instruction validation, and source errors", () => {
 	assert.equal(parseDurableMessageCommand(["--help"], "broadcast").help, true);
+	assert.deepEqual(parseDurableMessageCommand(["--help"], "inbox"), {
+		command: "member-inbox-send",
+		intent: "inbox",
+		member: "",
+		instructions: [],
+		stdin: false,
+		format: "toon",
+		help: true,
+	});
+	assert.equal(
+		parseDurableMessageCommand(["Kelly", "--session", "alias", "--message", "x", "--format", "text"], "inbox")
+			.session,
+		"alias",
+	);
 	assert.throws(() => parseDurableMessageCommand(["--help", "--help"], "broadcast"), /Duplicate flag/);
 	assert.throws(() => parseDurableMessageCommand(["--instruction"], "broadcast"), /Missing value/);
 	assert.throws(
@@ -98,6 +114,29 @@ test("durable parsers cover help, duplicate flags, instruction validation, and s
 	);
 	assert.throws(() => parseDurableMessageCommand(["--message", "x"], "inbox"), /Missing <member>/);
 	assert.throws(() => parseDurableMessageCommand([" Bob", "--message", "x"], "inbox"), /trimmed/);
+});
+
+test("durable command help is local and IO-free", async () => {
+	const inbox = await runDurableMessageCommand(
+		{
+			command: "member-inbox-send",
+			intent: "inbox",
+			member: "Kelly",
+			instructions: [],
+			stdin: false,
+			format: "toon",
+			help: true,
+		},
+		context(),
+		deps(),
+	);
+	const broadcast = await runDurableMessageCommand(
+		{ command: "crew-broadcast", intent: "broadcast", instructions: [], stdin: false, format: "text", help: true },
+		context(),
+		deps(),
+	);
+	assert.equal(inbox.kind, "help");
+	assert.equal(broadcast.kind, "help");
 });
 
 test("durable commands map source, stdin, and delivery failures", async () => {

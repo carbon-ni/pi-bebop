@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { RpcProtocolError } from "../../infra/rpc-client.ts";
 import { UsageError } from "../arguments.ts";
 import {
+	guestJoinHelp,
+	guestLeaveHelp,
+	guestMessageHelp,
 	guestWireErrorCode,
 	parseGuestJoinCommand,
 	parseGuestLeaveCommand,
@@ -429,6 +432,15 @@ describe("guest CLI help and error branches", () => {
 
 		assert.equal(guestWireErrorCode(new RpcProtocolError("remote-error", "")), "remote-error");
 	});
+});
+
+test("guest help names each delivery surface", () => {
+	assert.match(guestJoinHelp(), /guest join <member-socket>/);
+	assert.match(guestLeaveHelp(), /guest leave <member-socket>/);
+	assert.match(guestMessageHelp("send"), /guest send --target <member>/);
+	assert.match(guestMessageHelp("send"), /direct Guest Follow-up/);
+	assert.match(guestMessageHelp("broadcast"), /guest broadcast --crew/);
+	assert.match(guestMessageHelp("broadcast"), /transient Guest Broadcast/);
 });
 
 test("a trailing --format without a value falls back to the toon default", () => {
