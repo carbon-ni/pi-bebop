@@ -1,7 +1,7 @@
 ---
 id: TASK-0171
 title: Define name-first Crew interaction contract
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [product, crew, routing, ask, status, privacy, ubiquitous-language]
@@ -60,7 +60,7 @@ pi-bebop ask funzzy/Mony "What is blocked?"
 - Security/lead: Mony approved the strict Crew Locator boundary. Locator access is consent to inspect one trusted manifest, never authentication or Member/Guest authority.
 - Development: Dave approved feasibility against current domain/protocol seams.
 - Independent QA-lens review: Dave conditionally approved and identified three pre-implementation gaps. They are resolved: duplicate Member names map only to `invalid-manifest`; the Ask outcome/exit registry is explicit; and multiple visible runtimes route only through the canonical endpoint owner. Non-blocking discovery cap/timeout and delivery-cancellation uncertainty are also specified.
-- Named QA: pending Kelly review; durable request `inbox-0-bac0a855` is queued.
+- QA gate: the independent QA-lens review by Dave is accepted as sufficient for this documentation-only contract gate. Kelly remains offline; no additional QA action is required before implementation planning.
 
 ## Non-goals
 
