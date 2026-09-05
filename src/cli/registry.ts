@@ -128,6 +128,11 @@ export interface ParsedCommand {
 	readonly options: unknown;
 }
 
+export interface CliCommandHooks {
+	readonly onGroup?: (command: Command, names: readonly string[]) => void;
+	readonly onLeaf?: (command: Command, leaf: CliLeaf) => void;
+}
+
 export interface CliRegistry {
 	/** Ordered leaf composition — the only place command wiring grows. */
 	readonly leaves: readonly CliLeaf[];
@@ -160,19 +165,27 @@ const GROUP_DESCRIPTIONS: Record<string, string> = {
 };
 
 /** Builds the declarative root tree from the ordered leaves (no hardcoded vocabulary). */
-export function buildRootCommand(leaves: readonly CliLeaf[]): Command {
+export function buildRootCommand(leaves: readonly CliLeaf[], hooks: CliCommandHooks = {}): Command {
 	const root = new Command("pi-bebop").description("Pi Bebop crew coordination CLI");
 	for (const leaf of leaves) {
 		if (leaf.names.length === 0) continue; // home has no command word
 		if (leaf.names.length === 1) {
-			root.addCommand(leaf.build());
+			const command = leaf.build();
+			hooks.onLeaf?.(command, leaf);
+			root.addCommand(command);
 			continue;
 		}
 		let parent = root;
+		const groupNames: string[] = [];
 		for (const word of leaf.names.slice(0, -1)) {
+			groupNames.push(word);
+			const existing = parent.commands.find((candidate) => candidate.name() === word);
 			parent = findOrCreate(parent, word, GROUP_DESCRIPTIONS[word]);
+			if (!existing) hooks.onGroup?.(parent, [...groupNames]);
 		}
-		parent.addCommand(leaf.build());
+		const command = leaf.build();
+		hooks.onLeaf?.(command, leaf);
+		parent.addCommand(command);
 	}
 	return root;
 }
