@@ -1,7 +1,7 @@
 ---
 id: TASK-0166
 title: Introduce Commander-owned CLI execution adapter
-status: todo
+status: doing
 depends_on: [TASK-0165]
 priority: high
 tags: [cli, commander, dispatch, composition, tdd]
