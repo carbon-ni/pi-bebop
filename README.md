@@ -103,13 +103,12 @@ project socket paths.
 | `redirect_member`     | change what a member is doing next                      | steered before the target's next model step; never aborts                              |
 | `send_to_inbox`       | the peer may be offline                                 | persisted durably; read later as a normal follow-up                                    |
 | `interrupt_member`    | work is stuck, harmful, or based on invalid assumptions | best-effort abort plus recovery guidance; never rolls back side effects                |
-| `broadcast_to_crew`   | a shared team-wide constraint                           | transient Broadcast Follow-up to every other member; per-recipient delivery outcomes |
+| `broadcast_to_crew`   | a shared team-wide constraint                           | transient Broadcast Follow-up to every other member; per-recipient delivery outcomes   |
 
 The standalone `pi-bebop send --socket` command is accepted-delivery only by
 default. Its legacy `--wait turn_end` mode is rejected because Pi exposes only
-a global completion event, which cannot be causally tied to this delivery. Use
-`send_member_request`/`wait_for_request_outcome` or `pi-bebop ask <crew[/member]>`
-when one correlated response is required.
+a global completion event, which cannot be causally tied to this delivery. Use `pi-bebop member request send` followed by `pi-bebop member request wait`,
+or `pi-bebop ask <crew[/member]>`, when one correlated response is required.
 
 `wait_for_member_idle` blocks the current run until the target settles to mechanical idle, goes offline, the bounded timeout expires, or an accepted
 Bebop message releases the wait under its original delivery mode. When this is the only call in the tool batch, the waking message is consumed
