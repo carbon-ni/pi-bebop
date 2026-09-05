@@ -1,7 +1,7 @@
 ---
 id: TASK-0190
 title: Extract semantic checks from validateSendSemantics
-status: todo
+status: doing
 depends_on: []
 priority: normal
 tags: [techdebt, cli, complexity, parser]
