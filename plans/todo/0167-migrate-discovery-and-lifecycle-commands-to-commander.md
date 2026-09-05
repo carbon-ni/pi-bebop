@@ -1,7 +1,7 @@
 ---
 id: TASK-0167
 title: Migrate discovery and lifecycle commands to Commander
-status: todo
+status: doing
 depends_on: [TASK-0166]
 priority: normal
 tags: [cli, commander, parsing, help, discovery, lifecycle, tdd]
