@@ -110,8 +110,13 @@ export function createCliExecutionAdapter(registry: CliRegistry) {
 		},
 		onLeaf: (command, leaf) => {
 			leafHelp.set(command, leaf.help());
-			addHelpOption(command, true);
-			command.allowUnknownOption(true).allowExcessArguments(true);
+			// TASK-0167: a leaf with a Commander reader owns its full option and
+			// arity surface, so Commander enforces unknown options and excess
+			// arguments strictly before the reader or handler runs. Legacy
+			// parse-only leaves keep deferred syntax until their migration.
+			const migrated = leaf.read !== undefined;
+			addHelpOption(command, !migrated);
+			if (!migrated) command.allowUnknownOption(true).allowExcessArguments(true);
 			command.action(async () => {
 				if (invocation === undefined) throw new UsageError("CLI execution was not initialized");
 				const { request } = invocation;
