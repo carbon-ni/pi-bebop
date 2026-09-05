@@ -13,7 +13,11 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Guest membership**     | Crew-owned, revocable binding of one Guest identity and callback endpoint to one exact Crew, with an independently approved display name and ordinary messaging capabilities.                                                                                                  | membership, login, trust                                |
 | **Guest join request**   | Untrusted request submitted through one live Member socket asking to join one exact Crew; socket knowledge creates only a pending request, never membership.                                                                                                                   | invitation, admission, login                            |
 | **Guest approver**       | Exact manifest-configured Member name listed in `guestAdmission.approvers`, allowed to approve, deny, or revoke Guests; no role or online-state fallback is inferred.                                                                                                          | admin, lead, owner, authority                           |
-| **Crew selector**        | Stable public Crew identity used by a Guest to select one joined Crew without exposing manifest paths or socket routes; display-name duplicates never trigger guessing.                                                                                                        | crew name, path, socket                                 |
+| **Crew selector**        | Stable, case-sensitive public `crew.id` used to address one Crew; display name is informative and never resolves a target. Duplicate selectors across local worktrees never trigger guessing.                                                                                  | display name, path, socket                              |
+| **Crew Locator**         | Canonical resolved path of one allowed local `crew.json`, used as manifest, trust, and routing lookup root. It scopes one local Crew copy but is not Crew identity, caller authentication, or a universal transport endpoint.                                                   | Crew selector, credential, runtime socket               |
+| **Crew directory**       | Bounded local view mapping exact Crew Selectors to trusted eligible Crew Locators, availability, and freshness without exposing session or endpoint transport.                                                                                                                | session list, filesystem scan                           |
+| **Crew Target**          | Exact Crew Selector, or explicit Crew Locator used only when recovery from a local ambiguity requires it.                                                                                                                                                                     | display name, inferred crew                             |
+| **Member Target**        | Exact case-sensitive Member name resolved only within one Crew Target.                                                                                                                                                                                                        | role, first member, online member                       |
 | **Guest presence**       | Online/offline observation of an approved Guest callback endpoint; it proves neither membership, trust, acknowledgement, authority, nor content authenticity.                                                                                                                  | availability, approval, health                          |
 | **Guest approval**       | Crew-local decision by an exact Guest approver that binds one expected Guest identity, callback endpoint, display name, and Crew selector; it creates membership only after the capability binding succeeds.                                                                   | invitation, trust, role grant                           |
 | **Guest revocation**     | Crew-local decision by an exact Guest approver that invalidates one Guest capability and removes only that Crew membership.                                                                                                                                                    | ban, global disconnect, shutdown                        |
@@ -39,6 +43,9 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Responder**            | Transient per-request role: the member who received a Member request and sends exactly one correlated Response with respond_to_member_request. Not a Crew role, not a permission.                                                                                              | assignee, worker, implied reporter                      |
 | **Request outcome**      | Oldest terminal outcome of one outbound Member request: Response, offline, timeout after idle, or timeout max-wait. Idle itself is NOT an outcome: the responder gets a short bounded post-idle grace to report. It is not progress, task state, or Crew activity.             | monitoring, status, completion proof                    |
 | **Request ID**           | Opaque bounded identifier correlating one Member request with its Response; it is not a Delivery ID, task ID, proof of identity, or authority credential.                                                                                                                      | authentication, task ID, identity proof                 |
+| **Crew report**          | Bounded aggregation of manifest facts, mechanical observations, and separately attributed explicit Member work reports. It is not monitoring or a synthesized statement of truth.                                                                                            | transcript summary, inferred progress                   |
+| **Reported work state**  | Explicit Member-authored goal, assignment, progress, blockers, results, or next step with `reportedAt`; absence stays unavailable and mechanical state never substitutes for it.                                                                                              | Activity, Presence, inferred status                     |
+| **Routing diagnostic**   | Opt-in safe explanation of route class, Crew Locator, protocol version, timing, or retry without message content, capabilities, endpoints, session IDs, or Request IDs.                                                                                                        | default output, raw transport dump                      |
 
 ## Collaboration language
 
@@ -59,6 +66,7 @@ Scope: Pi Bebop, a project-local crew coordination extension.
 | **Queued**                | Accepted follow-up waits behind target active work in transient session queue.                                                                                                                   | inbox, pending response                               |
 | **Redirected**            | Accepted redirect entered target active turn.                                                                                                                                                    | steered in product-facing language                    |
 | **Response**              | Assistant output correlated to exactly one Member request. Ordinary Follow-up has no implicit Response expectation.                                                                              | turn end, completion proof                            |
+| **Ask**                   | One non-interactive request from an authorized current Member or approved Guest to one exact Crew/Member Target, yielding one correlated Response or one terminal non-Response outcome.            | direct external message, turn-end wait, task command  |
 | **Presence activity**     | Non-interrupting chat record that reports observed crew reachability changes.                                                                                                                    | notification when referring to model-visible activity |
 | **Guest Origin**          | Typed message attribution labelled `(guest)` with Guest identity and display name; approval authenticates the current capability binding but does not make content trusted or grant a role.      | Member origin, trusted content, role claim            |
 
@@ -102,7 +110,11 @@ crew-domain action.
 ## Relationships
 
 ```text
-Crew manifest defines Crew and its stable Guest selector
+Crew manifest defines Crew Selector and display name
+Crew Locator scopes one trusted local Crew copy and maps to Crew Selector through Crew directory
+Crew Locator does not authenticate External actor, Member, or Guest
+Crew Target resolves only from exact selector or explicit ambiguity-recovery Locator
+Member Target resolves only by exact configured name within Crew Target
 Crew contains Members and independently approved Guest memberships
 Pi session claims Membership as Current member
 Guest membership binds one Guest identity to one exact Crew
@@ -188,7 +200,10 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - **Member/Guest:** Member is manifest-configured and claims one Crew identity; Guest is externally identified, explicitly admitted per Crew, and has no role or privileged coordination authority.
 - **Guest membership/Intake:** Guest membership is a two-way live relationship after Crew approval; Crew Intake remains one-way offline contact delivery and never silently admits a Guest.
 - **Guest approver/role:** approver power comes only from exact `guestAdmission.approvers` names; lead, product owner, contact, first online, and role labels never grant approval.
-- **Crew selector/display name:** Guest selection uses stable Crew identity; duplicate display names remain distinct and are never guessed.
+- **Crew selector/display name:** routing uses stable `crew.id`; display name is presentation only and is never guessed.
+- **Crew selector/Locator:** selector is public product identity; Locator is one local manifest/trust/routing root. Duplicate selector matches require an explicit Locator, but a Locator never grants Member or Guest authority.
+- **Ask/External actor:** Ask requires current joined Member or approved Guest authority. Standalone External actor may use one-way Crew Intake, but exact manifest access does not turn Intake into Request or direct Member delivery.
+- **Crew report/Activity:** explicit Member-reported work remains attributed and timestamped; Presence, Activity, idle, Git, plans, tools, and silence never fill missing work fields.
 - **Guest presence/membership:** endpoint reachability is only Guest presence; it does not create, preserve, authenticate, or revoke membership.
 - **Guest capability:** approved Guests may use Follow-up, Member Request/Response, and transient Crew Broadcast only; Inbox, Redirect, Interrupt, control, role instructions, and approval are Member-only.
 
