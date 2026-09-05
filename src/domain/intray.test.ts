@@ -806,6 +806,35 @@ test("parseSessionControlAction accepts the exact crew command surface", () => {
 	});
 });
 
+test("parseSessionControlAction parses guest listing and mutations", () => {
+	assert.deepEqual(parseSessionControlAction("guests"), { action: "guests" });
+	for (const action of ["approve", "deny", "remove"] as const) {
+		assert.deepEqual(parseSessionControlAction(`guest ${action} target-1`), {
+			action: "guest",
+			target: action,
+			value: "target-1",
+		});
+	}
+});
+
+test("parseSessionControlAction preserves guest grammar failures", () => {
+	assert.deepEqual(parseSessionControlAction("guests extra"), {
+		error: "Too many arguments. Use /crew guests.",
+	});
+	assert.deepEqual(parseSessionControlAction("guest"), {
+		error: "Unknown guest action. Use /crew guest approve|deny <request-id> or remove <guest-name>.",
+	});
+	assert.deepEqual(parseSessionControlAction("guest inspect target-1"), {
+		error: "Unknown guest action. Use /crew guest approve|deny <request-id> or remove <guest-name>.",
+	});
+	assert.deepEqual(parseSessionControlAction("guest approve"), {
+		error: "Missing target. Use /crew guest approve <value>.",
+	});
+	assert.deepEqual(parseSessionControlAction("guest deny target-1 extra"), {
+		error: "Missing target. Use /crew guest deny <value>.",
+	});
+});
+
 test("parseSessionControlAction parses the inbox subcommand surface", () => {
 	assert.deepEqual(parseSessionControlAction("inbox status"), { action: "inbox", target: "status" });
 	assert.deepEqual(parseSessionControlAction("inbox pause"), { action: "inbox", target: "pause" });
