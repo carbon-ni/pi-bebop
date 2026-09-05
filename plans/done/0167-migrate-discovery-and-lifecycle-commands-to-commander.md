@@ -46,3 +46,4 @@ Implementation commit: `02991f0` at exact starting HEAD `3310965`.
 - `npm run verify:cli`: pass, 632/632 tests, 90.06% branch coverage; complexity and package verification pass.
 - Focused discovery/lifecycle, adapter, registry, and CLI contract tests pass. Existing packaged/bin tests preserve output, side effects, exit codes, and no-IO-before-usage behavior.
 - Transitional parser facades remain for direct compatibility tests; the production adapter selects the Commander `read` hook for each scoped leaf.
+- QA follow-up (05-09, commit 6665ad0): the migration initially left deferred leaf syntax (`allowUnknownOption`/`allowExcessArguments`) on read leaves, so unknown options and stray positionals were silently ignored in production (e.g. `session list --bogus` exited 0). TDD-fixed: read leaves now enforce strict Commander syntax before readers/handlers; regression test in execution-adapter.test.ts.
