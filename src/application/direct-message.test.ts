@@ -55,21 +55,18 @@ test("keeps callback routing separate from claimed origin", async () => {
 	assert.deepEqual(calls[1]?.payload.replyTo, { sessionId: "s" });
 });
 
-test("omits replyTo for synchronous turn_end and adds it only for callback policy", async () => {
+test("keeps accepted callback routing separate from claimed origin", async () => {
 	const calls: RpcCommand[] = [];
 	const send = async (_path: string, command: RpcCommand) => {
 		calls.push(command);
-		return {
-			response: { type: "response", command: "send", success: true, data: { delivered: true } },
-			event: { message: { role: "assistant", content: "ok", timestamp: 1 }, turnIndex: 1 },
-		};
+		return { response: { type: "response", command: "send", success: true, data: { delivered: true } } };
 	};
 	await sendDirectMessage(
 		{
 			socketPath: "/x",
 			message: "x",
 			mode: "steer",
-			wait: "turn_end",
+			wait: "accepted",
 			origin: { kind: "crew", name: "Bob", role: "dev" },
 		},
 		send,
@@ -90,34 +87,33 @@ test("omits replyTo for synchronous turn_end and adds it only for callback polic
 	assert.deepEqual(calls[1]?.payload.replyTo, { sessionId: "s" });
 });
 
-test("rejects turn completion without an assistant response as an operational error", async () => {
+test("rejects uncorrelated turn_end before sending or reading peer output", async () => {
+	let called = false;
 	await assert.rejects(
 		() =>
 			sendDirectMessage(
-				{
-					socketPath: "/x",
-					message: "x",
-					mode: "follow_up",
-					wait: "turn_end",
-					timeoutMs: 500,
-					requireAssistantResponse: true,
-				},
-				async (_path, _command, options) => {
-					assert.deepEqual(options, { timeout: 500, waitForEvent: "turn_end", signal: undefined });
-					return { response: { type: "response", command: "send", success: true }, event: { turnIndex: 4 } };
+				{ socketPath: "/x", message: "x", mode: "follow_up", wait: "turn_end", timeoutMs: 500 },
+				async () => {
+					called = true;
+					return { response: { type: "response", command: "send", success: true } };
 				},
 			),
 		(error: unknown) =>
 			error instanceof Error &&
 			error.name === "DirectMessageError" &&
-			(error as { code?: string }).code === "missing-assistant-response",
+			(error as { code?: string }).code === "uncorrelated-response" &&
+			error.message.includes("send_member_request"),
 	);
+	assert.equal(called, false);
 });
 
-test("preserves the Pi adapter's successful no-assistant turn result", async () => {
+test("accepted delivery never exposes an assistant response", async () => {
 	const result = await sendDirectMessage(
-		{ socketPath: "/x", message: "x", mode: "steer", wait: "turn_end" },
-		async () => ({ response: { type: "response", command: "send", success: true }, event: { turnIndex: 7 } }),
+		{ socketPath: "/x", message: "x", mode: "steer", wait: "accepted" },
+		async () => ({
+			response: { type: "response", command: "send", success: true },
+			event: { message: { role: "assistant", content: "unrelated", timestamp: 1 }, turnIndex: 7 },
+		}),
 	);
-	assert.deepEqual(result, { status: "completed", turnIndex: 7 });
+	assert.deepEqual(result, { status: "accepted" });
 });

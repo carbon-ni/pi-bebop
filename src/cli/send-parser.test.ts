@@ -15,7 +15,7 @@ import { MAX_MESSAGE_INSTRUCTIONS } from "../domain/index.ts";
 
 const cwd = "/project";
 
-test("send defaults: direct target, steer, turn_end, 5m, toon, no instructions", () => {
+test("send defaults: direct target, steer, accepted, 5m, toon, no instructions", () => {
 	assert.deepEqual(parseSendCommand(["--socket", "/x", "--message", "hello"], cwd), {
 		command: "send",
 		socketPath: "/x",
@@ -23,7 +23,7 @@ test("send defaults: direct target, steer, turn_end, 5m, toon, no instructions",
 		instructions: [],
 		stdin: false,
 		mode: "steer",
-		wait: "turn_end",
+		wait: "accepted",
 		timeoutMs: 300000,
 		format: "toon",
 		full: false,
@@ -65,7 +65,7 @@ test("send crew target: durable intake with manifest resolution and no live flag
 		instructions: [],
 		stdin: false,
 		mode: "steer",
-		wait: "turn_end",
+		wait: "accepted",
 		timeoutMs: 300000,
 		format: "toon",
 		full: false,

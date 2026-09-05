@@ -14,7 +14,7 @@ function sendOptions(overrides: Partial<SendCliOptions> = {}): SendCliOptions {
 		instructions: [],
 		stdin: false,
 		mode: "steer",
-		wait: "turn_end",
+		wait: "accepted",
 		timeoutMs: 5000,
 		format: "json",
 		full: false,
@@ -77,7 +77,7 @@ test("send leaf metadata preserves defaults and explicit option values", () => {
 	const defaults = readSendLeafOptions(buildSendCommand());
 	assert.deepEqual(defaults.instructions, []);
 	assert.equal(defaults.mode, "steer");
-	assert.equal(defaults.wait, "turn_end");
+	assert.equal(defaults.wait, "accepted");
 	assert.equal(defaults.full, false);
 	assert.match(sendHelp(command), /--instruction/);
 });

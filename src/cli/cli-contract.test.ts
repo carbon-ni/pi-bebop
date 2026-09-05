@@ -48,7 +48,7 @@ test("usage errors name valid alternatives", () => {
 // send: flags, defaults, exclusivity, targets, repeated values
 // ---------------------------------------------------------------------------
 
-test("send defaults: mode=steer, wait=turn_end, timeout=5m, format=toon, full=false", () => {
+test("send defaults: mode=steer, wait=accepted, timeout=5m, format=toon, full=false", () => {
 	const parsed = parseCliArguments(["send", "--socket", "/x", "--message", "m"], cwd);
 	assert.deepEqual(
 		{
@@ -62,7 +62,7 @@ test("send defaults: mode=steer, wait=turn_end, timeout=5m, format=toon, full=fa
 		},
 		{
 			mode: "steer",
-			wait: "turn_end",
+			wait: "accepted",
 			timeoutMs: 300000,
 			format: "toon",
 			full: false,
