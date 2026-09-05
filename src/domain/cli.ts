@@ -118,7 +118,7 @@ export function normalizeWaitUntil(raw: string): WaitUntil | null {
 	return null;
 }
 
-export function isSessionControlRequested(getFlag: (name: string) => unknown, argv = process.argv.slice(2)): boolean {
+export function isSessionControlRequested(getFlag: (name: string) => unknown, argv: readonly string[]): boolean {
 	return (
 		getFlag(CONTROL_FLAG) === true ||
 		getFlag(CONTROL_SHORT_FLAG) === true ||

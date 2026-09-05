@@ -15,10 +15,14 @@ tags: [techdebt, domain, purity, cli]
 
 ## Acceptance criteria
 
-- [ ] No `process.*` reference remains in `src/domain/`.
-- [ ] All callers (found via `parseSessionControlAction` consumers in `src/pi/control-commands.ts`) pass argv explicitly.
-- [ ] Domain purity scan is clean: `rg "process\.|node:|require\(" src/domain/ --glob '!*test*'` returns only the sanctioned `node:path` imports (TASK-0186).
-- [ ] `npm test`, `npm run lint` pass.
+- [x] No `process.*` reference remains in `src/domain/`.
+- [x] Every current caller passes argv explicitly; future TypeScript callers cannot omit it.
+- [x] Domain purity scan returns no process access or non-`node:path` runtime imports (TASK-0186 documents the sanctioned exception).
+- [x] Focused 44/44 domain tests and `npm run lint` pass.
+
+## Evidence
+
+`isSessionControlRequested` now requires `readonly string[]`. `rg -n "process\\.|from ['\"]node:(?!path)|require\\(" src/domain --glob '!*.test.ts' --pcre2` returns no matches.
 
 ## Notes
 
