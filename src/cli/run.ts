@@ -3,6 +3,7 @@ import { UsageError, type CliFormat } from "./arguments.ts";
 import { requestedFormat, usageResult } from "./errors.ts";
 import { writeOutcome } from "./output.ts";
 import { rootCliHelp } from "./root-help.ts";
+import { cliVersionOutput } from "./version.ts";
 import type { CliContext } from "./context.ts";
 import type { Readable, Writable } from "node:stream";
 
@@ -26,6 +27,16 @@ export async function runCli(
 	output: Writable = process.stdout,
 ): Promise<number> {
 	const registry = createCliRegistry();
+	// Root version flags are resolved entirely from build-time constants. Keep
+	// the first-token behavior aligned with root help and Commander semantics.
+	if (args[0] === "-v" || args[0] === "--version") {
+		return writeOutcome(output, {
+			kind: "result",
+			result: { ok: true, target: "", status: "version", response: cliVersionOutput() },
+			format: "text",
+			full: false,
+		});
+	}
 	// TASK-0074: root -h/--help is deterministic concise root help with exit 0
 	// before any parse — zero dependency/project/session/filesystem IO. Leaf
 	// help stays `--help` only (no short aliases at leaf level, by design).
