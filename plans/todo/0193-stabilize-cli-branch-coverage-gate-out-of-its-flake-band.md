@@ -1,7 +1,7 @@
 ---
 id: TASK-0193
 title: Stabilize CLI branch coverage gate out of its flake band
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [techdebt, cli, coverage, determinism, gates]
