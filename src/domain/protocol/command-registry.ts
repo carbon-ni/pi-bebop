@@ -400,6 +400,7 @@ export const COMMAND_REGISTRY: Record<ProtocolTypes.RpcCommand["type"], CommandD
 			return {
 				member: wait.member,
 				...(wait.timeoutSeconds === undefined ? {} : { timeoutSeconds: wait.timeoutSeconds }),
+				...(wait.forwarded === true ? { forwarded: true as const } : {}),
 			};
 		},
 		fromParams: (params, id) => {
@@ -410,6 +411,7 @@ export const COMMAND_REGISTRY: Record<ProtocolTypes.RpcCommand["type"], CommandD
 				type: "member_idle_wait",
 				member: waitParams.member,
 				...(waitParams.timeoutSeconds === undefined ? {} : { timeoutSeconds: waitParams.timeoutSeconds }),
+				...(waitParams.forwarded === true ? { forwarded: true as const } : {}),
 				id,
 			};
 		},

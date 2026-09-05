@@ -289,7 +289,7 @@ export default function (pi: ExtensionAPI) {
 		requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
 			try {
 				const resolved = await resolveMemberEndpoint(endpoint);
-				const command: MemberIdleWaitCommand = { type: "member_idle_wait", member: memberLabel };
+				const command: MemberIdleWaitCommand = { type: "member_idle_wait", member: memberLabel, forwarded: true };
 				return await sendMemberIdleWait(resolved, command, { timeoutSeconds, signal });
 			} catch (error) {
 				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };

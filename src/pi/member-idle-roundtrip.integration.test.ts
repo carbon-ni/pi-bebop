@@ -64,7 +64,7 @@ const idleTransport = {
 		options: { timeoutSeconds: number; signal?: AbortSignal },
 	) => {
 		const resolved = await resolveMemberEndpoint(endpoint);
-		const command = { type: "member_idle_wait" as const, member: memberLabel };
+		const command = { type: "member_idle_wait" as const, member: memberLabel, forwarded: true };
 		return sendMemberIdleWait(resolved, command, {
 			timeoutSeconds: options.timeoutSeconds,
 			signal: options.signal,

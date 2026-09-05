@@ -18,6 +18,10 @@ export interface TurnEndSubscription {
 export interface IdleWaitSubscription {
 	readonly socket: RpcSocket;
 	readonly subscriptionId: string;
+	/** Canonical configured target guarded by this one-shot wait. */
+	readonly targetName?: string;
+	/** Delegated waits are proxied to another runtime, not this runtime's idle. */
+	readonly delegated?: boolean;
 }
 export interface SocketState {
 	server: RpcServer | null;

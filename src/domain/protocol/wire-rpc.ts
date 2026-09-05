@@ -96,6 +96,8 @@ export const MemberIdleWaitParamsSchema = Type.Object(
 	{
 		member: MemberStatusTargetSchema,
 		timeoutSeconds: Type.Optional(MemberIdleWaitTimeoutSchema),
+		/** Internal proxy marker: only a resolved target may consume locally. */
+		forwarded: Type.Optional(Type.Literal(true)),
 	},
 	{ additionalProperties: false },
 );
@@ -118,6 +120,7 @@ export const MemberIdleWaitCommandSchema = Type.Object(
 		type: Type.Literal("member_idle_wait"),
 		member: MemberStatusTargetSchema,
 		timeoutSeconds: Type.Optional(MemberIdleWaitTimeoutSchema),
+		forwarded: Type.Optional(Type.Literal(true)),
 		id: Type.Optional(RpcIdSchema),
 	},
 	{ additionalProperties: false },
