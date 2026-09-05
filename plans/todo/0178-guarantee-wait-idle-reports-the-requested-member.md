@@ -1,7 +1,7 @@
 ---
 id: TASK-0178
 title: Guarantee wait-idle reports the requested Member
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [cli, member-idle, identity, routing, correctness, regression, tdd]

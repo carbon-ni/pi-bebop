@@ -1,7 +1,7 @@
 ---
 id: TASK-0171
 title: Define name-first Crew interaction contract
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [product, crew, routing, ask, status, privacy, ubiquitous-language]
