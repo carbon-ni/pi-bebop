@@ -13,6 +13,7 @@ import {
 	writeMemberUpdateEvent,
 	writeResponse,
 } from "./rpc-server.ts";
+import { COMMAND_REGISTRY } from "../domain/index.ts";
 import type { RpcInboundCommand } from "../domain/index.ts";
 import type { RpcSocket } from "./rpc-server.ts";
 
@@ -254,6 +255,29 @@ test("rejects a response without a correlated id instead of fabricating one", ()
 		data: { deliveryId: "delivery-test", disposition: "steered" },
 	});
 	assert.equal(JSON.parse(writes[0]!).error.code, -32600);
+});
+
+test("maps every registered command without falling through to unknown-command", () => {
+	const writes: string[] = [];
+	const socket = {
+		write(value: string) {
+			writes.push(value);
+		},
+		once() {
+			return socket;
+		},
+	} as unknown as RpcSocket;
+	for (const command of Object.keys(COMMAND_REGISTRY)) {
+		writeResponse(socket, {
+			type: "response",
+			command,
+			success: false,
+			error: "test-error",
+			id: `id-${command}`,
+		});
+	}
+	assert.equal(writes.length, Object.keys(COMMAND_REGISTRY).length);
+	for (const value of writes) assert.notEqual(JSON.parse(value).error.data?.code, "unknown-command");
 });
 
 test("rejects invalid method results and unknown commands without writing invalid success payloads", () => {

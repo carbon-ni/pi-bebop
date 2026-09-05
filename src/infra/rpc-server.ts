@@ -13,6 +13,7 @@ import {
 	type RpcId,
 	type RpcCommandResponse,
 	type RpcTurnEndNotification,
+	COMMAND_REGISTRY,
 } from "../domain/index.ts";
 
 export type RpcSocket = Pick<net.Socket, "write" | "once">;
@@ -45,58 +46,7 @@ export function writeWireError(
 }
 
 function methodForCommand(command: string): string | undefined {
-	switch (command) {
-		case "status":
-			return "session.status";
-		case "send":
-			return "message.send";
-		case "interrupt":
-			return "message.interrupt";
-		case "member_status":
-			return "member.status";
-		case "member_status_target":
-			return "member.status_target";
-		case "member_request":
-			return "member.request";
-		case "member_request_start":
-			return "member.request_start";
-		case "member_request_list":
-			return "member.request_list";
-		case "member_request_wait":
-			return "member.request_wait";
-		case "member_response":
-			return "member.respond";
-		case "member_interrupt":
-			return "member.interrupt";
-		case "member_follow_up":
-			return "member.follow_up";
-		case "member_redirect":
-			return "member.redirect";
-		case "member_inbox_send":
-			return "member.inbox_send";
-		case "crew_broadcast":
-			return "crew.broadcast";
-		case "guest_join":
-			return "guest.join";
-		case "guest_leave":
-			return "guest.leave";
-		case "guest_send":
-			return "guest.send";
-		case "member_idle_wait":
-			return "member.idle_wait";
-		case "get_message":
-			return "session.get_message";
-		case "clear":
-			return "session.clear";
-		case "abort":
-			return "session.abort";
-		case "subscribe":
-			return "event.subscribe";
-		case "presence_hint":
-			return "presence.hint";
-		default:
-			return undefined;
-	}
+	return COMMAND_REGISTRY[command as keyof typeof COMMAND_REGISTRY]?.method;
 }
 export function writeResponse(socket: RpcSocket, response: RpcCommandResponse): void {
 	if (typeof response.id !== "string" && typeof response.id !== "number") {
