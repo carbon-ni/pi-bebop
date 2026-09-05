@@ -75,3 +75,16 @@ jobs:
           - .watch.yaml
           - README.md
       run_on_init: true
+
+    - name: CLI verification @agent-final
+      run: npm run verify:cli
+      change:
+          - src/**/*.ts
+          - package.json
+          - package-lock.json
+          - tsconfig.json
+          - scripts/**/*.mjs
+          - package-fixtures/**
+          - Makefile
+          - .watch.yaml
+      run_on_init: true
