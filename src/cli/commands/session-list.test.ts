@@ -61,6 +61,9 @@ test("session list parse: default toon, optional --format, --help short-circuit"
 	assert.deepEqual(parseSessionListCommand(["--format", "json"]), { command: "session-list", format: "json" });
 	assert.equal(parseSessionListCommand(["--help"]).help, true);
 	assert.throws(() => parseSessionListCommand(["--format", "toon", "--format", "json"]), /Duplicate flag: --format/);
+	assert.throws(() => parseSessionListCommand(["--help", "--help"]), /Duplicate flag: --help/);
+	assert.throws(() => parseSessionListCommand(["--format"]), /Missing value for --format/);
+	assert.deepEqual(parseSessionListCommand(["--format=json"]), { command: "session-list", format: "json" });
 	assert.throws(() => parseSessionListCommand(["--bogus"]), UsageError);
 	assert.throws(() => parseSessionListCommand(["--format", "xml"]), /Invalid --format/);
 });

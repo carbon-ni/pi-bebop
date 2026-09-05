@@ -149,6 +149,62 @@ describe("Guest admission restore and interleaving", () => {
 		assert.deepEqual(rebuilt.receive(request()), { ok: false, code: "revoked" });
 	});
 
+	test("restore rejects malformed entries without aborting the batch", () => {
+		const persisted: unknown[][] = [];
+		const source = runtime({ persist: (records) => persisted.push(records) });
+		assert.ok(source.receive(request()).ok);
+		assert.ok(source.approve("generated-1", "lead").ok);
+		const snapshot = persisted.at(-1)![0] as Record<string, unknown>;
+
+		// Invalid candidates resolve to the "unknown" rejection marker.
+		const invalid = runtime();
+		assert.deepEqual(invalid.restore([null, "stray", {}, { foo: 1 }]), {
+			restored: [],
+			rejected: ["unknown", "unknown", "unknown", "unknown"],
+		});
+
+		// A well-formed record bound to a different crew is rejected by identity.
+		const foreignCrew = runtime({
+			manifest: { ...manifest, crew: { id: "beta", displayName: "Beta" } },
+		});
+		assert.deepEqual(foreignCrew.restore([snapshot]), { restored: [], rejected: ["guest-1"] });
+
+		// The approved-by member must still be an authorized approver.
+		const strangerApproval = runtime();
+		assert.deepEqual(
+			strangerApproval.restore([
+				{ ...snapshot, record: { ...(snapshot.record as object), approvedBy: "stranger" } },
+			]),
+			{ restored: [], rejected: ["guest-1"] },
+		);
+
+		// A non-registry digest shape is rejected; a 64-hex digest restores.
+		const digestCheck = runtime();
+		assert.deepEqual(digestCheck.restore([{ ...snapshot, capabilityDigest: "not-a-digest" }]), {
+			restored: [],
+			rejected: ["guest-1"],
+		});
+		const validDigest = runtime();
+		assert.deepEqual(validDigest.restore([{ ...snapshot, capabilityDigest: "a".repeat(64) }]), {
+			restored: ["guest-1"],
+			rejected: [],
+		});
+
+		// A failing capability bind rejects that record instead of throwing.
+		const brokenBind = runtime({
+			createCapability: () => {
+				throw new Error("capability source unavailable");
+			},
+		});
+		const revokedOnly = { status: "revoked", record: snapshot.record };
+		assert.deepEqual(brokenBind.restore([{ ...snapshot, capabilityDigest: "a".repeat(64) }]), {
+			restored: [],
+			rejected: ["guest-1"],
+		});
+		// Revoked tombstones never bind a capability, so they restore even with a broken source.
+		assert.deepEqual(brokenBind.restore([revokedOnly]), { restored: ["guest-1"], rejected: [] });
+	});
+
 	test("interleaved requests, denials, and revocations stay deterministic and atomic", () => {
 		const admission = runtime();
 		// Two identities request; approving one cannot consume the other's request.
