@@ -1,7 +1,7 @@
 ---
 id: TASK-0168
 title: Migrate communication commands to Commander
-status: todo
+status: doing
 depends_on: [TASK-0167]
 priority: high
 tags: [cli, commander, messaging, member-request, guest, parsing, tdd]
