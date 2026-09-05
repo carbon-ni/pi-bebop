@@ -1,7 +1,5 @@
-import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSessionControlCommand } from "./pi/control-commands.ts";
-import { registerGuestControlCommand } from "./pi/guest-control.ts";
 import {
 	renderCrewPresence,
 	renderCrewRosterEntry,
@@ -21,8 +19,6 @@ import {
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
 	registerWaitForRequestOutcomeTool,
-	registerGuestMessagingTools,
-	reconcileGuestMessagingTools,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
@@ -37,48 +33,24 @@ import {
 	createSocketState,
 	deactivateMembershipTool,
 	disableControlServer,
-	emitIdleSettled,
-	emitTurnEnd,
 	ensureControlServer,
-	reconcileMembershipTools,
 	refreshIntrayStatus,
 } from "./pi/control-runtime.ts";
-import { getSocketPath } from "./infra/intray-paths.ts";
-import { getCrewManifestPathFromSocketPath, readTrustedCrewManifest } from "./infra/crew-manifest-store.ts";
-import { createMembershipRuntime } from "./infra/membership-runtime.ts";
-import { createGuestMembershipRuntime } from "./infra/guest-membership-runtime.ts";
-import { createGuestAdmissionRuntime } from "./infra/guest-admission-runtime.ts";
-import { createGuestRegistryStore, digestGuestCapability } from "./infra/guest-registry-store.ts";
-import { createGuestRegistryAuthorizationResolver } from "./infra/guest-registry-authorization.ts";
+import { createGuestComposition } from "./pi/guest-composition.ts";
 import {
-	appendMembershipContext,
-	appendGuestMembershipContext,
-	getLatestMembershipState,
-	MEMBERSHIP_ENTRY_TYPE,
-	GUEST_MEMBERSHIP_ENTRY_TYPE,
-	getLatestGuestMembershipRecords,
-	guestMembershipStateFromRuntime,
-	membershipStateFromRuntime,
-} from "./pi/membership-context.ts";
-import { releaseMembershipBeforeCleanup, restorePersistedMembership } from "./pi/membership-lifecycle.ts";
-import {
-	maybeHandleStartupRoleJoin,
-	maybeHandleStartupSocketJoin,
-	maybeHandleStartupGuestJoins,
-	resolveStartupCrewRole,
-	startupRoleSelectionError,
-	type StartupRoleSelection,
-} from "./pi/startup-send.ts";
-import { createInboxBridgeController, ownershipFromMembership } from "./pi/inbox-bridge-runtime.ts";
+	CREW_FLAG,
+	CREW_ROLE_FLAG,
+	CREW_SOCKET_FLAG,
+	GUEST_AS_FLAG,
+	GUEST_JOIN_FLAG,
+	createMembershipRecording,
+	registerSessionLifecycle,
+	wireMembershipRuntime,
+} from "./pi/session-lifecycle-composition.ts";
+import { createInboxBridgeController } from "./pi/inbox-bridge-runtime.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
-
-const CREW_FLAG = "crew";
-const CREW_SOCKET_FLAG = "crew-socket";
-const CREW_ROLE_FLAG = "crew-role";
-const GUEST_AS_FLAG = "guest-as";
-const GUEST_JOIN_FLAG = "guest-join";
 
 /** Crew management with its own namespaced socket transport. */
 export default function (pi: ExtensionAPI) {
@@ -111,104 +83,9 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer("crew-inbox", renderCrewInboxEntry);
 
 	const state = createSocketState(Date.now);
-	let guestRequestIndex = 0;
-	/**
-	 * Guest callbacks are addressed directly, so they cannot ask a Member to
-	 * relay authorization. Resolve the joined Guest membership's configured
-	 * Member endpoint back to its canonical project manifest and read that
-	 * crew's registry fresh for every inbound Guest message.
-	 */
-	const authorizeGuestInbound = createGuestRegistryAuthorizationResolver({
-		runtime: state.guestMembershipRuntime,
-		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
-	});
-	state.guestMembershipRuntime = createGuestMembershipRuntime({
-		authorizeInbound: authorizeGuestInbound,
-		guestIdentity: () => state.context?.sessionManager.getSessionId() ?? "",
-		callbackEndpoint: () => state.socketPath ?? "",
-		createRequestId: () => `guest-request-${++guestRequestIndex}`,
-		submitJoinRequest: async () => undefined,
-		persist: (records) => pi.appendEntry(GUEST_MEMBERSHIP_ENTRY_TYPE, guestMembershipStateFromRuntime(records)),
-	});
-	state.membershipRuntime = createMembershipRuntime({
-		loadManifest: async (manifestPath) => {
-			const context = state.context;
-			if (!context) throw new Error("Session context is not ready");
-			const projectRoot = path.resolve(path.dirname(manifestPath), "..", "..");
-			return readTrustedCrewManifest(manifestPath, projectRoot, () => context.isProjectTrusted());
-		},
-	});
-	/**
-	 * Crew-owned Guest registry is the admission authority: persistence goes to
-	 * the durable crew-shared store (never session-private entries), restore
-	 * reads the registry, and verifier digests keep plaintext capabilities off
-	 * disk. Registry failures disable admission fail-closed.
-	 */
-	const refreshGuestAdmission = () => {
-		const membership = state.membershipRuntime?.getMembership();
-		if (!membership) {
-			state.guestAdmissionRuntime = undefined;
-			activeGuestRegistry = null;
-			state.approvedGuestsResolver = undefined;
-			return;
-		}
-		try {
-			const registry = createGuestRegistryStore({
-				manifestPath: membership.manifestPath,
-				crew: membership.manifest.crew ?? { id: "unknown", displayName: "unknown" },
-			});
-			activeGuestRegistry = registry;
-			state.approvedGuestsResolver = () =>
-				registry
-					.load()
-					.entries.filter((entry) => entry.status === "approved")
-					.map((entry) => ({
-						guestName: entry.guestName,
-						guestIdentity: entry.guestIdentity,
-						callbackEndpoint: entry.callbackEndpoint,
-					}));
-			state.guestAdmissionRuntime = createGuestAdmissionRuntime({
-				manifest: membership.manifest,
-				memberName: membership.member.name,
-				createRequestId: () => `guest-request-${++guestRequestIndex}`,
-				digestCapability: digestGuestCapability,
-				persist: (approved) => registry.replaceEntries(approved),
-			});
-			state.guestAdmissionRuntime?.restore(
-				registry.load().entries.map((entry) =>
-					entry.status === "denied"
-						? {
-								status: entry.status,
-								request: {
-									requestId: `registry-${entry.order}`,
-									crew: entry.crew,
-									guestIdentity: entry.guestIdentity,
-									guestName: entry.guestName,
-									callbackEndpoint: entry.callbackEndpoint,
-									submittedByMember: membership.member.name,
-								},
-								approver: entry.approver,
-							}
-						: {
-								status: entry.status,
-								record: {
-									crew: entry.crew,
-									guestIdentity: entry.guestIdentity,
-									guestName: entry.guestName,
-									callbackEndpoint: entry.callbackEndpoint,
-									approvedBy: entry.approver,
-								},
-								...(entry.status === "approved" ? { capabilityDigest: entry.capabilityDigest } : {}),
-							},
-				),
-			);
-		} catch (error) {
-			// Fail closed: a registry that cannot be trusted disables admission.
-			state.guestAdmissionRuntime = undefined;
-			const message = `Crew guest registry unavailable: ${error instanceof Error ? error.message : String(error)}`;
-			console.error(message);
-		}
-	};
+	const guestComposition = createGuestComposition(pi, state);
+	wireMembershipRuntime(state);
+	const membershipRecording = createMembershipRecording(pi);
 
 	const inboxBridge = createInboxBridgeController(pi, state, { now: Date.now });
 	state.onInboxHint = () => {
@@ -261,22 +138,13 @@ export default function (pi: ExtensionAPI) {
 	registerSendMemberRequestTool(pi, state);
 	registerRespondToMemberRequestTool(pi, state);
 	registerWaitForRequestOutcomeTool(pi, state);
-	/** Set by refreshGuestAdmission; fresh crew-registry reads for Member->Guest addressing. */
-	let activeGuestRegistry: ReturnType<typeof createGuestRegistryStore> | null = null;
+
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,
 		coordinator: createMemberMessageCoordinator(),
 		now: Date.now,
-		approvedGuests: () =>
-			activeGuestRegistry
-				?.load()
-				.entries.filter((entry) => entry.status === "approved")
-				.map((entry) => ({
-					guestName: entry.guestName,
-					guestIdentity: entry.guestIdentity,
-					callbackEndpoint: entry.callbackEndpoint,
-				})) ?? [],
+		approvedGuests: guestComposition.approvedGuests,
 	};
 	registerSendFollowUpTool(pi, state, memberMessageDependencies);
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);
@@ -301,17 +169,6 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 	});
-	// Membership tools stay registered (getAllTools) and are deactivated at
-	// session_start before the first agent request: Pi's extension runtime does
-	// NOT allow action methods (getActiveTools/setActiveTools) during extension
-	// loading, so the unjoined reconcile must run in the session_start handler.
-	const persistMembership = (active: boolean, membership: import("./infra/membership-runtime.ts").Membership) => {
-		pi.appendEntry(MEMBERSHIP_ENTRY_TYPE, membershipStateFromRuntime(membership, active));
-	};
-	const announceMembership = (message: string) => {
-		// Durable TUI-only custom entry: human-visible, never part of LLM context.
-		pi.appendEntry("crew-status", { content: message });
-	};
 
 	const presenceComposition = createPresenceComposition({
 		getMembership: () => {
@@ -368,6 +225,10 @@ export default function (pi: ExtensionAPI) {
 	};
 	const refreshPresence = () => presenceComposition.refresh();
 
+	// Membership tools stay registered (getAllTools) and are deactivated at
+	// session_start before the first agent request: Pi's extension runtime does
+	// NOT allow action methods (getActiveTools/setActiveTools) during extension
+	// loading, so the unjoined reconcile must run in the session_start handler.
 	registerSessionControlCommand(
 		pi,
 		state,
@@ -375,276 +236,25 @@ export default function (pi: ExtensionAPI) {
 			disableControlServer: (currentState, ctx) => disableControlServer(currentState, ctx, pi),
 			ensureControlServer: (api, currentState, ctx) => ensureControlServer(api, currentState, ctx),
 			membershipRuntime: state.membershipRuntime,
-			persistMembership,
-			announceMembership,
+			persistMembership: membershipRecording.persistMembership,
+			announceMembership: membershipRecording.announceMembership,
 			activateMembershipTool: () => activateMembershipTool(pi),
 			deactivateMembershipTool: () => deactivateMembershipTool(pi),
 			refreshStatus: () => refreshIntrayStatus(state),
-			refreshGuestAdmission,
+			refreshGuestAdmission: guestComposition.refreshAdmission,
 			refreshPresence,
 			stopPresence,
 			inboxBridge,
 		},
 		"crew",
 	);
-	const loadGuestManifest = async (crewId: string) => {
-		const runtime = state.guestMembershipRuntime;
-		const membership = runtime?.list().find((row) => row.crew.id === crewId && row.status === "approved");
-		const memberSocket = runtime?.getMemberSocket(crewId);
-		if (!membership || !memberSocket) throw new Error(`No approved Guest membership for crew ${crewId}`);
-		const manifestPath = getCrewManifestPathFromSocketPath(memberSocket);
-		const projectRoot = path.resolve(path.dirname(manifestPath), "..", "..");
-		const manifest = await readTrustedCrewManifest(
-			manifestPath,
-			projectRoot,
-			() => state.context?.isProjectTrusted?.() === true,
-		);
-		if (!manifest.crew || manifest.crew.id !== crewId)
-			throw new Error(`Crew manifest does not match selector ${crewId}`);
-		const registry = createGuestRegistryStore({ manifestPath, crew: manifest.crew }).load();
-		return {
-			crew: manifest.crew,
-			members: manifest.members,
-			approvedGuests: registry.entries
-				.filter((entry) => entry.status === "approved")
-				.map((entry) => ({
-					guestIdentity: entry.guestIdentity,
-					guestName: entry.guestName,
-					callbackEndpoint: entry.callbackEndpoint,
-				})),
-		};
-	};
-	let guestMessagingRegistered = false;
-	const ensureGuestMessagingTools = () => {
-		if (
-			guestMessagingRegistered ||
-			state.guestMembershipRuntime?.list().some((row) => row.status === "approved") !== true
-		)
-			return;
-		registerGuestMessagingTools(pi, state, {
-			transport: { send: sendRpcCommand },
-			loadManifest: loadGuestManifest,
-		});
-		guestMessagingRegistered = true;
-		reconcileGuestMessagingTools(pi, state);
-	};
-	registerGuestControlCommand(pi, state, {
-		ensureControlServer: (api, currentState, ctx) => ensureControlServer(api, currentState, ctx),
-		guestMembershipRuntime: state.guestMembershipRuntime,
-		guestIdentity: (ctx) => ctx.sessionManager.getSessionId(),
-		onMembershipChanged: ensureGuestMessagingTools,
+	guestComposition.registerControlCommand();
+	registerSessionLifecycle(pi, state, {
+		refreshGuestAdmission: guestComposition.refreshAdmission,
+		ensureGuestMessagingTools: guestComposition.ensureMessagingTools,
+		inboxBridge,
+		recoverInterrupts,
+		refreshPresence,
+		stopPresence,
 	});
-
-	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
-		const rawGuestName = pi.getFlag(GUEST_AS_FLAG);
-		const guestTargets = (() => {
-			const configured = pi.getFlag(GUEST_JOIN_FLAG);
-			if (Array.isArray(configured))
-				return configured.filter((value): value is string => typeof value === "string");
-			const values: string[] = [];
-			for (let index = 0; index < process.argv.length; index += 1) {
-				const value = process.argv[index]!;
-				if (value.startsWith(`--${GUEST_JOIN_FLAG}=`)) values.push(value.slice(GUEST_JOIN_FLAG.length + 3));
-				else if (value === `--${GUEST_JOIN_FLAG}` && process.argv[index + 1])
-					values.push(process.argv[++index]!);
-			}
-			return values;
-		})();
-		const guestRequested =
-			(typeof rawGuestName === "string" && rawGuestName.trim().length > 0) ||
-			guestTargets.length > 0 ||
-			process.argv.some((value) => value === `--${GUEST_AS_FLAG}` || value.startsWith(`--${GUEST_AS_FLAG}=`));
-		const startupSocket =
-			typeof pi.getFlag(CREW_SOCKET_FLAG) === "string" && String(pi.getFlag(CREW_SOCKET_FLAG)).trim().length > 0;
-		const rawCrewRole = pi.getFlag(CREW_ROLE_FLAG);
-		const startupRole = typeof rawCrewRole === "string" && rawCrewRole.trim().length > 0;
-		if (guestRequested && (startupRole || startupSocket || pi.getFlag(CREW_FLAG) === true)) {
-			reconcileMembershipTools(pi, false);
-			const message = "Guest startup flags cannot be combined with Member crew membership flags";
-			ctx.hasUI ? ctx.ui.notify(message, "error") : console.error(message);
-			return;
-		}
-		if (rawCrewRole !== undefined && rawCrewRole !== false && (!startupRole || typeof rawCrewRole !== "string")) {
-			reconcileMembershipTools(pi, false);
-			ctx.hasUI
-				? ctx.ui.notify("Invalid --crew-role: role must be non-empty", "error")
-				: console.error("Invalid --crew-role: role must be non-empty");
-			return;
-		}
-		if (startupSocket && startupRole) {
-			reconcileMembershipTools(pi, false);
-			ctx.hasUI
-				? ctx.ui.notify("Choose exactly one of --crew-role or --crew-socket", "error")
-				: console.error("Choose exactly one of --crew-role or --crew-socket");
-			return;
-		}
-		let startupRoleSelection: StartupRoleSelection | undefined;
-		if (startupRole) {
-			try {
-				startupRoleSelection = await resolveStartupCrewRole(
-					String(rawCrewRole),
-					ctx.cwd,
-					ctx.isProjectTrusted(),
-				);
-			} catch (error) {
-				reconcileMembershipTools(pi, false);
-				const message = error instanceof Error ? error.message : "manifest read failed";
-				ctx.hasUI
-					? ctx.ui.notify(`Crew startup role join failed: ${message}`, "error")
-					: console.error(`Crew startup role join failed: ${message}`);
-				return;
-			}
-			if (startupRoleSelection && "code" in startupRoleSelection) {
-				reconcileMembershipTools(pi, false);
-				const message = `Crew startup role join failed: ${startupRoleSelectionError(startupRoleSelection)}`;
-				ctx.hasUI ? ctx.ui.notify(message, "error") : console.error(message);
-				return;
-			}
-		}
-		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
-		const persisted = getLatestMembershipState(branch);
-		const persistedGuests = getLatestGuestMembershipRecords(branch);
-		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
-		if (guestRequested) {
-			if (persisted?.active === true) {
-				reconcileMembershipTools(pi, false);
-				const message = "Guest startup flags cannot resume a Member crew membership";
-				ctx.hasUI ? ctx.ui.notify(message, "error") : console.error(message);
-				return;
-			}
-			await ensureControlServer(pi, state, ctx);
-			state.guestMembershipRuntime?.restore(persistedGuests);
-			refreshGuestAdmission();
-			await maybeHandleStartupGuestJoins(ctx, pi, state.guestMembershipRuntime!, state.socketPath!);
-			ensureGuestMessagingTools();
-			reconcileMembershipTools(pi, false);
-			return;
-		}
-		if (crewRequested || startupSocket || startupRole || persisted?.active === true || persistedGuests.length > 0) {
-			await ensureControlServer(pi, state, ctx);
-		} else {
-			state.context = ctx;
-			state.socketPath = getSocketPath(ctx.sessionManager.getSessionId());
-			// New unjoined session: base server may be off; membership tools stay inactive.
-			reconcileMembershipTools(pi, false);
-		}
-		if (startupRole || startupSocket) {
-			const joined = startupRole
-				? await maybeHandleStartupRoleJoin(
-						ctx,
-						pi,
-						{ role: CREW_ROLE_FLAG },
-						state.membershipRuntime,
-						state.socketPath,
-						async () => startupRoleSelection!,
-					)
-				: await maybeHandleStartupSocketJoin(
-						ctx,
-						pi,
-						{ socket: CREW_SOCKET_FLAG },
-						state.membershipRuntime,
-						state.socketPath,
-					);
-			const membership = state.membershipRuntime.getMembership();
-			if (joined && membership) {
-				refreshGuestAdmission();
-				activateMembershipTool(pi);
-				refreshIntrayStatus(state);
-				await refreshPresence();
-				persistMembership(true, membership);
-				announceMembership(
-					`Crew joined ${membership.member.name} (${membership.member.role}) at ${membership.socketPath}`,
-				);
-				inboxBridge.establish(ownershipFromMembership(membership));
-				void inboxBridge.attemptOffer();
-				void recoverInterrupts();
-			} else {
-				// Startup socket selected but join failed: stay unjoined, tools inactive.
-				reconcileMembershipTools(pi, false);
-			}
-			return;
-		}
-		state.guestMembershipRuntime?.restore(persistedGuests);
-		ensureGuestMessagingTools();
-		refreshGuestAdmission();
-		await restorePersistedMembership({
-			runtime: state.membershipRuntime,
-			persisted,
-			startupSocketSelected: false,
-			globalSocketPath: state.socketPath,
-			manifestPathForSocket: getCrewManifestPathFromSocketPath,
-			announce: async (message) => {
-				refreshGuestAdmission();
-				activateMembershipTool(pi);
-				refreshIntrayStatus(state);
-				await refreshPresence();
-				announceMembership(message);
-				const membership = state.membershipRuntime?.getMembership();
-				if (membership) {
-					inboxBridge.establish(ownershipFromMembership(membership));
-					void inboxBridge.attemptOffer();
-					void recoverInterrupts();
-				}
-			},
-			reportFailure: (message) => {
-				if (ctx.hasUI) ctx.ui.notify(`Crew membership restore failed: ${message}`, "error");
-				else console.error(`Crew membership restore failed: ${message}`);
-			},
-		});
-		// Inactive resume/fork state, restore failure, or server-only startup: ensure
-		// membership tools are not active for the model.
-		if (!state.membershipRuntime?.getMembership()) reconcileMembershipTools(pi, false);
-	});
-
-	pi.on("before_agent_start", async (event) => {
-		const membership = state.membershipRuntime?.getMembership();
-		if (membership) return { systemPrompt: appendMembershipContext(event.systemPrompt, membership) };
-		const guestRuntime = state.guestMembershipRuntime;
-		if (guestRuntime?.list().some((row) => row.status === "approved"))
-			return { systemPrompt: appendGuestMembershipContext(event.systemPrompt, guestRuntime) };
-	});
-
-	pi.on("session_shutdown", async () => {
-		inboxBridge.invalidate();
-		const context = state.context;
-		await releaseMembershipBeforeCleanup({
-			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
-			leave: async () => state.membershipRuntime!.leave(),
-			onReleased: async () => {
-				await stopPresence();
-			},
-			cleanup: async () => {
-				await stopPresence();
-				deactivateMembershipTool(pi);
-				await disableControlServer(state, context, pi);
-			},
-			reportFailure: (message) => {
-				if (context?.hasUI) context.ui.notify(message, "error");
-				else console.error(message);
-			},
-		});
-		state.context = null;
-		state.socketPath = null;
-	});
-
-	pi.on("turn_end", (event, ctx) => {
-		emitTurnEnd(state, event, ctx);
-		void inboxBridge.attemptOffer();
-	});
-
-	// One-shot member idle waits complete ONLY from Pi `agent_settled` (TASK-0051).
-	// `agent_end` and `turn_end` are intentionally ignored: retry, compaction,
-	// and queued continuation work must be exhausted before `became-idle`.
-	pi.on("agent_settled", (_event, ctx) => {
-		emitIdleSettled(state, ctx);
-	});
-
-	// Manual/branch compaction can settle while the agent run flag is already
-	// idle; re-evaluate the same combined predicate on Pi's balanced lifecycle end.
-	// TASK-0069 is supplied by the upgraded Pi peer. Keep loading compatible
-	// with older peers: the event is additive and the handler is inert there.
-	const onCompactionEnd = (_event: unknown, ctx: ExtensionContext) => {
-		emitIdleSettled(state, ctx);
-	};
-	pi.on("session_compaction_end" as never, onCompactionEnd as never);
 }
