@@ -117,7 +117,7 @@ export function createCliExecutionAdapter(registry: CliRegistry) {
 				const { request } = invocation;
 				const prefixLength = leaf.names.length;
 				const tokens = normalizeLeafHelp(request.args.slice(prefixLength));
-				const options = leaf.parse(tokens, request.cwd);
+				const options = leaf.read ? leaf.read(command, request.cwd) : leaf.parse(tokens, request.cwd);
 				const context: CliContext = {
 					cwd: request.cwd,
 					input: request.input,

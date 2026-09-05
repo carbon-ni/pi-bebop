@@ -1,5 +1,6 @@
+import path from "node:path";
 import { Command } from "commander";
-import { buildCrewInitCommand } from "./commands/crew-init.ts";
+import { buildCrewInitCommand, readCrewInitCommand } from "./commands/crew-init.ts";
 import { buildSendCommand } from "./commands/send.ts";
 import { parseCrewInitCommand, parseSendCommand } from "./parser.ts";
 import { crewInitHelp } from "../domain/index.ts";
@@ -9,6 +10,7 @@ import { runCrewInitCommand } from "./commands/crew-init-handler.ts";
 import { runSendCommand } from "./commands/send-handler.ts";
 import {
 	parseMemberStatusCommand,
+	readMemberStatusCommand,
 	runMemberStatusCommand,
 	memberStatusHelp,
 	buildMemberStatusCommand,
@@ -16,6 +18,7 @@ import {
 } from "./commands/member-status.ts";
 import {
 	parseMemberIdleWaitCommand,
+	readMemberIdleWaitCommand,
 	runMemberIdleWaitCommand,
 	memberIdleWaitHelp,
 	buildMemberIdleWaitCommand,
@@ -23,6 +26,7 @@ import {
 } from "./commands/member-idle-wait.ts";
 import {
 	parseSessionListCommand,
+	readSessionListCommand,
 	runSessionListCommand,
 	sessionListHelp,
 	buildSessionListCommand,
@@ -67,6 +71,7 @@ import {
 } from "./commands/member-interrupt.ts";
 import {
 	parseCrewRolesCommand,
+	readCrewRolesCommand,
 	runCrewRolesCommand,
 	crewRolesHelp,
 	buildCrewRolesCommand,
@@ -119,7 +124,9 @@ export interface CliLeaf {
 	readonly help: () => string;
 	/** Leaf-owned tokenization + semantic validation; receives tokens after `names`. */
 	readonly parse: (tokens: readonly string[], cwd: string) => unknown;
-	/** Handler adapter — owns this command's business logic. */
+	/** Commander-owned reader for migrated leaves; legacy parse remains a compatibility facade. */
+	readonly read?: (parsed: Command, cwd: string) => unknown;
+	/** Handler adapter — owns this command’s business logic. */
 	readonly run: (options: unknown, context: CliContext) => Promise<CliOutcome>;
 }
 
@@ -269,6 +276,14 @@ const crewInitLeaf: CliLeaf = {
 	build: () => buildCrewInitCommand(),
 	help: () => crewInitHelp(),
 	parse: (tokens, cwd) => parseCrewInitCommand([...tokens], cwd),
+	read: (command, cwd) => {
+		const options = readCrewInitCommand(command);
+		return {
+			command: "crew-init",
+			...(options.project === undefined ? {} : { project: path.resolve(cwd, options.project) }),
+			format: options.format,
+		};
+	},
 	run: (options, context) => runCrewInitCommand(options as CrewInitCliOptions, context.cwd),
 };
 
@@ -319,6 +334,7 @@ const crewRolesLeaf: CliLeaf = {
 	build: () => buildCrewRolesCommand(),
 	help: () => crewRolesHelp(),
 	parse: (tokens, cwd) => parseCrewRolesCommand([...tokens], cwd),
+	read: (command) => readCrewRolesCommand(command),
 	run: (options, context) => runCrewRolesCommand(options as CrewRolesCliOptions, context),
 };
 
@@ -363,6 +379,7 @@ const memberStatusLeaf: CliLeaf = {
 	build: () => buildMemberStatusCommand(),
 	help: () => memberStatusHelp(),
 	parse: (tokens, cwd) => parseMemberStatusCommand([...tokens], cwd),
+	read: (command) => readMemberStatusCommand(command),
 	run: (options, context) => runMemberStatusCommand(options as MemberStatusCliOptions, context),
 };
 
@@ -373,6 +390,7 @@ const memberIdleWaitLeaf: CliLeaf = {
 	build: () => buildMemberIdleWaitCommand(),
 	help: () => memberIdleWaitHelp(),
 	parse: (tokens, cwd) => parseMemberIdleWaitCommand([...tokens], cwd),
+	read: (command) => readMemberIdleWaitCommand(command),
 	run: (options, context) => runMemberIdleWaitCommand(options as MemberIdleWaitCliOptions, context),
 };
 
@@ -383,6 +401,7 @@ const sessionListLeaf: CliLeaf = {
 	build: () => buildSessionListCommand(),
 	help: () => sessionListHelp(),
 	parse: (tokens, cwd) => parseSessionListCommand([...tokens], cwd),
+	read: (command) => readSessionListCommand(command),
 	run: (options, context) => runSessionListCommand(options as SessionListCliOptions, context),
 };
 
