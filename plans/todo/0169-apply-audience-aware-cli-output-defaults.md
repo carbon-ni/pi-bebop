@@ -1,7 +1,7 @@
 ---
 id: TASK-0169
 title: Apply audience-aware CLI output defaults
-status: doing
+status: todo
 depends_on: [TASK-0168]
 priority: high
 tags: [cli, output, toon, text, json, axi, tdd]
