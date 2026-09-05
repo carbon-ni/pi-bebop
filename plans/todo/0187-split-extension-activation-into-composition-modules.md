@@ -1,7 +1,7 @@
 ---
 id: TASK-0187
 title: Split extension.ts activation into composition modules
-status: todo
+status: doing
 depends_on: [TASK-0184, TASK-0189]
 priority: high
 tags: [techdebt, pi, composition, refactor]
