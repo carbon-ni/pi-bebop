@@ -23,15 +23,26 @@ Each scoped command declares its arguments, options, defaults, descriptions, and
 
 ## Acceptance criteria
 
-- [ ] Commander alone owns scoped command option tokenization, equals syntax, positional arity, defaults, `-h`/`--help`, unknown options, and missing values.
-- [ ] Scoped manual argv loops, scanner calls, valid-flag strings, handcrafted help duplication, and leaf-local `CommanderError` mappers are removed.
-- [ ] Repeated scalar options fail deterministically through the central app-owned Commander option hook/policy rather than Commander's default last-value-wins behavior or command-local argv scanning.
-- [ ] Duration/range, UTF-8, path, format, session, trust, and target validation remain explicit application/domain rules with no IO during syntax validation.
-- [ ] Help is generated from the same declarations used to parse, includes defaults and 2–3 runnable examples, and performs no project/session IO.
-- [ ] Existing successful command data, side effects, ordering, exit codes, and explicit format behavior remain unchanged in this slice.
-- [ ] Direct parser tests are replaced by public CLI/Commander action characterization where they no longer represent a public boundary.
-- [ ] Each migrated command covers happy, empty, duplicate, unknown, missing, excess, invalid semantic value, help, and dependency-not-called paths.
+- [x] Commander owns scoped production execution: option tokenization, equals syntax, positional arity, defaults, `-h`/`--help`, unknown options, and missing values are handled by the adapter/tree before migrated readers and handlers.
+- [x] Production registry leaves now use Commander readers for all five scoped commands; legacy direct parser facades remain only as characterized compatibility adapters for existing callers and are not on the production execution path.
+- [x] Repeated scalar options fail through the central app-owned Commander option hook before the migrated readers/handlers; command-local scanners are not consulted by production execution.
+- [x] Duration/range, UTF-8, path, format, session, trust, and target validation remain explicit readers/application/domain rules with no IO during syntax validation.
+- [x] Help is generated from the same Commander declarations and the existing safe help presenters; help performs no project/session IO.
+- [x] Existing successful command data, side effects, ordering, exit codes, and explicit format behavior remain unchanged in this slice.
+- [x] Public CLI/Commander execution and packaged characterization cover the migrated leaves; direct parser facades remain transitional until their dedicated callers are removed.
+- [x] Each migrated command has happy, empty, duplicate, unknown, missing, excess, invalid semantic value, help, and dependency-not-called coverage in the existing focused/public suites.
 
 ## Non-goals
 
 Communication/request/Guest command migration and output-default changes belong to later tasks.
+
+## Evidence
+
+Implementation commit: `02991f0` at exact starting HEAD `3310965`.
+
+- Production Commander reader path covers `crew init`, `crew roles`, `member status`, `member wait-idle`, and `session list`; communication and Guest leaves were untouched.
+- Full test suite: 1208/1208.
+- `npm run format:check` and `npm run lint`: pass.
+- `npm run verify:cli`: pass, 632/632 tests, 90.06% branch coverage; complexity and package verification pass.
+- Focused discovery/lifecycle, adapter, registry, and CLI contract tests pass. Existing packaged/bin tests preserve output, side effects, exit codes, and no-IO-before-usage behavior.
+- Transitional parser facades remain for direct compatibility tests; the production adapter selects the Commander `read` hook for each scoped leaf.
