@@ -12,4 +12,6 @@ export interface CliContext {
 	readonly input: Readable;
 	/** Cancellation signal (SIGINT); aborts stdin reads and RPC waits. */
 	readonly signal: AbortSignal;
+	/** Optional process environment seam for deterministic execution adapters. */
+	readonly environment?: NodeJS.ProcessEnv;
 }

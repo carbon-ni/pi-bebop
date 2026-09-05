@@ -209,7 +209,7 @@ test("unknown root flags still produce structured usage output with exit 2", asy
 	}
 });
 
-test("leaf -h is a consistent usage error, never silent help (no short aliases)", async () => {
+test("leaf -h is standard help and never reaches a handler", async () => {
 	const leaves: string[][] = [
 		["send"],
 		["crew", "init"],
@@ -230,12 +230,8 @@ test("leaf -h is a consistent usage error, never silent help (no short aliases)"
 			text += chunk;
 		});
 		const code = await runCli([...leaf, "-h"], process.cwd(), process.stdin, output);
-		assert.equal(code, 2, leaf.join(" "));
-		assert.match(text, /status: usage|Unknown flag/, leaf.join(" "));
-		assert.ok(
-			!text.includes("Usage:") && !text.includes("Options:") && !text.includes("Commands:"),
-			`${leaf.join(" ")} -h must not render help`,
-		);
+		assert.equal(code, 0, leaf.join(" "));
+		assert.match(text, /Usage:|Options:/, leaf.join(" "));
 	}
 });
 
