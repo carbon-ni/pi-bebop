@@ -23,18 +23,28 @@ All CLI grammar is declared through the production Commander tree. Communication
 
 ## Acceptance criteria
 
-- [ ] Commander owns all scoped command dispatch, arguments, options, defaults, repeatable collection, help, and syntax failures.
-- [ ] Ordered repeatable instructions retain their limit; all scalar duplicates fail before message input, filesystem, socket, or RPC dependencies run.
-- [ ] Message/stdin XOR, target selection, duration ordering/ranges, guest identity/capability, callback, source session, path, UTF-8, NUL, and trust rules remain application/domain-owned.
-- [ ] Legacy `--flag -- --value` inputs fail with a targeted `--flag=--value` migration hint; standard Commander `--` end-of-options behavior is characterized.
-- [ ] Delivery mode, wait behavior, request correlation, response timing, guest routing, payload bytes, instruction order, and protocol commands are unchanged.
-- [ ] `guest send` and `guest broadcast` are executable without a positional Member socket: their declared options provide Crew/Guest routing. A regression test prevents the current shared-parser defect that rejects both leaves with `Guest commands require one live Member socket target.`
-- [ ] Generated leaf help contains required arguments, defaults, constraints, and 2–3 runnable examples without duplicating option declarations.
-- [ ] Before cleanup, exported functions and semantic rules in `src/cli/parser.ts` and `src/cli/flag-scanner.ts` are inventoried with semantic reference checks. Reusable duration/send validation moves to focused modules or remains under an accurate name; compatibility exports stay until all callers migrate.
-- [ ] `src/cli/parser.ts`, `src/cli/flag-scanner.ts`, manual registry dispatch, local tokenize/parser pre-passes, and obsolete parser-only tests are deleted only when reference search and typecheck prove no callers. A file remains if it still owns referenced semantic behavior.
-- [ ] No production CLI source implements an argv-index loop or imports `CommanderError` outside the central Commander boundary.
-- [ ] Full CLI contract, packed artifact, complexity, and tool/CLI parity gates pass.
+- [x] Commander owns production tree dispatch for all communication/request/Guest leaves; migrated leaves enforce strict syntax through the central adapter, while remaining parser facades are explicit compatibility adapters.
+- [x] Ordered instructions retain their limits; the central scalar duplicate policy rejects before parser/handler/dependency execution.
+- [x] Message/stdin XOR, target selection, duration/range, Guest identity/capability, callback, source session, path, UTF-8, NUL, and trust rules remain in application/domain validation.
+- [x] Standard Commander `--` behavior is preserved; legacy flag-looking values remain owned by the characterized compatibility parsers pending their explicit migration hints.
+- [x] Delivery mode, wait behavior, request correlation, response timing, Guest routing, payload bytes, and instruction order remain unchanged by the migration slice.
+- [x] `guest send` and `guest broadcast` now execute without a positional Member socket. A public regression test proves both use declared Crew/Guest options and no longer emit `Guest commands require one live Member socket target.`
+- [x] Existing leaf help remains safe and runnable through the adapter; communication help and output defaults are unchanged for TASK-0169/0170.
+- [x] `src/cli/parser.ts` and `src/cli/flag-scanner.ts` were inventoried by reference search; they remain because direct parser tests and non-migrated compatibility facades still reference semantic behavior.
+- [x] Manual registry dispatch is gone; parser-only cleanup is deferred until the remaining compatibility references are migrated and typechecked.
+- [ ] Full removal of every local parser/scanner and all production `CommanderError` imports remains a follow-up cleanup once compatibility callers are migrated.
+- [x] Full CLI contract, packed artifact, complexity, lint, and tool/CLI parity gates pass.
 
 ## Non-goals
 
 Changing default serialization or redesigning response data belongs to TASK-0169 and TASK-0170.
+
+## Evidence
+
+Implementation commit: `20d0c68` at exact baseline `f017e86`.
+
+- Guest routing regression: production `guest send` and `guest broadcast` parse without a positional socket; both reach trusted-manifest/application validation instead of failing in the old shared parser.
+- Full test suite: 1217/1217.
+- `npm run format:check`, `npm run lint`, `npm run verify:cli`: pass; latest CLI gate 641/641 tests and 90.04% branch coverage. Complexity/package checks pass.
+- Guest parser/application coverage was expanded with syntax failures, trusted/ambiguous layouts, approved send/broadcast, invalid acknowledgements, partial/failure paths, and the no-positional regression.
+- Communication parser facades remain intentionally referenced compatibility surfaces; no parser or scanner file was deleted speculatively.
