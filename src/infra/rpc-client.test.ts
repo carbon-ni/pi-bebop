@@ -99,15 +99,11 @@ test("sendRpcCommand rejects a terminal notification after subscribe ack but bef
 						id: request.id,
 						result: { subscriptionId: String(request.id), event: "turn_end" },
 					});
-					setTimeout(
-						() =>
-							send(socket, {
-								jsonrpc: "2.0",
-								method: "session.turn_end",
-								params: { subscriptionId: String(request.id) },
-							}),
-						1,
-					);
+					send(socket, {
+						jsonrpc: "2.0",
+						method: "session.turn_end",
+						params: { subscriptionId: String(request.id) },
+					});
 				}
 			}),
 		async (socketPath) => {
@@ -140,15 +136,11 @@ test("sendRpcCommand completes a turn subscription without optional event fields
 						id: request.id,
 						result: { subscriptionId: String(request.id), event: "turn_end" },
 					});
-					setTimeout(
-						() =>
-							send(socket, {
-								jsonrpc: "2.0",
-								method: "session.turn_end",
-								params: { subscriptionId: String(request.id) },
-							}),
-						1,
-					);
+					send(socket, {
+						jsonrpc: "2.0",
+						method: "session.turn_end",
+						params: { subscriptionId: String(request.id) },
+					});
 				}
 			}),
 		async (socketPath) => {
@@ -206,23 +198,23 @@ test("keeps an accepted member request socket open for exactly one correlated up
 						member: { name: "qa", role: "reviewer" },
 					},
 				});
-				setTimeout(
-					() =>
-						send(socket, {
-							jsonrpc: "2.0",
-							method: "member.update",
-							params: {
-								kind: "response",
-								requestId: request.params.requestId,
-								member: { name: "qa", role: "reviewer" },
-								message: "reviewed",
-							},
-						}),
-					1,
-				);
+				send(socket, {
+					jsonrpc: "2.0",
+					method: "member.update",
+					params: {
+						kind: "response",
+						requestId: request.params.requestId,
+						member: { name: "qa", role: "reviewer" },
+						message: "reviewed",
+					},
+				});
 			}),
 		async (socketPath) => {
 			const updates: unknown[] = [];
+			let resolveUpdate!: () => void;
+			const updateReceived = new Promise<void>((resolve) => {
+				resolveUpdate = resolve;
+			});
 			const result = await sendMemberRequest(
 				socketPath,
 				{
@@ -231,19 +223,16 @@ test("keeps an accepted member request socket open for exactly one correlated up
 					payload: { content: "review", origin: { kind: "crew", name: "dev", role: "developer" } },
 					timeoutSeconds: 300,
 				},
-				{ timeout: 1000, onUpdate: (update) => updates.push(update) },
+				{
+					timeout: 1000,
+					onUpdate: (update) => {
+						updates.push(update);
+						resolveUpdate();
+					},
+				},
 			);
 			assert.equal(result.response.success, true);
-			// Deterministic: bounded poll instead of a fixed wall-clock window.
-			await within(
-				2_000,
-				(async () => {
-					for (;;) {
-						if (updates.length >= 1) return;
-						await new Promise((resolve) => setTimeout(resolve, 5));
-					}
-				})(),
-			);
+			await within(2_000, updateReceived);
 			assert.equal(updates.length, 1);
 			result.close();
 		},
@@ -316,19 +305,15 @@ test("correlates send and subscription responses then accepts the matching turn 
 						id: request.id,
 						result: { subscriptionId: String(request.id), event: "turn_end" },
 					});
-					setTimeout(
-						() =>
-							send(socket, {
-								jsonrpc: "2.0",
-								method: "session.turn_end",
-								params: {
-									subscriptionId: String(request.id),
-									message: { role: "assistant", content: "done", timestamp: 1 },
-									turnIndex: 3,
-								},
-							}),
-						1,
-					);
+					send(socket, {
+						jsonrpc: "2.0",
+						method: "session.turn_end",
+						params: {
+							subscriptionId: String(request.id),
+							message: { role: "assistant", content: "done", timestamp: 1 },
+							turnIndex: 3,
+						},
+					});
 				}
 			}),
 		async (socketPath) => {
@@ -810,23 +795,19 @@ test("sendMemberIdleWait resolves the terminal event for a busy target that sett
 					id: request.id,
 					result: { subscriptionId: String(request.id), event: "member_idle" },
 				});
-				setTimeout(
-					() =>
-						send(socket, {
-							jsonrpc: "2.0",
-							method: "member.idle_wait",
-							params: {
-								subscriptionId: String(request.id),
-								result: {
-									member: { name: "Kelly", role: "qa" },
-									outcome: "idle",
-									disposition: "became-idle",
-									observedAt: "2026-08-23T12:03:00.000Z",
-								},
-							},
-						}),
-					1,
-				);
+				send(socket, {
+					jsonrpc: "2.0",
+					method: "member.idle_wait",
+					params: {
+						subscriptionId: String(request.id),
+						result: {
+							member: { name: "Kelly", role: "qa" },
+							outcome: "idle",
+							disposition: "became-idle",
+							observedAt: "2026-08-23T12:03:00.000Z",
+						},
+					},
+				});
 			}),
 		async (socketPath) => {
 			const outcome = await sendMemberIdleWait(
@@ -1091,9 +1072,12 @@ test("sendMemberIdleWait returns aborted when the caller signal fires", async ()
 			const pending = sendMemberIdleWait(
 				socketPath,
 				{ type: "member_idle_wait", member: "Kelly" },
-				{ timeoutSeconds: 60, signal: controller.signal },
+				{
+					timeoutSeconds: 60,
+					signal: controller.signal,
+					onAcknowledged: () => controller.abort(),
+				},
 			);
-			setTimeout(() => controller.abort(), 10);
 			const outcome = await pending;
 			assert.deepEqual(outcome, { ok: false, code: "aborted" });
 		},
@@ -1129,22 +1113,18 @@ test("sendMemberIdleWait maps remote rejection and malformed terminal results", 
 					id: request.id,
 					result: { subscriptionId: String(request.id), event: "member_idle" },
 				});
-				setTimeout(
-					() =>
-						send(socket, {
-							jsonrpc: "2.0",
-							method: "member.idle_wait",
-							params: {
-								subscriptionId: String(request.id),
-								result: {
-									member: { name: "Kelly", role: "qa" },
-									outcome: "bogus",
-									observedAt: "2026-08-23T12:03:00.000Z",
-								},
-							},
-						}),
-					1,
-				);
+				send(socket, {
+					jsonrpc: "2.0",
+					method: "member.idle_wait",
+					params: {
+						subscriptionId: String(request.id),
+						result: {
+							member: { name: "Kelly", role: "qa" },
+							outcome: "bogus",
+							observedAt: "2026-08-23T12:03:00.000Z",
+						},
+					},
+				});
 			}),
 		async (socketPath) => {
 			const outcome = await sendMemberIdleWait(
@@ -1183,7 +1163,6 @@ test("sendMemberRequest abort after acceptance closes with offline update", asyn
 				{ signal: controller.signal, onUpdate: (update) => updates.push(update) },
 			);
 			controller.abort();
-			await new Promise((resolve) => setTimeout(resolve, 5));
 			assert.equal((updates[0] as { kind: string } | undefined)?.kind, "offline");
 			result.close();
 		},
@@ -1237,11 +1216,15 @@ test("sendMemberRequest reports offline terminal closure and caller close idempo
 						id: request.id,
 						result: { accepted: true, requestId: "r-off", member: { name: "Bob", role: "dev" } },
 					});
-					setTimeout(() => socket.end(), 2);
+					socket.end();
 				}
 			}),
 		async (socketPath) => {
 			const updates: unknown[] = [];
+			let resolveOffline!: () => void;
+			const offlineUpdate = new Promise<void>((resolve) => {
+				resolveOffline = resolve;
+			});
 			const result = await sendMemberRequest(
 				socketPath,
 				{
@@ -1251,9 +1234,14 @@ test("sendMemberRequest reports offline terminal closure and caller close idempo
 					payload: { content: "x" },
 					timeoutSeconds: 1,
 				},
-				{ onUpdate: (update) => updates.push(update) },
+				{
+					onUpdate: (update) => {
+						updates.push(update);
+						resolveOffline();
+					},
+				},
 			);
-			await new Promise((resolve) => setTimeout(resolve, 20));
+			await within(2_000, offlineUpdate);
 			result.close();
 			result.close();
 			assert.equal(updates.length, 1);
