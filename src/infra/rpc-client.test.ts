@@ -886,6 +886,47 @@ test("sendMemberIdleWait validates canonical target identity and exposes accepta
 	);
 });
 
+test("sendMemberIdleWait checks both canonical identity fields", async () => {
+	for (const [name, role, expected] of [
+		["Mary", "po", { ok: true, code: undefined }],
+		["Mary", "developer", { ok: false, code: "identity-mismatch" }],
+	] as const) {
+		await withSocketServer(
+			(socket) =>
+				lines(socket, (request) => {
+					if (request.method !== "member.idle_wait") return;
+					send(socket, {
+						jsonrpc: "2.0",
+						id: request.id,
+						result: { subscriptionId: String(request.id), event: "member_idle" },
+					});
+					send(socket, {
+						jsonrpc: "2.0",
+						method: "member.idle_wait",
+						params: {
+							subscriptionId: String(request.id),
+							result: {
+								member: { name, role },
+								outcome: "idle",
+								disposition: "already-idle",
+								observedAt: "2026-08-23T12:03:00.000Z",
+							},
+						},
+					});
+				}),
+			async (socketPath) => {
+				const outcome = await sendMemberIdleWait(
+					socketPath,
+					{ type: "member_idle_wait", member: "Mary" },
+					{ timeoutSeconds: 1, expectedMember: { name: "Mary", role: "po" } },
+				);
+				assert.equal(outcome.ok, expected.ok);
+				if (!expected.ok) assert.equal(outcome.ok ? undefined : outcome.code, expected.code);
+			},
+		);
+	}
+});
+
 test("sendMemberIdleWait maps a clean peer end to offline", async () => {
 	await withSocketServer(
 		(socket) => lines(socket, () => socket.end()),
