@@ -92,6 +92,48 @@ test("root, group, leaf help and version stay inside the returned outcome bounda
 	assert.equal((await adapter.execute(request(["--version"]))).kind, "result");
 });
 
+test("migrated read leaves reject unknown options and excess arguments before handlers", async () => {
+	let ran = false;
+	const leaf: CliLeaf = {
+		id: "probe",
+		names: ["crew", "probe"],
+		build: () => new Command("probe").option("--format <format>"),
+		help: () => "probe help",
+		parse: (tokens) => ({ command: "probe", tokens }),
+		read: (command) => ({ command: "probe", format: command.opts<{ format?: string }>().format ?? "toon" }),
+		run: async () => {
+			ran = true;
+			return { kind: "result", result: { ok: true, target: "", status: "probe" }, format: "toon", full: false };
+		},
+	};
+	const adapter = createCliExecutionAdapter(
+		composeRegistry([
+			{
+				id: "home",
+				names: [],
+				build: () => new Command("home"),
+				help: () => "",
+				parse: () => ({ command: "home" }),
+				run: async () => ({
+					kind: "result",
+					result: { ok: true, target: "", status: "home" },
+					format: "toon",
+					full: false,
+				}),
+			},
+			leaf,
+		]),
+	);
+	await assert.rejects(
+		adapter.execute(request(["crew", "probe", "--bogus"])),
+		(error: unknown) => error instanceof UsageError && /unknown option/i.test(error.message) && ran === false,
+	);
+	await assert.rejects(
+		adapter.execute(request(["crew", "probe", "stray"])),
+		(error: unknown) => error instanceof UsageError && /too many arguments/i.test(error.message) && ran === false,
+	);
+});
+
 test("unknown syntax is rejected before the async handler", async () => {
 	let called = false;
 	const adapter = createCliExecutionAdapter(
