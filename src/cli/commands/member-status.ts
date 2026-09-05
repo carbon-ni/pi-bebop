@@ -51,7 +51,7 @@ export function memberStatusHelp(): string {
 		"pending-message signal) and the observation time. Read-only: never",
 		"starts, steers, or interrupts the target turn. Activity is mechanical and",
 		"never verified task progress. For intent, progress, a report, or a verdict,",
-		"ask the member explicitly with send_member_request instead of relying on status.",
+		"ask explicitly with `pi-bebop member request send`, then `pi-bebop member request wait`.",
 		"",
 		"Options:",
 		"  --session <id|alias>   Source joined Pi session id or alias (default: PI_SESSION_ID)",

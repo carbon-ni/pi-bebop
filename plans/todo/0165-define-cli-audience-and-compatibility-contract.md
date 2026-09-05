@@ -43,9 +43,9 @@ Every result-producing leaf keeps explicit `--format text|toon|json` for compati
 
 - [x] Dedicated CLI contract records every current command, primary audience, default, overrides, and next decision.
 - [x] Command hierarchy groups operations by intent and defines joined/source session, socket, Intake, Redirect/legacy steer, Follow-up, Response grace, Accepted, Persisted, Completed, and Response at point of use.
-- [x] CLI help and recovery hints must reference runnable CLI commands, never agent-only tool names.
+- [x] CLI help and recovery hints must reference runnable CLI commands, never agent-only tool names; the discovered `member status` violation now points to `pi-bebop member request send|wait` and has a regression test.
 - [x] Representative happy, empty, usage-error, operational-error, and truncated output observations are captured before implementation.
-- [x] Equivalent canonical results are measured as UTF-8 text/TOON/JSON; all TOON samples decode and deep-equal JSON-normalized values.
+- [x] Equivalent canonical results are measured as UTF-8 text/TOON/JSON; checked-in contract coverage decodes all three TOON samples and deep-equals their JSON-normalized values.
 - [x] Intentional help, duplicate, sentinel, error-wording, and exit-code compatibility choices are explicit migration baselines.
 - [x] Contract distinguishes serialization from semantic views and forbids rendering internal details blindly.
 - [ ] Lead review approves the product-authored matrix before parser work starts.
@@ -58,6 +58,6 @@ Every result-producing leaf keeps explicit `--format text|toon|json` for compati
 
 ## Evidence
 
-Product review: Mary approved `docs/CLI-CONTRACT.md` as the intended behavior for TASK-0166–0170.
+Product review: Mary approved `docs/CLI-CONTRACT.md` as the intended behavior for TASK-0166–0170. The contract explicitly records current Guest parser, leaf help, and text presentation gaps under their migration owners rather than claiming current conformance.
 
 Measured canonical samples: Crew roles 50/122/186 B, queued Follow-up 41/123/135 B, and empty session list 24/79/89 B for text/TOON/JSON. `@toon-format/toon` decode deep-equaled every JSON-normalized sample. Current representative output also shows why audience matters: `crew roles` is 296 B as default TOON versus 37 B as text; `session list --format text` loses its rows and prints only `Message completed`; home is a 552 B structured agent state view. These samples guide the plan but are not universal size claims.

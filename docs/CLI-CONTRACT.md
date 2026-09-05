@@ -159,6 +159,14 @@ Baseline path coverage required before migration tests:
 | Operational error | product error code/message, one safe recovery, exit 1, no raw dependency data |
 | Truncated | preview plus original/shown sizes and `--full` escape |
 
+## Known pre-migration implementation gaps
+
+These observations are baseline defects, not claims that current code already satisfies the target contract:
+
+- `guest send` and `guest broadcast` currently reuse a parser helper that wrongly requires a positional Member socket although their Commander builders declare none. TASK-0168 must fix this while migrating Guest grammar and add executable happy-path coverage.
+- Leaf `-h`/`--help` is currently disabled or handled by local pre-scanners. TASK-0166–0168 must establish standard Commander help.
+- Existing text presentation is incomplete; for example `session list --format text` loses rows. TASK-0170 owns semantic human presenters.
+
 ## Review gate
 
-Parser implementation may start only after product and lead approve this matrix. Any change to audience default, exit code, scalar duplicate policy, sentinel migration, or serialization boundary requires an explicit contract update rather than an incidental parser diff.
+Parser implementation may start only after product and lead approve this target matrix and acknowledge the tracked baseline gaps. Any change to audience default, exit code, scalar duplicate policy, sentinel migration, or serialization boundary requires an explicit contract update rather than an incidental parser diff.

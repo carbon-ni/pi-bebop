@@ -102,6 +102,12 @@ test("member status parse: missing member, duplicate flags, unknown flags, bad f
 	assert.throws(() => parseMemberStatusCommand(["Kelly", "--format", "xml"]), /Invalid --format/);
 });
 
+test("member status help points to runnable CLI request commands", () => {
+	const help = memberStatusHelp();
+	assert.match(help, /pi-bebop member request send/);
+	assert.doesNotMatch(help, /send_member_request/);
+});
+
 test("member status parse: --help short-circuits requirements but validates provided values", () => {
 	const options = parseMemberStatusCommand(["--help"]);
 	assert.equal(options.help, true);
