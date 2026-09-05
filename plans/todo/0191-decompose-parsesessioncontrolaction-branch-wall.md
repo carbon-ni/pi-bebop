@@ -1,7 +1,7 @@
 ---
 id: TASK-0191
 title: Decompose parseSessionControlAction branch wall
-status: todo
+status: doing
 depends_on: [TASK-0185]
 priority: normal
 tags: [techdebt, domain, complexity, cli-parsing]
