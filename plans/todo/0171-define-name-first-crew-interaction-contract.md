@@ -54,6 +54,20 @@ pi-bebop ask funzzy/Mony "What is blocked?"
 - [x] Success metric: each target example above is one non-interactive command and requires zero caller-visible routing or correlation identifiers, given a current joined Member or approved Guest route.
 - [ ] Security, product, development, and QA review approve the contract before implementation tasks start.
 
+## Review status
+
+- Product: Mary — approved `docs/CREW-INTERACTION.md` at `20a07d6`.
+- Security/lead: Mony — approved Crew Locator only as strict local lookup root; path access never authenticates or grants Ask/Guest authority.
+- Development: Dave — approved feasibility; identified directory resolver plus existing trusted-manifest, RPC, and Member Request seams.
+- QA: pending independent review; durable request `inbox-0-bac0a855` queued for Kelly.
+
+## Review status
+
+- Product: Mary approved the target/outcome/provenance contract.
+- Security/lead: Mony approved the strict Crew Locator boundary. Locator access is consent to inspect one trusted manifest, never authentication or Member/Guest authority.
+- Development: Dave approved feasibility against current domain/protocol seams at `1bd5f19`.
+- QA: pending independent review; durable review request `inbox-0-bac0a855` is queued for Kelly.
+
 ## Non-goals
 
 Implementation, permission inference from roles, transcript summarization, autonomous task management, continuous monitoring, or claiming that a Response proves work completion.
