@@ -23,7 +23,7 @@ These commands require an authorized route: the current joined Member or an appr
 - **Member Target** is an exact, case-sensitive configured Member name within one Crew. Member names remain manifest-owned. Public target parsing splits on the first `/`; the Crew Selector therefore cannot contain `/`.
 - **Crew Target** is either one Crew Selector or an explicit `--crew <locator>` recovery selector. `crew/member` adds one Member Target.
 
-Name-first resolution succeeds only when exactly one trusted eligible Crew Locator matches the Crew Selector. Duplicate IDs across worktrees are ambiguous even when they refer to clones of the same project. The error discloses only the candidate Crew Locators needed for an explicit corrected command. Runtime session IDs, sockets, Member endpoints, Request IDs, and capabilities remain hidden.
+Name-first resolution succeeds only when exactly one trusted eligible Crew Locator matches the Crew Selector. Duplicate IDs across worktrees are ambiguous even when they refer to clones of the same project. The error discloses at most 20 deterministically ordered candidate Crew Locators needed for explicit corrected commands; if more exist it reports `total`, `shown`, and truncation. Runtime session IDs, sockets, Member endpoints, Request IDs, and capabilities remain hidden.
 
 An explicit Locator is caller consent to inspect that exact local manifest. It is not caller authentication. Resolution must canonicalize the path, enforce the existing exact layout allowlist, check project trust before manifest IO, and reject traversal or symlink escape.
 
@@ -53,6 +53,8 @@ Crew Intake remains the only standalone external write path: `send --crew <locat
 
 Crew-level Ask resolves only `intake.contact` as recipient policy; the caller must still have a joined Member or approved Guest route. Missing contact fails without lead, role, first-member, or online-member fallback. Exact Member Ask resolves only the configured Member name and applicable caller authorization.
 
+Within one Crew Locator, the manifest's canonical Member endpoint is the only target route authority. A reload may leave several runtime candidates visible, but routing probes only the canonical endpoint owner and validates its reported Crew/Member identity. It never chooses a runtime by freshness, enumeration order, or probe completion. No live canonical owner means offline; conflicting or mismatched ownership means `route-conflict` and no delivery.
+
 ## Ask lifecycle
 
 Ask is one non-interactive Member Request operation. It returns exactly one correlated Response or one terminal non-Response outcome. Correlation IDs stay internal.
@@ -67,9 +69,26 @@ Defaults and bounds:
 | Post-idle Response grace | 30 s | 1–600 s | Time after responder first becomes idle to send one Response. |
 | Total Ask wait | 120 s | 2–1,800 s | Absolute caller wait; must exceed Response grace. |
 
-`--response-grace <duration>` and `--timeout <duration>` expose human durations. Invalid relations return the exact corrected command. Response, offline, timeout-after-idle, timeout-total, malformed-response, and route-lost are terminal. `SIGINT` stops the local wait with exit 130; it does not claim to cancel target work. A retry creates a new Ask and can produce a second response.
+`--response-grace <duration>` and `--timeout <duration>` expose human durations. Invalid relations return the exact corrected command. Ask maps the lower-level Member Request lifecycle into the stable outcome registry below. `SIGINT` stops only the current phase; it never claims to cancel target work. A retry creates a new Ask and can produce a second response.
 
 Accepted means the request was validated and accepted by a live endpoint. It does not mean seen, answered, or completed. A Response is correlated communication, not proof that work is correct or complete.
+
+### Ask outcome registry
+
+All formats expose the same `outcome`, `stage`, and exit behavior:
+
+| Outcome code | Stage | Exit | Meaning |
+| --- | --- | ---: | --- |
+| `response` | response | 0 | Exactly one correlated Response was received. |
+| `unknown-crew`, `unknown-member`, `ambiguous-crew`, `self-target` | resolution | 2 | Product target cannot resolve without caller correction. |
+| `invalid-manifest`, `authorization-required`, `offline-crew`, `offline-member`, `route-conflict`, `route-lost` | resolution/delivery | 1 | Operational state prevents a safe Ask. |
+| `discovery-timeout` | discovery | 1 | The fixed discovery deadline elapsed; no delivery started. |
+| `delivery-timeout-unknown` | delivery | 1 | Acceptance is unknown; output sets `safeRetry: false`. |
+| `timeout-after-idle`, `timeout-total` | response | 1 | Accepted request produced no correlated Response within the stated bound. |
+| `malformed-response` | response | 1 | Peer output failed protocol/schema/correlation validation. |
+| `cancelled` | current phase | 130 | Caller stopped local work. During delivery, `acceptance: unknown` and `safeRetry: false`; after Accepted, target work may continue. |
+
+A lower-level `timeout max-wait` Request outcome is presented by Ask as `timeout-total`; this is view mapping, not a new Member Request outcome. Error details may add safe public context but may not rename these codes.
 
 ## Target and outcome table
 
@@ -77,21 +96,24 @@ Accepted means the request was validated and accepted by a live endpoint. It doe
 | --- | --- | --- |
 | Missing Crew Selector | Error before probing | `pi-bebop crew list` |
 | Unknown Crew Selector | Error | `pi-bebop crew list` and closest exact selectors only when deterministic |
-| Duplicate selector/worktree | Ambiguous error | one runnable `--crew <locator>` command per trusted candidate |
+| Duplicate selector/worktree | `ambiguous-crew` | up to 20 runnable `--crew <locator>` commands plus total/shown/truncation |
 | Exact Locator outside allowed layout | Trust error before manifest IO | required canonical layout, no fallback |
 | Missing `crew.id` | Unaddressable error | add valid `crew.id`, or use Locator only for supported external Intake |
-| Missing Member name | Error before delivery | runnable exact Member targets in manifest order |
-| Duplicate Member name | Invalid-manifest error | fix manifest; never choose first |
+| Missing Member name | `unknown-member` before delivery | runnable exact Member targets in manifest order |
+| Duplicate Member name | `invalid-manifest` | fix manifest; never choose first; no separate ambiguous-Member state |
 | Crew-level Ask without contact | Policy error | corrected `ask crew/member` examples for configured names |
 | No current Member/Guest authority | Authorization error | join as exact Member or establish approved Guest membership |
 | Offline Crew | Offline terminal outcome | retry later; one-way Intake only when configured |
 | Offline Member | Offline terminal outcome | retry later or use authorized durable Inbox when applicable |
 | Self-target | Error | choose another exact Member or an approved Guest route |
-| Stale route | One bounded re-resolution, then route-lost | rerun exact Ask; no hidden loop |
-| Partial Crew Status | Success with `partial: true` | every unavailable Member has its own terminal reason |
-| Malformed Response | Terminal protocol error | `pi-bebop doctor`; never render malformed content as valid |
-| Total/grace timeout | Distinct timeout outcome | exact retry command with valid duration relation |
-| Caller cancellation | exit 130 | state that only local wait stopped |
+| Several runtimes for one configured Member | canonical endpoint only | mismatched/conflicting owner becomes `route-conflict`; never choose newest/first |
+| Stale route | one bounded re-resolution, then `route-lost` | rerun exact Ask; no hidden loop |
+| Discovery exceeds 2 s | `discovery-timeout` | safe retry; no delivery was attempted |
+| Partial Crew Status | success with `partial: true` | every unavailable Member has its own terminal reason |
+| Malformed Response | `malformed-response` | `pi-bebop doctor`; never render malformed content as valid |
+| Total/grace timeout | `timeout-total` / `timeout-after-idle` | exact retry command with valid duration relation |
+| SIGINT during discovery/wait | `cancelled`, exit 130 | only local phase stopped; after Accepted target may continue |
+| SIGINT/timeout during delivery RPC | `cancelled` or `delivery-timeout-unknown` | `acceptance: unknown`, `safeRetry: false`; never imply safe deduplication |
 
 ## Crew Status truth model
 
