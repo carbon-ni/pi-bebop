@@ -149,34 +149,56 @@ function validateOriginLabel(label: string): void {
 		);
 }
 
-/** App-owned cross-flag/domain validation producing the exact legacy messages. */
-function validateSendSemantics(leaf: SendLeafOptions, seen: Set<string>, cwd: string): SendCliOptions {
+/** Validate the mutually exclusive direct and durable delivery targets. */
+function validateTargetSelection(leaf: SendLeafOptions): void {
 	const hasSocket = leaf.socketPath !== undefined;
 	const hasCrew = leaf.crewPath !== undefined;
 	if (hasSocket === hasCrew)
 		throw new UsageError(
 			"Choose exactly one target: --socket <path> for direct delivery or --crew <manifest> for durable intake",
 		);
-	if (hasCrew) {
-		for (const incompatible of ["--mode", "--wait", "--timeout"] as const) {
-			if (seen.has(incompatible))
-				throw new UsageError(
-					`${incompatible} is not supported with --crew; external intake is one-way persisted delivery`,
-				);
-		}
+}
+
+/** Validate flags that only make sense for direct delivery. */
+function validateCrewDeliveryFlags(leaf: SendLeafOptions, seen: Set<string>): void {
+	if (leaf.crewPath === undefined) return;
+	for (const incompatible of ["--mode", "--wait", "--timeout"] as const) {
+		if (seen.has(incompatible))
+			throw new UsageError(
+				`${incompatible} is not supported with --crew; external intake is one-way persisted delivery`,
+			);
 	}
-	if (leaf.origin !== undefined) validateOriginLabel(leaf.origin.label);
+}
+
+/** Validate message source exclusivity and content. */
+function validateMessageSource(leaf: SendLeafOptions): void {
 	const hasMessage = leaf.message !== undefined;
 	if (hasMessage && leaf.stdin)
 		throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
 	if (!hasMessage && !leaf.stdin) throw new UsageError("Missing message source; use --message <text> or --stdin");
 	if (hasMessage && leaf.message!.length === 0) throw new UsageError("--message must not be empty");
+}
+
+/** Validate direct-delivery enums and output format. */
+function validateDeliveryOptions(leaf: SendLeafOptions): void {
 	if (leaf.mode !== "steer" && leaf.mode !== "follow_up")
 		throw new UsageError(`Invalid --mode '${leaf.mode}'; valid alternatives: steer, follow_up`);
 	if (leaf.wait !== "turn_end" && leaf.wait !== "accepted")
 		throw new UsageError(`Invalid --wait '${leaf.wait}'; valid alternatives: turn_end, accepted`);
 	if (!isCliFormat(leaf.format))
 		throw new UsageError(`Invalid --format '${leaf.format}'; valid alternatives: toon, json, text`);
+}
+
+/** App-owned cross-flag/domain validation producing the exact legacy messages. */
+function validateSendSemantics(leaf: SendLeafOptions, seen: Set<string>, cwd: string): SendCliOptions {
+	validateTargetSelection(leaf);
+	validateCrewDeliveryFlags(leaf, seen);
+	if (leaf.origin !== undefined) validateOriginLabel(leaf.origin.label);
+	validateMessageSource(leaf);
+	validateDeliveryOptions(leaf);
+	const hasSocket = leaf.socketPath !== undefined;
+	const hasCrew = leaf.crewPath !== undefined;
+	const hasMessage = leaf.message !== undefined;
 	return {
 		command: "send",
 		...(hasSocket ? { socketPath: path.resolve(cwd, leaf.socketPath!) } : {}),
