@@ -6,7 +6,7 @@ import { runCli } from "./run.ts";
 // Re-exported so the existing characterization/integration suites keep
 // importing the same public surface from "./main.ts".
 export { runCli } from "./run.ts";
-export { errorCode } from "./errors.ts";
+export { errorCode } from "./support/errors.ts";
 
 /**
  * TASK-0063: composition root only. Owns the real process streams, the

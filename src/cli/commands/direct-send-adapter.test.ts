@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deliverDirectMessage, type DirectSendDependencies } from "./direct-send-adapter.ts";
-import type { SendCliOptions } from "../arguments.ts";
+import type { SendCliOptions } from "../support/arguments.ts";
 import type { DirectMessageRequest } from "../../application/direct-message.ts";
 
 function options(overrides: Partial<SendCliOptions> = {}): SendCliOptions {

@@ -7,7 +7,7 @@ import {
 	runDurableMessageCommand,
 	type DurableMessageCliDependencies,
 } from "./durable-message.ts";
-import type { CliContext } from "../context.ts";
+import type { CliContext } from "../support/context.ts";
 import { registerSendToInboxTool } from "../../tools/send-to-inbox.ts";
 import { registerBroadcastToCrewTool } from "../../tools/broadcast-to-crew.ts";
 

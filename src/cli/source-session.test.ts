@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resolveSourceSession } from "./source-session.ts";
+import { resolveSourceSession } from "./support/source-session.ts";
 
 const CONTROL_DIR = path.join(os.homedir(), ".pi", "bebop");
 

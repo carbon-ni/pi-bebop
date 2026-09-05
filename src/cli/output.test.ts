@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { decode } from "@toon-format/toon";
-import { renderCliResult } from "./output.ts";
+import { renderCliResult } from "./support/output.ts";
 
 const success = { ok: true as const, target: "/tmp/dev.sock", status: "completed" as const, response: "hello" };
 

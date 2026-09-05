@@ -1,9 +1,9 @@
 import { Command, CommanderError } from "commander";
 import type { Readable, Writable } from "node:stream";
-import { UsageError } from "./arguments.ts";
+import { UsageError } from "./support/arguments.ts";
 import { buildRootCommand, type CliLeaf, type CliRegistry } from "./registry.ts";
-import type { CliContext } from "./context.ts";
-import type { CliOutcome } from "./output.ts";
+import type { CliContext } from "./support/context.ts";
+import type { CliOutcome } from "./support/output.ts";
 import { rootCliHelp } from "./root-help.ts";
 import { cliVersionOutput } from "./version.ts";
 

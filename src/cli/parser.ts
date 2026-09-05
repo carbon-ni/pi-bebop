@@ -4,8 +4,9 @@ import { isCliFormat } from "./commands/crew-init.ts";
 import { buildCrewInitCommand } from "./commands/crew-init.ts";
 import { buildSendCommand, readSendLeafOptions, type SendLeafOptions } from "./commands/send.ts";
 import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/index.ts";
-import { scanCliFlags } from "./flag-scanner.ts";
-import { UsageError, type CliFormat, type SendCliOptions } from "./arguments.ts";
+import { scanCliFlags } from "./support/flag-scanner.ts";
+import { parsePositiveDurationMs } from "./support/duration.ts";
+import { UsageError, type CliFormat, type SendCliOptions } from "./support/arguments.ts";
 
 export interface DeclarativeCrewInitOptions {
 	readonly command: "crew-init";
@@ -126,16 +127,6 @@ const SEND_SINGLE_VALUE_FLAGS = new Set([
 	"--from",
 ]);
 const SEND_BOOLEAN_FLAGS = new Set(["--stdin", "--full"]);
-
-export function parsePositiveDurationMs(value: string): number {
-	const match = /^(\d+)(ms|s|m)$/.exec(value);
-	if (!match || Number(match[1]) < 1)
-		throw new UsageError(`Invalid --timeout '${value}'; use a positive duration such as 500ms, 30s, or 5m`);
-	const multiplier = match[2] === "m" ? 60000 : match[2] === "s" ? 1000 : 1;
-	const result = Number(match[1]) * multiplier;
-	if (!Number.isSafeInteger(result)) throw new UsageError(`Invalid --timeout '${value}'; duration is too large`);
-	return result;
-}
 
 function validateOriginLabel(label: string): void {
 	if (

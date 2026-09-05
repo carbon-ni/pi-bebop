@@ -1,12 +1,12 @@
 import { Command, CommanderError } from "commander";
-import { parsePositiveDurationMs } from "../parser.ts";
-import { UsageError, type CliFormat } from "../arguments.ts";
-import { errorResult } from "../errors.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
+import { parsePositiveDurationMs } from "../support/duration.ts";
+import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { errorResult } from "../support/errors.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
-import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../source-session.ts";
-import { readStdinMessage } from "../message-input.ts";
+import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
+import { readStdinMessage } from "../support/message-input.ts";
 import {
 	MAX_MEMBER_REQUEST_TIMEOUT_SECONDS,
 	MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS,

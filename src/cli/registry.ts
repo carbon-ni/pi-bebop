@@ -77,7 +77,7 @@ import {
 	buildCrewRolesCommand,
 	type CrewRolesCliOptions,
 } from "./commands/crew-roles.ts";
-import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./arguments.ts";
+import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./support/arguments.ts";
 import {
 	buildMemberRequestSendCommand,
 	buildMemberRequestListCommand,
@@ -91,8 +91,8 @@ import {
 	runMemberRequestCommand,
 	type MemberRequestCliOptions,
 } from "./commands/member-request.ts";
-import type { CliContext } from "./context.ts";
-import type { CliOutcome } from "./output.ts";
+import type { CliContext } from "./support/context.ts";
+import type { CliOutcome } from "./support/output.ts";
 
 /**
  * TASK-0063: the single owned CLI composition point (PO sequencing review,

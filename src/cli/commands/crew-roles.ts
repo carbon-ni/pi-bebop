@@ -4,10 +4,10 @@ import { Command, CommanderError } from "commander";
 import { CrewManifestError, projectCrewRoles, type CrewManifest } from "../../domain/index.ts";
 import { CrewManifestReadError, readTrustedCrewManifest } from "../../infra/crew-manifest-store.ts";
 import { getTrustedCrewManifestPaths } from "../../infra/crew-layout.ts";
-import { UsageError, type CliFormat } from "../arguments.ts";
-import { errorResult } from "../errors.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome, CliResult } from "../output.ts";
+import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { errorResult } from "../support/errors.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome, CliResult } from "../support/output.ts";
 
 /**
  * TASK-0082: `crew roles` discovery leaf — one registry contribution owning

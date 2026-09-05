@@ -3,8 +3,8 @@ import {
 	type DirectMessageRequest,
 	type DirectMessageResult,
 } from "../../application/direct-message.ts";
-import type { SendCliOptions } from "../arguments.ts";
-import type { CliOutcome } from "../output.ts";
+import type { SendCliOptions } from "../support/arguments.ts";
+import type { CliOutcome } from "../support/output.ts";
 
 /**
  * TASK-0063: direct RPC send adapter. Owns the application call and the

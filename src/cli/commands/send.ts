@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { MAX_MESSAGE_INSTRUCTIONS } from "../../domain/index.ts";
-import type { CliFormat } from "../arguments.ts";
+import type { CliFormat } from "../support/arguments.ts";
 
 /**
  * TASK-0058: declarative Commander schema for `send` — the single flag

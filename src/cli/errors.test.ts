@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { errorCode, errorResult, requestedFormat, usageResult } from "./errors.ts";
+import { errorCode, errorResult, requestedFormat, usageResult } from "./support/errors.ts";
 import { ExternalIntakeError } from "../application/external-intake.ts";
 import { DirectMessageError } from "../application/direct-message.ts";
 

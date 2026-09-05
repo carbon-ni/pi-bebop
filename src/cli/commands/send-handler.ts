@@ -1,11 +1,11 @@
-import { UsageError, type SendCliOptions } from "../arguments.ts";
-import type { CliContext } from "../context.ts";
-import type { CliOutcome } from "../output.ts";
+import { UsageError, type SendCliOptions } from "../support/arguments.ts";
+import type { CliContext } from "../support/context.ts";
+import type { CliOutcome } from "../support/output.ts";
 import { sendHelp } from "./send.ts";
-import { readStdinMessage } from "../message-input.ts";
+import { readStdinMessage } from "../support/message-input.ts";
 import { deliverDirectMessage } from "./direct-send-adapter.ts";
 import { deliverCrewIntake } from "./crew-intake-adapter.ts";
-import { errorCode, errorResult } from "../errors.ts";
+import { errorCode, errorResult } from "../support/errors.ts";
 
 /**
  * TASK-0063: `send` handler — owns message input, target routing after parser

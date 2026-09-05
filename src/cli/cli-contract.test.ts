@@ -5,8 +5,8 @@ import { PassThrough } from "node:stream";
 import { decode } from "@toon-format/toon";
 import { parseCliArguments } from "./parser.ts";
 import { parseCliCommand } from "./registry.ts";
-import { UsageError } from "./arguments.ts";
-import { renderCliResult, type CliResult } from "./output.ts";
+import { UsageError } from "./support/arguments.ts";
+import { renderCliResult, type CliResult } from "./support/output.ts";
 import { runCli } from "./main.ts";
 
 /**

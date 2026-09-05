@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
-import { readStdinMessage } from "./message-input.ts";
+import { readStdinMessage } from "./support/message-input.ts";
 
 test("reads injected stdin until end and resolves the exact UTF-8 bytes", async () => {
 	const input = new PassThrough();

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { parseCliArguments } from "./parser.ts";
 import { parseCliCommand } from "./registry.ts";
-import { UsageError } from "./arguments.ts";
+import { UsageError } from "./support/arguments.ts";
 
 const cwd = "/project";
 

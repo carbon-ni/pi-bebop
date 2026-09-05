@@ -13,7 +13,7 @@ import {
 	runMemberInterruptCommand,
 	type MemberInterruptCliDependencies,
 } from "./member-interrupt.ts";
-import type { CliContext } from "../context.ts";
+import type { CliContext } from "../support/context.ts";
 import { RpcProtocolError } from "../../infra/rpc-client.ts";
 
 function context(): CliContext {
