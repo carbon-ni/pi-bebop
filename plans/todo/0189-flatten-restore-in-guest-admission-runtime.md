@@ -1,7 +1,7 @@
 ---
 id: TASK-0189
 title: Flatten restore in guest admission runtime
-status: todo
+status: doing
 depends_on: []
 priority: normal
 tags: [techdebt, infra, complexity, guest, restore]

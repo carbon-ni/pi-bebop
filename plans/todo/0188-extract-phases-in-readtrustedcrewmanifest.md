@@ -1,7 +1,7 @@
 ---
 id: TASK-0188
 title: Extract phases in readTrustedCrewManifest
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [techdebt, infra, complexity, trust]
