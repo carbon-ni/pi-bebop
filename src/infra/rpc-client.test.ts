@@ -1012,6 +1012,27 @@ test("sendMemberIdleWait covers malformed envelope and acknowledgement validatio
 		);
 });
 
+test("sendMemberIdleWait preserves a typed peer identity mismatch", async () => {
+	await withSocketServer(
+		(socket) =>
+			lines(socket, (request) =>
+				send(socket, {
+					jsonrpc: "2.0",
+					id: request.id,
+					error: { code: -32000, message: "Member idle wait failed", data: { code: "identity-mismatch" } },
+				}),
+			),
+		async (socketPath) => {
+			const outcome = await sendMemberIdleWait(
+				socketPath,
+				{ type: "member_idle_wait", member: "Mary" },
+				{ timeoutSeconds: 1 },
+			);
+			assert.deepEqual(outcome, { ok: false, code: "identity-mismatch" });
+		},
+	);
+});
+
 test("sendMemberIdleWait maps each stable remote rejection category", async () => {
 	for (const message of ["not-joined", "unknown member", "ambiguous role", "self-wait", "other rejection"]) {
 		await withSocketServer(

@@ -37,17 +37,21 @@ pi-bebop ask funzzy/Mony "What is blocked?"
 - Provenance for Crew goal, assignments, progress, blockers, results, and next step. Mechanical Presence/Activity must stay distinct from explicit Member-reported work state.
 - Freshness timestamps, partial results, history retention, privacy/redaction, and opt-in transport diagnostics.
 
+## Contract
+
+`docs/CREW-INTERACTION.md` is the normative product contract. Its Crew Locator model incorporates user feedback that the canonical Crew JSON path is the unique local communication root while keeping identity and authorization separate.
+
 ## Acceptance criteria
 
-- [ ] `UL.md` defines Crew directory, Crew target, Member target, Ask, Crew report, Reported work state, and Routing diagnostic without conflating Member identity with Pi session transport.
-- [ ] A state table covers missing/duplicate Crew names, exact selector, missing/duplicate Member name, offline Crew/Member, self-target, stale route, timeout, partial Response, malformed Response, and cancellation.
-- [ ] Crew-level Ask routing uses only manifest-authored Crew contact policy; absence is actionable and never guessed.
-- [ ] Crew Status field-by-field provenance states whether each value is manifest-authored, mechanically observed, or explicitly Member-reported, with timestamp and unavailable behavior.
-- [ ] The contract forbids inference from conversation history, tool activity, Git, plans, role, or idle state.
-- [ ] Session IDs, runtime sockets, Member endpoints, Request IDs, and capabilities are absent from default text/TOON/JSON unless an explicit diagnostic mode permits a safe subset.
-- [ ] Timeout defaults, minimums, maximums, terminal outcomes, and retry hints are documented in human terms.
-- [ ] Errors name the ambiguous/missing product target and include a corrected runnable command when possible.
-- [ ] Success metric: each target example above is one non-interactive command and requires zero caller-visible routing or correlation identifiers.
+- [x] `UL.md` defines Crew directory, Crew Locator, Crew Target, Member Target, Ask, Crew report, Reported work state, and Routing diagnostic without conflating Member identity with Pi session transport.
+- [x] A state table covers missing/duplicate Crew names, exact selector, missing/duplicate Member name, offline Crew/Member, self-target, stale route, timeout, partial Response, malformed Response, and cancellation.
+- [x] Crew-level Ask routing uses only manifest-authored Crew contact policy; absence is actionable and never guessed.
+- [x] Crew Status field-by-field provenance states whether each value is manifest-authored, mechanically observed, or explicitly Member-reported, with timestamp and unavailable behavior.
+- [x] The contract forbids inference from conversation history, tool activity, Git, plans, role, or idle state.
+- [x] Session IDs, runtime sockets, Member endpoints, Request IDs, and capabilities are absent from default text/TOON/JSON unless an explicit diagnostic mode permits a safe subset.
+- [x] Timeout defaults, minimums, maximums, terminal outcomes, and retry hints are documented in human terms.
+- [x] Errors name the ambiguous/missing product target and include a corrected runnable command when possible.
+- [x] Success metric: each target example above is one non-interactive command and requires zero caller-visible routing or correlation identifiers, given a current joined Member or approved Guest route.
 - [ ] Security, product, development, and QA review approve the contract before implementation tasks start.
 
 ## Non-goals

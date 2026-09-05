@@ -20,10 +20,10 @@ As a Crew coordinator, I want `pi-bebop crew list` to show the Crews I can addre
 ## Acceptance criteria
 
 - [ ] `pi-bebop crew list` emits one row per Crew in deterministic selector order, deduplicating multiple live Member sessions for the same Crew.
-- [ ] Trust is checked before any manifest IO. Discovery reads only the canonical `.pi/bebop/crew.json` or explicit `.pi/crew/crew.json` compatibility layout reached through an already-authorized membership; it never scans arbitrary manifests or creates transport authority from file presence.
+- [ ] Trust is checked before any manifest IO. Discovery reads only the canonical `.pi/bebop/crew.json` or explicit `.pi/crew/crew.json` compatibility layout reached through the current project, an already-authorized membership, or a bounded previously observed Crew Locator; it never scans arbitrary manifests or creates transport authority from file presence.
 - [ ] Each row exposes only contract-approved product fields such as Crew selector, display name, configured Member count, and bounded mechanical reachability summary.
-- [ ] Duplicate display names remain separate and visibly require their stable Crew selectors; the CLI never guesses.
-- [ ] No default output contains session IDs, aliases, runtime sockets, Member endpoint paths, capability values, manifest paths, or Request IDs.
+- [ ] Duplicate display names remain separate; duplicate Crew Selectors across worktrees fail name-based routing and provide explicit `--crew <locator>` recovery without guessing.
+- [ ] No normal default output contains session IDs, aliases, runtime sockets, Member endpoint paths, capability values, manifest paths, or Request IDs. A Crew Locator is disclosed only for ambiguity recovery, explicit Locator selection, or diagnostics.
 - [ ] Empty discovery is successful and explains how a Crew becomes locally addressable without exposing transport setup.
 - [ ] Stale/unreachable/malformed candidates do not corrupt valid Crew rows; partial discovery is explicit and deterministically ordered.
 - [ ] TOON default, explicit text/JSON, empty/error, truncation, and semantic TOON round-trip follow TASK-0165/TASK-0170 contracts.
