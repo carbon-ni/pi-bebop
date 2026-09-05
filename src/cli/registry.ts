@@ -251,6 +251,28 @@ export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
 	};
 }
 
+/** Reconstructs semantic-parser input from Commander-owned tokenization. The
+ * adapter has already enforced the leaf schema; compatibility parsers remain
+ * the semantic validation boundary until their dedicated readers are split. */
+function tokensFromCommander(command: Command): string[] {
+	const tokens = [...command.args];
+	for (const option of command.options) {
+		const name = option.long;
+		if (name === undefined || name === "--help") continue;
+		const attribute = option.attributeName();
+		const value = command.getOptionValue(attribute);
+		const source = command.getOptionValueSource(attribute);
+		if (source === "default" || value === undefined || value === false) continue;
+		if (value === true) {
+			tokens.push(name);
+			continue;
+		}
+		const values = Array.isArray(value) ? value : [value];
+		for (const item of values) tokens.push(name, String(item));
+	}
+	return tokens;
+}
+
 const homeLeaf: CliLeaf = {
 	id: "home",
 	names: [],
@@ -267,6 +289,7 @@ const sendLeaf: CliLeaf = {
 	build: () => buildSendCommand(),
 	help: () => sendHelp(),
 	parse: (tokens, cwd) => parseSendCommand([...tokens], cwd),
+	read: (command, cwd) => parseSendCommand(tokensFromCommander(command), cwd),
 	run: (options, context) => runSendCommand(options as SendCliOptions, context),
 };
 
@@ -294,6 +317,7 @@ const guestJoinLeaf: CliLeaf = {
 	build: () => buildGuestJoinCommand(),
 	help: () => guestJoinHelp(),
 	parse: (tokens) => parseGuestJoinCommand(tokens),
+	read: (command) => parseGuestJoinCommand(tokensFromCommander(command)),
 	run: (options, context) => runGuestJoinCommand(options as GuestJoinCliOptions, context),
 };
 
@@ -303,6 +327,7 @@ const guestLeaveLeaf: CliLeaf = {
 	build: () => buildGuestLeaveCommand(),
 	help: () => guestLeaveHelp(),
 	parse: (tokens) => parseGuestLeaveCommand(tokens),
+	read: (command) => parseGuestLeaveCommand(tokensFromCommander(command)),
 	run: (options, context) => runGuestLeaveCommand(options as GuestLeaveCliOptions, context),
 };
 
@@ -313,6 +338,7 @@ const guestSendLeaf: CliLeaf = {
 	build: () => buildGuestMessageCommand("send"),
 	help: () => guestMessageHelp("send"),
 	parse: (tokens) => parseGuestMessageCommand(tokens, "send"),
+	read: (command) => parseGuestMessageCommand(tokensFromCommander(command), "send"),
 	run: (options, context) =>
 		runGuestMessageCommand(options as import("./commands/guest.ts").GuestMessageCliOptions, context),
 };
@@ -323,6 +349,7 @@ const guestBroadcastLeaf: CliLeaf = {
 	build: () => buildGuestMessageCommand("broadcast"),
 	help: () => guestMessageHelp("broadcast"),
 	parse: (tokens) => parseGuestMessageCommand(tokens, "broadcast"),
+	read: (command) => parseGuestMessageCommand(tokensFromCommander(command), "broadcast"),
 	run: (options, context) =>
 		runGuestMessageCommand(options as import("./commands/guest.ts").GuestMessageCliOptions, context),
 };
@@ -345,6 +372,7 @@ const memberRequestSendLeaf: CliLeaf = {
 	build: () => buildMemberRequestSendCommand(),
 	help: () => memberRequestHelp("send"),
 	parse: (tokens) => parseMemberRequestSendCommand(tokens),
+	read: (command) => parseMemberRequestSendCommand(tokensFromCommander(command)),
 	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
 };
 const memberRequestListLeaf: CliLeaf = {
@@ -353,6 +381,7 @@ const memberRequestListLeaf: CliLeaf = {
 	build: () => buildMemberRequestListCommand(),
 	help: () => memberRequestHelp("list"),
 	parse: (tokens) => parseMemberRequestListCommand(tokens),
+	read: (command) => parseMemberRequestListCommand(tokensFromCommander(command)),
 	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
 };
 const memberRequestWaitLeaf: CliLeaf = {
@@ -361,6 +390,7 @@ const memberRequestWaitLeaf: CliLeaf = {
 	build: () => buildMemberRequestWaitCommand(),
 	help: () => memberRequestHelp("wait"),
 	parse: (tokens) => parseMemberRequestWaitCommand(tokens),
+	read: (command) => parseMemberRequestWaitCommand(tokensFromCommander(command)),
 	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
 };
 const memberRequestRespondLeaf: CliLeaf = {
@@ -369,6 +399,7 @@ const memberRequestRespondLeaf: CliLeaf = {
 	build: () => buildMemberRequestRespondCommand(),
 	help: () => memberRequestHelp("respond"),
 	parse: (tokens) => parseMemberRequestRespondCommand(tokens),
+	read: (command) => parseMemberRequestRespondCommand(tokensFromCommander(command)),
 	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
 };
 
@@ -412,6 +443,7 @@ const memberFollowUpLeaf: CliLeaf = {
 	build: () => buildMemberMessageCommand("follow_up"),
 	help: () => memberMessageHelp("follow_up"),
 	parse: (tokens, cwd) => parseMemberMessageCommand([...tokens], "follow_up", cwd),
+	read: (command, cwd) => parseMemberMessageCommand(tokensFromCommander(command), "follow_up", cwd),
 	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
 };
 
@@ -422,6 +454,7 @@ const memberRedirectLeaf: CliLeaf = {
 	build: () => buildMemberMessageCommand("redirect"),
 	help: () => memberMessageHelp("redirect"),
 	parse: (tokens, cwd) => parseMemberMessageCommand([...tokens], "redirect", cwd),
+	read: (command, cwd) => parseMemberMessageCommand(tokensFromCommander(command), "redirect", cwd),
 	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
 };
 
@@ -432,6 +465,7 @@ const memberInboxSendLeaf: CliLeaf = {
 	build: () => buildDurableMessageCommand("inbox"),
 	help: () => durableMessageHelp("inbox"),
 	parse: (tokens, cwd) => parseDurableMessageCommand([...tokens], "inbox", cwd),
+	read: (command, cwd) => parseDurableMessageCommand(tokensFromCommander(command), "inbox", cwd),
 	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
 };
 
@@ -442,6 +476,7 @@ const memberInterruptLeaf: CliLeaf = {
 	build: () => buildMemberInterruptCommand(),
 	help: () => memberInterruptHelp(),
 	parse: (tokens, cwd) => parseMemberInterruptCommand([...tokens], cwd),
+	read: (command, cwd) => parseMemberInterruptCommand(tokensFromCommander(command), cwd),
 	run: (options, context) => runMemberInterruptCommand(options as MemberInterruptCliOptions, context),
 };
 
@@ -452,6 +487,7 @@ const crewBroadcastLeaf: CliLeaf = {
 	build: () => buildDurableMessageCommand("broadcast"),
 	help: () => durableMessageHelp("broadcast"),
 	parse: (tokens, cwd) => parseDurableMessageCommand([...tokens], "broadcast", cwd),
+	read: (command, cwd) => parseDurableMessageCommand(tokensFromCommander(command), "broadcast", cwd),
 	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
 };
 

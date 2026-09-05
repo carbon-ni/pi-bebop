@@ -41,7 +41,9 @@ Changing default serialization or redesigning response data belongs to TASK-0169
 
 ## Evidence
 
-Implementation commit: `20d0c68` at exact baseline `f017e86`.
+Implementation commits: `20d0c68` at exact baseline `f017e86`, plus the reopened reader migration commit recorded below.
+
+The reopened slice now gives every scoped communication/Guest/request leaf a Commander `read` hook. The adapter performs strict schema validation first; the reader reconstructs only CLI-sourced option values for the existing semantic compatibility facade, preserving defaults and repeatable instruction order.
 
 - Guest routing regression: production `guest send` and `guest broadcast` parse without a positional socket; both reach trusted-manifest/application validation instead of failing in the old shared parser.
 - Full test suite: 1217/1217.
