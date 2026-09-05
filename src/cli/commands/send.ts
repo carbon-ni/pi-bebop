@@ -27,7 +27,11 @@ export function buildSendCommand(): Command {
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
 		.option("--from <label>", "Claimed external origin label")
 		.option("--mode <mode>", "steer or follow_up", "steer")
-		.option("--wait <wait>", "turn_end or accepted", "turn_end")
+		.option(
+			"--wait <wait>",
+			"accepted (turn_end is unsupported because completion is not delivery-correlated)",
+			"accepted",
+		)
 		.option("--timeout <duration>", "Duration such as 500ms, 30s, or 5m", "5m")
 		.option("--format <format>", "toon, json, or text", "toon")
 		.option("--full", "Full response without truncation")
@@ -71,7 +75,7 @@ export function readSendLeafOptions(parsed: Command): SendLeafOptions {
 		...(opts.from === undefined ? {} : { origin: { kind: "external" as const, label: opts.from } }),
 		stdin: opts.stdin ?? false,
 		mode: opts.mode ?? "steer",
-		wait: opts.wait ?? "turn_end",
+		wait: opts.wait ?? "accepted",
 		timeout: opts.timeout ?? "5m",
 		format: opts.format ?? "toon",
 		full: opts.full ?? false,

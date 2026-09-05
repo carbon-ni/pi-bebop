@@ -36,7 +36,6 @@ export async function deliverDirectMessage(
 		wait: options.wait,
 		timeoutMs: options.timeoutMs,
 		signal,
-		requireAssistantResponse: true,
 	});
 	return {
 		kind: "result",

@@ -15,7 +15,7 @@ test("parses direct send defaults and resolves a relative socket", () => {
 		instructions: [],
 		stdin: false,
 		mode: "steer",
-		wait: "turn_end",
+		wait: "accepted",
 		timeoutMs: 300000,
 		format: "toon",
 		full: false,

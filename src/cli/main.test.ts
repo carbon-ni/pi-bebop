@@ -307,6 +307,8 @@ test("runs against a live Unix socket and sends ordered instructions and claimed
 				"second",
 				"--from",
 				"CI",
+				"--wait",
+				"accepted",
 				"--format",
 				"json",
 			],
@@ -315,7 +317,7 @@ test("runs against a live Unix socket and sends ordered instructions and claimed
 			output,
 		);
 		assert.equal(code, 0);
-		assert.equal(JSON.parse(text).response, "answer");
+		assert.equal(JSON.parse(text).status, "accepted");
 		assert.deepEqual(sentParams[0], {
 			content: "hello",
 			instructions: ["first", "second"],
@@ -334,6 +336,8 @@ test("runs against a live Unix socket and sends ordered instructions and claimed
 				"from-flag",
 				"--from",
 				"CI",
+				"--wait",
+				"accepted",
 				"--format",
 				"json",
 			],
@@ -353,6 +357,64 @@ test("runs against a live Unix socket and sends ordered instructions and claimed
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(dir, { recursive: true, force: true });
 	}
+});
+
+test("rejects turn_end output because global completion is not delivery-correlated", async () => {
+	await withEndpoint(
+		(command, socket) => {
+			if (command.method === "message.send") {
+				socket.write(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: command.id,
+						result: { deliveryId: `delivery-${command.id}`, disposition: "steered" },
+					}) + "\n",
+				);
+			}
+			if (command.method === "event.subscribe") {
+				socket.write(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: command.id,
+						result: { subscriptionId: command.id, event: "turn_end" },
+					}) + "\n",
+				);
+				// This is a prior/unrelated assistant result from the busy target.
+				socket.write(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						method: "session.turn_end",
+						params: {
+							subscriptionId: command.id,
+							message: { role: "assistant", content: "unrelated prior result", timestamp: 1 },
+							turnIndex: 7,
+						},
+					}) + "\n",
+				);
+				setTimeout(() => socket.destroy(), 100);
+			}
+		},
+		async (socketPath, messages) => {
+			const output = new PassThrough();
+			let text = "";
+			output.setEncoding("utf8");
+			output.on("data", (chunk) => {
+				text += chunk;
+			});
+			const code = await runCli(
+				["send", "--socket", socketPath, "--message", "new request", "--wait", "turn_end", "--format", "json"],
+				root,
+				process.stdin,
+				output,
+			);
+			assert.equal(code, 1);
+			assert.equal(messages.length, 0, "unsupported response mode must fail before transport");
+			const result = JSON.parse(text);
+			assert.equal(result.ok, false);
+			assert.equal(result.error.code, "uncorrelated-response");
+			assert.equal(text.includes("unrelated prior result"), false);
+		},
+	);
 });
 
 test("renders stdin read failures in the selected structured format", async () => {

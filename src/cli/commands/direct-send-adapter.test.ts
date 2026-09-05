@@ -46,7 +46,6 @@ test("delivers a typed direct request and maps the result to an outcome", async 
 		wait: "accepted",
 		timeoutMs: 1200,
 		signal,
-		requireAssistantResponse: true,
 	});
 });
 
