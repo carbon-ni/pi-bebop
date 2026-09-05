@@ -1,7 +1,7 @@
 ---
 id: TASK-0192
 title: Break cli folder cycle with shared support module
-status: todo
+status: doing
 depends_on: [TASK-0168]
 priority: low
 tags: [techdebt, cli, structure, coupling]
