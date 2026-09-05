@@ -1,7 +1,7 @@
 ---
 id: TASK-0177
 title: Prevent direct send from returning unrelated turns
-status: todo
+status: doing
 depends_on: []
 priority: high
 tags: [cli, messaging, correlation, correctness, regression, tdd]
