@@ -48,7 +48,7 @@ Every result-producing leaf keeps explicit `--format text|toon|json` for compati
 - [x] Equivalent canonical results are measured as UTF-8 text/TOON/JSON; checked-in contract coverage decodes all three TOON samples and deep-equals their JSON-normalized values.
 - [x] Intentional help, duplicate, sentinel, error-wording, and exit-code compatibility choices are explicit migration baselines.
 - [x] Contract distinguishes serialization from semantic views and forbids rendering internal details blindly.
-- [ ] Lead review approves the product-authored matrix before parser work starts.
+- [x] Lead review approves the product-authored matrix before parser work starts; known Guest parser/help/text gaps are explicitly assigned to TASK-0168/TASK-0166–0170.
 
 ## Non-goals
 
@@ -61,3 +61,5 @@ Every result-producing leaf keeps explicit `--format text|toon|json` for compati
 Product review: Mary approved `docs/CLI-CONTRACT.md` as the intended behavior for TASK-0166–0170. The contract explicitly records current Guest parser, leaf help, and text presentation gaps under their migration owners rather than claiming current conformance.
 
 Measured canonical samples: Crew roles 50/122/186 B, queued Follow-up 41/123/135 B, and empty session list 24/79/89 B for text/TOON/JSON. `@toon-format/toon` decode deep-equaled every JSON-normalized sample. Current representative output also shows why audience matters: `crew roles` is 296 B as default TOON versus 37 B as text; `session list --format text` loses its rows and prints only `Message completed`; home is a 552 B structured agent state view. These samples guide the plan but are not universal size claims.
+
+Lead re-review at exact HEAD `55c2912`: approved. Focused contract/member-status suite passes 46/46 and `npm run lint` passes. The Guest parser defect, leaf-help gap, and incomplete text presenter are documented as pre-migration gaps with explicit downstream owners; the CLI contract is internally consistent and unblocks TASK-0166.
