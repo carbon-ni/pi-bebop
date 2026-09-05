@@ -141,20 +141,17 @@ export function buildGuestLeaveCommand(): Command {
 		.helpOption(false);
 }
 
-function parseWith(
+function parseCommand(
 	command: Command,
 	args: readonly string[],
-	parse: (options: Record<string, unknown>, target: string) => Record<string, unknown>,
-): Record<string, unknown> {
+): { options: Record<string, unknown>; target?: string } {
 	const program = command.exitOverride().configureOutput({
 		writeOut: () => {},
 		writeErr: () => {},
 		outputError: () => {},
 	});
-	let options: Record<string, unknown>;
 	try {
 		program.parse([...args], { from: "user" });
-		options = program.opts();
 	} catch (error) {
 		if (error instanceof CommanderError) {
 			const match = /--[a-z-]+/.exec(error.message);
@@ -165,9 +162,26 @@ function parseWith(
 		}
 		throw error;
 	}
-	const positional = program.args[0];
-	if (!validValue(positional)) throw new UsageError("Guest commands require one live Member socket target.");
-	return parse(options, positional);
+	return { options: program.opts(), target: program.args[0] };
+}
+
+function parseWith(
+	command: Command,
+	args: readonly string[],
+	parse: (options: Record<string, unknown>, target: string) => Record<string, unknown>,
+): Record<string, unknown> {
+	const parsed = parseCommand(command, args);
+	if (!validValue(parsed.target)) throw new UsageError("Guest commands require one live Member socket target.");
+	return parse(parsed.options, parsed.target);
+}
+
+function parseWithoutTarget(
+	command: Command,
+	args: readonly string[],
+	parse: (options: Record<string, unknown>, target: string) => Record<string, unknown>,
+): Record<string, unknown> {
+	const parsed = parseCommand(command, args);
+	return parse(parsed.options, parsed.target ?? "");
 }
 
 export function parseGuestJoinCommand(args: readonly string[]): GuestJoinCliOptions {
@@ -213,7 +227,7 @@ export function parseGuestMessageCommand(args: readonly string[], kind: "send" |
 			format: normalizeFormat(format),
 			help: true,
 		};
-	const options = parseWith(buildGuestMessageCommand(kind), tokens, (opts) => opts);
+	const options = parseWithoutTarget(buildGuestMessageCommand(kind), tokens, (opts) => opts);
 	return {
 		command: kind === "send" ? "guest-send" : "guest-broadcast",
 		crew: requireValue(String(options.crew ?? ""), "--crew <crew-id>"),
