@@ -40,4 +40,3 @@ pi-bebop <package-version> (commit <full-commit-sha>)
 The commit identifies the built source, not the current checkout at runtime. Release archives may execute without a `.git` directory.
 
 ## Notes
-

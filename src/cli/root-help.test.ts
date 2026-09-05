@@ -11,6 +11,7 @@ test("root help is deterministic, zero-IO, and derived from the registry vocabul
 	assert.match(first, /^pi-bebop — Pi Bebop crew coordination CLI/);
 	assert.match(first, /Usage:/);
 	assert.match(first, /--help \| -h/);
+	assert.match(first, /-v \| --version/);
 	assert.match(first, /Commands:/);
 	for (const command of registry.vocabulary()) {
 		assert.ok(first.includes(`  ${command}`), `missing command ${command}`);

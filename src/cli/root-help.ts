@@ -12,6 +12,7 @@ export function rootCliHelp(commands: readonly string[]): string {
 		"Usage:",
 		"  pi-bebop <command> [args] [flags]",
 		"  pi-bebop --help | -h",
+		"  pi-bebop -v | --version",
 		"",
 		"Commands:",
 		listed,

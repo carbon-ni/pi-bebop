@@ -40,12 +40,13 @@ test("root -v and --version return the same concise output without project IO", 
 });
 
 test("packed CLI preserves the built version and commit provenance", async () => {
+	const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 	const archiveDir = await mkdtemp(path.join(tmpdir(), "bebop-version-archive-"));
 	const extractDir = await mkdtemp(path.join(tmpdir(), "bebop-version-extract-"));
 	try {
 		const artifact = path.resolve("dist/cli/main.js");
 		const direct = await execFile(process.execPath, [artifact, "--version"], { cwd: root });
-		assert.match(direct.stdout, /^pi-bebop 0\.1\.0 \(commit [0-9a-f]{40}\)\n$/);
+		assert.match(direct.stdout, new RegExp(`^pi-bebop ${packageJson.version} \\(commit [0-9a-f]{40}\\)\\n$`));
 		const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root });
 		const archive = packed.stdout
 			.trim()
@@ -53,8 +54,8 @@ test("packed CLI preserves the built version and commit provenance", async () =>
 			.find((line) => line.endsWith(".tgz"));
 		assert.ok(archive);
 		await execFile("tar", ["-xzf", path.join(archiveDir, archive), "-C", extractDir, "--strip-components=1"]);
-		const packageJson = JSON.parse(await readFile(path.join(extractDir, "package.json"), "utf8"));
-		assert.equal(packageJson.version, "0.1.0");
+		const packedPackageJson = JSON.parse(await readFile(path.join(extractDir, "package.json"), "utf8"));
+		assert.equal(packedPackageJson.version, packageJson.version);
 		for (const flag of ["-v", "--version"]) {
 			const result = await execFile(process.execPath, [path.join(extractDir, "dist/cli/main.js"), flag], {
 				cwd: extractDir,
@@ -67,7 +68,7 @@ test("packed CLI preserves the built version and commit provenance", async () =>
 	}
 });
 
-test("version flags remain root-first and do not alter existing help output", async () => {
+test("root version flags take precedence over trailing arguments", async () => {
 	const output = new PassThrough();
 	let text = "";
 	output.setEncoding("utf8");
