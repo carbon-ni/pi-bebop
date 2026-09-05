@@ -189,6 +189,90 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 	const authorized = (name: string) =>
 		guestAdmissionPolicy(deps.manifest.guestAdmission).enabled &&
 		deps.manifest.guestAdmission!.approvers.includes(name);
+
+	/** Probes a persisted restore candidate; undefined marks it unrecognized. */
+	const readRestoreCandidate = (candidate: unknown): Record<string, unknown> | undefined => {
+		if (!candidate || typeof candidate !== "object") return undefined;
+		const object = candidate as Record<string, unknown>;
+		if (!("guestIdentity" in object) && !("record" in object) && !("request" in object)) return undefined;
+		return object;
+	};
+
+	/** Restores one denied snapshot; unrecognized requests stay "unknown". */
+	const restoreDeniedSnapshot = (envelope: Record<string, unknown>): { restored?: string; rejected?: string } => {
+		const request = envelope.request;
+		if (!selector || !isGuestJoinRequest(request) || request.crew.id !== selector.id)
+			return { rejected: "unknown" };
+		states.set(request.guestIdentity, { status: "denied", request });
+		return { restored: request.guestIdentity };
+	};
+
+	/** Restores one membership record (revoked tombstone or approved binding). */
+	const restoreMembershipRecord = (
+		record: GuestMembershipRecord,
+		envelope: Record<string, unknown>,
+	): { restored?: string; rejected?: string } => {
+		if (!isRestorableMembershipRecord(record)) return { rejected: record.guestIdentity || "unknown" };
+		try {
+			if (envelope.status === "revoked") {
+				states.set(record.guestIdentity, { status: "revoked", record });
+				return { restored: record.guestIdentity };
+			}
+			const state = approvedRestoreState(record, envelope);
+			if (!state) return { rejected: record.guestIdentity };
+			states.set(record.guestIdentity, state);
+			return { restored: record.guestIdentity };
+		} catch {
+			return { rejected: record.guestIdentity };
+		}
+	};
+
+	/** Approved records must map back to a valid admission request for this crew. */
+	const isRestorableMembershipRecord = (record: GuestMembershipRecord): boolean =>
+		selector !== undefined &&
+		isGuestMembershipRecord(record) &&
+		// A record maps back to its admission request without approvedBy
+		// (join requests never carry it) and only for this crew.
+		isGuestJoinRequest({
+			requestId: "restore",
+			crew: record.crew,
+			guestIdentity: record.guestIdentity,
+			guestName: record.guestName,
+			callbackEndpoint: record.callbackEndpoint,
+			submittedByMember: deps.memberName,
+		}) &&
+		record.crew.id === selector.id &&
+		authorized(record.approvedBy);
+
+	/** Builds the approved state for a record snapshot; undefined rejects it. */
+	const approvedRestoreState = (
+		record: GuestMembershipRecord,
+		envelope: Record<string, unknown>,
+	): (Entry & { status: "approved" }) | undefined => {
+		const rawDigest = envelope.capabilityDigest;
+		if (rawDigest !== undefined && !isGuestRegistryCapabilityDigest(rawDigest)) return undefined;
+		const capabilityDigest = rawDigest as string | undefined;
+		return {
+			status: "approved",
+			requestId: "restored",
+			record,
+			capability: bindGuestApprovalCapability(createCapability()),
+			...(capabilityDigest === undefined ? {} : { capabilityDigest }),
+		};
+	};
+
+	/** Restores a single persisted candidate into a restored/rejected outcome. */
+	const restoreOne = (candidate: unknown): { restored?: string; rejected?: string } => {
+		const object = readRestoreCandidate(candidate);
+		if (!object) return { rejected: "unknown" };
+		const envelope = "record" in object || "request" in object ? object : undefined;
+		if (envelope?.status === "denied" && envelope.request !== undefined) return restoreDeniedSnapshot(envelope);
+		return restoreMembershipRecord(
+			((envelope?.record as GuestMembershipRecord | undefined) ?? candidate) as GuestMembershipRecord,
+			envelope ?? {},
+		);
+	};
+
 	const persist = () => {
 		deps.persist?.(
 			[...states.values()]
@@ -393,73 +477,9 @@ export function createGuestAdmissionRuntime(deps: GuestAdmissionRuntimeDependenc
 			const restored: string[] = [];
 			const rejected: string[] = [];
 			for (const candidate of records) {
-				const snapshot =
-					candidate && typeof candidate === "object" && ("record" in candidate || "request" in candidate)
-						? (candidate as { status?: string; record?: unknown; request?: unknown })
-						: undefined;
-				if (
-					!candidate ||
-					typeof candidate !== "object" ||
-					(!("guestIdentity" in candidate) && !snapshot?.record && !snapshot?.request)
-				) {
-					rejected.push("unknown");
-					continue;
-				}
-				const record = (snapshot?.record ?? candidate) as GuestMembershipRecord;
-				const deniedRequest =
-					snapshot?.status === "denied" ? (snapshot as { request?: unknown }).request : undefined;
-				if (deniedRequest !== undefined) {
-					if (!selector || !isGuestJoinRequest(deniedRequest) || deniedRequest.crew.id !== selector.id) {
-						rejected.push("unknown");
-						continue;
-					}
-					states.set(deniedRequest.guestIdentity, { status: "denied", request: deniedRequest });
-					restored.push(deniedRequest.guestIdentity);
-					continue;
-				}
-				if (
-					!selector ||
-					!isGuestMembershipRecord(record) ||
-					// A record maps back to its admission request without approvedBy
-					// (join requests never carry it) and only for this crew.
-					!isGuestJoinRequest({
-						requestId: "restore",
-						crew: record.crew,
-						guestIdentity: record.guestIdentity,
-						guestName: record.guestName,
-						callbackEndpoint: record.callbackEndpoint,
-						submittedByMember: deps.memberName,
-					}) ||
-					record.crew.id !== selector.id ||
-					!authorized(record.approvedBy)
-				) {
-					rejected.push(record.guestIdentity || "unknown");
-					continue;
-				}
-				try {
-					if (snapshot?.status === "revoked") states.set(record.guestIdentity, { status: "revoked", record });
-					else {
-						const rawDigest = (snapshot as { capabilityDigest?: unknown } | undefined)?.capabilityDigest;
-						let capabilityDigest: string | undefined;
-						if (rawDigest !== undefined) {
-							if (!isGuestRegistryCapabilityDigest(rawDigest)) {
-								rejected.push(record.guestIdentity);
-								continue;
-							}
-							capabilityDigest = rawDigest;
-						}
-						states.set(record.guestIdentity, {
-							status: "approved",
-							requestId: "restored",
-							record,
-							capability: bindGuestApprovalCapability(createCapability()),
-							...(capabilityDigest === undefined ? {} : { capabilityDigest }),
-						});
-					}
-					restored.push(record.guestIdentity);
-				} catch {
-					rejected.push(record.guestIdentity);
-				}
+				const outcome = restoreOne(candidate);
+				if (outcome.restored !== undefined) restored.push(outcome.restored);
+				else rejected.push(outcome.rejected);
 			}
 			return { restored, rejected };
 		},
