@@ -81,7 +81,24 @@ function mapCommanderError(error: CommanderError): UsageError {
 	return new UsageError(error.message);
 }
 
-/** App-owned parse facade: pre-pass (help/duplicates/sentinel), Commander tokenization, then validation. */
+export function readMemberStatusCommand(parsed: Command): MemberStatusCliOptions {
+	const opts = parsed.opts<{ session?: string; format?: string }>();
+	const format = (opts.format ?? "toon") as string;
+	if (!isCliFormat(format))
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
+	const member = parsed.args[0] ?? "";
+	if (member.trim().length === 0) throw new UsageError("Missing <member>; provide a crew member name or unique role");
+	if (member !== member.trim() || Buffer.byteLength(member, "utf8") > MAX_TARGET_BYTES)
+		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
+	return {
+		command: "member-status",
+		member: member.trim(),
+		...(opts.session === undefined ? {} : { session: opts.session }),
+		format,
+	};
+}
+
+/** Compatibility parser facade retained until all direct parser callers migrate. */
 export function parseMemberStatusCommand(args: string[], _cwd = process.cwd()): MemberStatusCliOptions {
 	const { tokens, help } = scanCliFlags(args, [
 		{ name: "--session", kind: "value", allowSentinelValue: true },

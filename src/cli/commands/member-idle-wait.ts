@@ -76,6 +76,24 @@ export function memberIdleWaitHelp(): string {
 	].join("\n");
 }
 
+export function readMemberIdleWaitCommand(parsed: Command): MemberIdleWaitCliOptions {
+	const opts = parsed.opts<{ session?: string; timeout?: string; format?: string }>();
+	const format = opts.format ?? "toon";
+	if (!(["toon", "json", "text"] as string[]).includes(format))
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
+	const member = parsed.args[0] ?? "";
+	if (member.trim().length === 0) throw new UsageError("Missing <member>; provide a crew member name or unique role");
+	if (member !== member.trim() || Buffer.byteLength(member, "utf8") > MAX_TARGET_BYTES)
+		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
+	return {
+		command: "member-idle-wait",
+		member: member.trim(),
+		...(opts.session === undefined ? {} : { session: opts.session }),
+		timeoutSeconds: parseTimeout(opts.timeout ?? "5m"),
+		format: format as CliFormat,
+	};
+}
+
 export function parseMemberIdleWaitCommand(args: string[], _cwd = process.cwd()): MemberIdleWaitCliOptions {
 	const { tokens, help } = scanCliFlags(args, [
 		{ name: "--session", kind: "value" },

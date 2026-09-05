@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import type { CliFormat } from "../arguments.ts";
+import { UsageError, type CliFormat } from "../arguments.ts";
 
 /**
  * TASK-0057: the first per-action command module (PO sequencing review:
@@ -42,4 +42,10 @@ export function readCrewInitLeafOptions(parsed: Command): CrewInitLeafOptions {
 		...(opts.project === undefined ? {} : { project: opts.project }),
 		format: (opts.format ?? "toon") as CliFormat,
 	};
+}
+
+export function readCrewInitCommand(parsed: Command): CrewInitLeafOptions {
+	const options = readCrewInitLeafOptions(parsed);
+	if (!isCliFormat(options.format)) throw new UsageError(`Invalid --format '${options.format}'`);
+	return options;
 }

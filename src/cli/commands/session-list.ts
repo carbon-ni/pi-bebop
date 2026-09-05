@@ -67,6 +67,13 @@ function isCliFormat(value: string): value is CliFormat {
 	return (FORMATS as readonly string[]).includes(value);
 }
 
+export function readSessionListCommand(parsed: Command): SessionListCliOptions {
+	const format = (parsed.opts<{ format?: string }>().format ?? "toon") as string;
+	if (!isCliFormat(format))
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
+	return { command: "session-list", format };
+}
+
 export function parseSessionListCommand(args: string[], _cwd = process.cwd()): SessionListCliOptions {
 	const tokens: string[] = [];
 	let help = false;

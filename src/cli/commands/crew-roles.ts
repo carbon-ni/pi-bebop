@@ -65,6 +65,14 @@ export function crewRolesHelp(): string {
 	].join("\n");
 }
 
+export function readCrewRolesCommand(parsed: Command): CrewRolesCliOptions {
+	const opts = parsed.opts<{ format?: string; full?: boolean }>();
+	const format = (opts.format ?? "toon") as string;
+	if (!isCliFormat(format))
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
+	return { command: "crew-roles", format, full: opts.full === true };
+}
+
 export function parseCrewRolesCommand(args: string[], _cwd = process.cwd()): CrewRolesCliOptions {
 	// App-owned pre-pass: help detection and duplicate rejection.
 	const tokens: string[] = [];
