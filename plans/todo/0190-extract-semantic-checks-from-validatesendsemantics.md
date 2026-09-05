@@ -24,4 +24,4 @@ tags: [techdebt, cli, complexity, parser]
 
 Architecture review F2. Behavior-preserving; add characterization tests for current rejections before extraction.
 
-Completed at `c7066ac`. Characterization suite passed before extraction; focused parser/CLI tests pass 65/65 after extraction, `npm run lint` passes, and complexity analysis reports `validateSendSemantics` 6, `validateTargetSelection` 2, `validateCrewDeliveryFlags` 4, `validateMessageSource` 7, and `validateDeliveryOptions` 6.
+Completed at `3b3bf83`. Characterization suite passed before extraction; focused parser/CLI tests pass 65/65 after extraction, `npm run lint` passes, and complexity analysis reports `validateSendSemantics` 6, `validateTargetSelection` 2, `validateCrewDeliveryFlags` 4, `validateMessageSource` 7, and `validateDeliveryOptions` 6.
