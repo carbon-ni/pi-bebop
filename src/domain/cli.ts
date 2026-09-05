@@ -52,53 +52,82 @@ function tokenizeSessionControlArgs(args: string): { parts?: string[]; error?: s
 	return { parts };
 }
 
-export function parseSessionControlAction(args: string): {
+type SessionControlParseResult = {
 	action?: SessionControlAction;
 	target?: string;
 	value?: string;
 	error?: string;
-} {
+};
+
+type SessionControlParser = (parts: readonly string[]) => SessionControlParseResult;
+
+function parseJoinAction(parts: readonly string[]): SessionControlParseResult {
+	if (parts.length === 1) return { error: "Missing target. Use /crew join <socket>." };
+	if (parts.length > 2) return { error: "Join accepts exactly one target." };
+	return { action: "join", target: parts[1] };
+}
+
+function parseArgumentlessAction(
+	parts: readonly string[],
+	action: "leave" | "members" | "status" | "stop",
+): SessionControlParseResult {
+	if (parts.length > 1) return { error: `Too many arguments. Use /crew ${SESSION_CONTROL_USAGE}.` };
+	return { action };
+}
+
+function parseGuestsAction(parts: readonly string[]): SessionControlParseResult {
+	if (parts.length > 1) return { error: "Too many arguments. Use /crew guests." };
+	return { action: "guests" };
+}
+
+function parseGuestAction(parts: readonly string[]): SessionControlParseResult {
+	const sub = parts[1];
+	if (sub !== "approve" && sub !== "deny" && sub !== "remove")
+		return { error: "Unknown guest action. Use /crew guest approve|deny <request-id> or remove <guest-name>." };
+	if (parts.length !== 3 || !parts[2]) return { error: `Missing target. Use /crew guest ${sub} <value>.` };
+	return { action: "guest", target: sub, value: parts[2] };
+}
+
+function parseInboxAction(parts: readonly string[]): SessionControlParseResult {
+	const sub = parts[1];
+	if (sub === "status" || sub === "pause" || sub === "resume") {
+		if (parts.length > 2) return { error: `Too many arguments. Use /crew inbox ${sub}.` };
+		return { action: "inbox", target: sub };
+	}
+	if (sub === "cancel") {
+		if (parts.length < 3) return { error: "Missing target. Use /crew inbox cancel <id>." };
+		if (parts.length > 3) return { error: "Too many arguments. Use /crew inbox cancel <id>." };
+		return { action: "inbox", target: `cancel ${parts[2]}` };
+	}
+	if (!sub) return { error: `Missing inbox action. Use /crew inbox ${INBOX_USAGE}.` };
+	return { error: `Unknown inbox action: ${sub}. Use /crew inbox ${INBOX_USAGE}.` };
+}
+
+const SESSION_CONTROL_PARSERS: Readonly<Record<SessionControlAction, SessionControlParser>> = {
+	join: parseJoinAction,
+	leave: (parts) => parseArgumentlessAction(parts, "leave"),
+	members: (parts) => parseArgumentlessAction(parts, "members"),
+	status: (parts) => parseArgumentlessAction(parts, "status"),
+	stop: (parts) => parseArgumentlessAction(parts, "stop"),
+	guests: parseGuestsAction,
+	guest: parseGuestAction,
+	inbox: parseInboxAction,
+};
+
+function isSessionControlAction(value: string): value is SessionControlAction {
+	return Object.hasOwn(SESSION_CONTROL_PARSERS, value);
+}
+
+export function parseSessionControlAction(args: string): SessionControlParseResult {
 	const tokenized = tokenizeSessionControlArgs(args);
 	if (tokenized.error) return tokenized;
-	const parts = tokenized.parts!;
+	const parts = tokenized.parts ?? [];
 	if (parts.length === 0) return { action: "status" };
 
-	const action = parts[0];
-	if (action === "join") {
-		if (parts.length === 1) return { error: "Missing target. Use /crew join <socket>." };
-		if (parts.length > 2) return { error: "Join accepts exactly one target." };
-		return { action, target: parts[1] };
-	}
-	if (action === "leave" || action === "members" || action === "status" || action === "stop") {
-		if (parts.length > 1) return { error: `Too many arguments. Use /crew ${SESSION_CONTROL_USAGE}.` };
-		return { action };
-	}
-	if (action === "guests") {
-		if (parts.length > 1) return { error: "Too many arguments. Use /crew guests." };
-		return { action: "guests" };
-	}
-	if (action === "guest") {
-		const sub = parts[1];
-		if (sub !== "approve" && sub !== "deny" && sub !== "remove")
-			return { error: "Unknown guest action. Use /crew guest approve|deny <request-id> or remove <guest-name>." };
-		if (parts.length !== 3 || !parts[2]) return { error: `Missing target. Use /crew guest ${sub} <value>.` };
-		return { action: "guest", target: sub, value: parts[2] };
-	}
-	if (action === "inbox") {
-		const sub = parts[1];
-		if (sub === "status" || sub === "pause" || sub === "resume") {
-			if (parts.length > 2) return { error: `Too many arguments. Use /crew inbox ${sub}.` };
-			return { action: "inbox", target: sub };
-		}
-		if (sub === "cancel") {
-			if (parts.length < 3) return { error: "Missing target. Use /crew inbox cancel <id>." };
-			if (parts.length > 3) return { error: "Too many arguments. Use /crew inbox cancel <id>." };
-			return { action: "inbox", target: `cancel ${parts[2]}` };
-		}
-		if (!sub) return { error: `Missing inbox action. Use /crew inbox ${INBOX_USAGE}.` };
-		return { error: `Unknown inbox action: ${sub}. Use /crew inbox ${INBOX_USAGE}.` };
-	}
-	return { error: `Unknown crew action: ${action}. Use /crew ${SESSION_CONTROL_USAGE}.` };
+	const action = parts[0]!;
+	if (!isSessionControlAction(action))
+		return { error: `Unknown crew action: ${action}. Use /crew ${SESSION_CONTROL_USAGE}.` };
+	return SESSION_CONTROL_PARSERS[action](parts);
 }
 
 export function normalizeMode(raw: string): "steer" | "follow_up" | null {

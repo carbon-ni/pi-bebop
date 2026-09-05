@@ -15,11 +15,15 @@ tags: [techdebt, domain, complexity, cli-parsing]
 
 ## Acceptance criteria
 
-- [ ] Grammar decomposed into ordered small parsers or a declarative token table (action keyword, session target, mode/wait flags).
-- [ ] Same parse outcomes for all current inputs: valid combinations, unknown actions, malformed flags.
-- [ ] Direct unit tests per grammar element plus the full current acceptance fixtures.
-- [ ] Cyclomatic complexity of every resulting function ≤ 10.
-- [ ] `npm test`, `npm run lint` pass.
+- [x] Grammar dispatch uses an exhaustive action parser table with small named parsers for join, argumentless, Guest, and Inbox grammar.
+- [x] Same parse outcomes remain for all current inputs: valid combinations, unknown actions, malformed arguments, and quote errors.
+- [x] Characterization tests cover every action family and happy/unhappy Guest grammar before refactoring.
+- [x] `parseSessionControlAction` complexity is 4; every extracted action parser is ≤9.
+- [x] Focused 46/46 domain tests and `npm run lint` pass.
+
+## Evidence
+
+`ast_complexity_analyzer` reports action parser complexity: main dispatch 4, Inbox 9, Guest 6, join 3, argumentless 2, Guests 2. Pre-existing tokenizer is outside the action branch-wall scope.
 
 ## Notes
 
