@@ -1,7 +1,7 @@
 ---
 id: TASK-0168
 title: Migrate communication commands to Commander
-status: doing
+status: done
 depends_on: [TASK-0167]
 priority: high
 tags: [cli, commander, messaging, member-request, guest, parsing, tdd]
@@ -43,6 +43,8 @@ Changing default serialization or redesigning response data belongs to TASK-0169
 ## Evidence
 
 Implementation commits: `20d0c68` at exact baseline `f017e86`, plus the reopened reader migration commit recorded below.
+
+Reopened reader migration + cleanup commit: `09d5fd7` at base `21f9ba9` (all 13 scoped leaves on pure Commander `read` hooks; compat `parse:` facades quarantined; command-aware duplicate policy; structural CommanderError handling). Verified on the exact committed snapshot in an isolated worktree: full suite 1218/1218, typecheck clean, production audit matching the criteria above (MonY lead verification, 06-09). The shared working tree currently shows 7 failing crew-init tests — those are the uncommitted TASK-0169 output-default WIP (`text` vs `toon` default), explicitly outside TASK-0168 scope and tracked on the reopened TASK-0169 card.
 
 The reopened slice now gives every scoped communication/Guest/request leaf a Commander `read` hook. The adapter performs strict schema validation first; the reader reconstructs only CLI-sourced option values for the existing semantic compatibility facade, preserving defaults and repeatable instruction order.
 
