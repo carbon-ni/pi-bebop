@@ -1,7 +1,7 @@
 ---
 id: TASK-0193
 title: Stabilize CLI branch coverage gate out of its flake band
-status: done
+status: todo
 depends_on: []
 priority: high
 tags: [techdebt, cli, coverage, determinism, gates]
@@ -27,6 +27,20 @@ tags: [techdebt, cli, coverage, determinism, gates]
 - [x] Threshold and exclusions unchanged: branch gate remains 90%; no `--test-coverage-exclude` or query-string imports were added.
 - [x] Ten sequential `npm run verify:cli` runs passed; observed branch coverage: `90.20, 90.20, 90.15, 90.20, 90.20, 90.15, 90.20, 90.20, 90.20, 90.20` (minimum `90.15%`).
 - [ ] Full watcher chain green twice in a row (one watcher `make all` run had two unrelated timing-sensitive full-suite failures; a direct rerun of `npm test` passed).
+
+## Reopened evidence (06-09-26)
+
+TASK-0169 required a clean comparison before accepting its baseline-failing gate. A detached worktree at clean TASK-0168 commit `09d5fd7` ran the same `npm run verify:cli` command: **642/642 tests passed**, but the command exited 1 with `all files | 95.38 line | 89.38 branch | 79.39 functions` and `89.38% branch coverage does not meet threshold of 90%`.
+
+The current TASK-0169 working tree runs **1248/1248 tests passed** and reports `all files | 97.36 line | 89.22 branch | 84.20 functions`; it exits 1 for the same threshold. Current branch coverage is +1.98 line points and +4.81 function points versus clean 0168, but -0.16 branch points. Focused 0169 tests cover the new audience policy and stdin-formatting branches; no 0169-introduced policy/stdin branch remains uncovered. Therefore the remaining gate deficit is inherited/legacy coverage debt rather than a TASK-0169 regression.
+
+Exact current uncovered branch-bearing source lines from `npm run test:coverage:cli`:
+
+- Application: `crew-broadcast.ts` 19, 34, 51-53; `interrupt-flow.ts` 13-14, 33, 67-68; `member-inbox-message.ts` 115-116.
+- Commands: `crew-init.ts` 24; `crew-intake-adapter.ts` 26-27, 32; `crew-roles.ts` 42-48, 86-87, 90; `durable-message.ts` 51-52, 104-105, 148-159, 197-214, 237-249, 252; `guest.ts` 130, 138-148, 165-166, 176-177, 187-198; `member-idle-wait.ts` 27-28, 77-78, 98-101, 145; `member-interrupt.ts` 106; `member-message.ts` 39-40, 165-166, 203, 267; `member-request.ts` 16, 139-140, 180, 239-241, 336-341, 356, 394-395; `member-status.ts` 64-65, 75, 80, 134; `send.ts` 65-69; `session-list.ts` 55; `execution-adapter.ts` 60-62, 83-85, 90-91, 99, 173-175; `main.ts` 19; `parser.ts` 36; `registry.ts` 141-142, 151-152, 193-194, 224, 234-235, 237, 254-255, 292, 295-297; `version.ts` build-time define branch (75%).
+- Infrastructure: `rpc-client.ts` 41-43, 145, 163, 289-290, 325-327, 350-351, 354-355, 357-360; `rpc-server.ts` 99-100.
+
+The clean 0168 uncovered list is preserved in the baseline run log and overlaps the current handler/transport/application debt; the new policy and stdin additions are covered. This task is reopened for the inherited branch-coverage stabilization work; it is not a TASK-0169 acceptance blocker after the isolated baseline proof.
 
 ## Notes
 
