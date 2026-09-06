@@ -39,19 +39,28 @@ The manifest may author the expected Principal identity, display label, outbound
 - Trust and threat model for route hijack, stale binding, symlink/path escape, replay, cross-Crew leakage, and a principal attempting to use the outbound route for inbound authority.
 - Optional adapter boundary if pi-intray interop is ever supported; core pi-bebop must remain independent.
 
+## Contract
+
+`docs/CREW-PRINCIPAL.md` is the normative product contract. It defines Principal as an outbound product recipient, fixes the manifest and authorization boundary, and keeps route binding independent from Member, Guest, Intake, Inbox, Ask, and transport identity.
+
 ## Acceptance criteria
 
-- [ ] `UL.md` defines Principal contact, Principal identity, Principal route binding, and Principal message without conflating them with Crew contact, External actor, Guest, Member, Requester, or transport endpoint.
-- [ ] A state table covers missing config, unbound/revoked/stale destination, principal offline, Crew member unauthorized, concurrent sends, retry/replay, route rotation, duplicate completion, expiration, cancellation, and cross-Crew mismatch.
-- [ ] The contract identifies exact manifest-authored fields and a safe migration strategy; no role, lead, Crew contact, first/online Member, environment variable, session alias, or previous recipient is inferred.
-- [ ] A Principal route is outbound-only. Possessing or binding it grants no Crew membership, Guest capability, inbound message right, Request/Response right, role, instructions, or approval authority.
-- [ ] Core routing uses a pi-bebop-owned application/infra seam and protocol; it does not shell out to `pi`, require pi-intray, or expose `--control-session`, `--send-session-message`, session IDs, or sockets in normal use.
-- [ ] Persistence, handoff, acknowledgement, response, and task completion remain distinct. One-way delivery never promises a reply or claims the principal read/acted on content.
-- [ ] Durable storage, if selected, has deterministic FIFO ordering, bounded capacity/retention, stable deduplication identity, evidence-gated removal, atomic writes, and explicit offline/expiry behavior.
-- [ ] Default text/TOON/JSON show only product identity, guarantee state, and freshness; diagnostics redact endpoint, credential, raw protocol, and message content.
-- [ ] Errors include one safe runnable corrected command for missing setup, offline/unbound destination, invalid timeout/retention, and version mismatch where possible.
-- [ ] Happy and unhappy paths are testable without live pi-intray or external network dependencies.
+- [x] `UL.md` defines Principal contact, Principal identity, Principal route binding, and Principal message without conflating them with Crew contact, External actor, Guest, Member, Requester, or transport endpoint.
+- [x] `docs/CREW-PRINCIPAL.md` has a state table covering missing config, unbound/revoked/stale destination, principal offline, Crew member unauthorized, concurrent sends, retry/replay, route rotation, duplicate completion, expiration, cancellation, and cross-Crew mismatch.
+- [x] The contract identifies exact manifest-authored fields and a safe migration strategy; no role, lead, Crew contact, first/online Member, environment variable, session alias, or previous recipient is inferred.
+- [x] A Principal route is outbound-only. Possessing or binding it grants no Crew membership, Guest capability, inbound message right, Request/Response right, role, instructions, or approval authority.
+- [x] Core routing uses a pi-bebop-owned application/infra seam and protocol; it does not shell out to `pi`, require pi-intray, or expose `--control-session`, `--send-session-message`, session IDs, or sockets in normal use.
+- [x] Persistence, handoff, acknowledgement, response, and task completion remain distinct. One-way delivery never promises a reply or claims the principal read/acted on content.
+- [x] Durable storage has deterministic FIFO ordering, bounded capacity/retention, stable deduplication identity, evidence-gated removal, atomic writes, and explicit offline/expiry behavior.
+- [x] Default text/TOON/JSON show only product identity, guarantee state, and freshness; diagnostics redact endpoint, credential, raw protocol, and message content.
+- [x] Errors include one safe runnable corrected command for missing setup, offline/unbound destination, invalid timeout/retention, and version mismatch where possible.
+- [x] Happy and unhappy paths are testable without live pi-intray or external network dependencies.
 - [ ] Security, product, development, and QA approve the contract before implementation tasks are created.
+
+## Review status
+
+- Drafted for PO review. Product approval, security review, development feasibility review, and QA-lens review remain intentionally open.
+- Proposed implementation tasks must wait until the final review checklist in `docs/CREW-PRINCIPAL.md` is approved.
 
 ## Non-goals
 
