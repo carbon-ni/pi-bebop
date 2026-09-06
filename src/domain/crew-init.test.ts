@@ -259,8 +259,16 @@ test("exit codes follow AXI: 0 success/no-op, 1 operational, 2 usage", () => {
 });
 
 test("usage validation rejects unknown, duplicate, missing-value, and incompatible flags before dependencies", () => {
+	assert.deepEqual(validateCrewInitUsage([], "text"), { ok: true, usage: { project: undefined, format: "text" } });
 	assert.deepEqual(validateCrewInitUsage([]), { ok: true, usage: { project: undefined, format: "toon" } });
-	assert.deepEqual(validateCrewInitUsage(["--project", "x"]), { ok: true, usage: { project: "x", format: "toon" } });
+	assert.deepEqual(validateCrewInitUsage(["--project", "x"], "text"), {
+		ok: true,
+		usage: { project: "x", format: "text" },
+	});
+	assert.deepEqual(validateCrewInitUsage(["--format", "toon"]), {
+		ok: true,
+		usage: { project: undefined, format: "toon" },
+	});
 	assert.deepEqual(validateCrewInitUsage(["--format", "json"]), {
 		ok: true,
 		usage: { project: undefined, format: "json" },

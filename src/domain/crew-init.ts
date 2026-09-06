@@ -379,9 +379,12 @@ export type CrewInitUsageVerdict =
 	  };
 
 /** Pure flag validation. Unknown/duplicate/missing/incompatible flags fail before any filesystem call. */
-export function validateCrewInitUsage(argv: readonly string[]): CrewInitUsageVerdict {
+export function validateCrewInitUsage(
+	argv: readonly string[],
+	defaultFormat: CrewInitFormat = "toon",
+): CrewInitUsageVerdict {
 	let project: string | undefined;
-	let format: CrewInitFormat = "toon";
+	let format: CrewInitFormat = defaultFormat;
 	const seen = new Set<string>();
 	for (let index = 0; index < argv.length; index += 1) {
 		const flag = argv[index]!;

@@ -184,12 +184,14 @@ test("no-argument home: compact schema, not full help", async () => {
 // crew init
 // ---------------------------------------------------------------------------
 
-test("crew init: local --help accepted, defaults to cwd and toon", () => {
+test("crew init: local --help accepted, defaults to cwd and human-readable text", () => {
 	const withHelp = parseCliCommand(["crew", "init", "--help"], cwd);
 	assert.equal(withHelp.help, true);
 	const defaults = parseCliCommand(["crew", "init"], cwd);
 	assert.equal(defaults.project, undefined);
-	assert.equal(defaults.format, "toon");
+	assert.equal(defaults.format, "text");
+	const explicitToon = parseCliCommand(["crew", "init", "--format", "toon"], cwd);
+	assert.equal(explicitToon.format, "toon");
 });
 
 // ---------------------------------------------------------------------------

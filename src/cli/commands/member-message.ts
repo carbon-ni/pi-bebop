@@ -3,6 +3,7 @@ import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberMessageResult, MAX_MESSAGE_INSTRUCTIONS, type MemberMessageResult } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { scanCliFlags } from "../support/flag-scanner.ts";
 import { errorResult, usageResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
@@ -63,7 +64,11 @@ export function buildMemberMessageCommand(intent: MemberMessageIntent): Command 
 		.option("--message <text>", "Message text")
 		.option("--stdin", "Read message from stdin")
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("member-follow-up"),
+		)
 		.argument("[<member>]", "Crew member name or unique role")
 		.showHelpAfterError(false)
 		.helpOption(false);
@@ -181,7 +186,7 @@ function validateMemberMessageOptions(
 	opts: { message?: string; stdin?: boolean; format?: string },
 	instructions: string[],
 ): { format: string; hasMessage: boolean; hasStdin: boolean } {
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormatForCommand("member-message")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	validateInstructions(instructions);
@@ -350,7 +355,20 @@ export async function runMemberMessageCommand(
 	if (!isSourceFailure(source)) {
 		let message = options.message;
 		if (options.stdin) {
-			message = await deps.readStdin(context.input, context.signal);
+			try {
+				message = await deps.readStdin(context.input, context.signal);
+			} catch (error) {
+				return {
+					kind: "result",
+					result: errorResult(
+						`Member message failed: ${error instanceof Error ? error.message : String(error)}`,
+						target,
+						"stdin-error",
+					),
+					format: options.format,
+					full: false,
+				};
+			}
 			validateMessageContent(message, "stdin");
 		}
 		if (message === undefined) throw new UsageError("Missing message source; use --message <text> or --stdin");

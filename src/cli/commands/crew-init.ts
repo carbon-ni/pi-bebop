@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 
 /**
  * TASK-0057: the first per-action command module (PO sequencing review:
@@ -30,7 +31,11 @@ export function buildCrewInitCommand(): Command {
 	return new Command("init")
 		.description("Scaffold a canonical .pi/bebop software crew in a project")
 		.option("--project <directory>", "Target project root (default: current working directory)")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: text (default), toon, or json",
+			defaultFormatForCommand("crew-init"),
+		)
 		.showHelpAfterError(false)
 		.helpOption(false); // --help handled by the app pre-pass; no short aliases
 }
@@ -40,7 +45,7 @@ export function readCrewInitLeafOptions(parsed: Command): CrewInitLeafOptions {
 	const opts = parsed.opts<{ project?: string; format?: string }>();
 	return {
 		...(opts.project === undefined ? {} : { project: opts.project }),
-		format: (opts.format ?? "toon") as CliFormat,
+		format: (opts.format ?? defaultFormatForCommand("crew-init")) as CliFormat,
 	};
 }
 

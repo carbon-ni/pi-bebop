@@ -6,6 +6,7 @@ import { probeMemberEndpoint } from "../../infra/member-endpoint.ts";
 import { sendRpcCommand } from "../../infra/rpc-client.ts";
 import { isSafeAlias, isSafeSessionId } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
@@ -39,7 +40,11 @@ const PROBE_TIMEOUT_MS = 500;
 export function buildSessionListCommand(): Command {
 	return new Command("list")
 		.description("List reachable Pi sessions with safe aliases and joined state")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("session-list"),
+		)
 		.showHelpAfterError(false)
 		.helpOption(false);
 }
@@ -68,7 +73,7 @@ function isCliFormat(value: string): value is CliFormat {
 }
 
 export function readSessionListCommand(parsed: Command): SessionListCliOptions {
-	const format = (parsed.opts<{ format?: string }>().format ?? "toon") as string;
+	const format = (parsed.opts<{ format?: string }>().format ?? defaultFormatForCommand("session-list")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "session-list", format };
@@ -113,7 +118,7 @@ export function parseSessionListCommand(args: string[], _cwd = process.cwd()): S
 		}
 		throw error;
 	}
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormatForCommand("session-list")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "session-list", format: format as CliFormat, ...(help ? { help: true } : {}) };

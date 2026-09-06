@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { parsePositiveDurationMs } from "../support/duration.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
@@ -94,7 +95,11 @@ function baseCommand(name: string, description: string): Command {
 	return new Command(name)
 		.description(description)
 		.option("--session <id|alias>", "Source joined Pi session (default: PI_SESSION_ID)")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("member-request-send"),
+		)
 		.showHelpAfterError(false)
 		.helpOption(false);
 }
@@ -169,7 +174,7 @@ function readMemberRequestCommand(
 		responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
 		maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
 		direction: "all" as Direction,
-		format: format(opts.format ?? "toon"),
+		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
 	};
 	if (parsed.help)
 		return {
@@ -230,7 +235,7 @@ function readMemberRequestCommand(
 		responseGraceSeconds: grace,
 		maxWaitSeconds: max,
 		direction: "all",
-		format: format(opts.format ?? "toon"),
+		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
 	};
 }
 
@@ -259,7 +264,7 @@ export function parseMemberRequestSendCommand(args: readonly string[]): MemberRe
 			responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
 			maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
 			direction: "all",
-			format: format(opts.format ?? "toon"),
+			format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
 			help: true,
 		};
 	const member = parsed.positional[0];
@@ -287,7 +292,7 @@ export function parseMemberRequestSendCommand(args: readonly string[]): MemberRe
 		responseGraceSeconds: grace,
 		maxWaitSeconds: max,
 		direction: "all",
-		format: format(opts.format ?? "toon"),
+		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
 	};
 }
 export function parseMemberRequestListCommand(args: readonly string[]): MemberRequestCliOptions {
@@ -304,7 +309,7 @@ export function parseMemberRequestListCommand(args: readonly string[]): MemberRe
 		responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
 		maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
 		direction: direction as Direction,
-		format: format(opts.format ?? "toon"),
+		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
 		...(parsed.help ? { help: true } : {}),
 	};
 }
@@ -327,7 +332,7 @@ function parseIdCommand(
 			responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
 			maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
 			direction: "all",
-			format: format(opts.format ?? "toon"),
+			format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
 			help: true,
 		};
 	if (!id || id.trim() !== id) throw new UsageError("Missing exact <request-id>");
@@ -343,7 +348,7 @@ function parseIdCommand(
 		responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
 		maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
 		direction: "all",
-		format: format(opts.format ?? "toon"),
+		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
 	};
 }
 export function parseMemberRequestWaitCommand(args: readonly string[]) {

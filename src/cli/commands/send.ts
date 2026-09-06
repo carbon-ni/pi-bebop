@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../../domain/index.ts";
 import { parsePositiveDurationMs } from "../support/duration.ts";
 import { UsageError, type CliFormat, type SendCliOptions } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 
 /**
  * TASK-0058: declarative Commander schema for `send` — the single flag
@@ -35,7 +36,7 @@ export function buildSendCommand(): Command {
 			"accepted",
 		)
 		.option("--timeout <duration>", "Duration such as 500ms, 30s, or 5m", "5m")
-		.option("--format <format>", "toon, json, or text", "toon")
+		.option("--format <format>", "toon, json, or text", defaultFormatForCommand("send"))
 		.option("--full", "Full response without truncation")
 		.showHelpAfterError(false)
 		.helpOption(false); // --help handled by the app pre-pass; no short aliases
@@ -79,7 +80,7 @@ export function readSendLeafOptions(parsed: Command): SendLeafOptions {
 		mode: opts.mode ?? "steer",
 		wait: opts.wait ?? "accepted",
 		timeout: opts.timeout ?? "5m",
-		format: opts.format ?? "toon",
+		format: opts.format ?? defaultFormatForCommand("send"),
 		full: opts.full ?? false,
 	};
 }

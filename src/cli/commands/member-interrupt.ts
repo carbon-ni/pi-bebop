@@ -3,6 +3,7 @@ import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberInterruptResult, type MemberInterruptResult } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult, usageResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
@@ -28,7 +29,11 @@ export function buildMemberInterruptCommand(): Command {
 		.option("--message <text>", "Recovery guidance message")
 		.option("--stdin", "Read recovery guidance from stdin")
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("member-interrupt"),
+		)
 		.argument("[<member>]", "Crew member name or unique role")
 		.showHelpAfterError(false)
 		.helpOption(false);
@@ -159,7 +164,20 @@ export async function runMemberInterruptCommand(
 		};
 	let message = options.message;
 	if (options.stdin) {
-		message = await deps.readStdin(context.input, context.signal);
+		try {
+			message = await deps.readStdin(context.input, context.signal);
+		} catch (error) {
+			return {
+				kind: "result",
+				result: errorResult(
+					`Member interrupt failed: ${error instanceof Error ? error.message : String(error)}`,
+					options.member,
+					"stdin-error",
+				),
+				format: options.format,
+				full: false,
+			};
+		}
 		if (message.trim().length === 0)
 			throw new UsageError("--stdin received empty content; provide UTF-8 recovery guidance");
 	}

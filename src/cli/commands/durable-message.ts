@@ -8,6 +8,7 @@ import {
 	type MemberInboxSendResult,
 } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { scanCliFlags } from "../support/flag-scanner.ts";
 import { errorResult, usageResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
@@ -56,7 +57,11 @@ export function buildDurableMessageCommand(intent: DurableMessageIntent): Comman
 		.option("--message <text>", "Message text")
 		.option("--stdin", "Read message from stdin")
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon");
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("member-inbox-send"),
+		);
 	if (intent === "inbox") program = program.argument("[<member>]");
 	return program.showHelpAfterError(false).helpOption(false);
 }
@@ -150,7 +155,7 @@ function validateDurableOptions(
 	opts: { session?: string; message?: string; stdin?: boolean; format?: string },
 	instructions: string[],
 ): { format: string; hasMessage: boolean; hasStdin: boolean } {
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormatForCommand("durable-message")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	validateInstructions(instructions);
@@ -375,7 +380,20 @@ export async function runDurableMessageCommand(
 		};
 	let message = options.message;
 	if (options.stdin) {
-		message = await deps.readStdin(context.input, context.signal);
+		try {
+			message = await deps.readStdin(context.input, context.signal);
+		} catch (error) {
+			return {
+				kind: "result",
+				result: errorResult(
+					`Durable message failed: ${error instanceof Error ? error.message : String(error)}`,
+					options.member ?? "crew",
+					"stdin-error",
+				),
+				format: options.format,
+				full: false,
+			};
+		}
 		validateContent(message, "stdin");
 	}
 	const instructions = options.instructions.length === 0 ? undefined : options.instructions;

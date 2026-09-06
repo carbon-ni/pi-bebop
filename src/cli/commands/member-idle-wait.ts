@@ -4,6 +4,7 @@ import { sendMemberIdleWait, type MemberIdleWaitClientOutcome } from "../../infr
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { parsePositiveDurationMs } from "../support/duration.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { scanCliFlags } from "../support/flag-scanner.ts";
 import { errorResult, usageResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
@@ -52,7 +53,11 @@ export function buildMemberIdleWaitCommand(): Command {
 		.description("Wait once for a crew member to become idle or go offline")
 		.option("--session <id|alias>", "Source joined Pi session id or alias (default: PI_SESSION_ID)")
 		.option("--timeout <duration>", "Whole-second wait duration from 1s through 10m", "5m")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("member-idle-wait"),
+		)
 		.argument("[<member>]", "Crew member name or unique role")
 		.showHelpAfterError(false)
 		.helpOption(false);
@@ -78,7 +83,7 @@ export function memberIdleWaitHelp(): string {
 
 export function readMemberIdleWaitCommand(parsed: Command): MemberIdleWaitCliOptions {
 	const opts = parsed.opts<{ session?: string; timeout?: string; format?: string }>();
-	const format = opts.format ?? "toon";
+	const format = opts.format ?? defaultFormatForCommand("member-idle-wait");
 	if (!(["toon", "json", "text"] as string[]).includes(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	const member = parsed.args[0] ?? "";
@@ -112,7 +117,7 @@ export function parseMemberIdleWaitCommand(args: string[], _cwd = process.cwd())
 			throw mapCommanderError(error as Error & { code?: string });
 		throw error;
 	}
-	const format = opts.format ?? "toon";
+	const format = opts.format ?? defaultFormatForCommand("member-idle-wait");
 	if (!(["toon", "json", "text"] as string[]).includes(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	const member = program.args[0] ?? "";

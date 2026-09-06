@@ -8,6 +8,7 @@ import { getTrustedCrewManifestPaths, readTrustedCrewManifest } from "../../infr
 import { createGuestRegistryStore } from "../../infra/guest-registry-store.ts";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorCode, errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
@@ -73,7 +74,7 @@ function requireValue(value: string | undefined, flag: string): string {
 }
 
 function normalizeFormat(value: string | undefined, flag = "--format"): CliFormat {
-	const format = value ?? "toon";
+	const format = value ?? defaultFormatForCommand("guest");
 	if (!isCliFormat(format)) throw new UsageError(`Invalid ${flag} '${format}'; valid alternatives: toon, json, text`);
 	return format;
 }
@@ -107,7 +108,11 @@ export function buildGuestJoinCommand(): Command {
 		.requiredOption("--identity <guest-identity>", "Stable Guest identity for idempotent replays")
 		.requiredOption("--as <guest-name>", "Guest display name")
 		.requiredOption("--callback <socket>", "This session's callback socket path")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("guest-join"),
+		)
 		.showHelpAfterError(false)
 		.helpOption(false);
 }
@@ -122,7 +127,11 @@ export function buildGuestMessageCommand(kind: "send" | "broadcast"): Command {
 		.requiredOption("--capability <capability>", "Member-issued Guest capability")
 		.requiredOption("--message <text>", "Message text")
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("guest-leave"),
+		)
 		.showHelpAfterError(false)
 		.helpOption(false);
 	if (kind === "send") command.requiredOption("--target <member>", "Exact Member name or unique role");
@@ -136,7 +145,11 @@ export function buildGuestLeaveCommand(): Command {
 		.requiredOption("--crew <crew-id>", "Crew id to leave")
 		.requiredOption("--identity <guest-identity>", "This session's Guest identity")
 		.requiredOption("--callback <socket>", "The callback socket path used at join time")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("guest-send"),
+		)
 		.showHelpAfterError(false)
 		.helpOption(false);
 }

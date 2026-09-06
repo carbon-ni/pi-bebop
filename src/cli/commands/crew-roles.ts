@@ -5,6 +5,7 @@ import { CrewManifestError, projectCrewRoles, type CrewManifest } from "../../do
 import { CrewManifestReadError, readTrustedCrewManifest } from "../../infra/crew-manifest-store.ts";
 import { getTrustedCrewManifestPaths } from "../../infra/crew-layout.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome, CliResult } from "../support/output.ts";
@@ -38,7 +39,11 @@ export function isCliFormat(value: string): value is CliFormat {
 export function buildCrewRolesCommand(): Command {
 	return new Command("roles")
 		.description("List configured crew roles (read-only discovery)")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("crew-roles"),
+		)
 		.option("--full", "Full response without truncation")
 		.showHelpAfterError(false)
 		.helpOption(false); // --help handled by the app pre-pass; no short aliases
@@ -67,7 +72,7 @@ export function crewRolesHelp(): string {
 
 export function readCrewRolesCommand(parsed: Command): CrewRolesCliOptions {
 	const opts = parsed.opts<{ format?: string; full?: boolean }>();
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormatForCommand("crew-roles")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "crew-roles", format, full: opts.full === true };
@@ -124,7 +129,7 @@ export function parseCrewRolesCommand(args: string[], _cwd = process.cwd()): Cre
 	}
 
 	// App-owned enum validation.
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormatForCommand("crew-roles")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "crew-roles", format: format as CliFormat, full, ...(help ? { help: true } : {}) };
