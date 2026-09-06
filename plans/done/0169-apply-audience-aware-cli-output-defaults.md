@@ -40,7 +40,7 @@ Audience and serialization are presentation policy only. Canonical result object
 
 ## Completion evidence (06-09-26)
 
-- Implementation is complete and remains uncommitted until this close-out. Focused C6 stdin and operational parity tests are green; no TASK-0182 files were changed.
+- Implementation is complete and committed as `eefaf18` (`feat(cli): apply audience-aware output defaults (TASK-0169)`). Focused C6 stdin and operational parity tests are green; no TASK-0182 files were changed.
 - Validation: `npm test` = 1248/1248; `npm run typecheck` clean; `npm run lint` clean; `npm run format:check` clean.
 - `npm run verify:cli` is honestly baseline-failing: current all-files coverage is 97.36% line / 89.22% branch / 84.20% functions, exit 1 because branch coverage is below 90.
 - Clean TASK-0168 commit `09d5fd7` in a detached worktree produced 642/642 tests and 95.38% line / 89.38% branch / 79.39% functions, also exit 1. The 90% failure pre-existed TASK-0169. Current work improves line/functions but is 0.16 branch points below the clean baseline; no 0169-introduced uncovered policy/stdin branches remain.
