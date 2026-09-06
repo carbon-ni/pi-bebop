@@ -380,10 +380,17 @@ export interface MemberRequestCliDependencies {
 		signal: AbortSignal,
 	) => Promise<{ response: RpcCommandResponse }>;
 	readonly readStdin: typeof readStdinMessage;
-	readonly environmentSession: () => string | undefined;
+	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
 }
-function sourceOrError(options: MemberRequestCliOptions, deps: MemberRequestCliDependencies) {
-	return deps.resolveSource({ explicitSession: options.session, environmentSession: deps.environmentSession() });
+function sourceOrError(
+	options: MemberRequestCliOptions,
+	deps: MemberRequestCliDependencies,
+	environment?: NodeJS.ProcessEnv,
+) {
+	return deps.resolveSource({
+		explicitSession: options.session,
+		environmentSession: deps.environmentSession(environment),
+	});
 }
 async function sendSource(
 	source: SourceResolution & { ok: true },
@@ -409,7 +416,7 @@ export const defaultMemberRequestCliDependencies: MemberRequestCliDependencies =
 		}
 	},
 	readStdin: readStdinMessage,
-	environmentSession: () => process.env.PI_SESSION_ID,
+	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 function failure(options: MemberRequestCliOptions, target: string, error: unknown): CliOutcome {
 	const code =
@@ -441,7 +448,7 @@ async function runWithSource(
 	command: any,
 	timeoutMs: number,
 ): Promise<CliOutcome> {
-	const source = sourceOrError(options, deps);
+	const source = sourceOrError(options, deps, context.environment);
 	if (source.ok === false) {
 		const base = errorResult(source.message, options.session ?? "", source.code);
 		return {

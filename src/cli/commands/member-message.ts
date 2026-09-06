@@ -274,7 +274,7 @@ export interface MemberMessageCliDependencies {
 		},
 		signal: AbortSignal,
 	) => Promise<{ ok: true; result: MemberMessageResult } | { ok: false; code: string }>;
-	readonly environmentSession: () => string | undefined;
+	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
 }
 
 function mapTransportError(error: unknown): { ok: false; code: string } {
@@ -338,7 +338,7 @@ export const defaultMemberMessageCliDependencies: MemberMessageCliDependencies =
 			}
 		}
 	},
-	environmentSession: () => process.env.PI_SESSION_ID,
+	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 
 export async function runMemberMessageCommand(
@@ -350,7 +350,7 @@ export async function runMemberMessageCommand(
 	const target = options.member;
 	const source = deps.resolveSource({
 		explicitSession: options.session,
-		environmentSession: deps.environmentSession(),
+		environmentSession: deps.environmentSession(context.environment),
 	});
 	if (!isSourceFailure(source)) {
 		let message = options.message;
