@@ -19,7 +19,8 @@ Defaults:
 
 - `--project`: current working directory;
 - canonical layout only: `.pi/bebop` (never compatibility `.pi/crew`);
-- output: TOON;
+- output: concise human-readable text;
+- use `--format toon|json` for structured automation output;
 - no prompts and no `--force`.
 
 ## Managed layout
@@ -128,9 +129,21 @@ Members (3):
 ## Output contract
 
 Structured success includes `status: created|unchanged`, project root, relative
-manifest path, created/verified relative paths, and next commands. Conflicts,
-usage, and operational errors use stable codes and never leak stack traces,
-secrets, absolute home expansion, or raw dependency errors.
+manifest path, created/verified relative paths, and next commands. The default
+text view reports the state, target project, manifest and path counts, and first
+next command without a structured envelope:
+
+```text
+Crew scaffold created: /project
+Manifest: /project/.pi/bebop/crew.json
+Created: 2 path(s)
+Verified: 1 path(s)
+Next: pi-bebop --crew-role lead
+```
+
+Use `--format toon` or `--format json` to retain the canonical structured result.
+Conflicts, usage, and operational errors use stable codes and never leak stack
+traces, secrets, absolute home expansion, or raw dependency errors.
 
 Exit codes:
 

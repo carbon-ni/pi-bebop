@@ -74,3 +74,276 @@ test("persisted text falls back to a neutral ack never 'completed'", () => {
 		"Message persisted",
 	);
 });
+
+test("text presents session rows, aliases, membership, totals, and omissions", () => {
+	const text = renderCliResult(
+		{
+			ok: true,
+			target: "",
+			status: "listed",
+			data: {
+				sessions: [
+					{ sessionId: "s-1", aliases: ["alpha", "project"], membership: "joined" },
+					{ sessionId: "s-2", aliases: [], membership: "unknown" },
+				],
+				total: 3,
+				omitted: 1,
+			},
+		},
+		"text",
+		false,
+	);
+	assert.equal(text, "Sessions (3):\n- s-1 (alpha, project) — joined\n- s-2 — unknown\nOmitted: 1");
+	assert.match(
+		renderCliResult(
+			{ ok: true, target: "", status: "empty", data: { sessions: [], total: 0, next: "run session list" } },
+			"text",
+			false,
+		),
+		/^No sessions found \(total: 0\)\. run session list$/,
+	);
+});
+
+test("text presents crew-init state, safe paths, and next command", () => {
+	assert.equal(
+		renderCliResult(
+			{
+				ok: true,
+				target: "/project",
+				status: "created",
+				response: "ignored generic response",
+				data: {
+					status: "created",
+					project: "/project",
+					manifestPath: "/project/.pi/bebop/crew.json",
+					createdPaths: ["crew.json", "common.md"],
+					verifiedPaths: ["crew.json"],
+					nextCommands: ["pi-bebop --crew-role lead"],
+				},
+			},
+			"text",
+			false,
+		),
+		"Crew scaffold created: /project\nManifest: /project/.pi/bebop/crew.json\nCreated: 2 path(s)\nVerified: 1 path(s)\nNext: pi-bebop --crew-role lead",
+	);
+});
+
+test("text presents request, broadcast, Guest, and persisted data-only results", () => {
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "request-1", status: "accepted", data: { requestId: "request-1" } },
+			"text",
+			false,
+		),
+		"Request accepted: request-1",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "crew", status: "partial", data: { summary: { delivered: 2, failed: 1 } } },
+			"text",
+			false,
+		),
+		"Broadcast: 2 delivered, 1 failed",
+	);
+	assert.equal(
+		renderCliResult(
+			{
+				ok: true,
+				target: "member.sock",
+				status: "accepted",
+				data: { status: "pending", requestId: "guest-request", crew: { id: "alpha", displayName: "Alpha" } },
+			},
+			"text",
+			false,
+		),
+		"Guest admission pending for Alpha (request guest-request)",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "member.sock", status: "left", data: { status: "left", crew: "alpha" } },
+			"text",
+			false,
+		),
+		"Left crew alpha",
+	);
+	assert.equal(
+		renderCliResult(
+			{
+				ok: true,
+				target: "member",
+				status: "persisted",
+				data: { itemId: "item-1", member: { name: "Mary", role: "po" } },
+			},
+			"text",
+			false,
+		),
+		"Mary (po) — persisted item-1",
+	);
+});
+
+test("data-only text success never falls through to Message completed", () => {
+	const text = renderCliResult({ ok: true, target: "x", status: "observed", data: { state: "idle" } }, "text", false);
+	assert.equal(text, "Operation succeeded");
+	assert.doesNotMatch(text, /Message completed/);
+});
+
+test("text presents home state and next action without exposing internals", () => {
+	assert.equal(
+		renderCliResult(
+			{
+				ok: true,
+				target: "",
+				status: "home",
+				data: { project: "/project", scaffold: "missing", commands: ["send"], next: "pi-bebop crew init" },
+			},
+			"text",
+			false,
+		),
+		"Project: /project\nCrew scaffold: missing\nCommands: 1 available\nNext: pi-bebop crew init",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "", status: "home", data: { project: "", scaffold: "", commands: [], next: "" } },
+			"text",
+			false,
+		),
+		"Project: current project\nCrew scaffold: unknown",
+	);
+});
+
+test("text presents request lists, responses, and direct deliveries", () => {
+	assert.equal(
+		renderCliResult({ ok: true, target: "", status: "listed", data: { requests: [] } }, "text", false),
+		"No pending requests",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "request-1", status: "response", data: { kind: "timeout" } },
+			"text",
+			false,
+		),
+		"Request request-1: timeout",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "request-1", status: "response-accepted", data: { requestId: "request-1" } },
+			"text",
+			false,
+		),
+		"Response submitted for request request-1",
+	);
+	assert.equal(
+		renderCliResult(
+			{
+				ok: true,
+				target: "Bob",
+				status: "accepted",
+				data: { deliveryId: "delivery-1", disposition: "queued", member: { name: "Bob" } },
+			},
+			"text",
+			false,
+		),
+		"Delivery to Bob: queued (delivery-1)",
+	);
+});
+
+test("text presenter handles bounded fallback fields without raw object dumping", () => {
+	assert.match(
+		renderCliResult(
+			{
+				ok: true,
+				target: "",
+				status: "listed",
+				data: { sessions: [{ aliases: [1, "a"], membership: "" }], omitted: 0 },
+			},
+			"text",
+			false,
+		),
+		/- unknown \(a\) — unknown/,
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "", status: "listed", data: { roles: [{ role: "lead" }, {}] } },
+			"text",
+			false,
+		),
+		"2 configured roles: lead, unknown",
+	);
+	assert.equal(
+		renderCliResult(
+			{
+				ok: true,
+				target: "/project",
+				status: "verified",
+				data: {
+					status: "",
+					manifestPath: "/crew.json",
+					project: "",
+					createdPaths: [],
+					verifiedPaths: [],
+					nextCommands: [],
+				},
+			},
+			"text",
+			false,
+		),
+		"Crew scaffold verified: /project\nManifest: /crew.json",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "", status: "listed", data: { requests: [{ id: "r" }], omitted: 2 } },
+			"text",
+			false,
+		),
+		"1 request(s) listed; omitted: 2",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "", status: "approved", data: { status: "approved", crew: { id: "alpha" } } },
+			"text",
+			false,
+		),
+		"Guest admission approved for alpha",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "", status: "accepted", data: { deliveryId: "d", disposition: "direct" } },
+			"text",
+			false,
+		),
+		"Delivery to target: direct (d)",
+	);
+	assert.equal(renderCliResult({ ok: true, target: "", status: "empty" }, "text", false), "No results found");
+	assert.equal(renderCliResult({ ok: true, target: "", status: "persisted" }, "text", false), "Message persisted");
+});
+
+test("text presenter covers empty and singular canonical projections", () => {
+	assert.equal(
+		renderCliResult({ ok: true, target: "", status: "listed", data: { sessions: [], total: 0 } }, "text", false),
+		"No sessions found (total: 0). Start a session and retry.",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "", status: "listed", data: { roles: ["lead"], roleCount: 1 } },
+			"text",
+			false,
+		),
+		"1 configured role: lead",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "", status: "persisted", data: { itemId: "i", member: {} } },
+			"text",
+			false,
+		),
+		"member — persisted i",
+	);
+	assert.equal(
+		renderCliResult(
+			{ ok: true, target: "", status: "approved", data: { status: "approved", crew: {} } },
+			"text",
+			false,
+		),
+		"Guest admission approved for crew",
+	);
+});
