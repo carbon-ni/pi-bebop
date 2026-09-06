@@ -1,7 +1,7 @@
 ---
 id: TASK-0182
 title: Define Crew Principal outbound contact contract
-status: doing
+status: done
 depends_on: [TASK-0171]
 priority: high
 tags: [product, crew, principal, outbound, messaging, security, ubiquitous-language]
@@ -59,8 +59,11 @@ The manifest may author the expected Principal identity, display label, outbound
 
 ## Review status
 
-- Drafted for PO review. Product approval, security review, development feasibility review, and QA-lens review remain intentionally open.
-- Proposed implementation tasks must wait until the final review checklist in `docs/CREW-PRINCIPAL.md` is approved.
+- Product: Mary (PO) approved the contract at exact commit `e334115` on 2026-09-06. The canonical term, fail-closed authority boundary, bounded delivery states, privacy contract, recovery commands, and pi-intray independence are accepted.
+- Security: pending review of route binding, rotation/revocation, replay, cross-Crew isolation, and redaction.
+- Development: pending feasibility review of the application/infra seam and deterministic outbox evidence.
+- QA: pending independent review of the state table and implementation-testability checklist.
+- Implementation tasks remain blocked until the pending Security, Development, and QA reviews approve the final checklist.
 
 ## Non-goals
 
