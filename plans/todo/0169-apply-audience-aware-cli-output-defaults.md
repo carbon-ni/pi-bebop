@@ -1,7 +1,7 @@
 ---
 id: TASK-0169
 title: Apply audience-aware CLI output defaults
-status: done
+status: doing
 depends_on: [TASK-0168]
 priority: high
 tags: [cli, output, toon, text, json, axi, tdd]
@@ -45,3 +45,7 @@ Audience and serialization are presentation policy only. Canonical result object
 - `npm run verify:cli` is honestly baseline-failing: current all-files coverage is 97.36% line / 89.22% branch / 84.20% functions, exit 1 because branch coverage is below 90.
 - Clean TASK-0168 commit `09d5fd7` in a detached worktree produced 642/642 tests and 95.38% line / 89.38% branch / 79.39% functions, also exit 1. The 90% failure pre-existed TASK-0169. Current work improves line/functions but is 0.16 branch points below the clean baseline; no 0169-introduced uncovered policy/stdin branches remain.
 - Exact current uncovered branches and the TASK-0193 update are recorded in `plans/todo/0193-stabilize-cli-branch-coverage-gate-out-of-its-flake-band.md`.
+
+## Reopened evidence (06-09-26)
+
+Mary rejected closure because current `verify:cli` branch coverage is 89.22%, below the clean TASK-0168 baseline of 89.38%. TASK-0169 remains open until focused coverage raises the current result to at least 89.38%, or an equivalent clean-checkout comparison proves the measurements are non-comparable. TASK-0193 remains responsible for the residual path to the 90% gate.
