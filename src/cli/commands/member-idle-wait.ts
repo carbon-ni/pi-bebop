@@ -147,7 +147,7 @@ export interface MemberIdleWaitCliDependencies {
 		timeoutSeconds: number,
 		signal: AbortSignal,
 	) => Promise<MemberIdleWaitCliOutcome>;
-	readonly environmentSession: () => string | undefined;
+	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
 }
 
 export function mapIdleWaitTransportError(error: unknown): MemberIdleWaitCliOutcome {
@@ -195,7 +195,7 @@ export const defaultMemberIdleWaitCliDependencies: MemberIdleWaitCliDependencies
 		// A stale id socket may have a valid alias; retry exactly once.
 		return waitThroughSocket(source.aliasSocketPath, target, timeoutSeconds, signal);
 	},
-	environmentSession: () => process.env.PI_SESSION_ID,
+	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 
 export async function runMemberIdleWaitCommand(
@@ -206,7 +206,7 @@ export async function runMemberIdleWaitCommand(
 	if (options.help) return { kind: "help", text: memberIdleWaitHelp() };
 	const source = deps.resolveSource({
 		explicitSession: options.session,
-		environmentSession: deps.environmentSession(),
+		environmentSession: deps.environmentSession(context.environment),
 	});
 	if (!source.ok)
 		return {

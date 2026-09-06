@@ -148,7 +148,7 @@ export interface MemberStatusCliDependencies {
 		target: string,
 		signal: AbortSignal,
 	) => Promise<MemberStatusOutcome>;
-	readonly environmentSession: () => string | undefined;
+	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
 }
 
 export type MemberStatusOutcome = { ok: true; status: MemberStatus } | { ok: false; code: string };
@@ -211,7 +211,7 @@ export const defaultMemberStatusCliDependencies: MemberStatusCliDependencies = {
 			}
 		}
 	},
-	environmentSession: () => process.env.PI_SESSION_ID,
+	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 
 export async function runMemberStatusCommand(
@@ -223,7 +223,7 @@ export async function runMemberStatusCommand(
 	const target = options.member;
 	const source = deps.resolveSource({
 		explicitSession: options.session,
-		environmentSession: deps.environmentSession(),
+		environmentSession: deps.environmentSession(context.environment),
 	});
 	if (isSourceFailure(source)) {
 		// Source-selection input errors are usage-class (exit 2) with their stable code.

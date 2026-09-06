@@ -106,7 +106,7 @@ export interface MemberInterruptCliDependencies {
 		command: InterruptCommand,
 		signal: AbortSignal,
 	) => Promise<{ ok: true; result: MemberInterruptResult } | { ok: false; code: string }>;
-	readonly environmentSession: () => string | undefined;
+	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
 }
 
 export function mapInterruptTransportError(error: unknown): { ok: false; code: string } {
@@ -142,7 +142,7 @@ export const defaultMemberInterruptCliDependencies: MemberInterruptCliDependenci
 	resolveSource: (input) => resolveSourceSession(input),
 	readStdin: readStdinMessage,
 	deliverInterrupt: deliverThroughSocket,
-	environmentSession: () => process.env.PI_SESSION_ID,
+	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 
 export async function runMemberInterruptCommand(
@@ -153,7 +153,7 @@ export async function runMemberInterruptCommand(
 	if (options.help) return { kind: "help", text: memberInterruptHelp() };
 	const source = deps.resolveSource({
 		explicitSession: options.session,
-		environmentSession: deps.environmentSession(),
+		environmentSession: deps.environmentSession(context.environment),
 	});
 	if (source.ok === false)
 		return {

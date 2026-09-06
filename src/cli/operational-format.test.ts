@@ -1,7 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { runCli } from "./run.ts";
 import { Writable } from "node:stream";
+import { createRpcServer, closeRpcServer, writeResponse, type RpcServer } from "../infra/rpc-server.ts";
+import { getSocketPath } from "../infra/intray-paths.ts";
+
+const SESSION_ID = randomUUID();
+const SESSION_SOCKET = getSocketPath(SESSION_ID);
+let server: RpcServer;
 
 async function run(args: readonly string[]): Promise<{ code: number; text: string }> {
 	let out = "";
@@ -11,9 +19,29 @@ async function run(args: readonly string[]): Promise<{ code: number; text: strin
 			cb();
 		},
 	});
-	const code = await runCli([...args], "/project", process.stdin, sink);
+	const code = await runCli([...args], "/project", process.stdin, sink, process.stderr, {
+		...process.env,
+		PI_SESSION_ID: SESSION_ID,
+	});
 	return { code, text: out };
 }
+
+test.before(async () => {
+	server = await createRpcServer(SESSION_SOCKET, (command, socket) => {
+		writeResponse(socket, {
+			type: "response",
+			command: command.type,
+			success: false,
+			error: "unknown-member",
+			id: command.id,
+		});
+	});
+});
+
+test.after(async () => {
+	await closeRpcServer(server);
+	await rm(SESSION_SOCKET, { force: true });
+});
 
 const CASES: ReadonlyArray<{ name: string; args: readonly string[]; code: string }> = [
 	{ name: "member status", args: ["member", "status", "someone"], code: "unknown-member" },

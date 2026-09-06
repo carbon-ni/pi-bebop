@@ -258,7 +258,7 @@ export interface DurableMessageCliDependencies {
 		command: DurableMessageCommand,
 		signal: AbortSignal,
 	) => Promise<{ ok: true; result: MemberInboxSendResult | CrewBroadcastRpcResult } | { ok: false; code: string }>;
-	readonly environmentSession: () => string | undefined;
+	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
 }
 const REMOTE_MESSAGE_CODES = new Set([
 	"not-joined",
@@ -319,7 +319,7 @@ export const defaultDurableMessageCliDependencies: DurableMessageCliDependencies
 			}
 		}
 	},
-	environmentSession: () => process.env.PI_SESSION_ID,
+	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 
 function inboxOutcome(result: MemberInboxSendResult, member: string | undefined, format: CliFormat): CliOutcome {
@@ -369,7 +369,7 @@ export async function runDurableMessageCommand(
 	if (options.help) return { kind: "help", text: durableMessageHelp(options.intent) };
 	const source = deps.resolveSource({
 		explicitSession: options.session,
-		environmentSession: deps.environmentSession(),
+		environmentSession: deps.environmentSession(context.environment),
 	});
 	if (source.ok === false)
 		return {
