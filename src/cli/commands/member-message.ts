@@ -1,4 +1,4 @@
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberMessageResult, MAX_MESSAGE_INSTRUCTIONS, type MemberMessageResult } from "../../domain/index.ts";
@@ -106,7 +106,7 @@ function label(intent: MemberMessageIntent): string {
 const VALID_FLAGS =
 	"--session <id|alias>, --message <text>, --stdin, --instruction <text>, --format toon|json|text, --help";
 
-function mapCommanderError(error: CommanderError): UsageError {
+function mapCommanderError(error: Error & { code?: string }): UsageError {
 	const match = /--[a-z-]+/.exec(error.message);
 	const flag = match?.[0] ?? "--format";
 	if (error.code === "commander.optionMissingArgument") return new UsageError(`Missing value for ${flag}`);
@@ -193,6 +193,32 @@ function validateMemberMessageOptions(
 	return { format, hasMessage, hasStdin };
 }
 
+export function readMemberMessageCommand(command: Command, intent: MemberMessageIntent): MemberMessageCliOptions {
+	const opts = command.opts<{
+		session?: string;
+		message?: string;
+		stdin?: boolean;
+		instruction?: string[];
+		format?: string;
+		help?: boolean;
+	}>();
+	const member = command.args[0] ?? "";
+	const instructions = opts.instruction ?? [];
+	const help = opts.help === true;
+	const { format, hasMessage, hasStdin } = validateMemberMessageOptions(help, member, opts, instructions);
+	return {
+		command: intent === "follow_up" ? "member-follow-up" : "member-redirect",
+		intent,
+		member: member.trim(),
+		...(opts.session === undefined ? {} : { session: opts.session }),
+		...(hasMessage ? { message: opts.message } : {}),
+		instructions,
+		stdin: hasStdin,
+		format: format as CliFormat,
+		...(help ? { help: true } : {}),
+	};
+}
+
 export function parseMemberMessageCommand(
 	args: string[],
 	intent: MemberMessageIntent,
@@ -210,7 +236,8 @@ export function parseMemberMessageCommand(
 		program.parse(tokens, { from: "user" });
 		opts = program.opts();
 	} catch (error) {
-		if (error instanceof CommanderError) throw mapCommanderError(error);
+		if (error instanceof Error && error.name === "CommanderError")
+			throw mapCommanderError(error as Error & { code?: string });
 		throw error;
 	}
 	const member = program.args[0] ?? "";

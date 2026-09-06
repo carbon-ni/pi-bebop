@@ -8,7 +8,7 @@ import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
 import { readStdinMessage } from "../support/message-input.ts";
-import { parseMemberMessageCommand } from "./member-message.ts";
+import { parseMemberMessageCommand, readMemberMessageCommand } from "./member-message.ts";
 
 export interface MemberInterruptCliOptions {
 	readonly command: "member-interrupt";
@@ -56,6 +56,20 @@ export function memberInterruptHelp(): string {
 		`Discover sessions with: ${SESSION_LIST_HINT}`,
 		"",
 	].join("\n");
+}
+
+export function readMemberInterruptCommand(command: Command): MemberInterruptCliOptions {
+	const parsed = readMemberMessageCommand(command, "follow_up");
+	return {
+		command: "member-interrupt",
+		member: parsed.member,
+		...(parsed.session === undefined ? {} : { session: parsed.session }),
+		...(parsed.message === undefined ? {} : { message: parsed.message }),
+		instructions: parsed.instructions,
+		stdin: parsed.stdin,
+		format: parsed.format,
+		...(parsed.help ? { help: true } : {}),
+	};
 }
 
 export function parseMemberInterruptCommand(args: string[], cwd = process.cwd()): MemberInterruptCliOptions {

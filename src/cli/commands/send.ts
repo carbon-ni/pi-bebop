@@ -1,6 +1,8 @@
+import path from "node:path";
 import { Command } from "commander";
-import { MAX_MESSAGE_INSTRUCTIONS } from "../../domain/index.ts";
-import type { CliFormat } from "../support/arguments.ts";
+import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../../domain/index.ts";
+import { parsePositiveDurationMs } from "../support/duration.ts";
+import { UsageError, type CliFormat, type SendCliOptions } from "../support/arguments.ts";
 
 /**
  * TASK-0058: declarative Commander schema for `send` — the single flag
@@ -80,6 +82,74 @@ export function readSendLeafOptions(parsed: Command): SendLeafOptions {
 		format: opts.format ?? "toon",
 		full: opts.full ?? false,
 	};
+}
+
+function isCliFormat(value: string): value is CliFormat {
+	return value === "toon" || value === "json" || value === "text";
+}
+function validateOrigin(label: string): void {
+	if (
+		label.trim().length === 0 ||
+		label !== label.trim() ||
+		label.includes("\0") ||
+		Buffer.byteLength(label, "utf8") > MAX_MESSAGE_ORIGIN_FIELD_BYTES
+	)
+		throw new UsageError(
+			"--from must be trimmed, non-empty, within the UTF-8 byte limit, and must not contain NUL",
+		);
+}
+function validateSendLeaf(leaf: SendLeafOptions, seen: ReadonlySet<string>, cwd: string): SendCliOptions {
+	const hasSocket = leaf.socketPath !== undefined;
+	const hasCrew = leaf.crewPath !== undefined;
+	if (hasSocket === hasCrew)
+		throw new UsageError(
+			"Choose exactly one target: --socket <path> for direct delivery or --crew <manifest> for durable intake",
+		);
+	if (hasCrew) {
+		for (const incompatible of ["--mode", "--wait", "--timeout"] as const)
+			if (seen.has(incompatible))
+				throw new UsageError(
+					`${incompatible} is not supported with --crew; external intake is one-way persisted delivery`,
+				);
+	}
+	if (leaf.origin !== undefined) validateOrigin(leaf.origin.label);
+	const hasMessage = leaf.message !== undefined;
+	if (hasMessage && leaf.stdin)
+		throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
+	if (!hasMessage && !leaf.stdin) throw new UsageError("Missing message source; use --message <text> or --stdin");
+	if (hasMessage && leaf.message!.length === 0) throw new UsageError("--message must not be empty");
+	if (leaf.mode !== "steer" && leaf.mode !== "follow_up")
+		throw new UsageError(`Invalid --mode '${leaf.mode}'; valid alternatives: steer, follow_up`);
+	if (leaf.wait !== "turn_end" && leaf.wait !== "accepted")
+		throw new UsageError(`Invalid --wait '${leaf.wait}'; valid alternatives: turn_end, accepted`);
+	if (!isCliFormat(leaf.format))
+		throw new UsageError(`Invalid --format '${leaf.format}'; valid alternatives: toon, json, text`);
+	return {
+		command: "send",
+		...(hasSocket ? { socketPath: path.resolve(cwd, leaf.socketPath!) } : {}),
+		...(hasCrew ? { crewPath: path.resolve(cwd, leaf.crewPath!) } : {}),
+		...(hasMessage ? { message: leaf.message } : {}),
+		instructions: leaf.instructions,
+		...(leaf.origin === undefined ? {} : { origin: leaf.origin }),
+		stdin: leaf.stdin,
+		mode: leaf.mode as "steer" | "follow_up",
+		wait: leaf.wait as "turn_end" | "accepted",
+		timeoutMs: parsePositiveDurationMs(leaf.timeout),
+		format: leaf.format as CliFormat,
+		full: leaf.full,
+	};
+}
+
+export function readSendCommand(command: Command, cwd: string): SendCliOptions {
+	const leaf = readSendLeafOptions(command);
+	const seen = new Set(
+		command.options
+			.filter(
+				(option) => option.long !== undefined && command.getOptionValueSource(option.attributeName()) === "cli",
+			)
+			.map((option) => option.long!),
+	);
+	return validateSendLeaf(leaf, seen, cwd);
 }
 
 /** Deterministic local help generated from command metadata (defaults + runnable examples). */

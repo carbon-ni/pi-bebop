@@ -1,5 +1,4 @@
 import path from "node:path";
-import { CommanderError } from "commander";
 import { isCliFormat } from "./commands/crew-init.ts";
 import { buildCrewInitCommand } from "./commands/crew-init.ts";
 import { buildSendCommand, readSendLeafOptions, type SendLeafOptions } from "./commands/send.ts";
@@ -73,7 +72,8 @@ export function parseCrewInitCommand(args: string[], cwd = process.cwd()): Decla
 		program.parse(tokens, { from: "user" });
 		opts = program.opts();
 	} catch (error) {
-		if (error instanceof CommanderError) throw mapCommanderError(error);
+		if (error instanceof Error && error.name === "CommanderError")
+			throw mapCommanderError(error as Error & { code?: string });
 		throw error;
 	}
 
@@ -91,7 +91,7 @@ export function parseCrewInitCommand(args: string[], cwd = process.cwd()): Decla
 }
 
 /** Maps CommanderError to the byte-compatible UsageError messages locked by the 0056 suite. */
-function mapCommanderError(error: CommanderError): UsageError {
+function mapCommanderError(error: Error & { code?: string }): UsageError {
 	if (error.code === "commander.optionMissingArgument") {
 		const match = /--[a-z-]+/.exec(error.message);
 		const flag = match?.[0] ?? "--format";
@@ -243,7 +243,8 @@ export function parseSendCommand(args: string[], cwd = process.cwd()): SendCliOp
 		program.parse(tokens, { from: "user" });
 		leaf = readSendLeafOptions(program);
 	} catch (error) {
-		if (error instanceof CommanderError) throw mapSendCommanderError(error);
+		if (error instanceof Error && error.name === "CommanderError")
+			throw mapSendCommanderError(error as Error & { code?: string });
 		throw error;
 	}
 	if (instructionValues.length > 0) leaf = { ...leaf, instructions: instructionValues };
@@ -276,7 +277,7 @@ export function parseSendCommand(args: string[], cwd = process.cwd()): SendCliOp
 	return options;
 }
 
-function mapSendCommanderError(error: CommanderError): UsageError {
+function mapSendCommanderError(error: Error & { code?: string }): UsageError {
 	if (error.code === "commander.optionMissingArgument") {
 		const match = /--[a-z-]+/.exec(error.message);
 		const flag = match?.[0] ?? "--message";

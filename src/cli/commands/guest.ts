@@ -1,4 +1,4 @@
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import { isGuestJoinResult } from "../../domain/index.ts";
 import type { GuestTrustedManifest } from "../../application/guest-message.ts";
 import { promises as fs } from "node:fs";
@@ -153,11 +153,13 @@ function parseCommand(
 	try {
 		program.parse([...args], { from: "user" });
 	} catch (error) {
-		if (error instanceof CommanderError) {
+		if (error instanceof Error && error.name === "CommanderError") {
 			const match = /--[a-z-]+/.exec(error.message);
 			const flag = match?.[0] ?? "--as";
 			throw new UsageError(
-				error.code === "commander.optionMissingArgument" ? `Missing value for ${flag}` : error.message,
+				(error as Error & { code?: string }).code === "commander.optionMissingArgument"
+					? `Missing value for ${flag}`
+					: error.message,
 			);
 		}
 		throw error;
@@ -182,6 +184,83 @@ function parseWithoutTarget(
 ): Record<string, unknown> {
 	const parsed = parseCommand(command, args);
 	return parse(parsed.options, parsed.target ?? "");
+}
+
+export function readGuestJoinCommand(command: Command): GuestJoinCliOptions {
+	const options = command.opts<{
+		identity?: string;
+		as?: string;
+		callback?: string;
+		format?: string;
+		help?: boolean;
+	}>();
+	const help = options.help === true;
+	return {
+		command: "guest-join",
+		target: String(command.args[0] ?? ""),
+		guestIdentity: help
+			? String(options.identity ?? "")
+			: requireValue(options.identity, "--identity <guest-identity>"),
+		guestName: help ? String(options.as ?? "") : requireValue(options.as, "--as <guest-name>"),
+		callback: help ? String(options.callback ?? "") : requireValue(options.callback, "--callback <socket>"),
+		format: normalizeFormat(options.format),
+		...(help ? { help: true } : {}),
+	};
+}
+
+export function readGuestMessageCommand(command: Command, kind: "send" | "broadcast"): GuestMessageCliOptions {
+	const options = command.opts<{
+		crew?: string;
+		target?: string;
+		identity?: string;
+		as?: string;
+		callback?: string;
+		capability?: string;
+		message?: string;
+		instruction?: string[];
+		format?: string;
+		help?: boolean;
+	}>();
+	const help = options.help === true;
+	return {
+		command: kind === "send" ? "guest-send" : "guest-broadcast",
+		crew: help ? String(options.crew ?? "") : requireValue(options.crew, "--crew <crew-id>"),
+		target: kind === "send" && !help ? requireValue(options.target, "--target <member>") : options.target,
+		guestIdentity: help
+			? String(options.identity ?? "")
+			: requireValue(options.identity, "--identity <guest-identity>"),
+		guestName: help ? String(options.as ?? "") : requireValue(options.as, "--as <guest-name>"),
+		callback: help ? String(options.callback ?? "") : requireValue(options.callback, "--callback <socket>"),
+		capability: help
+			? String(options.capability ?? "")
+			: requireValue(options.capability, "--capability <capability>"),
+		message: help ? String(options.message ?? "") : requireValue(options.message, "--message <text>"),
+		instructions: options.instruction ?? [],
+		format: normalizeFormat(options.format),
+		...(help ? { help: true } : {}),
+	};
+}
+
+export function readGuestLeaveCommand(command: Command): GuestLeaveCliOptions {
+	const options = command.opts<{
+		crew?: string;
+		identity?: string;
+		callback?: string;
+		format?: string;
+		help?: boolean;
+	}>();
+	const help = options.help === true;
+	return {
+		command: "guest-leave",
+		target: String(command.args[0] ?? ""),
+		crewId: help ? String(options.crew ?? "") : requireValue(options.crew, "--crew <crew-id>"),
+		guestIdentity: help
+			? String(options.identity ?? "")
+			: requireValue(options.identity, "--identity <guest-identity>"),
+		callback: help ? String(options.callback ?? "") : requireValue(options.callback, "--callback <socket>"),
+		format: normalizeFormat(options.format),
+		...(help ? { help: true } : {}),
+	};
 }
 
 export function parseGuestJoinCommand(args: readonly string[]): GuestJoinCliOptions {

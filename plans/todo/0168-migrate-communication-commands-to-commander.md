@@ -31,8 +31,9 @@ All CLI grammar is declared through the production Commander tree. Communication
 - [x] `guest send` and `guest broadcast` now execute without a positional Member socket. A public regression test proves both use declared Crew/Guest options and no longer emit `Guest commands require one live Member socket target.`
 - [x] Existing leaf help remains safe and runnable through the adapter; communication help and output defaults are unchanged for TASK-0169/0170.
 - [x] `src/cli/parser.ts` and `src/cli/flag-scanner.ts` were inventoried by reference search; they remain because direct parser tests and non-migrated compatibility facades still reference semantic behavior.
-- [x] Manual registry dispatch is gone; parser-only cleanup is deferred until the remaining compatibility references are migrated and typechecked.
-- [ ] Full removal of every local parser/scanner and all production `CommanderError` imports remains a follow-up cleanup once compatibility callers are migrated.
+- [x] Manual registry dispatch is gone; the registry and adapter carry no scanner/parser dependence on production dispatch or read paths.
+- [x] Production dispatch/read paths have **zero** `scanCliFlags`/`parseCliCommand`/production `CommanderError` dependence: every `read*` function body is scanner-free and facade-free (structural audit: no read function calls scanCliFlags, a parse facade, or parses raw CommanderError); adapter/run/registry contain no scanner usage, and the adapter's CommanderError mapping is the single central owner of Commander error translation. Legacy `parse:` facades are **quarantined** to the compatibility surface (direct parser tests and the two compat `parse:` slots for send/crew-init) and are not consulted by production `read:` execution.
+- **Out of 0168 scope — accepted deferral to TASK-0194 (Mary, 06-09):** quarantine removal (migrating direct parser-test callers off the legacy facades, then deleting the facades, `parser.ts` compatibility dispatch, `scanCliFlags` users, and per-command `mapCommanderError` copies) is explicitly NOT part of TASK-0168. The trigger for starting TASK-0194 is recorded on its card. No facade removal is claimed by this task.
 - [x] Full CLI contract, packed artifact, complexity, lint, and tool/CLI parity gates pass.
 
 ## Non-goals

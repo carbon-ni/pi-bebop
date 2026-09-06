@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import { CONTROL_DIR } from "../../infra/intray-paths.ts";
 import { probeMemberEndpoint } from "../../infra/member-endpoint.ts";
 import { sendRpcCommand } from "../../infra/rpc-client.ts";
@@ -102,11 +102,13 @@ export function parseSessionListCommand(args: string[], _cwd = process.cwd()): S
 		program.parse(tokens, { from: "user" });
 		opts = program.opts();
 	} catch (error) {
-		if (error instanceof CommanderError) {
+		if (error instanceof Error && error.name === "CommanderError") {
 			const match = /--[a-z-]+/.exec(error.message);
 			const flag = match?.[0] ?? "--format";
 			throw new UsageError(
-				error.code === "commander.optionMissingArgument" ? `Missing value for ${flag}` : error.message,
+				(error as Error & { code?: string }).code === "commander.optionMissingArgument"
+					? `Missing value for ${flag}`
+					: error.message,
 			);
 		}
 		throw error;

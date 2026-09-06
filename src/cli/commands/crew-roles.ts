@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import { CrewManifestError, projectCrewRoles, type CrewManifest } from "../../domain/index.ts";
 import { CrewManifestReadError, readTrustedCrewManifest } from "../../infra/crew-manifest-store.ts";
 import { getTrustedCrewManifestPaths } from "../../infra/crew-layout.ts";
@@ -111,11 +111,13 @@ export function parseCrewRolesCommand(args: string[], _cwd = process.cwd()): Cre
 		program.parse(tokens, { from: "user" });
 		opts = program.opts();
 	} catch (error) {
-		if (error instanceof CommanderError) {
+		if (error instanceof Error && error.name === "CommanderError") {
 			const match = /--[a-z-]+/.exec(error.message);
 			const flag = match?.[0] ?? "--format";
 			throw new UsageError(
-				error.code === "commander.optionMissingArgument" ? `Missing value for ${flag}` : error.message,
+				(error as Error & { code?: string }).code === "commander.optionMissingArgument"
+					? `Missing value for ${flag}`
+					: error.message,
 			);
 		}
 		throw error;

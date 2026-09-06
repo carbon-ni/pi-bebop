@@ -1,4 +1,4 @@
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import { parsePositiveDurationMs } from "../support/duration.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { errorResult } from "../support/errors.ts";
@@ -82,7 +82,7 @@ function parserFor(
 	try {
 		program.parse(tokens, { from: "user" });
 	} catch (error) {
-		if (error instanceof CommanderError) {
+		if (error instanceof Error && error.name === "CommanderError") {
 			if (help) return { options: program.opts(), positional: program.args, help, instructions };
 			throw new UsageError(error.message);
 		}
@@ -142,6 +142,111 @@ function messageOptions(parsed: ReturnType<typeof parserFor>, opts: Record<strin
 	if (message !== undefined && message.trim().length === 0) throw new UsageError("--message must not be empty");
 	return { message, stdin, instructions: parsed.instructions };
 }
+function readMemberRequestCommand(
+	command: Command,
+	kind: "send" | "list" | "wait" | "respond",
+): MemberRequestCliOptions {
+	const opts = command.opts<{
+		session?: string;
+		message?: string;
+		stdin?: boolean;
+		instruction?: string[];
+		responseGrace?: string;
+		maxWait?: string;
+		direction?: string;
+		format?: string;
+		help?: boolean;
+	}>();
+	const parsed = {
+		options: opts as Record<string, unknown>,
+		positional: command.args,
+		help: opts.help === true,
+		instructions: opts.instruction ?? [],
+	};
+	const base = {
+		stdin: false,
+		instructions: [] as string[],
+		responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
+		maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
+		direction: "all" as Direction,
+		format: format(opts.format ?? "toon"),
+	};
+	if (parsed.help)
+		return {
+			command: `member-request-${kind}`,
+			...base,
+			...(kind === "send" ? { member: "" } : {}),
+			...(kind === "wait" || kind === "respond" ? { requestId: "" } : {}),
+			help: true,
+		} as MemberRequestCliOptions;
+	if (kind === "list") {
+		const direction = String(opts.direction ?? "all");
+		if (!["inbound", "outbound", "all"].includes(direction))
+			throw new UsageError("Invalid --direction; valid alternatives: inbound, outbound, all");
+		return {
+			command: "member-request-list",
+			...(opts.session === undefined ? {} : { session: String(opts.session) }),
+			...base,
+			direction: direction as Direction,
+		};
+	}
+	if (kind === "wait" || kind === "respond") {
+		const requestId = command.args[0];
+		if (!requestId || requestId.trim() !== requestId) throw new UsageError("Missing exact <request-id>");
+		const msg =
+			kind === "respond"
+				? messageOptions(parsed, parsed.options, true)
+				: { message: undefined, stdin: false, instructions: parsed.instructions };
+		return {
+			command: `member-request-${kind}`,
+			...(opts.session === undefined ? {} : { session: String(opts.session) }),
+			...base,
+			...msg,
+			requestId,
+		} as MemberRequestCliOptions;
+	}
+	const member = command.args[0];
+	if (!member || member.trim() !== member)
+		throw new UsageError("Missing <member>; provide a crew member name or unique role");
+	const msg = messageOptions(parsed, parsed.options, true);
+	const grace = parseDuration(
+		String(opts.responseGrace ?? "120s"),
+		"--response-grace",
+		1,
+		MAX_MEMBER_REQUEST_TIMEOUT_SECONDS,
+	);
+	const max = parseDuration(
+		String(opts.maxWait ?? "30m"),
+		"--max-wait",
+		MIN_MEMBER_REQUEST_MAX_WAIT_SECONDS,
+		MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS,
+	);
+	if (max <= grace) throw new UsageError("--max-wait must be strictly greater than --response-grace");
+	return {
+		command: "member-request-send",
+		member,
+		...(opts.session === undefined ? {} : { session: String(opts.session) }),
+		...msg,
+		responseGraceSeconds: grace,
+		maxWaitSeconds: max,
+		direction: "all",
+		format: format(opts.format ?? "toon"),
+	};
+}
+
+export function readMemberRequestSendCommand(command: Command): MemberRequestCliOptions {
+	return readMemberRequestCommand(command, "send");
+}
+export function readMemberRequestListCommand(command: Command): MemberRequestCliOptions {
+	return readMemberRequestCommand(command, "list");
+}
+export function readMemberRequestWaitCommand(command: Command): MemberRequestCliOptions {
+	return readMemberRequestCommand(command, "wait");
+}
+export function readMemberRequestRespondCommand(command: Command): MemberRequestCliOptions {
+	return readMemberRequestCommand(command, "respond");
+}
+
 export function parseMemberRequestSendCommand(args: readonly string[]): MemberRequestCliOptions {
 	const parsed = parserFor(buildMemberRequestSendCommand(), args);
 	const opts = parsed.options;

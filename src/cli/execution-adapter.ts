@@ -1,4 +1,4 @@
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import type { Readable, Writable } from "node:stream";
 import { UsageError } from "./support/arguments.ts";
 import { buildRootCommand, type CliLeaf, type CliRegistry } from "./registry.ts";
@@ -34,6 +34,17 @@ function longOptionNames(program: Command): Set<string> {
 	return names;
 }
 
+function selectedCommand(args: readonly string[], program: Command): Command {
+	let selected = program;
+	for (const token of args) {
+		if (token === "--" || token.startsWith("-")) break;
+		const child = selected.commands.find((candidate) => candidate.name() === token);
+		if (child === undefined) break;
+		selected = child;
+	}
+	return selected;
+}
+
 /**
  * Commander retains the last scalar option. Keep the compatibility contract by
  * rejecting repeated scalar options once, before Commander or a leaf handler
@@ -41,13 +52,18 @@ function longOptionNames(program: Command): Set<string> {
  */
 export function rejectDuplicateScalarOptions(args: readonly string[], program: Command): void {
 	const scalarOptions = longOptionNames(program);
+	const repeatableOptions = new Set(
+		selectedCommand(args, program)
+			.options.filter((option) => option.long !== undefined && option.long === "--instruction")
+			.map((option) => option.long!),
+	);
 	const seen = new Set<string>();
 	for (let index = 0; index < args.length; index += 1) {
 		const token = args[index]!;
 		if (token === "--") break;
 		if (!token.startsWith("--")) continue;
 		const name = token.slice(0, token.indexOf("=") === -1 ? token.length : token.indexOf("="));
-		if (name === "--instruction" || !scalarOptions.has(name)) continue;
+		if (repeatableOptions.has(name) || !scalarOptions.has(name)) continue;
 		if (seen.has(name)) throw new UsageError(`Duplicate flag: ${name}`);
 		seen.add(name);
 	}
@@ -61,7 +77,11 @@ function normalizeLeafHelp(tokens: readonly string[]): string[] {
 	});
 }
 
-function mapCommanderError(error: CommanderError, args: readonly string[], vocabulary: readonly string[]): UsageError {
+function mapCommanderError(
+	error: Error & { code?: string },
+	args: readonly string[],
+	vocabulary: readonly string[],
+): UsageError {
 	if (error.code === "commander.unknownCommand")
 		return new UsageError(`Invalid command '${args[0] ?? ""}'; valid commands: ${vocabulary.join(", ")}`);
 	if (error.code === "commander.optionMissingArgument") {
@@ -175,16 +195,17 @@ export function createCliExecutionAdapter(registry: CliRegistry) {
 				rejectDuplicateScalarOptions(request.args, program);
 				await program.parseAsync(["node", "pi-bebop", ...request.args]);
 			} catch (error) {
-				if (error instanceof CommanderError) {
+				if (error instanceof Error && error.name === "CommanderError") {
+					const code = (error as Error & { code?: string }).code;
 					if (error.message === "(outputHelp)") {
 						return { kind: "help", text: rootCliHelp(registry.vocabulary()) };
 					}
-					if (request.args[0]?.startsWith("-") && error.code === "commander.unknownOption")
+					if (request.args[0]?.startsWith("-") && code === "commander.unknownOption")
 						throw new UsageError(
 							`Invalid command '${request.args[0]}'; valid commands: ${registry.vocabulary().join(", ")}`,
 						);
 					if (
-						error.code === "commander.unknownOption" &&
+						code === "commander.unknownOption" &&
 						request.args.includes("member") &&
 						(request.args.includes("follow-up") || request.args.includes("redirect")) &&
 						request.args.some((token) => token === "--wait" || token.startsWith("--wait="))
@@ -192,7 +213,7 @@ export function createCliExecutionAdapter(registry: CliRegistry) {
 						throw new UsageError(
 							"Unknown flag '--wait'; this command is accepted-delivery only and never waits for a reply",
 						);
-					throw mapCommanderError(error, request.args, registry.vocabulary());
+					throw mapCommanderError(error as Error & { code?: string }, request.args, registry.vocabulary());
 				}
 				throw error;
 			}
