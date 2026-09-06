@@ -32,7 +32,9 @@ tags: [techdebt, cli, coverage, determinism, gates]
 
 TASK-0169 required a clean comparison before accepting its baseline-failing gate. A detached worktree at clean TASK-0168 commit `09d5fd7` ran the same `npm run verify:cli` command: **642/642 tests passed**, but the command exited 1 with `all files | 95.38 line | 89.38 branch | 79.39 functions` and `89.38% branch coverage does not meet threshold of 90%`.
 
-The current TASK-0169 working tree runs **1248/1248 tests passed** and reports `all files | 97.36 line | 89.22 branch | 84.20 functions`; it exits 1 for the same threshold. Current branch coverage is +1.98 line points and +4.81 function points versus clean 0168, but -0.16 branch points. Focused 0169 tests cover the new audience policy and stdin-formatting branches; no 0169-introduced policy/stdin branch remains uncovered. Therefore the remaining gate deficit is inherited/legacy coverage debt rather than a TASK-0169 regression.
+Historical pre-fix context: the TASK-0169 working tree ran **1248/1248 tests passed** and reported `all files | 97.36 line | 89.22 branch | 84.20 functions`; it exited 1 for the same threshold. That observation is retained here unchanged. Focused 0169 tests cover the new audience policy and stdin-formatting branches; no 0169-introduced policy/stdin branch remains uncovered.
+
+Latest post-fix evidence from `08623b8` uses the same `npm run verify:cli` command/config: repeated runs each pass **672/672 CLI tests**, exit 1 because the configured 90% branch gate remains red, and observe **89.57–89.69% branch coverage**. Against clean 0168's 89.38%, the minimum latest result is **+0.19 points**. The 90% gate remains owned by TASK-0193; the remaining deficit is inherited/legacy coverage debt rather than a TASK-0169 regression.
 
 Exact current uncovered branch-bearing source lines from `npm run test:coverage:cli`:
 
