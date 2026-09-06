@@ -60,7 +60,7 @@ The manifest may author the expected Principal identity, display label, outbound
 ## Review status
 
 - Product: Mary (PO) approved the contract at exact commit `e334115` on 2026-09-06. The canonical term, fail-closed authority boundary, bounded delivery states, privacy contract, recovery commands, and pi-intray independence are accepted.
-- Security: pending review of route binding, rotation/revocation, replay, cross-Crew isolation, and redaction.
+- Security/lead: Mony approved at `73950a1` on 2026-09-06. The contract fails closed for absent configuration, empty sender allowlists, unbound/stale/revoked bindings, and cross-Crew identity mismatch; requires trusted binding mutation, explicit rotation/revocation, stable-message replay idempotency, outbound-only authority, and redacted output without endpoints, credentials, session IDs, sockets, or message content.
 - Development: pending feasibility review of the application/infra seam and deterministic outbox evidence.
 - QA: pending independent review of the state table and implementation-testability checklist.
 - Implementation tasks remain blocked until the pending Security, Development, and QA reviews approve the final checklist.
