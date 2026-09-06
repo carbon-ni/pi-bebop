@@ -1,7 +1,7 @@
 ---
 id: TASK-0170
 title: Add complete human-readable CLI presenters
-status: todo
+status: doing
 depends_on: [TASK-0169]
 priority: normal
 tags: [cli, text, ux, output, docs, tdd]
