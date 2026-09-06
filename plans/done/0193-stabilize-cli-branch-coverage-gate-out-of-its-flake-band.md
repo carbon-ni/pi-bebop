@@ -1,7 +1,7 @@
 ---
 id: TASK-0193
 title: Stabilize CLI branch coverage gate out of its flake band
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [techdebt, cli, coverage, determinism, gates]
@@ -36,13 +36,19 @@ Historical pre-fix context: the TASK-0169 working tree ran **1248/1248 tests pas
 
 Latest post-fix evidence from `08623b8` uses the same `npm run verify:cli` command/config: repeated runs each pass **672/672 CLI tests**, exit 1 because the configured 90% branch gate remains red, and observe **89.57–89.69% branch coverage**. Against clean 0168's 89.38%, the minimum latest result is **+0.19 points**. The 90% gate remains owned by TASK-0193; the remaining deficit is inherited/legacy coverage debt rather than a TASK-0169 regression.
 
-Exact current uncovered branch-bearing source lines from `npm run test:coverage:cli`:
+Exact residual uncovered branch-bearing source lines after the focused parser-seam tests (from the green `run3` report):
 
 - Application: `crew-broadcast.ts` 19, 34, 51-53; `interrupt-flow.ts` 13-14, 33, 67-68; `member-inbox-message.ts` 115-116.
-- Commands: `crew-init.ts` 24; `crew-intake-adapter.ts` 26-27, 32; `crew-roles.ts` 42-48, 86-87, 90; `durable-message.ts` 51-52, 104-105, 148-159, 197-214, 237-249, 252; `guest.ts` 130, 138-148, 165-166, 176-177, 187-198; `member-idle-wait.ts` 27-28, 77-78, 98-101, 145; `member-interrupt.ts` 106; `member-message.ts` 39-40, 165-166, 203, 267; `member-request.ts` 16, 139-140, 180, 239-241, 336-341, 356, 394-395; `member-status.ts` 64-65, 75, 80, 134; `send.ts` 65-69; `session-list.ts` 55; `execution-adapter.ts` 60-62, 83-85, 90-91, 99, 173-175; `main.ts` 19; `parser.ts` 36; `registry.ts` 141-142, 151-152, 193-194, 224, 234-235, 237, 254-255, 292, 295-297; `version.ts` build-time define branch (75%).
+- Commands: `crew-init.ts` 24; `crew-intake-adapter.ts` 26-27, 32; `crew-roles.ts` 42-48, 86-87, 90; `durable-message.ts` 51-52, 148-159, 197-214, 237-249, 252; `guest.ts` 138-148, 165-166, 176-177, 187-198; `member-idle-wait.ts` 77-78, 98-101, 145; `member-interrupt.ts` 106; `member-message.ts` 39-40, 165-166, 203, 267; `member-request.ts` 16, 139-140, 180, 239-241, 336-341, 356, 394-395; `member-status.ts` 75, 80, 134; `send.ts` 65-69; `session-list.ts` 47-56, 101-103, 108-113; `execution-adapter.ts` 60-62, 83-85, 90-91, 99, 173-175; `main.ts` 19; `parser.ts` 36; `registry.ts` 151-152, 193-194, 224, 234-235, 237, 295-297, 307; `version.ts` build-time define branch (75%).
 - Infrastructure: `rpc-client.ts` 41-43, 145, 163, 289-290, 325-327, 350-351, 354-355, 357-360; `rpc-server.ts` 99-100.
 
 The clean 0168 uncovered list is preserved in the baseline run log and overlaps the current handler/transport/application debt; the new policy and stdin additions are covered. This task is reopened for the inherited branch-coverage stabilization work; it is not a TASK-0169 acceptance blocker after the isolated baseline proof.
+
+## Resolution evidence (06-09-26)
+
+- Added `src/cli/task0193-coverage.test.ts` with parser/application-seam tests only: no live `PI_SESSION_ID`, socket, RPC, or broad `runCli` smoke calls. Focus includes request source/help/duration branches, member command error mappings, durable/guest validation, session/role paths, and member validation alternatives.
+- Focused test file: 7/7 pass. Same `npm run verify:cli` command/config passed all three repeatability runs: **679/679 CLI tests**, branch coverage **90.17%, 90.21%, 90.21%**; all three exited 0. Minimum margin over the 90% threshold: **+0.17 points**.
+- TASK-0193's original 90% gate, threshold, and exclusions are unchanged. Residual uncovered branches above remain legacy/application/transport debt for future work; no live transport was introduced by this stabilization change.
 
 ## Notes
 
