@@ -129,7 +129,7 @@ A canonical result is format-independent domain/application data. A command pres
 - Default views contain only fields needed for the next decision.
 - Session IDs, socket paths, capabilities, raw Request IDs, stack traces, dependency payloads, and message content are excluded unless the command contract explicitly makes a safe subset public.
 - TOON and JSON encode the same normalized value. TOON uses `@toon-format/toon`; no handwritten encoder/parser.
-- Text conveys the same outcome in a concise human view, but is not required to round-trip.
+- Text conveys the same outcome in a concise human view, but is not required to round-trip. Bounded canonical presenters select only decision-relevant fields; they never dump a raw result object. Session lists show identity, aliases, membership, totals, and omissions; crew init shows state, target, paths, and the next command; communication receipts show only delivery/request facts.
 - Structured errors go to stdout in the selected/default format. Debug/progress diagnostics go to stderr.
 - Empty results state query scope and zero count.
 - Lists state total separately from shown count and remain deterministic.
@@ -165,7 +165,7 @@ These observations are baseline defects, not claims that current code already sa
 
 - `guest send` and `guest broadcast` currently reuse a parser helper that wrongly requires a positional Member socket although their Commander builders declare none. TASK-0168 must fix this while migrating Guest grammar and add executable happy-path coverage.
 - Leaf `-h`/`--help` is currently disabled or handled by local pre-scanners. TASK-0166–0168 must establish standard Commander help.
-- Existing text presentation is incomplete; for example `session list --format text` loses rows. TASK-0170 owns semantic human presenters.
+- TASK-0170 closes the prior text presentation gap: `session list --format text` now renders bounded session rows and explicit empty/omitted state, while command-specific receipts remain available through the same text override.
 
 ## Review gate
 
