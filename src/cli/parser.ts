@@ -6,6 +6,7 @@ import { MAX_MESSAGE_INSTRUCTIONS, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../dom
 import { scanCliFlags } from "./support/flag-scanner.ts";
 import { parsePositiveDurationMs } from "./support/duration.ts";
 import { UsageError, type CliFormat, type SendCliOptions } from "./support/arguments.ts";
+import { defaultFormatForCommand } from "./audience-policy.ts";
 
 export interface DeclarativeCrewInitOptions {
 	readonly command: "crew-init";
@@ -78,7 +79,7 @@ export function parseCrewInitCommand(args: string[], cwd = process.cwd()): Decla
 	}
 
 	// 3. App-owned cross-flag/domain validation.
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormatForCommand("crew-init")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: ${FORMAT_ALTERNATIVES}`);
 	const project = opts.project;

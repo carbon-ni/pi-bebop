@@ -6,6 +6,7 @@ import type { CliContext } from "./support/context.ts";
 import type { CliOutcome } from "./support/output.ts";
 import { rootCliHelp } from "./root-help.ts";
 import { cliVersionOutput } from "./version.ts";
+import { parseHomeFormat } from "./audience-policy.ts";
 
 export interface CliExecutionRequest {
 	readonly args: readonly string[];
@@ -167,9 +168,14 @@ export function createCliExecutionAdapter(registry: CliRegistry) {
 				signal: request.signal,
 				environment: request.environment,
 			};
-			if (request.args.length === 0) {
+			if (
+				request.args.length === 0 ||
+				request.args[0] === "--format" ||
+				request.args[0]?.startsWith("--format=")
+			) {
 				const home = registry.leafById("home");
-				return home.run(home.parse([], request.cwd), context);
+				const outcome = await home.run(home.parse([], request.cwd), context);
+				return outcome.kind === "result" ? { ...outcome, format: parseHomeFormat(request.args) } : outcome;
 			}
 			if (request.args[0] === "-h" || request.args[0] === "--help")
 				return { kind: "help", text: rootCliHelp(registry.vocabulary()) };

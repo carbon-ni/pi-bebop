@@ -14,8 +14,12 @@ import { UsageError } from "./support/arguments.ts";
 
 const cwd = "/project";
 
-test("declarative crew init defaults to cwd and toon", () => {
-	assert.deepEqual(parseCrewInitCommand([], cwd), { command: "crew-init", format: "toon" });
+test("declarative crew init defaults to cwd and human-readable text", () => {
+	assert.deepEqual(parseCrewInitCommand([], cwd), { command: "crew-init", format: "text" });
+	assert.deepEqual(parseCrewInitCommand(["--format", "toon"], cwd), {
+		command: "crew-init",
+		format: "toon",
+	});
 	assert.deepEqual(parseCrewInitCommand(["--format", "json"], cwd), {
 		command: "crew-init",
 		format: "json",
@@ -30,11 +34,16 @@ test("declarative crew init resolves --project against cwd in both syntaxes", ()
 	assert.deepEqual(parseCrewInitCommand(["--project", "."], cwd), {
 		command: "crew-init",
 		project: path.resolve(cwd, "."),
-		format: "toon",
+		format: "text",
 	});
 	assert.deepEqual(parseCrewInitCommand(["--project=../x"], cwd), {
 		command: "crew-init",
 		project: path.resolve(cwd, "../x"),
+		format: "text",
+	});
+	assert.deepEqual(parseCrewInitCommand(["--project", ".", "--format", "toon"], cwd), {
+		command: "crew-init",
+		project: path.resolve(cwd, "."),
 		format: "toon",
 	});
 });
@@ -43,20 +52,20 @@ test("declarative crew init supports the -- sentinel escape for flag-like values
 	assert.deepEqual(parseCrewInitCommand(["--project", "--", "-weird"], cwd), {
 		command: "crew-init",
 		project: path.resolve(cwd, "-weird"),
-		format: "toon",
+		format: "text",
 	});
 });
 
 test("declarative crew init --help is accepted without IO", () => {
 	assert.deepEqual(parseCrewInitCommand(["--help"], cwd), {
 		command: "crew-init",
-		format: "toon",
+		format: "text",
 		help: true,
 	});
 	assert.deepEqual(parseCrewInitCommand(["--project", ".", "--help"], cwd), {
 		command: "crew-init",
 		project: path.resolve(cwd, "."),
-		format: "toon",
+		format: "text",
 		help: true,
 	});
 });

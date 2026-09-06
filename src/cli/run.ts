@@ -1,7 +1,8 @@
 import { createCliRegistry } from "./registry.ts";
 import { createCliExecutionAdapter } from "./execution-adapter.ts";
 import { UsageError } from "./support/arguments.ts";
-import { requestedFormat, usageResult } from "./support/errors.ts";
+import { usageResult } from "./support/errors.ts";
+import { cliFormatForArgs } from "./audience-policy.ts";
 import { writeOutcome } from "./support/output.ts";
 import type { Readable, Writable } from "node:stream";
 
@@ -41,7 +42,7 @@ export async function runCli(
 			return writeOutcome(output, {
 				kind: "result",
 				result: usageResult(error.message),
-				format: requestedFormat(args),
+				format: cliFormatForArgs(args),
 				full: false,
 			});
 		}

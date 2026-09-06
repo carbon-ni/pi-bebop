@@ -3,6 +3,7 @@ import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberStatusResult, formatMemberStatus, type MemberStatus } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
+import { defaultFormatForCommand } from "../audience-policy.ts";
 import { scanCliFlags } from "../support/flag-scanner.ts";
 import { errorResult, usageResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
@@ -37,7 +38,11 @@ export function buildMemberStatusCommand(): Command {
 	return new Command("status")
 		.description("Show one crew member's mechanical Pi runtime state (read-only)")
 		.option("--session <id|alias>", "Source joined Pi session id or alias (default: PI_SESSION_ID)")
-		.option("--format <format>", "Output format: toon (default), json, or text", "toon")
+		.option(
+			"--format <format>",
+			"Output format: toon (default), json, or text",
+			defaultFormatForCommand("member-status"),
+		)
 		.argument("[<member>]", "Crew member name or unique role")
 		.showHelpAfterError(false)
 		.helpOption(false);
@@ -83,7 +88,7 @@ function mapCommanderError(error: Error & { code?: string }): UsageError {
 
 export function readMemberStatusCommand(parsed: Command): MemberStatusCliOptions {
 	const opts = parsed.opts<{ session?: string; format?: string }>();
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormatForCommand("member-status")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	const member = parsed.args[0] ?? "";
@@ -117,7 +122,7 @@ export function parseMemberStatusCommand(args: string[], _cwd = process.cwd()): 
 			throw mapCommanderError(error as Error & { code?: string });
 		throw error;
 	}
-	const format = (opts.format ?? "toon") as string;
+	const format = (opts.format ?? defaultFormatForCommand("member-status")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 
