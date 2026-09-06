@@ -1,4 +1,4 @@
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import { formatMemberIdleWaitResult, isMemberIdleWaitResult } from "../../domain/index.ts";
 import { sendMemberIdleWait, type MemberIdleWaitClientOutcome } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
@@ -22,7 +22,7 @@ export interface MemberIdleWaitCliOptions {
 const MAX_TARGET_BYTES = 256;
 const VALID_FLAGS = "--session <id|alias>, --timeout <duration>, --format toon|json|text, --help";
 
-function mapCommanderError(error: CommanderError): UsageError {
+function mapCommanderError(error: Error & { code?: string }): UsageError {
 	const match = /--[a-z-]+/.exec(error.message);
 	const flag = match?.[0] ?? "--timeout";
 	if (error.code === "commander.optionMissingArgument") return new UsageError(`Missing value for ${flag}`);
@@ -108,7 +108,8 @@ export function parseMemberIdleWaitCommand(args: string[], _cwd = process.cwd())
 		program.parse(tokens, { from: "user" });
 		opts = program.opts();
 	} catch (error) {
-		if (error instanceof CommanderError) throw mapCommanderError(error);
+		if (error instanceof Error && error.name === "CommanderError")
+			throw mapCommanderError(error as Error & { code?: string });
 		throw error;
 	}
 	const format = opts.format ?? "toon";

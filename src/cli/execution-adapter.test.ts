@@ -60,9 +60,29 @@ test("Commander adapter dispatches three-level commands and awaits async handler
 
 test("duplicate scalar policy preserves repeatables and the option sentinel", () => {
 	const program = new Command("test").option("--format <format>").option("--instruction <value>");
+	// A selected command that declares --instruction keeps its repeatable contract.
 	rejectDuplicateScalarOptions(
 		["--format=toon", "--instruction", "one", "--instruction", "two", "--", "--format", "json"],
 		program,
+	);
+	// The option sentinel ends duplicate scanning: later tokens are positional.
+	const sentinel = new Command("sentinel").option("--format <format>");
+	rejectDuplicateScalarOptions(["--format", "json", "--", "--format", "toon"], sentinel);
+	// Scalar options still reject on the selected command.
+	const nonRepeatable = new Command("plain").option("--format <format>").option("--instruction <value>");
+	assert.throws(
+		() => rejectDuplicateScalarOptions(["--format", "json", "--format", "toon"], nonRepeatable),
+		/Duplicate flag: --format/,
+	);
+	// Repeatable status follows the SELECTED command, not the tree union:
+	// a root-level --instruction declaration does not exempt a selected
+	// subcommand that does not declare it.
+	const root = new Command("root").option("--instruction <value>");
+	const leaf = new Command("leaf").option("--format <format>");
+	root.addCommand(leaf);
+	assert.throws(
+		() => rejectDuplicateScalarOptions(["leaf", "--instruction", "one", "--instruction", "two"], root),
+		/Duplicate flag: --instruction/,
 	);
 });
 

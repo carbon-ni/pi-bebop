@@ -1,4 +1,4 @@
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import {
@@ -104,7 +104,7 @@ export function durableMessageHelp(intent: DurableMessageIntent): string {
 
 const VALID_FLAGS =
 	"--session <id|alias>, --message <text>, --stdin, --instruction <text>, --format toon|json|text, --help";
-function mapCommanderError(error: CommanderError): UsageError {
+function mapCommanderError(error: Error & { code?: string }): UsageError {
 	if (error.code === "commander.optionMissingArgument") return new UsageError("Missing option value");
 	if (error.code === "commander.unknownOption") {
 		const unknown = /unknown option '([^']+)'/.exec(error.message)?.[1] ?? "";
@@ -172,6 +172,32 @@ function validateDurableOptions(
 	return { format, hasMessage, hasStdin };
 }
 
+export function readDurableMessageCommand(command: Command, intent: DurableMessageIntent): DurableMessageCliOptions {
+	const opts = command.opts<{
+		session?: string;
+		message?: string;
+		stdin?: boolean;
+		instruction?: string[];
+		format?: string;
+		help?: boolean;
+	}>();
+	const help = opts.help === true;
+	const member = intent === "inbox" ? (command.args[0] ?? "") : undefined;
+	const instructions = opts.instruction ?? [];
+	const { format, hasMessage, hasStdin } = validateDurableOptions(intent, help, member, opts, instructions);
+	return {
+		command: intent === "inbox" ? "member-inbox-send" : "crew-broadcast",
+		intent,
+		...(member === undefined ? {} : { member: member.trim() }),
+		...(opts.session === undefined ? {} : { session: opts.session }),
+		...(hasMessage ? { message: opts.message } : {}),
+		instructions,
+		stdin: hasStdin,
+		format: format as CliFormat,
+		...(help ? { help: true } : {}),
+	};
+}
+
 export function parseDurableMessageCommand(
 	args: string[],
 	intent: DurableMessageIntent,
@@ -188,7 +214,8 @@ export function parseDurableMessageCommand(
 		program.parse(tokens, { from: "user" });
 		opts = program.opts();
 	} catch (error) {
-		if (error instanceof CommanderError) throw mapCommanderError(error);
+		if (error instanceof Error && error.name === "CommanderError")
+			throw mapCommanderError(error as Error & { code?: string });
 		throw error;
 	}
 	const member = intent === "inbox" ? (program.args[0] ?? "") : undefined;

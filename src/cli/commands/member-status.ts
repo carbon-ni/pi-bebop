@@ -1,4 +1,4 @@
-import { Command, CommanderError } from "commander";
+import { Command } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberStatusResult, formatMemberStatus, type MemberStatus } from "../../domain/index.ts";
@@ -68,7 +68,7 @@ export function memberStatusHelp(): string {
 
 const VALID_FLAGS = "--session <id|alias>, --format toon|json|text, --help";
 
-function mapCommanderError(error: CommanderError): UsageError {
+function mapCommanderError(error: Error & { code?: string }): UsageError {
 	const match = /--[a-z-]+/.exec(error.message);
 	const flag = match?.[0] ?? "--format";
 	if (error.code === "commander.optionMissingArgument") return new UsageError(`Missing value for ${flag}`);
@@ -113,7 +113,8 @@ export function parseMemberStatusCommand(args: string[], _cwd = process.cwd()): 
 		program.parse(tokens, { from: "user" });
 		opts = program.opts();
 	} catch (error) {
-		if (error instanceof CommanderError) throw mapCommanderError(error);
+		if (error instanceof Error && error.name === "CommanderError")
+			throw mapCommanderError(error as Error & { code?: string });
 		throw error;
 	}
 	const format = (opts.format ?? "toon") as string;
