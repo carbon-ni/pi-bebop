@@ -1,7 +1,7 @@
 ---
 id: TASK-0182
 title: Define Crew Principal outbound contact contract
-status: todo
+status: doing
 depends_on: [TASK-0171]
 priority: high
 tags: [product, crew, principal, outbound, messaging, security, ubiquitous-language]
