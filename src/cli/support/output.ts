@@ -52,6 +52,8 @@ function renderTextResult(result: CliResult): string {
 	// Existing command-specific responses remain authoritative; structured
 	// presenters fill only the data-only result gap.
 	if (result.response !== undefined) return result.response;
+	const crews = data?.crews;
+	if (Array.isArray(crews)) return renderCrewsText(data, crews);
 	const sessions = data?.sessions;
 	if (Array.isArray(sessions)) return renderSessionsText(data, sessions);
 	if (Array.isArray(data?.commands) && data?.scaffold !== undefined) return renderHomeText(data);
@@ -81,6 +83,28 @@ function renderHomeText(data: ViewModel): string {
 		lines.push(`Commands: ${data.commands.length} available`);
 	if (stringValue(data.next)) lines.push(`Next: ${data.next}`);
 	return lines.join("\n");
+}
+
+function renderCrewsText(data: ViewModel, crews: unknown[]): string {
+	const total = typeof data.total === "number" ? data.total : crews.length;
+	if (crews.length === 0)
+		return `No Crews found (total: ${total}). ${stringValue(data.next) ?? "Initialize or join a trusted Crew, then retry."}`;
+	const lines = [`Crews (${total}):`];
+	for (const item of crews) {
+		const crew = asViewModel(item);
+		if (!crew) continue;
+		const selector = stringValue(crew.selector) ?? "unaddressable";
+		const displayName = stringValue(crew.displayName);
+		const availability = stringValue(crew.availability) ?? "unknown";
+		const count = typeof crew.memberCount === "number" ? `${crew.onlineMembers ?? 0}/${crew.memberCount}` : "?";
+		const locator = stringValue(crew.locator);
+		lines.push(
+			`- ${selector}${displayName ? ` (${displayName})` : ""} — ${availability} — ${count} Members${locator ? ` — --crew ${locator}` : ""}`,
+		);
+	}
+	if (typeof data.omitted === "number" && data.omitted > 0) lines.push(`Omitted: ${data.omitted}`);
+	if (data.partial === true) lines.push("Discovery: partial");
+	return lines.join("\\n");
 }
 
 function renderSessionsText(data: ViewModel, sessions: unknown[]): string {
