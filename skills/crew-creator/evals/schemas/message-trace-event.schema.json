@@ -1,0 +1,29 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://pi-bebop.dev/schemas/crew-eval-message-trace-event-1.0.json",
+	"title": "One bounded Crew message trace event",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["schemaVersion", "eventId", "sequence", "timestamp", "sender", "recipient", "deliveryKind", "outcome"],
+	"properties": {
+		"schemaVersion": { "const": "1.0" },
+		"eventId": { "$ref": "crew-evals.schema.json#/$defs/id" },
+		"sequence": { "type": "integer", "minimum": 1 },
+		"timestamp": { "type": "string", "format": "date-time" },
+		"sender": { "$ref": "#/$defs/memberName" },
+		"recipient": { "$ref": "#/$defs/memberName" },
+		"deliveryKind": { "enum": ["direct", "queued", "redirected", "request", "response", "broadcast"] },
+		"correlation": {
+			"type": ["string", "null"],
+			"pattern": "^[A-Za-z0-9._-]{1,128}$"
+		},
+		"outcome": { "enum": ["accepted", "persisted", "handed", "rejected", "failed", "unknown"] },
+		"messageBytes": { "type": "integer", "minimum": 0, "maximum": 1048576 }
+	},
+	"$defs": {
+		"memberName": {
+			"type": "string",
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$"
+		}
+	}
+}

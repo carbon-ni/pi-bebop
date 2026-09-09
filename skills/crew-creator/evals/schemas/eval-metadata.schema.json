@@ -1,0 +1,79 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://pi-bebop.dev/schemas/crew-eval-metadata-1.0.json",
+	"title": "Comparative Crew evaluation metadata",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schemaVersion",
+		"evalId",
+		"caseSchema",
+		"candidate",
+		"baseline",
+		"repetitions",
+		"compatibility",
+		"concurrency"
+	],
+	"properties": {
+		"schemaVersion": { "const": "1.0" },
+		"evalId": { "$ref": "crew-evals.schema.json#/$defs/id" },
+		"caseSchema": { "const": "https://pi-bebop.dev/schemas/crew-evals-1.0.json" },
+		"candidate": { "$ref": "#/$defs/configuration" },
+		"baseline": { "$ref": "#/$defs/configuration" },
+		"repetitions": { "type": "integer", "minimum": 1, "maximum": 1000 },
+		"compatibility": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["samePrompt", "sameFixtures", "sameBounds", "samePermissions", "differences"],
+			"properties": {
+				"samePrompt": { "const": true },
+				"sameFixtures": { "const": true },
+				"sameBounds": { "const": true },
+				"samePermissions": { "const": true },
+				"differences": {
+					"type": "array",
+					"items": { "type": "string", "minLength": 1, "maxLength": 1000 },
+					"uniqueItems": true
+				}
+			}
+		},
+		"concurrency": { "$ref": "#/$defs/concurrency" },
+		"createdAt": { "type": "string", "format": "date-time" },
+		"notes": { "type": "string", "maxLength": 4000 }
+	},
+	"$defs": {
+		"configuration": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["kind", "name", "configurationPath", "sha256"],
+			"properties": {
+				"kind": { "enum": ["with_crew", "single_agent", "prior_template"] },
+				"name": { "$ref": "crew-evals.schema.json#/$defs/id" },
+				"configurationPath": { "$ref": "crew-evals.schema.json#/$defs/relativePath" },
+				"sha256": { "$ref": "crew-evals.schema.json#/$defs/sha256" },
+				"templatePath": { "$ref": "crew-evals.schema.json#/$defs/relativePath" },
+				"templateSha256": { "$ref": "crew-evals.schema.json#/$defs/sha256" }
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "kind": { "enum": ["with_crew", "prior_template"] } } },
+					"then": { "required": ["templatePath", "templateSha256"] }
+				},
+				{
+					"if": { "properties": { "kind": { "const": "single_agent" } } },
+					"then": { "not": { "required": ["templatePath", "templateSha256"] } }
+				}
+			]
+		},
+		"concurrency": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["mode", "maxMembers", "maxRuns"],
+			"properties": {
+				"mode": { "enum": ["serial", "parallel"] },
+				"maxMembers": { "type": "integer", "minimum": 1, "maximum": 128 },
+				"maxRuns": { "type": "integer", "minimum": 1, "maximum": 1000 }
+			}
+		}
+	}
+}

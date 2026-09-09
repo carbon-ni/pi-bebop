@@ -1,0 +1,211 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://pi-bebop.dev/schemas/crew-eval-benchmark-1.0.json",
+	"title": "Comparative Crew benchmark",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schemaVersion",
+		"evalId",
+		"caseId",
+		"comparisonStatus",
+		"repetitions",
+		"withCrew",
+		"baseline",
+		"deltas",
+		"efficiency"
+	],
+	"properties": {
+		"schemaVersion": { "const": "1.0" },
+		"evalId": { "$ref": "crew-evals.schema.json#/$defs/id" },
+		"caseId": { "$ref": "crew-evals.schema.json#/$defs/id" },
+		"comparisonStatus": { "enum": ["valid", "invalid"] },
+		"invalidReasons": {
+			"type": "array",
+			"items": { "type": "string", "minLength": 1, "maxLength": 1000 },
+			"uniqueItems": true
+		},
+		"repetitions": { "type": "integer", "minimum": 1, "maximum": 1000 },
+		"withCrew": { "$ref": "#/$defs/side" },
+		"baseline": { "$ref": "#/$defs/side" },
+		"deltas": { "$ref": "#/$defs/deltas" },
+		"efficiency": { "$ref": "#/$defs/efficiency" },
+		"notes": { "type": "string", "maxLength": 4000 }
+	},
+	"allOf": [
+		{
+			"if": { "properties": { "comparisonStatus": { "const": "invalid" } } },
+			"then": { "required": ["invalidReasons"] }
+		},
+		{
+			"if": { "properties": { "comparisonStatus": { "const": "valid" } } },
+			"then": { "not": { "required": ["invalidReasons"] } }
+		}
+	],
+	"$defs": {
+		"variation": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["mean", "stddev", "min", "max"],
+			"properties": {
+				"mean": { "type": "number", "minimum": 0 },
+				"stddev": { "type": "number", "minimum": 0 },
+				"min": { "type": "number", "minimum": 0 },
+				"max": { "type": "number", "minimum": 0 }
+			}
+		},
+		"labeledMetric": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["available", "count", "rate", "reason"],
+			"properties": {
+				"available": { "type": "boolean" },
+				"count": { "type": ["integer", "null"], "minimum": 0 },
+				"rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+				"reason": { "type": ["string", "null"], "maxLength": 500 }
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "available": { "const": true } } },
+					"then": {
+						"properties": {
+							"count": { "type": "integer", "minimum": 0 },
+							"rate": { "type": "number", "minimum": 0, "maximum": 1 },
+							"reason": { "const": null }
+						}
+					}
+				},
+				{
+					"if": { "properties": { "available": { "const": false } } },
+					"then": {
+						"properties": {
+							"count": { "const": null },
+							"rate": { "const": null },
+							"reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+						}
+					}
+				}
+			]
+		},
+		"metrics": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"qualityPassRate",
+				"falseAcceptance",
+				"falseRejection",
+				"durationMs",
+				"tokens",
+				"toolCalls",
+				"messages",
+				"errors"
+			],
+			"properties": {
+				"qualityPassRate": { "$ref": "#/$defs/labeledMetric" },
+				"falseAcceptance": { "$ref": "#/$defs/labeledMetric" },
+				"falseRejection": { "$ref": "#/$defs/labeledMetric" },
+				"durationMs": { "$ref": "#/$defs/variation" },
+				"tokens": { "$ref": "#/$defs/variation" },
+				"toolCalls": { "$ref": "#/$defs/variation" },
+				"messages": { "$ref": "#/$defs/variation" },
+				"errors": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["total", "infrastructure", "assertion", "codes"],
+					"properties": {
+						"total": { "type": "integer", "minimum": 0 },
+						"infrastructure": { "type": "integer", "minimum": 0 },
+						"assertion": { "type": "integer", "minimum": 0 },
+						"codes": {
+							"type": "array",
+							"items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+							"uniqueItems": true
+						}
+					}
+				}
+			}
+		},
+		"side": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["configurationKind", "configurationSha256", "runIds", "validRuns", "invalidRuns", "metrics"],
+			"properties": {
+				"configurationKind": { "enum": ["with_crew", "single_agent", "prior_template"] },
+				"configurationSha256": { "$ref": "crew-evals.schema.json#/$defs/sha256" },
+				"runIds": {
+					"type": "array",
+					"minItems": 1,
+					"items": { "$ref": "crew-evals.schema.json#/$defs/id" },
+					"uniqueItems": true
+				},
+				"validRuns": { "type": "integer", "minimum": 0 },
+				"invalidRuns": { "type": "integer", "minimum": 0 },
+				"metrics": { "$ref": "#/$defs/metrics" }
+			}
+		},
+		"delta": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["candidateMinusBaseline", "unit"],
+			"properties": {
+				"candidateMinusBaseline": { "type": ["number", "null"] },
+				"unit": { "type": "string", "minLength": 1, "maxLength": 64 }
+			}
+		},
+		"deltas": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"qualityPassRate",
+				"falseAcceptance",
+				"falseRejection",
+				"durationMs",
+				"tokens",
+				"toolCalls",
+				"messages",
+				"errors"
+			],
+			"properties": {
+				"qualityPassRate": { "$ref": "#/$defs/delta" },
+				"falseAcceptance": { "$ref": "#/$defs/delta" },
+				"falseRejection": { "$ref": "#/$defs/delta" },
+				"durationMs": { "$ref": "#/$defs/delta" },
+				"tokens": { "$ref": "#/$defs/delta" },
+				"toolCalls": { "$ref": "#/$defs/delta" },
+				"messages": { "$ref": "#/$defs/delta" },
+				"errors": { "$ref": "#/$defs/delta" }
+			}
+		},
+		"efficiencyView": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["correctVerdictsPer10kTokens", "correctVerdictsPerWallMinute", "denominatorReason"],
+			"properties": {
+				"correctVerdictsPer10kTokens": { "type": ["number", "null"], "minimum": 0 },
+				"correctVerdictsPerWallMinute": { "type": ["number", "null"], "minimum": 0 },
+				"denominatorReason": { "type": ["string", "null"], "maxLength": 500 }
+			}
+		},
+		"efficiency": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["definition", "withCrew", "baseline", "deltas"],
+			"properties": {
+				"definition": {
+					"const": "correct verdicts per 10k authoritative tokens and per wall-clock minute"
+				},
+				"withCrew": { "$ref": "#/$defs/efficiencyView" },
+				"baseline": { "$ref": "#/$defs/efficiencyView" },
+				"deltas": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["correctVerdictsPer10kTokens", "correctVerdictsPerWallMinute"],
+					"properties": {
+						"correctVerdictsPer10kTokens": { "$ref": "#/$defs/delta" },
+						"correctVerdictsPerWallMinute": { "$ref": "#/$defs/delta" }
+					}
+				}
+			}
+		}
+	}
+}

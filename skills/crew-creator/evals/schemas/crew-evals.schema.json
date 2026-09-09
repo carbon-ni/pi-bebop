@@ -1,0 +1,188 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://pi-bebop.dev/schemas/crew-evals-1.0.json",
+	"title": "Comparative Crew evaluation cases",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["schemaVersion", "evalId", "title", "candidate", "baseline", "cases"],
+	"properties": {
+		"schemaVersion": { "const": "1.0" },
+		"evalId": { "$ref": "#/$defs/id" },
+		"title": { "type": "string", "minLength": 1, "maxLength": 200 },
+		"candidate": { "$ref": "#/$defs/templateRef" },
+		"baseline": { "$ref": "#/$defs/baselineIntent" },
+		"cases": {
+			"type": "array",
+			"minItems": 1,
+			"items": { "$ref": "#/$defs/case" }
+		}
+	},
+	"$defs": {
+		"id": {
+			"type": "string",
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+		},
+		"relativePath": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 512,
+			"pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+		},
+		"sha256": {
+			"type": "string",
+			"pattern": "^[a-f0-9]{64}$"
+		},
+		"templateRef": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["name", "version", "path", "sha256"],
+			"properties": {
+				"name": { "$ref": "#/$defs/id" },
+				"version": { "type": "string", "minLength": 1, "maxLength": 64 },
+				"path": { "$ref": "#/$defs/relativePath" },
+				"sha256": { "$ref": "#/$defs/sha256" }
+			}
+		},
+		"baselineIntent": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["kind", "rationale"],
+			"properties": {
+				"kind": { "enum": ["single_agent", "prior_template"] },
+				"rationale": { "type": "string", "minLength": 1, "maxLength": 2000 },
+				"template": { "$ref": "#/$defs/templateRef" }
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "kind": { "const": "prior_template" } } },
+					"then": { "required": ["template"] }
+				},
+				{
+					"if": { "properties": { "kind": { "const": "single_agent" } } },
+					"then": { "not": { "required": ["template"] } }
+				}
+			]
+		},
+		"expectedDeliverable": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["id", "kind", "description"],
+			"properties": {
+				"id": { "$ref": "#/$defs/id" },
+				"kind": { "enum": ["file", "json", "text", "verdict"] },
+				"path": { "$ref": "#/$defs/relativePath" },
+				"selector": { "type": "string", "minLength": 1, "maxLength": 256 },
+				"description": { "type": "string", "minLength": 1, "maxLength": 2000 }
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "kind": { "enum": ["file", "json", "text"] } } },
+					"then": { "required": ["path"] }
+				},
+				{
+					"if": { "properties": { "kind": { "const": "verdict" } } },
+					"then": { "required": ["selector"] }
+				}
+			]
+		},
+		"expectation": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["id", "authority", "kind", "description", "onFailure"],
+			"properties": {
+				"id": { "$ref": "#/$defs/id" },
+				"authority": { "enum": ["deterministic", "gold", "semantic"] },
+				"kind": {
+					"enum": [
+						"required_file",
+						"exact_field",
+						"json_schema",
+						"allowed_effect",
+						"gold_label",
+						"semantic_quality"
+					]
+				},
+				"description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+				"path": { "$ref": "#/$defs/relativePath" },
+				"field": { "type": "string", "minLength": 1, "maxLength": 256 },
+				"expected": {},
+				"schemaRef": { "$ref": "#/$defs/relativePath" },
+				"label": { "type": "string", "minLength": 1, "maxLength": 128 },
+				"rubric": { "type": "string", "minLength": 1, "maxLength": 4000 },
+				"onFailure": { "enum": ["fail_assertion", "invalid_run"] }
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "kind": { "const": "required_file" } } },
+					"then": { "required": ["path"] }
+				},
+				{
+					"if": { "properties": { "kind": { "const": "exact_field" } } },
+					"then": { "required": ["field", "expected"] }
+				},
+				{
+					"if": { "properties": { "kind": { "const": "json_schema" } } },
+					"then": { "required": ["schemaRef"] }
+				},
+				{
+					"if": { "properties": { "kind": { "const": "gold_label" } } },
+					"then": { "required": ["label"] }
+				},
+				{
+					"if": { "properties": { "kind": { "const": "semantic_quality" } } },
+					"then": { "required": ["rubric"] }
+				}
+			]
+		},
+		"allowedEffects": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["files", "commands", "network"],
+			"properties": {
+				"files": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/relativePath" },
+					"uniqueItems": true
+				},
+				"commands": {
+					"type": "array",
+					"items": { "type": "string", "minLength": 1, "maxLength": 256 },
+					"uniqueItems": true
+				},
+				"network": { "enum": ["none", "declared_endpoints_only"] }
+			}
+		},
+		"case": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"caseId",
+				"prompt",
+				"fixturePaths",
+				"expectedDeliverable",
+				"expectations",
+				"allowedEffects",
+				"timeoutMs"
+			],
+			"properties": {
+				"caseId": { "$ref": "#/$defs/id" },
+				"prompt": { "type": "string", "minLength": 1, "maxLength": 131072 },
+				"fixturePaths": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/relativePath" },
+					"uniqueItems": true
+				},
+				"expectedDeliverable": { "$ref": "#/$defs/expectedDeliverable" },
+				"expectations": {
+					"type": "array",
+					"minItems": 1,
+					"items": { "$ref": "#/$defs/expectation" }
+				},
+				"allowedEffects": { "$ref": "#/$defs/allowedEffects" },
+				"timeoutMs": { "type": "integer", "minimum": 1, "maximum": 3600000 },
+				"goldLabel": { "type": "string", "minLength": 1, "maxLength": 128 },
+				"notes": { "type": "string", "maxLength": 2000 }
+			}
+		}
+	}
+}
