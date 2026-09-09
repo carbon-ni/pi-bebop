@@ -99,37 +99,47 @@ export async function getAliasMap(): Promise<Map<string, string[]>> {
 	return aliasMap;
 }
 
-export async function isSocketAlive(socketPath: string): Promise<boolean> {
+export async function isSocketAlive(socketPath: string, signal?: AbortSignal): Promise<boolean> {
+	if (signal?.aborted) return false;
 	return await new Promise((resolve) => {
 		const socket = net.createConnection(socketPath);
-		const timeout = setTimeout(() => {
-			socket.destroy();
-			resolve(false);
-		}, 300);
-		const cleanup = (alive: boolean) => {
+		const timeout = setTimeout(() => finish(false), 300);
+		const onAbort = () => finish(false);
+		const cleanup = () => {
 			clearTimeout(timeout);
+			signal?.removeEventListener("abort", onAbort);
 			socket.removeAllListeners();
+			socket.destroy();
+		};
+		const finish = (alive: boolean) => {
+			cleanup();
 			resolve(alive);
 		};
-		socket.once("connect", () => {
-			socket.end();
-			cleanup(true);
-		});
-		socket.once("error", () => cleanup(false));
+		signal?.addEventListener("abort", onAbort, { once: true });
+		socket.once("connect", () => finish(true));
+		socket.once("error", () => finish(false));
 	});
 }
 
 export type LiveSessionInfo = { sessionId: string; name?: string; aliases: string[]; socketPath: string };
 
-export async function getLiveSessions(): Promise<LiveSessionInfo[]> {
-	await ensureControlDir();
-	const entries = await fs.readdir(CONTROL_DIR, { withFileTypes: true });
+export async function getLiveSessions(signal?: AbortSignal): Promise<LiveSessionInfo[]> {
+	if (signal?.aborted) return [];
+	let entries: import("node:fs").Dirent[];
+	try {
+		entries = await fs.readdir(CONTROL_DIR, { withFileTypes: true });
+	} catch (error) {
+		if (isErrnoException(error) && error.code === "ENOENT") return [];
+		throw error;
+	}
+	if (signal?.aborted) return [];
 	const aliasMap = await getAliasMap();
 	const sessions: LiveSessionInfo[] = [];
 	for (const entry of entries) {
+		if (signal?.aborted) return sessions;
 		if (!entry.name.endsWith(SOCKET_SUFFIX)) continue;
 		const socketPath = path.join(CONTROL_DIR, entry.name);
-		if (!(await isSocketAlive(socketPath))) continue;
+		if (!(await isSocketAlive(socketPath, signal))) continue;
 		const sessionId = entry.name.slice(0, -SOCKET_SUFFIX.length);
 		if (!isSafeSessionId(sessionId)) continue;
 		const aliases = aliasMap.get(socketPath) ?? [];

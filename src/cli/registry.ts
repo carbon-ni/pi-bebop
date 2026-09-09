@@ -83,6 +83,14 @@ import {
 	buildCrewRolesCommand,
 	type CrewRolesCliOptions,
 } from "./commands/crew-roles.ts";
+import {
+	parseCrewListCommand,
+	readCrewListCommand,
+	runCrewListCommand,
+	crewListHelp,
+	buildCrewListCommand,
+	type CrewListCliOptions,
+} from "./commands/crew-list.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./support/arguments.ts";
 import {
 	buildMemberRequestSendCommand,
@@ -342,6 +350,17 @@ const guestBroadcastLeaf: CliLeaf = {
 		runGuestMessageCommand(options as import("./commands/guest.ts").GuestMessageCliOptions, context),
 };
 
+/** TASK-0172: `crew list` product discovery leaf — one registry contribution. */
+const crewListLeaf: CliLeaf = {
+	id: "crew-list",
+	names: ["crew", "list"],
+	build: () => buildCrewListCommand(),
+	help: () => crewListHelp(),
+	parse: (tokens, cwd) => parseCrewListCommand([...tokens], cwd),
+	read: (command) => readCrewListCommand(command),
+	run: (options, context) => runCrewListCommand(options as CrewListCliOptions, context),
+};
+
 /** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
 const crewRolesLeaf: CliLeaf = {
 	id: "crew-roles",
@@ -484,6 +503,7 @@ export function createCliRegistry(): CliRegistry {
 		homeLeaf,
 		sendLeaf,
 		crewInitLeaf,
+		crewListLeaf,
 		crewRolesLeaf,
 		memberStatusLeaf,
 		memberIdleWaitLeaf,

@@ -156,8 +156,12 @@ export async function handleStatus(
 	command: Extract<RpcInboundCommand, { type: "status" }>,
 ): Promise<void> {
 	const { ctx, state, socket, pi, respond, id } = context;
+	const membership = state.membershipRuntime?.getMembership();
 	respond(true, "status", {
-		status: deriveIntrayStatus(Boolean(state.server), Boolean(state.membershipRuntime?.getMembership())),
+		status: deriveIntrayStatus(Boolean(state.server), Boolean(membership)),
+		...(membership && typeof ctx.isProjectTrusted === "function" && ctx.isProjectTrusted()
+			? { crewLocator: membership.manifestPath, projectTrusted: true as const }
+			: {}),
 	});
 	return;
 }

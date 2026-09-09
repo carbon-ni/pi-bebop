@@ -180,7 +180,12 @@ export const RpcErrorSchema = Type.Object(
 );
 export const ResponseIdSchema = Type.Union([RpcIdSchema, Type.Null()]);
 export const StatusResultSchema = Type.Object(
-	{ status: Type.Union([Type.Literal("stopped"), Type.Literal("online"), Type.Literal("joined")]) },
+	{
+		status: Type.Union([Type.Literal("stopped"), Type.Literal("online"), Type.Literal("joined")]),
+		/** Internal discovery evidence; never rendered by product directory output. */
+		crewLocator: Type.Optional(Type.String({ minLength: 1 })),
+		projectTrusted: Type.Optional(Type.Literal(true)),
+	},
 	{ additionalProperties: false },
 );
 export const SendResultSchema = Type.Object(
