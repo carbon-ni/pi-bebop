@@ -36,6 +36,7 @@ try {
 		platform: "node",
 		format: "esm",
 		outfile: join(staging, "cli/main.js"),
+		external: ["@earendil-works/pi-coding-agent"],
 		define: {
 			__PI_BEBOP_PACKAGE_VERSION__: JSON.stringify(packageJson.version),
 			__PI_BEBOP_BUILD_COMMIT__: JSON.stringify(buildCommit),

@@ -566,6 +566,7 @@ test("command registry defines one bidirectional wire entry per command", () => 
 		"guest_leave",
 		"guest_send",
 		"member_idle_wait",
+		"session_capture",
 	];
 	const entries = Object.entries(COMMAND_REGISTRY);
 	assert.deepEqual(entries.map(([command]) => command).sort(), commandNames.sort());
