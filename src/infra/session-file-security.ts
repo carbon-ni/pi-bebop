@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export type SessionFileValidationCode =
 	| "missing-session-file"
@@ -80,6 +81,16 @@ export interface SessionFileEvidence {
 	readonly root: string;
 }
 
+/** Open a session through Pi's public API without making the CLI bundle depend on Pi at startup. */
+async function openSupportedSession(file: string, root: string): Promise<SessionManager> {
+	try {
+		const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+		return SessionManager.open(file, root);
+	} catch (error) {
+		throw new SessionFileValidationError("malformed-session", "session file is not a supported Pi session");
+	}
+}
+
 /** Validate path policy and the supported Pi session header without reading conversation content in Bebop. */
 export async function validateSessionFileEvidence(evidence: SessionFileEvidence): Promise<void> {
 	if (!path.isAbsolute(evidence.file) || !path.isAbsolute(evidence.root) || !path.isAbsolute(evidence.cwd))
@@ -93,15 +104,9 @@ export async function validateSessionFileEvidence(evidence: SessionFileEvidence)
 			"untrusted-session-root",
 			"session file is outside the reported session root",
 		);
-	let header: { type?: unknown; id?: unknown; cwd?: unknown };
-	try {
-		const firstLine = (await fs.readFile(canonicalFile, "utf8")).split("\n", 1)[0];
-		header = JSON.parse(firstLine) as { type?: unknown; id?: unknown; cwd?: unknown };
-	} catch {
-		throw new SessionFileValidationError("malformed-session", "session file is not a supported Pi session");
-	}
-	if (header.type !== "session" || typeof header.id !== "string" || typeof header.cwd !== "string")
-		throw new SessionFileValidationError("malformed-session", "session file has no supported header");
+	const manager = await openSupportedSession(canonicalFile, canonicalRoot);
+	const header = manager.getHeader();
+	if (!header) throw new SessionFileValidationError("malformed-session", "session file has no supported header");
 	if (header.id !== evidence.id)
 		throw new SessionFileValidationError("session-id-mismatch", "session header ID differs from active session ID");
 	if (path.resolve(header.cwd) !== path.resolve(evidence.cwd))
