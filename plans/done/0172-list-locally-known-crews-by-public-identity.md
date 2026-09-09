@@ -1,7 +1,7 @@
 ---
 id: TASK-0172
 title: List locally known Crews by public identity
-status: todo
+status: done
 depends_on: [TASK-0171, TASK-0170]
 priority: high
 tags: [cli, crew, discovery, identity, privacy, toon, text, tdd]
