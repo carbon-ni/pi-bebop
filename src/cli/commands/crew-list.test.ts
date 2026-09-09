@@ -8,6 +8,7 @@ import { UsageError } from "../support/arguments.ts";
 import {
 	buildCrewListCommand,
 	crewListHelp,
+	defaultCrewListDependencies,
 	parseCrewListCommand,
 	runCrewListCommand,
 	type CrewListDependencies,
@@ -75,6 +76,11 @@ test("crew list parser and builder expose deterministic product vocabulary", () 
 	);
 	assert.match(crewListHelp(), /stable selector/);
 	assert.match(crewListHelp(), /never scans arbitrary/);
+	assert.match(crewListHelp(), /pi-bebop crew list --format text/);
+});
+
+test("default manifest existence fails closed before untrusted filesystem access", async () => {
+	assert.equal(await defaultCrewListDependencies.manifestExists("/tmp/crew.json", "/project"), false);
 });
 
 test("crew list probes configured Members concurrently and exposes only product fields", async () => {
@@ -233,6 +239,32 @@ test("cancellation aborts in-flight discovery and reports a partial cancellation
 	assert.equal(data.discovery, "cancelled");
 	assert.equal(data.partial, true);
 	assert.equal(probeAborted, true);
+});
+
+test("cancellation propagates to live discovery dependencies", async () => {
+	const controller = new AbortController();
+	let dependencyAborted = false;
+	const pendingDiscovery = (_projectRoot: string, signal?: AbortSignal): Promise<readonly []> =>
+		new Promise((resolve) => {
+			signal?.addEventListener(
+				"abort",
+				() => {
+					dependencyAborted = true;
+					resolve([]);
+				},
+				{ once: true },
+			);
+		});
+	setTimeout(() => controller.abort(), 10);
+	const outcome = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		{ ...context(), signal: controller.signal },
+		deps({ manifestExists: async () => false, readLiveRuntimes: pendingDiscovery }),
+	);
+	const data = result(outcome).data as { discovery?: string; partial: boolean };
+	assert.equal(data.discovery, "cancelled");
+	assert.equal(data.partial, true);
+	assert.equal(dependencyAborted, true);
 });
 
 test("global discovery budget returns partial timeout instead of waiting on a hung dependency", async () => {

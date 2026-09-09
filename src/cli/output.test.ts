@@ -75,6 +75,33 @@ test("persisted text falls back to a neutral ack never 'completed'", () => {
 	);
 });
 
+test("text presents crew rows with real line breaks", () => {
+	const text = renderCliResult(
+		{
+			ok: true,
+			target: "",
+			status: "listed",
+			data: {
+				crews: [
+					{
+						selector: "alpha",
+						displayName: "Alpha",
+						availability: "online",
+						memberCount: 1,
+						onlineMembers: 1,
+					},
+				],
+				total: 1,
+				omitted: 0,
+			},
+		},
+		"text",
+		false,
+	);
+	assert.equal(text, "Crews (1):\n- alpha (Alpha) — online — 1/1 Members");
+	assert.ok(!text.includes("\\\\n"));
+});
+
 test("text presents session rows, aliases, membership, totals, and omissions", () => {
 	const text = renderCliResult(
 		{

@@ -106,7 +106,7 @@ function renderCrewsText(data: ViewModel, crews: unknown[]): string {
 	}
 	if (typeof data.omitted === "number" && data.omitted > 0) lines.push(`Omitted: ${data.omitted}`);
 	if (data.partial === true) lines.push(`Discovery: ${stringValue(data.discovery) ?? "partial"}`);
-	return lines.join("\\n");
+	return lines.join("\n");
 }
 
 function renderSessionsText(data: ViewModel, sessions: unknown[]): string {

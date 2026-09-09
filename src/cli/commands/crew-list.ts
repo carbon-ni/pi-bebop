@@ -53,11 +53,17 @@ export interface CrewListCliOptions {
 }
 
 export interface CrewListDependencies {
-	readonly manifestExists: (manifestPath: string) => Promise<boolean>;
+	readonly manifestExists: (manifestPath: string, projectRoot: string) => Promise<boolean>;
 	readonly readManifest: (manifestPath: string, projectRoot: string) => Promise<CrewManifest>;
 	readonly probeMember: (socketPath: string, signal?: AbortSignal) => Promise<boolean>;
-	readonly readObservedLocators: (projectRoot: string) => Promise<readonly CrewDirectoryObservation[]>;
-	readonly readLiveRuntimes: (projectRoot: string) => Promise<readonly CrewDirectoryLiveRuntime[]>;
+	readonly readObservedLocators: (
+		projectRoot: string,
+		signal?: AbortSignal,
+	) => Promise<readonly CrewDirectoryObservation[]>;
+	readonly readLiveRuntimes: (
+		projectRoot: string,
+		signal?: AbortSignal,
+	) => Promise<readonly CrewDirectoryLiveRuntime[]>;
 	readonly now: () => Date;
 }
 
@@ -96,6 +102,10 @@ export function crewListHelp(): string {
 		"Options:",
 		"  --format <format>   toon (default), json, or text",
 		"  --full              Full response without response truncation",
+		"",
+		"Examples:",
+		"  pi-bebop crew list --format text",
+		"  pi-bebop crew list --format json --full",
 		"",
 	].join("\n");
 }
@@ -199,21 +209,26 @@ async function readDirectoryManifest(manifestPath: string, projectRoot: string):
 	}
 }
 
-async function readLiveCrewRuntimes(projectRoot: string): Promise<readonly CrewDirectoryLiveRuntime[]> {
+async function readLiveCrewRuntimes(
+	projectRoot: string,
+	signal?: AbortSignal,
+): Promise<readonly CrewDirectoryLiveRuntime[]> {
+	if (signal?.aborted) return [];
 	const observedAt = new Date().toISOString();
 	let sessions;
 	try {
-		sessions = await getLiveSessions();
+		sessions = await getLiveSessions(signal);
 	} catch {
 		return [];
 	}
 	const results = await Promise.all(
 		sessions.map(async (session): Promise<CrewDirectoryLiveRuntime | undefined> => {
+			if (signal?.aborted) return undefined;
 			try {
 				const { response } = await sendRpcCommand(
 					session.socketPath,
 					{ type: "status" },
-					{ timeout: PROBE_TIMEOUT_MS },
+					{ timeout: PROBE_TIMEOUT_MS, signal },
 				);
 				const statusData = response.data as
 					| { status?: unknown; crewLocator?: unknown; projectTrusted?: unknown }
@@ -236,7 +251,8 @@ async function readLiveCrewRuntimes(projectRoot: string): Promise<readonly CrewD
 }
 
 export const defaultCrewListDependencies: CrewListDependencies = {
-	manifestExists: async (manifestPath) => {
+	manifestExists: async (manifestPath, projectRoot) => {
+		if (!isTrustedCrewManifestPath(manifestPath, projectRoot)) return false;
 		try {
 			await fs.access(manifestPath);
 			return true;
@@ -371,7 +387,7 @@ export async function runCrewListCommand(
 					Promise.all(
 						manifestPaths.map(async (manifestPath) => ({
 							manifestPath,
-							exists: await deps.manifestExists(manifestPath),
+							exists: await deps.manifestExists(manifestPath, projectRoot),
 						})),
 					),
 					discovery.signal,
@@ -419,10 +435,11 @@ export async function runCrewListCommand(
 		}
 		const live = discovery.signal.aborted
 			? []
-			: ((await withinDiscovery(deps.readLiveRuntimes(projectRoot), discovery.signal)) ?? []);
+			: ((await withinDiscovery(deps.readLiveRuntimes(projectRoot, discovery.signal), discovery.signal)) ?? []);
 		const observed = discovery.signal.aborted
 			? []
-			: ((await withinDiscovery(deps.readObservedLocators(projectRoot), discovery.signal)) ?? []);
+			: ((await withinDiscovery(deps.readObservedLocators(projectRoot, discovery.signal), discovery.signal)) ??
+				[]);
 		const records: Array<{
 			manifestPath: string;
 			observedAt: string;
