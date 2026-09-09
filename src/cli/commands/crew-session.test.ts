@@ -14,12 +14,15 @@ import {
 	parseCrewSessionCaptureCommand,
 	parseCrewSessionListCommand,
 	parseCrewSessionShowCommand,
+	parseCrewSessionResolveCommand,
 	crewSessionListHelp,
 	crewSessionShowHelp,
+	crewSessionResolveHelp,
 	runCrewSessionAddCommand,
 	runCrewSessionCaptureCommand,
 	runCrewSessionListCommand,
 	runCrewSessionShowCommand,
+	runCrewSessionResolveCommand,
 } from "./crew-session.ts";
 import type { CliContext } from "../support/context.ts";
 import { UsageError } from "../support/arguments.ts";
@@ -138,6 +141,13 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 		format: "json",
 		full: false,
 	});
+	assert.deepEqual(parseCrewSessionResolveCommand(["cs_0123456789abcdef", "Alice", "--format", "text"], "/project"), {
+		command: "crew-session-resolve",
+		id: "cs_0123456789abcdef",
+		member: "Alice",
+		format: "text",
+		full: false,
+	});
 	assert.equal(buildCrewSessionCaptureCommand().name(), "capture");
 	assert.equal(buildCrewSessionAddCommand().name(), "add");
 	assert.deepEqual(
@@ -153,6 +163,43 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 	assert.match(crewSessionAddHelp(), /exact currently joined Member/);
 	assert.match(crewSessionListHelp(), /--limit <count>/);
 	assert.match(crewSessionShowHelp(), /explicit stored session references/);
+	assert.match(crewSessionResolveHelp(), /manual Pi startup specification/);
+});
+
+test("crew session resolve handler preserves exact startup fields and help", async () => {
+	const outcome = await runCrewSessionResolveCommand(
+		{ command: "crew-session-resolve", id: "cs_0123456789abcdef", member: "Alice", format: "json", full: false },
+		context("/project"),
+		{
+			resolve: async () => ({
+				ok: true,
+				crewSessionId: "cs_0123456789abcdef",
+				member: { name: "Alice", role: "developer" },
+				startup: {
+					argv: ["pi", "--session", "/sessions/alice.jsonl"],
+					cwd: "/project",
+					sessionId: "pi-session-secret",
+					sessionFile: "/sessions/alice.jsonl",
+					processState: "unreachable",
+					warning: "qualified",
+				},
+			}),
+		},
+	);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") {
+		assert.deepEqual(outcome.result.data && (outcome.result.data as { argv: string[] }).argv, [
+			"pi",
+			"--session",
+			"/sessions/alice.jsonl",
+		]);
+		assert.equal((outcome.result.data as { cwd: string }).cwd, "/project");
+	}
+	const help = await runCrewSessionResolveCommand(
+		{ command: "crew-session-resolve", id: "x", member: "Alice", format: "toon", full: false, help: true },
+		context("/project"),
+	);
+	assert.deepEqual(help, { kind: "help", text: crewSessionResolveHelp() });
 });
 
 test("crew session list/show handlers are read-only and return bounded failures", async () => {

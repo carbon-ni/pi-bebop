@@ -13,6 +13,12 @@ import {
 	type CrewSessionListResult,
 	type CrewSessionShowResult,
 } from "../../application/crew-session-inspection.ts";
+import {
+	resolveCrewSessionMember,
+	resolutionCommand,
+	type CrewSessionResolutionDependencies,
+	type CrewSessionResolutionResult,
+} from "../../application/crew-session-resolution.ts";
 import { getTrustedCrewManifestPaths, isTrustedCrewManifestPath } from "../../infra/crew-layout.ts";
 import { CrewSessionStoreError } from "../../infra/crew-session-store.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
@@ -62,6 +68,15 @@ export interface CrewSessionShowCliOptions {
 	readonly help?: boolean;
 }
 
+export interface CrewSessionResolveCliOptions {
+	readonly command: "crew-session-resolve";
+	readonly id: string;
+	readonly member: string;
+	readonly format: CliFormat;
+	readonly full: boolean;
+	readonly help?: boolean;
+}
+
 function buildFormatOption(command: string): Command {
 	return new Command(command)
 		.option("--format <format>", "Output format: toon (default), json, or text", defaultFormatForCommand(command))
@@ -97,6 +112,13 @@ export function buildCrewSessionShowCommand(): Command {
 		.argument("<id>", "exact Crew Session ID");
 }
 
+export function buildCrewSessionResolveCommand(): Command {
+	return buildFormatOption("resolve")
+		.description("Resolve one exact Member to a manual Pi startup specification")
+		.argument("<id>", "exact Crew Session ID")
+		.argument("<member>", "exact case-sensitive configured Member name");
+}
+
 export function crewSessionListHelp(): string {
 	return [
 		"pi-bebop crew session list [--crew <locator>] [--limit <count>] [--offset <count>] [--format toon|json|text]",
@@ -119,6 +141,17 @@ export function crewSessionShowHelp(): string {
 		"",
 		"Inspect one exact Crew Session in manifest order, including explicit stored session references.",
 		"The command is read-only and never launches Pi or modifies session files.",
+		"",
+	].join("\\n");
+}
+
+export function crewSessionResolveHelp(): string {
+	return [
+		"pi-bebop crew session resolve <crew-session-id> <member> [--format toon|json|text]",
+		"",
+		"Validate one exact stored Member Session and print a manual Pi startup specification.",
+		"The command never launches Pi, opens a terminal, repairs records, or resumes a Crew.",
+		"Run the returned command only after reviewing its exact cwd and session file.",
 		"",
 	].join("\\n");
 }
@@ -295,6 +328,24 @@ export function parseCrewSessionShowCommand(args: string[], _cwd = process.cwd()
 	};
 }
 
+export function parseCrewSessionResolveCommand(args: string[], _cwd = process.cwd()): CrewSessionResolveCliOptions {
+	const parsed = parseWithCommander(
+		args,
+		buildCrewSessionResolveCommand()
+			.exitOverride()
+			.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} }),
+	);
+	if (parsed.args.length !== 2) throw new UsageError("Expected exact Crew Session ID and Member name");
+	return {
+		command: "crew-session-resolve",
+		id: parsed.args[0]!,
+		member: parsed.args[1]!,
+		format: readFormat(parsed.opts),
+		full: false,
+		...(parsed.help ? { help: true } : {}),
+	};
+}
+
 async function resolveManifestPath(projectRoot: string, requested?: string): Promise<string> {
 	if (requested !== undefined) {
 		const locator = path.resolve(projectRoot, requested);
@@ -422,6 +473,33 @@ function listResult(result: CrewSessionListResult, target: string): CliResult {
 	};
 }
 
+function resolveResult(result: CrewSessionResolutionResult): CliResult {
+	if (result.ok === false)
+		return {
+			ok: false,
+			target: result.code,
+			status: result.code,
+			response: result.recovery,
+			error: { code: result.code, message: result.message },
+		};
+	return {
+		ok: true,
+		target: result.crewSessionId,
+		status: "resolved",
+		response: resolutionCommand(result),
+		data: {
+			crewSessionId: result.crewSessionId,
+			member: result.member,
+			argv: result.startup.argv,
+			cwd: result.startup.cwd,
+			sessionId: result.startup.sessionId,
+			sessionFile: result.startup.sessionFile,
+			processState: result.startup.processState,
+			warning: result.startup.warning,
+		},
+	};
+}
+
 function showResult(result: CrewSessionShowResult): CliResult {
 	return {
 		ok: result.state !== "invalid",
@@ -463,6 +541,46 @@ export async function runCrewSessionListCommand(
 				error: {
 					code: "operational",
 					message: error instanceof Error ? error.message : "Crew Session listing failed",
+				},
+			},
+			format: options.format,
+			full: options.full,
+		};
+	}
+}
+
+export interface CrewSessionResolveCliDependencies {
+	readonly resolve: (
+		request: Parameters<typeof resolveCrewSessionMember>[0],
+		dependencies?: Partial<CrewSessionResolutionDependencies>,
+	) => Promise<CrewSessionResolutionResult>;
+}
+
+const defaultResolveCliDependencies: CrewSessionResolveCliDependencies = { resolve: resolveCrewSessionMember };
+
+export async function runCrewSessionResolveCommand(
+	options: CrewSessionResolveCliOptions,
+	context: CliContext,
+	dependencies: CrewSessionResolveCliDependencies = defaultResolveCliDependencies,
+): Promise<CliOutcome> {
+	if (options.help) return { kind: "help", text: crewSessionResolveHelp() };
+	try {
+		const result = await dependencies.resolve({
+			projectRoot: path.resolve(context.cwd),
+			id: options.id,
+			memberName: options.member,
+		});
+		return { kind: "result", result: resolveResult(result), format: options.format, full: options.full };
+	} catch (error) {
+		return {
+			kind: "result",
+			result: {
+				ok: false,
+				target: options.id,
+				status: "operational",
+				error: {
+					code: "operational",
+					message: error instanceof Error ? error.message : "Crew Session resolution failed",
 				},
 			},
 			format: options.format,
