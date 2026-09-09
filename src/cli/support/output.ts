@@ -87,8 +87,10 @@ function renderHomeText(data: ViewModel): string {
 
 function renderCrewsText(data: ViewModel, crews: unknown[]): string {
 	const total = typeof data.total === "number" ? data.total : crews.length;
-	if (crews.length === 0)
-		return `No Crews found (total: ${total}). ${stringValue(data.next) ?? "Initialize or join a trusted Crew, then retry."}`;
+	if (crews.length === 0) {
+		const discovery = stringValue(data.discovery);
+		return `No Crews found (total: ${total}).${discovery ? ` Discovery: ${discovery}.` : ""} ${stringValue(data.next) ?? "Initialize or join a trusted Crew, then retry."}`;
+	}
 	const lines = [`Crews (${total}):`];
 	for (const item of crews) {
 		const crew = asViewModel(item);
@@ -103,7 +105,7 @@ function renderCrewsText(data: ViewModel, crews: unknown[]): string {
 		);
 	}
 	if (typeof data.omitted === "number" && data.omitted > 0) lines.push(`Omitted: ${data.omitted}`);
-	if (data.partial === true) lines.push("Discovery: partial");
+	if (data.partial === true) lines.push(`Discovery: ${stringValue(data.discovery) ?? "partial"}`);
 	return lines.join("\\n");
 }
 

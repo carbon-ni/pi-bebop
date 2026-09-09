@@ -209,6 +209,53 @@ test("no eligible or already-cancelled empty discovery is successful", async () 
 	assert.equal(data.omitted, 0);
 });
 
+test("cancellation aborts in-flight discovery and reports a partial cancellation", async () => {
+	const controller = new AbortController();
+	let probeAborted = false;
+	const pendingProbe = (_socketPath: string, signal?: AbortSignal): Promise<boolean> =>
+		new Promise((resolve) => {
+			signal?.addEventListener(
+				"abort",
+				() => {
+					probeAborted = true;
+					resolve(false);
+				},
+				{ once: true },
+			);
+		});
+	setTimeout(() => controller.abort(), 10);
+	const outcome = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		{ ...context(), signal: controller.signal },
+		deps({ probeMember: pendingProbe }),
+	);
+	const data = result(outcome).data as { discovery?: string; partial: boolean };
+	assert.equal(data.discovery, "cancelled");
+	assert.equal(data.partial, true);
+	assert.equal(probeAborted, true);
+});
+
+test("global discovery budget returns partial timeout instead of waiting on a hung dependency", async () => {
+	const started = Date.now();
+	let liveCalls = 0;
+	const outcome = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		context(),
+		deps({
+			manifestExists: async () => await new Promise<boolean>(() => {}),
+			readLiveRuntimes: async () => {
+				liveCalls += 1;
+				return [];
+			},
+		}),
+	);
+	assert.ok(Date.now() - started < 2_500, "discovery must stop at the two-second global budget");
+	const data = result(outcome).data as { discovery?: string; partial: boolean };
+	assert.equal(data.discovery, "timeout");
+	assert.equal(data.partial, true);
+	assert.equal(liveCalls, 0, "discovery must not start later phases after the global deadline");
+});
+
 test("empty discovery is successful and gives a bounded next step", async () => {
 	const outcome = await runCrewListCommand(
 		{ command: "crew-list", format: "text", full: false },
