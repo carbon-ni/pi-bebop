@@ -96,6 +96,29 @@ server, joins, or mutates files. Start each member by its manifest role;
 `/crew members` shows exactly `current`, `online`, or `offline` with configured
 project socket paths.
 
+## Preserve exact Member sessions
+
+A **Crew Session** is a named, machine-local bookmark linking one trusted Crew
+to the exact persisted Pi Session of each Member captured while online. It is
+not a shared conversation, process group, task, lock, or whole-Crew launcher.
+Capture before closing the intended Member sessions, then inspect and resolve
+one Member at a time later:
+
+```bash
+pi-bebop crew session capture "auth regression"
+pi-bebop crew session list
+pi-bebop crew session show <crew-session-id>
+pi-bebop crew session resolve <crew-session-id> <member>
+# run the returned `pi --session <absolute-file>` command manually
+```
+
+Capture never guesses a latest session and keeps explicit missing reasons for
+Members it cannot validate. `crew session add <id> <member>` fills one missing
+link without replacing existing bindings. Resolution is read-only observation,
+not a lock or a process launcher. Full Pi Session references appear only on
+these explicit commands. See the [normative Crew Session contract](docs/CREW-SESSION.md)
+for identity, storage, trust, privacy, and stale-session rules.
+
 ## Choose communication
 
 | Tool                  | Use when                                                | Guarantee                                                                              |
