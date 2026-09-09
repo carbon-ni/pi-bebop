@@ -29,3 +29,4 @@ export * from "./guest-message.ts";
 export * from "./guest-registry.ts";
 
 export * from "./guest-control.ts";
+export * from "./crew-session.ts";

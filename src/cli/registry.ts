@@ -91,6 +91,18 @@ import {
 	buildCrewListCommand,
 	type CrewListCliOptions,
 } from "./commands/crew-list.ts";
+import {
+	buildCrewSessionCaptureCommand,
+	buildCrewSessionAddCommand,
+	crewSessionCaptureHelp,
+	crewSessionAddHelp,
+	parseCrewSessionCaptureCommand,
+	parseCrewSessionAddCommand,
+	runCrewSessionCaptureCommand,
+	runCrewSessionAddCommand,
+	type CrewSessionCaptureCliOptions,
+	type CrewSessionAddCliOptions,
+} from "./commands/crew-session.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./support/arguments.ts";
 import {
 	buildMemberRequestSendCommand,
@@ -361,6 +373,40 @@ const crewListLeaf: CliLeaf = {
 	run: (options, context) => runCrewListCommand(options as CrewListCliOptions, context),
 };
 
+/** TASK-0201: explicit Crew Session capture/add leaves. */
+const crewSessionCaptureLeaf: CliLeaf = {
+	id: "crew-session-capture",
+	names: ["crew", "session", "capture"],
+	build: () => buildCrewSessionCaptureCommand(),
+	help: () => crewSessionCaptureHelp(),
+	parse: (tokens, cwd) => parseCrewSessionCaptureCommand([...tokens], cwd),
+	read: (command) => {
+		const opts = command.opts<{ format?: string; crew?: string }>();
+		return parseCrewSessionCaptureCommand([
+			command.args[0]!,
+			...(opts.crew === undefined ? [] : ["--crew", opts.crew]),
+			...(opts.format === undefined ? [] : ["--format", opts.format]),
+		]);
+	},
+	run: (options, context) => runCrewSessionCaptureCommand(options as CrewSessionCaptureCliOptions, context),
+};
+const crewSessionAddLeaf: CliLeaf = {
+	id: "crew-session-add",
+	names: ["crew", "session", "add"],
+	build: () => buildCrewSessionAddCommand(),
+	help: () => crewSessionAddHelp(),
+	parse: (tokens, cwd) => parseCrewSessionAddCommand([...tokens], cwd),
+	read: (command) => {
+		const opts = command.opts<{ format?: string }>();
+		return parseCrewSessionAddCommand([
+			command.args[0]!,
+			command.args[1]!,
+			...(opts.format === undefined ? [] : ["--format", opts.format]),
+		]);
+	},
+	run: (options, context) => runCrewSessionAddCommand(options as CrewSessionAddCliOptions, context),
+};
+
 /** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
 const crewRolesLeaf: CliLeaf = {
 	id: "crew-roles",
@@ -504,6 +550,8 @@ export function createCliRegistry(): CliRegistry {
 		sendLeaf,
 		crewInitLeaf,
 		crewListLeaf,
+		crewSessionCaptureLeaf,
+		crewSessionAddLeaf,
 		crewRolesLeaf,
 		memberStatusLeaf,
 		memberIdleWaitLeaf,

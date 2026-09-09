@@ -90,6 +90,12 @@ export {
 } from "./protocol/wire-guests.ts";
 
 export {
+	SessionCaptureRequestSchema,
+	SessionCaptureCommandSchema,
+	SessionCaptureResultSchema,
+} from "./protocol/wire-session.ts";
+
+export {
 	MemberIdleWaitParamsSchema,
 	MemberIdleWaitSubscribeResultSchema,
 	MemberIdleWaitRequestSchema,
@@ -223,6 +229,9 @@ export type {
 	CrewBroadcastRpcResult,
 	MemberIdleWaitCommand,
 	MemberIdleWaitSubscribeResult,
+	SessionCaptureCommand,
+	SessionCaptureRequest,
+	SessionCaptureResult,
 	RpcSendCommand,
 	RpcSubscribeCommand,
 } from "./protocol/protocol-types.ts";

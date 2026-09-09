@@ -65,6 +65,8 @@ const {
 	EmptyResultSchema,
 	MemberRequestListResultSchema,
 	MemberRequestWaitResultSchema,
+	SessionCaptureRequestSchema,
+	SessionCaptureResultSchema,
 } = schemas;
 import type * as ProtocolTypes from "./protocol-types.ts";
 
@@ -415,6 +417,16 @@ export const COMMAND_REGISTRY: Record<ProtocolTypes.RpcCommand["type"], CommandD
 				id,
 			};
 		},
+	},
+	session_capture: {
+		method: "session.capture",
+		requestSchema: SessionCaptureRequestSchema,
+		resultSchema: SessionCaptureResultSchema,
+		toParams: () => ({}),
+		fromParams: (params, id) =>
+			params !== undefined && Value.Check(SessionCaptureRequestSchema.properties.params, params)
+				? { type: "session_capture", id }
+				: invalidCommandParams("Invalid session.capture params"),
 	},
 	subscribe: {
 		method: "event.subscribe",

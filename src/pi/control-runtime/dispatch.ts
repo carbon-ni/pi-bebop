@@ -20,6 +20,7 @@ import {
 	handleMemberInboxSend,
 	handleCrewBroadcast,
 } from "./member-handlers.ts";
+import { handleSessionCapture } from "./session-handlers.ts";
 import {
 	handleMemberIdleWait,
 	handleStatus,
@@ -49,6 +50,7 @@ const COMMAND_HANDLERS: CommandHandlers = {
 	member_inbox_send: handleMemberInboxSend,
 	crew_broadcast: handleCrewBroadcast,
 	member_idle_wait: handleMemberIdleWait,
+	session_capture: handleSessionCapture,
 	status: handleStatus,
 	abort: handleAbort,
 	member_interrupt: handleMemberInterrupt,

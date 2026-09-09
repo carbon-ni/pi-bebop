@@ -91,6 +91,7 @@ import {
 } from "./wire-guests.ts";
 import { MemberIdleWaitResultSchema } from "../member-idle-wait.ts";
 import { MAX_MESSAGE_CONTENT_BYTES, MAX_MESSAGE_INSTRUCTIONS } from "../message-payload.ts";
+import { SessionCaptureRequestSchema, SessionCaptureResultSchema } from "./wire-session.ts";
 
 export const MemberIdleWaitParamsSchema = Type.Object(
 	{
@@ -158,6 +159,7 @@ export const KnownRequestSchema = Type.Union([
 	GuestJoinRpcRequestSchema,
 	GuestLeaveRequestSchema,
 	MemberIdleWaitRequestSchema,
+	SessionCaptureRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
 	{
@@ -289,6 +291,7 @@ export const RpcMethodResultSchema = Type.Union([
 	GuestJoinResultSchema,
 	GuestSendResultSchema,
 	MemberIdleWaitSubscribeResultSchema,
+	SessionCaptureResultSchema,
 	EmptyResultSchema,
 ]);
 export const RpcResponseSchema = Type.Union([

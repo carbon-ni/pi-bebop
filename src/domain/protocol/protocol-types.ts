@@ -111,6 +111,11 @@ import {
 	TurnEndNotificationSchema,
 } from "./wire-rpc.ts";
 import {
+	SessionCaptureCommandSchema,
+	SessionCaptureRequestSchema,
+	SessionCaptureResultSchema,
+} from "./wire-session.ts";
+import {
 	MessageSendCommandSchema,
 	InterruptCommandSchema,
 	SubscribeCommandSchema,
@@ -242,7 +247,8 @@ export type RpcCommand =
 	| Static<typeof GuestJoinCommandSchema>
 	| Static<typeof GuestLeaveCommandSchema>
 	| Static<typeof GuestSendCommandSchema>
-	| Static<typeof MemberIdleWaitCommandSchema>;
+	| Static<typeof MemberIdleWaitCommandSchema>
+	| Static<typeof SessionCaptureCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
 	| RequiredId<Static<typeof MessageSendCommandSchema>>
@@ -268,7 +274,8 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof GuestJoinCommandSchema>>
 	| RequiredId<Static<typeof GuestLeaveCommandSchema>>
 	| RequiredId<Static<typeof GuestSendCommandSchema>>
-	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>;
+	| RequiredId<Static<typeof MemberIdleWaitCommandSchema>>
+	| RequiredId<Static<typeof SessionCaptureCommandSchema>>;
 export type MessageSendCommand = Static<typeof MessageSendCommandSchema>;
 export type InterruptCommand = Static<typeof InterruptCommandSchema>;
 export type SubscribeCommand = Static<typeof SubscribeCommandSchema>;
@@ -283,5 +290,8 @@ export type MemberInboxSendResult = Static<typeof MemberInboxSendResultSchema>;
 export type CrewBroadcastRpcResult = Static<typeof CrewBroadcastResultSchema>;
 export type MemberIdleWaitCommand = Static<typeof MemberIdleWaitCommandSchema>;
 export type MemberIdleWaitSubscribeResult = Static<typeof MemberIdleWaitSubscribeResultSchema>;
+export type SessionCaptureCommand = Static<typeof SessionCaptureCommandSchema>;
+export type SessionCaptureRequest = Static<typeof SessionCaptureRequestSchema>;
+export type SessionCaptureResult = Static<typeof SessionCaptureResultSchema>;
 export type RpcSendCommand = MessageSendCommand;
 export type RpcSubscribeCommand = SubscribeCommand;
