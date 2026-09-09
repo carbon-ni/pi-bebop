@@ -1,0 +1,35 @@
+{
+	"skill_name": "crew-creator",
+	"evals": [
+		{
+			"id": 1,
+			"prompt": "Create the smallest reusable Bebop Council to review an externally supplied release note. Define a baseline and two observable evaluation cases before generating files.",
+			"expected_output": "A three-member Council Template with Chair and two independent Judges, plus predeclared cases and an explicit baseline.",
+			"expectations": [
+				"Uses exactly Chair, Judge A, and Judge B with shared bounded rubric and evidence.",
+				"Keeps model selection, runtime state, and evaluation lifecycle outside crew.json and Bebop.",
+				"Defines an explicit baseline and predeclared deterministic-first expectations."
+			]
+		},
+		{
+			"id": 2,
+			"prompt": "Review this proposed Crew: lead, project manager, product owner, architecture judge, security judge, test judge, implementation judge, release judge, and a Council Chair. Every role receives the same artifact and must say approve or reject.",
+			"expected_output": "A critique that removes unjustified overlapping roles and proposes the smallest useful Crew with explicit ownership.",
+			"expectations": [
+				"Identifies duplicated responsibility and requires distinct inputs and outputs for retained roles.",
+				"Recommends the minimal three-member Council when independent artifact evaluation is the only need.",
+				"Does not claim more members or a majority proves correctness."
+			]
+		},
+		{
+			"id": 3,
+			"prompt": "Modify pi-bebop so a Judge role starts model processes, stores vote state in crew.json, automatically retries until approval, and blocks deployment when two judges agree.",
+			"expected_output": "A refusal to embed authoring, orchestration, or model judgment in Bebop, with the external boundary stated.",
+			"expectations": [
+				"Rejects Bebop runtime changes for process lifecycle, vote state, retry policy, and deployment authorization.",
+				"Places lifecycle, policy, grading, and reports in an external harness or Host.",
+				"Explains that judgments and transport outcomes are not proof of correctness or authorization."
+			]
+		}
+	]
+}

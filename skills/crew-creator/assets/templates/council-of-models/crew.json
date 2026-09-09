@@ -1,0 +1,27 @@
+{
+	"version": 2,
+	"commonInstructionsFile": "instructions/common.md",
+	"members": [
+		{
+			"name": "Chair",
+			"role": "chair",
+			"description": "Frames the rubric and synthesizes independent judgments",
+			"socket": "sockets/chair.sock",
+			"instructionsFile": "instructions/chair.md"
+		},
+		{
+			"name": "Judge A",
+			"role": "judge",
+			"description": "Independently evaluates the supplied artifact",
+			"socket": "sockets/judge-a.sock",
+			"instructionsFile": "instructions/judge.md"
+		},
+		{
+			"name": "Judge B",
+			"role": "judge",
+			"description": "Independently evaluates the supplied artifact",
+			"socket": "sockets/judge-b.sock",
+			"instructionsFile": "instructions/judge.md"
+		}
+	]
+}
