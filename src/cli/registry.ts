@@ -96,22 +96,27 @@ import {
 	buildCrewSessionAddCommand,
 	buildCrewSessionListCommand,
 	buildCrewSessionShowCommand,
+	buildCrewSessionResolveCommand,
 	crewSessionCaptureHelp,
 	crewSessionAddHelp,
 	crewSessionListHelp,
 	crewSessionShowHelp,
+	crewSessionResolveHelp,
 	parseCrewSessionCaptureCommand,
 	parseCrewSessionAddCommand,
 	parseCrewSessionListCommand,
 	parseCrewSessionShowCommand,
+	parseCrewSessionResolveCommand,
 	runCrewSessionCaptureCommand,
 	runCrewSessionAddCommand,
 	runCrewSessionListCommand,
 	runCrewSessionShowCommand,
+	runCrewSessionResolveCommand,
 	type CrewSessionCaptureCliOptions,
 	type CrewSessionAddCliOptions,
 	type CrewSessionListCliOptions,
 	type CrewSessionShowCliOptions,
+	type CrewSessionResolveCliOptions,
 } from "./commands/crew-session.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./support/arguments.ts";
 import {
@@ -448,6 +453,22 @@ const crewSessionShowLeaf: CliLeaf = {
 	},
 	run: (options, context) => runCrewSessionShowCommand(options as CrewSessionShowCliOptions, context),
 };
+const crewSessionResolveLeaf: CliLeaf = {
+	id: "crew-session-resolve",
+	names: ["crew", "session", "resolve"],
+	build: () => buildCrewSessionResolveCommand(),
+	help: () => crewSessionResolveHelp(),
+	parse: (tokens, cwd) => parseCrewSessionResolveCommand([...tokens], cwd),
+	read: (command) => {
+		const opts = command.opts<{ format?: string }>();
+		return parseCrewSessionResolveCommand([
+			command.args[0]!,
+			command.args[1]!,
+			...(opts.format === undefined ? [] : ["--format", opts.format]),
+		]);
+	},
+	run: (options, context) => runCrewSessionResolveCommand(options as CrewSessionResolveCliOptions, context),
+};
 
 /** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
 const crewRolesLeaf: CliLeaf = {
@@ -596,6 +617,7 @@ export function createCliRegistry(): CliRegistry {
 		crewSessionAddLeaf,
 		crewSessionListLeaf,
 		crewSessionShowLeaf,
+		crewSessionResolveLeaf,
 		crewRolesLeaf,
 		memberStatusLeaf,
 		memberIdleWaitLeaf,
