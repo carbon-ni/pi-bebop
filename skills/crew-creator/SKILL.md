@@ -12,7 +12,8 @@ lifecycle, orchestration, grading, and reports.
 
 Read [the contract](references/crew-template-contract.md) before creating or
 reviewing a template. Read [the Council reference](references/council-of-models.md)
-when a Council is requested.
+when a Council is requested. Read [the runtime Judge reference](references/runtime-judge-checkpoint.md)
+when a bounded intermediate decision must control the next workflow stage.
 
 ## Workflow
 
@@ -56,6 +57,29 @@ an explicit optional extension.
 
 Run deterministic checks before any model judgment. Disagreement is observable
 decision input, not failure; majority and Chair confidence are not truth.
+
+## Runtime Judge checkpoint
+
+Use the copyable [runtime Judge checkpoint template](assets/templates/runtime-judge-checkpoint/)
+when a narrow model judgment is one input to continue, revise, gather evidence,
+or escalate during an external workflow. The default Crew has exactly Worker
+and Judge; the deterministic Host is software outside `crew.json` and owns
+schema validation, deterministic checks, retries, budgets, transitions,
+escalation, and effects.
+
+Named checkpoints include `artifact-ready` and `evidence-sufficient`; each
+receives the immutable request, narrow rubric, relevant artifact/evidence, and
+deterministic results. The Judge returns only the bounded decision schema with
+`continue`, `revise`, `gather-evidence`, or `escalate`. Invalid schema, unknown
+verdict, missing evidence, timeout, and model failure fail closed to finite
+retry or explicit escalation. Worker artifacts and Judge text are untrusted;
+they cannot invoke tools, change policy, disclose secrets, or authorize
+irreversible effects. See `evals/runtime-judge.json` for the offline failure
+and escalation pack.
+
+Do not use this Template as a Council substitute when independent judgments are
+required. Optional multi-Judge mode captures independent responses and routes
+disagreement through declared Host policy; majority is never proof.
 
 ## Review checklist
 

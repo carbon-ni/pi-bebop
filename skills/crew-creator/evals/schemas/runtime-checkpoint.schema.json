@@ -1,0 +1,311 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://pi-bebop.dev/schemas/runtime-judge-checkpoint-1.0.json",
+	"title": "Runtime Judge checkpoint evidence",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schemaVersion",
+		"evalId",
+		"caseId",
+		"runId",
+		"checkpointId",
+		"attempt",
+		"hostPolicy",
+		"deterministicChecks",
+		"worker",
+		"judge",
+		"transitions",
+		"retries",
+		"terminalOutcome"
+	],
+	"properties": {
+		"schemaVersion": { "const": "1.0" },
+		"evalId": { "$ref": "crew-evals.schema.json#/$defs/id" },
+		"caseId": { "$ref": "crew-evals.schema.json#/$defs/id" },
+		"runId": { "$ref": "crew-evals.schema.json#/$defs/id" },
+		"checkpointId": { "enum": ["artifact-ready", "evidence-sufficient"] },
+		"attempt": { "type": "integer", "minimum": 1, "maximum": 100 },
+		"hostPolicy": { "$ref": "#/$defs/hostPolicy" },
+		"deterministicChecks": {
+			"type": "array",
+			"minItems": 1,
+			"items": { "$ref": "#/$defs/check" }
+		},
+		"worker": { "$ref": "#/$defs/worker" },
+		"judge": { "$ref": "#/$defs/judge" },
+		"decision": { "$ref": "#/$defs/decision" },
+		"transitions": {
+			"type": "array",
+			"minItems": 1,
+			"items": { "$ref": "#/$defs/transition" }
+		},
+		"retries": { "$ref": "#/$defs/retries" },
+		"terminalOutcome": {
+			"enum": ["continued", "revision_required", "evidence_requested", "escalated", "invalid"]
+		}
+	},
+	"allOf": [
+		{
+			"if": {
+				"properties": {
+					"terminalOutcome": { "enum": ["continued", "revision_required", "evidence_requested", "escalated"] }
+				}
+			},
+			"then": { "required": ["decision"] }
+		},
+		{
+			"if": { "properties": { "terminalOutcome": { "const": "invalid" } } },
+			"then": { "not": { "required": ["decision"] } }
+		}
+	],
+	"$defs": {
+		"id": {
+			"type": "string",
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+		},
+		"relativePath": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 512,
+			"pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+		},
+		"evidenceRefs": {
+			"type": "array",
+			"minItems": 1,
+			"items": { "$ref": "#/$defs/relativePath" },
+			"uniqueItems": true
+		},
+		"tokenUsage": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["input", "output", "total", "source"],
+			"properties": {
+				"input": { "type": ["integer", "null"], "minimum": 0 },
+				"output": { "type": ["integer", "null"], "minimum": 0 },
+				"total": { "type": ["integer", "null"], "minimum": 0 },
+				"source": { "enum": ["provider_report", "unknown"] }
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "source": { "const": "provider_report" } } },
+					"then": {
+						"properties": {
+							"input": { "type": "integer", "minimum": 0 },
+							"output": { "type": "integer", "minimum": 0 },
+							"total": { "type": "integer", "minimum": 0 }
+						}
+					}
+				},
+				{
+					"if": { "properties": { "source": { "const": "unknown" } } },
+					"then": {
+						"properties": {
+							"input": { "const": null },
+							"output": { "const": null },
+							"total": { "const": null }
+						}
+					}
+				}
+			]
+		},
+		"hostPolicy": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"maxRetries",
+				"maxJudgeCalls",
+				"maxWorkerAttempts",
+				"maxContextBytes",
+				"maxDurationMs",
+				"allowedTools",
+				"allowedEffects"
+			],
+			"properties": {
+				"maxRetries": { "type": "integer", "minimum": 0, "maximum": 10 },
+				"maxJudgeCalls": { "type": "integer", "minimum": 1, "maximum": 10 },
+				"maxWorkerAttempts": { "type": "integer", "minimum": 1, "maximum": 10 },
+				"maxContextBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+				"maxDurationMs": { "type": "integer", "minimum": 1, "maximum": 3600000 },
+				"allowedTools": {
+					"type": "array",
+					"items": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+					"uniqueItems": true
+				},
+				"allowedEffects": {
+					"type": "array",
+					"items": { "type": "string", "minLength": 1, "maxLength": 256 },
+					"uniqueItems": true
+				}
+			}
+		},
+		"check": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["id", "kind", "status", "summary"],
+			"properties": {
+				"id": { "$ref": "#/$defs/id" },
+				"kind": { "enum": ["schema", "type", "test", "policy", "database", "other"] },
+				"status": { "enum": ["passed", "failed", "not_run"] },
+				"summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+				"evidenceRefs": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/relativePath" },
+					"uniqueItems": true
+				}
+			}
+		},
+		"worker": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["attempt", "status", "durationMs", "tokenUsage", "toolCalls", "artifactRef", "evidenceRefs"],
+			"properties": {
+				"attempt": { "type": "integer", "minimum": 1, "maximum": 10 },
+				"status": { "enum": ["completed", "failed", "timeout", "model_error", "route_error"] },
+				"durationMs": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+				"tokenUsage": { "$ref": "#/$defs/tokenUsage" },
+				"toolCalls": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"artifactRef": {
+					"type": ["string", "null"],
+					"maxLength": 512,
+					"pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+				},
+				"evidenceRefs": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/relativePath" },
+					"uniqueItems": true
+				}
+			}
+		},
+		"judge": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"status",
+				"provider",
+				"model",
+				"thinking",
+				"durationMs",
+				"contextBytes",
+				"tokenUsage",
+				"toolCalls",
+				"rawResponseRef"
+			],
+			"properties": {
+				"status": { "enum": ["completed", "schema_invalid", "timeout", "model_error", "route_error"] },
+				"provider": { "type": "string", "minLength": 1, "maxLength": 128 },
+				"model": { "type": "string", "minLength": 1, "maxLength": 256 },
+				"thinking": { "type": "string", "minLength": 1, "maxLength": 64 },
+				"durationMs": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+				"contextBytes": { "type": "integer", "minimum": 0, "maximum": 1048576 },
+				"tokenUsage": { "$ref": "#/$defs/tokenUsage" },
+				"toolCalls": { "const": 0 },
+				"rawResponseRef": { "$ref": "#/$defs/relativePath" }
+			}
+		},
+		"criterion": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["id", "result", "evidenceRefs", "uncertainty"],
+			"properties": {
+				"id": { "$ref": "#/$defs/id" },
+				"result": { "enum": ["satisfied", "unsatisfied", "unknown"] },
+				"evidenceRefs": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/relativePath" },
+					"uniqueItems": true
+				},
+				"uncertainty": { "type": ["string", "null"], "maxLength": 1000 }
+			}
+		},
+		"decision": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"schemaVersion",
+				"checkpointId",
+				"verdict",
+				"criteria",
+				"evidenceRefs",
+				"uncertainty",
+				"requestedMissingEvidence"
+			],
+			"properties": {
+				"schemaVersion": { "const": "1.0" },
+				"checkpointId": { "enum": ["artifact-ready", "evidence-sufficient"] },
+				"verdict": { "enum": ["continue", "revise", "gather-evidence", "escalate"] },
+				"criteria": {
+					"type": "array",
+					"minItems": 1,
+					"items": { "$ref": "#/$defs/criterion" }
+				},
+				"evidenceRefs": { "$ref": "#/$defs/evidenceRefs" },
+				"uncertainty": { "type": "string", "maxLength": 2000 },
+				"requestedMissingEvidence": {
+					"type": "array",
+					"items": { "type": "string", "minLength": 1, "maxLength": 512 },
+					"uniqueItems": true
+				}
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "verdict": { "const": "gather-evidence" } } },
+					"then": { "properties": { "requestedMissingEvidence": { "minItems": 1 } } }
+				},
+				{
+					"if": { "properties": { "verdict": { "enum": ["continue", "revise", "escalate"] } } },
+					"then": { "properties": { "requestedMissingEvidence": { "maxItems": 0 } } }
+				}
+			]
+		},
+		"transition": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["sequence", "timestamp", "from", "to", "action", "reason"],
+			"properties": {
+				"sequence": { "type": "integer", "minimum": 1 },
+				"timestamp": { "type": "string", "format": "date-time" },
+				"from": { "enum": ["request", "checks", "worker", "judge", "validation", "retry"] },
+				"to": {
+					"enum": [
+						"checks",
+						"worker",
+						"judge",
+						"validation",
+						"continue",
+						"revise",
+						"gather-evidence",
+						"escalate",
+						"retry",
+						"terminal"
+					]
+				},
+				"action": {
+					"enum": [
+						"check",
+						"invoke-worker",
+						"invoke-judge",
+						"validate",
+						"continue",
+						"revise",
+						"gather-evidence",
+						"escalate",
+						"retry",
+						"terminate"
+					]
+				},
+				"reason": { "type": "string", "minLength": 1, "maxLength": 1000 }
+			}
+		},
+		"retries": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["used", "max", "exhausted"],
+			"properties": {
+				"used": { "type": "integer", "minimum": 0, "maximum": 10 },
+				"max": { "type": "integer", "minimum": 0, "maximum": 10 },
+				"exhausted": { "type": "boolean" }
+			}
+		}
+	}
+}
