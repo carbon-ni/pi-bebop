@@ -1,0 +1,28 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://pi-bebop.dev/schemas/crew-eval-transcript-event-1.0.json",
+	"title": "One Crew member transcript event",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["schemaVersion", "eventId", "sequence", "timestamp", "member", "kind", "content"],
+	"properties": {
+		"schemaVersion": { "const": "1.0" },
+		"eventId": { "$ref": "crew-evals.schema.json#/$defs/id" },
+		"sequence": { "type": "integer", "minimum": 1 },
+		"timestamp": { "type": "string", "format": "date-time" },
+		"member": {
+			"type": "string",
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$"
+		},
+		"kind": { "enum": ["input", "assistant", "tool_call", "tool_result", "final", "error"] },
+		"content": { "type": "string", "maxLength": 131072 },
+		"redaction": { "enum": ["none", "private", "credential", "endpoint"] },
+		"contentRef": { "$ref": "crew-evals.schema.json#/$defs/relativePath" }
+	},
+	"allOf": [
+		{
+			"if": { "properties": { "redaction": { "enum": ["private", "credential", "endpoint"] } } },
+			"then": { "properties": { "content": { "maxLength": 0 } } }
+		}
+	]
+}

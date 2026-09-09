@@ -1,0 +1,68 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://pi-bebop.dev/schemas/crew-eval-timing-1.0.json",
+	"title": "One Crew member timing and usage record",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schemaVersion",
+		"member",
+		"startedAt",
+		"endedAt",
+		"durationMs",
+		"tokenUsage",
+		"toolCalls",
+		"messageCount",
+		"status"
+	],
+	"properties": {
+		"schemaVersion": { "const": "1.0" },
+		"member": {
+			"type": "string",
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$"
+		},
+		"startedAt": { "type": "string", "format": "date-time" },
+		"endedAt": { "type": "string", "format": "date-time" },
+		"durationMs": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+		"tokenUsage": { "$ref": "#/$defs/tokenUsage" },
+		"toolCalls": { "type": "integer", "minimum": 0 },
+		"messageCount": { "type": "integer", "minimum": 0 },
+		"status": { "enum": ["completed", "failed", "cancelled", "unknown"] },
+		"errorRef": { "$ref": "crew-evals.schema.json#/$defs/relativePath" }
+	},
+	"$defs": {
+		"tokenUsage": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["input", "output", "total", "source"],
+			"properties": {
+				"input": { "type": ["integer", "null"], "minimum": 0 },
+				"output": { "type": ["integer", "null"], "minimum": 0 },
+				"total": { "type": ["integer", "null"], "minimum": 0 },
+				"source": { "enum": ["provider_report", "unknown"] }
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "source": { "const": "provider_report" } } },
+					"then": {
+						"properties": {
+							"input": { "type": "integer", "minimum": 0 },
+							"output": { "type": "integer", "minimum": 0 },
+							"total": { "type": "integer", "minimum": 0 }
+						}
+					}
+				},
+				{
+					"if": { "properties": { "source": { "const": "unknown" } } },
+					"then": {
+						"properties": {
+							"input": { "const": null },
+							"output": { "const": null },
+							"total": { "const": null }
+						}
+					}
+				}
+			]
+		}
+	}
+}
