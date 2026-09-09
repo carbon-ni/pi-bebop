@@ -335,17 +335,9 @@ export async function runCrewListCommand(
 						},
 			});
 		} catch {
+			// Invalid candidates are not Crews. Keep them in partial-discovery
+			// evidence without fabricating a product row or exposing a Locator.
 			invalidCandidates += 1;
-			rows.push({
-				locator: candidate.manifestPath,
-				entry: {
-					availability: "unknown",
-					memberCount: 0,
-					observedAt,
-					addressable: false,
-					reason: "invalid-manifest",
-				},
-			});
 		}
 	}
 	const live = await deps.readLiveRuntimes(projectRoot);
@@ -396,7 +388,7 @@ export async function runCrewListCommand(
 			a.locator.localeCompare(b.locator),
 	);
 	const exposed = exposeAmbiguityRecovery(rows);
-	const crews = exposed.slice(0, MAX_OUTPUT_CREWS);
+	const crews = options.full ? exposed : exposed.slice(0, MAX_OUTPUT_CREWS);
 	const omitted = Math.max(0, exposed.length - crews.length);
 	const data = {
 		crews,

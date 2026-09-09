@@ -116,6 +116,29 @@ test("duplicate selectors disclose only deterministic Locator recovery values", 
 	assert.ok(crews.every((crew) => !("sessionId" in crew) && !("socketPath" in crew) && !("requestId" in crew)));
 });
 
+test("malformed candidates do not create eligible rows", async () => {
+	const outcome = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		context(),
+		deps({
+			manifestExists: async () => true,
+			readManifest: async () => {
+				throw new CrewManifestError("invalid-manifest", "bad manifest");
+			},
+		}),
+	);
+	const data = result(outcome).data as {
+		crews: Array<Record<string, unknown>>;
+		total: number;
+		partial: boolean;
+		invalidCandidates: number;
+	};
+	assert.deepEqual(data.crews, []);
+	assert.equal(data.total, 0);
+	assert.equal(data.partial, true);
+	assert.equal(data.invalidCandidates, 2);
+});
+
 test("missing identity remains visible as unaddressable and malformed candidates become partial discovery", async () => {
 	let index = 0;
 	const outcome = await runCrewListCommand(
@@ -139,6 +162,51 @@ test("missing identity remains visible as unaddressable and malformed candidates
 	assert.equal(data.invalidCandidates, 1);
 	assert.equal(data.crews[0]?.availability, "unaddressable");
 	assert.equal(data.crews[0]?.reason, "missing-crew-id");
+});
+
+test("default output truncates omitted rows while --full returns every bounded row", async () => {
+	const runtimes = Array.from({ length: 101 }, (_, index) => ({
+		manifestPath: `/observed/${index.toString().padStart(3, "0")}/.pi/bebop/crew.json`,
+		observedAt: "2026-09-09T12:00:00.000Z",
+		availability: "offline" as const,
+	}));
+	const dependencies = deps({
+		manifestExists: async () => false,
+		readLiveRuntimes: async () => runtimes,
+		readManifest: async () => manifest("same", "Same Crew"),
+	});
+	const truncated = result(
+		await runCrewListCommand({ command: "crew-list", format: "json", full: false }, context(), dependencies),
+	);
+	const truncatedData = truncated.data as { crews: unknown[]; total: number; omitted: number; partial: boolean };
+	assert.equal(truncatedData.total, 101);
+	assert.equal(truncatedData.crews.length, 100);
+	assert.equal(truncatedData.omitted, 1);
+	assert.equal(truncatedData.partial, true);
+
+	const full = result(
+		await runCrewListCommand({ command: "crew-list", format: "json", full: true }, context(), dependencies),
+	);
+	const fullData = full.data as { crews: unknown[]; total: number; omitted: number; partial: boolean };
+	assert.equal(fullData.total, 101);
+	assert.equal(fullData.crews.length, 101);
+	assert.equal(fullData.omitted, 0);
+	assert.equal(fullData.partial, false);
+});
+
+test("no eligible or already-cancelled empty discovery is successful", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	const outcome = await runCrewListCommand(
+		{ command: "crew-list", format: "text", full: false },
+		{ ...context(), signal: controller.signal },
+		deps({ manifestExists: async () => false }),
+	);
+	assert.equal(result(outcome).status, "empty");
+	const data = result(outcome).data as { crews: unknown[]; total: number; omitted: number };
+	assert.deepEqual(data.crews, []);
+	assert.equal(data.total, 0);
+	assert.equal(data.omitted, 0);
 });
 
 test("empty discovery is successful and gives a bounded next step", async () => {
