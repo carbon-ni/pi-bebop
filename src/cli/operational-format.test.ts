@@ -1,11 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
-import { runCli } from "./run.ts";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { Writable } from "node:stream";
-import { createRpcServer, closeRpcServer, writeResponse, type RpcServer } from "../infra/rpc-server.ts";
-import { getSocketPath } from "../infra/intray-paths.ts";
+import type { RpcServer } from "../infra/rpc-server.ts";
+
+const originalHome = process.env.HOME;
+const testHome = await mkdtemp(join(tmpdir(), "pi-bebop-operational-format-"));
+process.env.HOME = testHome;
+
+const { runCli } = await import("./run.ts");
+const { createRpcServer, closeRpcServer, writeResponse } = await import("../infra/rpc-server.ts");
+const { getSocketPath } = await import("../infra/intray-paths.ts");
 
 const SESSION_ID = randomUUID();
 const SESSION_SOCKET = getSocketPath(SESSION_ID);
@@ -27,6 +35,7 @@ async function run(args: readonly string[]): Promise<{ code: number; text: strin
 }
 
 test.before(async () => {
+	await mkdir(dirname(SESSION_SOCKET), { recursive: true });
 	server = await createRpcServer(SESSION_SOCKET, (command, socket) => {
 		writeResponse(socket, {
 			type: "response",
@@ -40,7 +49,9 @@ test.before(async () => {
 
 test.after(async () => {
 	await closeRpcServer(server);
-	await rm(SESSION_SOCKET, { force: true });
+	await rm(testHome, { recursive: true, force: true });
+	if (originalHome === undefined) delete process.env.HOME;
+	else process.env.HOME = originalHome;
 });
 
 const CASES: ReadonlyArray<{ name: string; args: readonly string[]; code: string }> = [
