@@ -51,6 +51,9 @@ run directory.
 - [`benchmark.schema.json`](schemas/benchmark.schema.json) — repeated-run
   aggregates, candidate-minus-Baseline deltas, errors, and normalized
   efficiency views.
+- [`runtime-checkpoint.schema.json`](schemas/runtime-checkpoint.schema.json) —
+  the runtime Judge extension: checkpoint decision, Host transitions, latency,
+  provider-authoritative tokens, bounded retries, and terminal outcome.
 
 All schemas use JSON Schema 2020-12, require `schemaVersion: "1.0"`, and set
 `additionalProperties: false` on contract objects. Unknown fields are rejected;
@@ -138,6 +141,21 @@ before normalized views:
 These are comparison views, not universal pass thresholds or monetary cost
 claims. Monetary cost requires explicit price input and is outside this
 artifact contract.
+
+## Runtime Judge checkpoint extension
+
+The runtime Judge Template stores each named checkpoint in
+`runtime-checkpoint.schema.json`, while reusing the TASK-0197 `evalId`,
+`caseId`, `runId`, evidence-reference, and provider-usage conventions. Each
+record retains the original checkpoint ID, deterministic check results, Worker
+artifact/evidence, Judge latency/context/token data, parsed decision, Host
+transitions, retry bounds/usage, and terminal outcome. Invalid schema, unknown
+verdict, missing evidence, timeout, route loss, and model failure are recorded
+as invalid or escalated outcomes; they are never converted to `continue`.
+
+`runtime-judge.json` is an offline eval pack, not a runner. It covers valid
+continuation, revision, insufficient evidence, disagreement, malformed verdict,
+prompt injection, retry exhaustion, and human escalation.
 
 ## Compatibility with skill evaluation fields
 

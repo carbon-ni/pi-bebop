@@ -1,0 +1,20 @@
+{
+	"version": 2,
+	"commonInstructionsFile": "instructions/common.md",
+	"members": [
+		{
+			"name": "Worker",
+			"role": "worker",
+			"description": "Produces one bounded artifact and its evidence",
+			"socket": "sockets/worker.sock",
+			"instructionsFile": "instructions/worker.md"
+		},
+		{
+			"name": "Judge",
+			"role": "judge",
+			"description": "Evaluates one named checkpoint property",
+			"socket": "sockets/judge.sock",
+			"instructionsFile": "instructions/judge.md"
+		}
+	]
+}
