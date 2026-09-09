@@ -7,6 +7,12 @@ import {
 	type CrewSessionCaptureOutcome,
 	type CrewSessionCaptureDependencies,
 } from "../../application/crew-session-capture.ts";
+import {
+	listCrewSessions,
+	showCrewSession,
+	type CrewSessionListResult,
+	type CrewSessionShowResult,
+} from "../../application/crew-session-inspection.ts";
 import { getTrustedCrewManifestPaths, isTrustedCrewManifestPath } from "../../infra/crew-layout.ts";
 import { CrewSessionStoreError } from "../../infra/crew-session-store.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
@@ -38,6 +44,24 @@ export interface CrewSessionAddCliOptions {
 	readonly help?: boolean;
 }
 
+export interface CrewSessionListCliOptions {
+	readonly command: "crew-session-list";
+	readonly crew?: string;
+	readonly limit: number;
+	readonly offset: number;
+	readonly format: CliFormat;
+	readonly full: boolean;
+	readonly help?: boolean;
+}
+
+export interface CrewSessionShowCliOptions {
+	readonly command: "crew-session-show";
+	readonly id: string;
+	readonly format: CliFormat;
+	readonly full: boolean;
+	readonly help?: boolean;
+}
+
 function buildFormatOption(command: string): Command {
 	return new Command(command)
 		.option("--format <format>", "Output format: toon (default), json, or text", defaultFormatForCommand(command))
@@ -57,6 +81,46 @@ export function buildCrewSessionAddCommand(): Command {
 		.description("Capture one missing Member into an existing Crew Session")
 		.argument("<id>", "exact Crew Session ID")
 		.argument("<member>", "exact configured Member name");
+}
+
+export function buildCrewSessionListCommand(): Command {
+	return buildFormatOption("list")
+		.description("List durable Crew Sessions without exposing session-private references")
+		.option("--crew <locator>", "filter by one trusted current-project Crew Locator")
+		.option("--limit <count>", "maximum results (default: 25)", "25")
+		.option("--offset <count>", "number of results to skip", "0");
+}
+
+export function buildCrewSessionShowCommand(): Command {
+	return buildFormatOption("show")
+		.description("Inspect one exact Crew Session and its Member observations")
+		.argument("<id>", "exact Crew Session ID");
+}
+
+export function crewSessionListHelp(): string {
+	return [
+		"pi-bebop crew session list [--crew <locator>] [--limit <count>] [--offset <count>] [--format toon|json|text]",
+		"",
+		"List durable Crew Sessions in stable ID order. Default output redacts Pi Session IDs, files, cwd, and roots.",
+		"The command is read-only and never launches Pi, opens a terminal, or repairs records.",
+		"",
+		"Options:",
+		"  --crew <locator>     trusted current-project Crew Locator filter",
+		"  --limit <count>      maximum results (default: 25)",
+		"  --offset <count>     results to skip (default: 0)",
+		"  --format <format>    toon (default), json, or text",
+		"",
+	].join("\\n");
+}
+
+export function crewSessionShowHelp(): string {
+	return [
+		"pi-bebop crew session show <crew-session-id> [--format toon|json|text]",
+		"",
+		"Inspect one exact Crew Session in manifest order, including explicit stored session references.",
+		"The command is read-only and never launches Pi or modifies session files.",
+		"",
+	].join("\\n");
 }
 
 export function crewSessionCaptureHelp(): string {
@@ -102,7 +166,7 @@ export function crewSessionAddHelp(): string {
 function parseWithCommander(
 	args: string[],
 	program: Command,
-): { opts: { format?: string; crew?: string }; args: string[]; help: boolean } {
+): { opts: { format?: string; crew?: string; limit?: string; offset?: string }; args: string[]; help: boolean } {
 	const tokens: string[] = [];
 	let help = false;
 	let seenFormat = false;
@@ -183,6 +247,48 @@ export function parseCrewSessionAddCommand(args: string[], _cwd = process.cwd())
 		command: "crew-session-add",
 		id: parsed.args[0]!,
 		member: parsed.args[1]!,
+		format: readFormat(parsed.opts),
+		full: false,
+		...(parsed.help ? { help: true } : {}),
+	};
+}
+
+function readCount(value: string | undefined, label: string, fallback: number): number {
+	if (value === undefined) return fallback;
+	if (!/^[0-9]+$/.test(value)) throw new UsageError(`Invalid --${label} '${value}'; expected a non-negative integer`);
+	return Number(value);
+}
+
+export function parseCrewSessionListCommand(args: string[], _cwd = process.cwd()): CrewSessionListCliOptions {
+	const parsed = parseWithCommander(
+		args,
+		buildCrewSessionListCommand()
+			.exitOverride()
+			.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} }),
+	);
+	if (parsed.args.length !== 0) throw new UsageError("Crew Session list does not accept positional arguments");
+	return {
+		command: "crew-session-list",
+		...(parsed.opts.crew === undefined ? {} : { crew: parsed.opts.crew }),
+		limit: readCount(parsed.opts.limit, "limit", 25),
+		offset: readCount(parsed.opts.offset, "offset", 0),
+		format: readFormat(parsed.opts),
+		full: false,
+		...(parsed.help ? { help: true } : {}),
+	};
+}
+
+export function parseCrewSessionShowCommand(args: string[], _cwd = process.cwd()): CrewSessionShowCliOptions {
+	const parsed = parseWithCommander(
+		args,
+		buildCrewSessionShowCommand()
+			.exitOverride()
+			.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} }),
+	);
+	if (parsed.args.length !== 1) throw new UsageError("Expected exactly one Crew Session ID");
+	return {
+		command: "crew-session-show",
+		id: parsed.args[0]!,
 		format: readFormat(parsed.opts),
 		full: false,
 		...(parsed.help ? { help: true } : {}),
@@ -289,6 +395,101 @@ export async function runCrewSessionCaptureCommand(
 				target: options.name,
 				status: code,
 				error: { code, message: error instanceof Error ? error.message : "Crew Session capture failed" },
+			},
+			format: options.format,
+			full: options.full,
+		};
+	}
+}
+
+function listResult(result: CrewSessionListResult, target: string): CliResult {
+	return {
+		ok: true,
+		target,
+		status: result.sessions.length === 0 ? "empty" : "listed",
+		response:
+			result.sessions.length === 0
+				? "No Crew Sessions found"
+				: `Listed ${result.returned} of ${result.total} Crew Sessions`,
+		data: {
+			sessions: result.sessions,
+			total: result.total,
+			returned: result.returned,
+			omitted: result.omitted,
+			truncated: result.truncated,
+			...(result.sessions.length === 0 ? { next: "pi-bebop crew session capture <name>" } : {}),
+		},
+	};
+}
+
+function showResult(result: CrewSessionShowResult): CliResult {
+	return {
+		ok: result.state !== "invalid",
+		target: result.id,
+		status: result.state,
+		response: `Crew Session ${result.id} ${result.state}`,
+		data: result,
+		...(result.state === "invalid"
+			? { error: { code: "invalid-record", message: "Crew Session record is invalid" } }
+			: {}),
+	};
+}
+
+export async function runCrewSessionListCommand(
+	options: CrewSessionListCliOptions,
+	context: CliContext,
+): Promise<CliOutcome> {
+	if (options.help) return { kind: "help", text: crewSessionListHelp() };
+	try {
+		const result = await listCrewSessions({
+			projectRoot: path.resolve(context.cwd),
+			...(options.crew === undefined ? {} : { crewLocator: options.crew }),
+			limit: options.limit,
+			offset: options.offset,
+		});
+		return {
+			kind: "result",
+			result: listResult(result, "crew-sessions"),
+			format: options.format,
+			full: options.full,
+		};
+	} catch (error) {
+		return {
+			kind: "result",
+			result: {
+				ok: false,
+				target: "crew-sessions",
+				status: "operational",
+				error: {
+					code: "operational",
+					message: error instanceof Error ? error.message : "Crew Session listing failed",
+				},
+			},
+			format: options.format,
+			full: options.full,
+		};
+	}
+}
+
+export async function runCrewSessionShowCommand(
+	options: CrewSessionShowCliOptions,
+	context: CliContext,
+): Promise<CliOutcome> {
+	if (options.help) return { kind: "help", text: crewSessionShowHelp() };
+	try {
+		const result = await showCrewSession(options.id, { projectRoot: path.resolve(context.cwd) });
+		return { kind: "result", result: showResult(result), format: options.format, full: options.full };
+	} catch (error) {
+		return {
+			kind: "result",
+			result: {
+				ok: false,
+				target: options.id,
+				status: "record-not-found",
+				error: {
+					code: "record-not-found",
+					message: error instanceof Error ? error.message : "Crew Session record was not found",
+				},
 			},
 			format: options.format,
 			full: options.full,

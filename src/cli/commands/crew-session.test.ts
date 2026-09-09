@@ -12,8 +12,14 @@ import {
 	crewSessionCaptureHelp,
 	parseCrewSessionAddCommand,
 	parseCrewSessionCaptureCommand,
+	parseCrewSessionListCommand,
+	parseCrewSessionShowCommand,
+	crewSessionListHelp,
+	crewSessionShowHelp,
 	runCrewSessionAddCommand,
 	runCrewSessionCaptureCommand,
+	runCrewSessionListCommand,
+	runCrewSessionShowCommand,
 } from "./crew-session.ts";
 import type { CliContext } from "../support/context.ts";
 import { UsageError } from "../support/arguments.ts";
@@ -115,6 +121,23 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 		"text",
 	);
 	assert.equal(parseCrewSessionAddCommand(["cs_0123456789abcdef", "Alice", "--help"], "/project").help, true);
+	assert.deepEqual(
+		parseCrewSessionListCommand(["--crew", ".pi/bebop/crew.json", "--limit", "10", "--offset=2"], "/project"),
+		{
+			command: "crew-session-list",
+			crew: ".pi/bebop/crew.json",
+			limit: 10,
+			offset: 2,
+			format: "toon",
+			full: false,
+		},
+	);
+	assert.deepEqual(parseCrewSessionShowCommand(["cs_0123456789abcdef", "--format", "json"], "/project"), {
+		command: "crew-session-show",
+		id: "cs_0123456789abcdef",
+		format: "json",
+		full: false,
+	});
 	assert.equal(buildCrewSessionCaptureCommand().name(), "capture");
 	assert.equal(buildCrewSessionAddCommand().name(), "add");
 	assert.deepEqual(
@@ -128,6 +151,40 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 	assert.match(crewSessionCaptureHelp(), /launches Pi/);
 	assert.match(crewSessionCaptureHelp(), /--crew <locator>/);
 	assert.match(crewSessionAddHelp(), /exact currently joined Member/);
+	assert.match(crewSessionListHelp(), /--limit <count>/);
+	assert.match(crewSessionShowHelp(), /explicit stored session references/);
+});
+
+test("crew session list/show handlers are read-only and return bounded failures", async () => {
+	const list = await runCrewSessionListCommand(
+		{ command: "crew-session-list", format: "json", full: false, limit: 25, offset: 0 },
+		context("/tmp"),
+	);
+	assert.equal(list.kind, "result");
+	if (list.kind === "result") {
+		assert.equal(list.result.ok, true);
+		assert.equal(list.result.status, "empty");
+		assert.deepEqual(list.result.data && (list.result.data as { sessions: unknown[] }).sessions, []);
+	}
+	const show = await runCrewSessionShowCommand(
+		{ command: "crew-session-show", id: "cs_missing", format: "toon", full: false },
+		context("/tmp"),
+	);
+	assert.equal(show.kind, "result");
+	if (show.kind === "result") {
+		assert.equal(show.result.ok, false);
+		assert.equal(show.result.status, "record-not-found");
+	}
+	const helpList = await runCrewSessionListCommand(
+		{ command: "crew-session-list", format: "toon", full: false, limit: 25, offset: 0, help: true },
+		context("/tmp"),
+	);
+	assert.deepEqual(helpList, { kind: "help", text: crewSessionListHelp() });
+	const helpShow = await runCrewSessionShowCommand(
+		{ command: "crew-session-show", id: "cs_missing", format: "toon", full: false, help: true },
+		context("/tmp"),
+	);
+	assert.deepEqual(helpShow, { kind: "help", text: crewSessionShowHelp() });
 });
 
 test("crew session parsers reject duplicate, invalid, missing, and excess arguments", () => {

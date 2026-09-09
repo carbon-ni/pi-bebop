@@ -250,6 +250,17 @@ async function loadManifestInstructions(
 	};
 }
 
+export async function readTrustedCrewManifestMetadata(
+	manifestPath: string,
+	projectRoot: string,
+	isProjectTrusted: ManifestTrust,
+	readFile: ReadManifestFile = (filePath, encoding) => fs.readFile(filePath, encoding),
+): Promise<CrewManifest> {
+	checkProjectTrust(isProjectTrusted);
+	const normalizedPath = resolveTrustedManifestPath(manifestPath, projectRoot);
+	return readAndParseManifest(normalizedPath, readFile);
+}
+
 export async function readTrustedCrewManifest(
 	manifestPath: string,
 	projectRoot: string,
