@@ -1,7 +1,7 @@
 ---
 id: TASK-0198
 title: Implement isolated Crew evaluation runner
-status: todo
+status: doing
 depends_on: [TASK-0196, TASK-0197]
 priority: high
 tags: [skill, crew, evaluation, runner, isolation, benchmark, tdd]
