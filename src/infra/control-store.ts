@@ -125,9 +125,13 @@ export type LiveSessionInfo = { sessionId: string; name?: string; aliases: strin
 
 export async function getLiveSessions(signal?: AbortSignal): Promise<LiveSessionInfo[]> {
 	if (signal?.aborted) return [];
-	await ensureControlDir();
-	if (signal?.aborted) return [];
-	const entries = await fs.readdir(CONTROL_DIR, { withFileTypes: true });
+	let entries: import("node:fs").Dirent[];
+	try {
+		entries = await fs.readdir(CONTROL_DIR, { withFileTypes: true });
+	} catch (error) {
+		if (isErrnoException(error) && error.code === "ENOENT") return [];
+		throw error;
+	}
 	if (signal?.aborted) return [];
 	const aliasMap = await getAliasMap();
 	const sessions: LiveSessionInfo[] = [];
