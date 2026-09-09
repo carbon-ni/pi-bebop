@@ -117,7 +117,7 @@ function renderSessionsText(data: ViewModel, sessions: unknown[]): string {
 	for (const item of sessions) {
 		const session = asViewModel(item);
 		if (!session) continue;
-		const id = stringValue(session.sessionId) ?? "unknown";
+		const id = stringValue(session.sessionId) ?? stringValue(session.id) ?? "unknown";
 		const aliases = Array.isArray(session.aliases)
 			? session.aliases.filter((value): value is string => typeof value === "string")
 			: [];

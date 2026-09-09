@@ -41,9 +41,14 @@ export interface CrewSessionStoreOptions {
 	readonly uid?: () => number | undefined;
 }
 
+export type CrewSessionStoreEntry =
+	| { readonly id: string; readonly record: CrewSessionRecord }
+	| { readonly id: string; readonly invalid: true; readonly code: "invalid-record" | "storage-untrusted" };
+
 export interface CrewSessionStore {
 	readonly rootDir: string;
 	readonly list: () => Promise<readonly CrewSessionRecord[]>;
+	readonly listDetailed: () => Promise<readonly CrewSessionStoreEntry[]>;
 	readonly read: (id: string) => Promise<CrewSessionRecord>;
 	readonly write: (record: CrewSessionRecord, options?: { overwrite?: boolean }) => Promise<void>;
 }
@@ -212,34 +217,47 @@ export function getCrewSessionsDir(controlDir = CONTROL_DIR): string {
 export function createCrewSessionStore(options: CrewSessionStoreOptions = {}): CrewSessionStore {
 	const rootDir = path.resolve(options.rootDir ?? getCrewSessionsDir());
 	const uid = options.uid ?? currentUid;
+	const listDetailed = async (): Promise<readonly CrewSessionStoreEntry[]> => {
+		try {
+			await verifyRoot(rootDir, uid);
+		} catch (error) {
+			if (error instanceof CrewSessionStoreError && error.code === "record-not-found") return [];
+			throw error;
+		}
+		let entries: Dirent[];
+		try {
+			entries = await fs.readdir(rootDir, { withFileTypes: true });
+		} catch (error) {
+			throw new CrewSessionStoreError("storage-failed", "Crew Session records could not be listed", error);
+		}
+		const records: CrewSessionStoreEntry[] = [];
+		for (const entry of entries) {
+			if (entry.name === LOCK_FILE || entry.name.startsWith(STAGING_PREFIX)) continue;
+			if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+			const id = entry.name.slice(0, -5);
+			try {
+				records.push({ id, record: await readRecordFile(recordPath(rootDir, id)) });
+			} catch (error) {
+				const code =
+					error instanceof CrewSessionStoreError && error.code === "storage-untrusted"
+						? "storage-untrusted"
+						: "invalid-record";
+				records.push({ id, invalid: true, code });
+			}
+		}
+		return records.sort((left, right) => left.id.localeCompare(right.id));
+	};
 	return {
 		rootDir,
+		listDetailed,
 		async list() {
-			try {
-				await verifyRoot(rootDir, uid);
-			} catch (error) {
-				if (error instanceof CrewSessionStoreError && error.code === "record-not-found") return [];
-				throw error;
-			}
-			let entries: Dirent[];
-			try {
-				entries = await fs.readdir(rootDir, { withFileTypes: true });
-			} catch (error) {
-				throw new CrewSessionStoreError("storage-failed", "Crew Session records could not be listed", error);
-			}
-			const records: CrewSessionRecord[] = [];
-			for (const entry of entries) {
-				if (entry.name === LOCK_FILE || entry.name.startsWith(STAGING_PREFIX)) continue;
-				if (entry.isSymbolicLink())
-					throw new CrewSessionStoreError(
-						"storage-untrusted",
-						`Crew Session storage contains symlink '${entry.name}'`,
-					);
-				if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-				const id = entry.name.slice(0, -5);
-				records.push(await readRecordFile(recordPath(rootDir, id)));
-			}
-			return records.sort((left, right) => left.id.localeCompare(right.id));
+			const entries = await listDetailed();
+			const invalid = entries.find(
+				(entry): entry is Extract<CrewSessionStoreEntry, { invalid: true }> => "invalid" in entry,
+			);
+			if (invalid)
+				throw new CrewSessionStoreError(invalid.code, `Crew Session record '${invalid.id}' is invalid`);
+			return entries.map((entry) => (entry as { record: CrewSessionRecord }).record);
 		},
 		async read(id) {
 			try {

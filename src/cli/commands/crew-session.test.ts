@@ -12,6 +12,10 @@ import {
 	crewSessionCaptureHelp,
 	parseCrewSessionAddCommand,
 	parseCrewSessionCaptureCommand,
+	parseCrewSessionListCommand,
+	parseCrewSessionShowCommand,
+	crewSessionListHelp,
+	crewSessionShowHelp,
 	runCrewSessionAddCommand,
 	runCrewSessionCaptureCommand,
 } from "./crew-session.ts";
@@ -115,6 +119,23 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 		"text",
 	);
 	assert.equal(parseCrewSessionAddCommand(["cs_0123456789abcdef", "Alice", "--help"], "/project").help, true);
+	assert.deepEqual(
+		parseCrewSessionListCommand(["--crew", ".pi/bebop/crew.json", "--limit", "10", "--offset=2"], "/project"),
+		{
+			command: "crew-session-list",
+			crew: ".pi/bebop/crew.json",
+			limit: 10,
+			offset: 2,
+			format: "toon",
+			full: false,
+		},
+	);
+	assert.deepEqual(parseCrewSessionShowCommand(["cs_0123456789abcdef", "--format", "json"], "/project"), {
+		command: "crew-session-show",
+		id: "cs_0123456789abcdef",
+		format: "json",
+		full: false,
+	});
 	assert.equal(buildCrewSessionCaptureCommand().name(), "capture");
 	assert.equal(buildCrewSessionAddCommand().name(), "add");
 	assert.deepEqual(
@@ -128,6 +149,8 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 	assert.match(crewSessionCaptureHelp(), /launches Pi/);
 	assert.match(crewSessionCaptureHelp(), /--crew <locator>/);
 	assert.match(crewSessionAddHelp(), /exact currently joined Member/);
+	assert.match(crewSessionListHelp(), /--limit <count>/);
+	assert.match(crewSessionShowHelp(), /explicit stored session references/);
 });
 
 test("crew session parsers reject duplicate, invalid, missing, and excess arguments", () => {

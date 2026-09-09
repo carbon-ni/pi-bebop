@@ -25,6 +25,7 @@
 		"src/application/member-message.ts",
 		"src/application/member-request-flow.ts",
 		"src/application/crew-session-capture.ts",
+		"src/application/crew-session-inspection.ts",
 		"src/application/presence-observer.ts",
 		"src/application/presence-lifecycle.ts",
 		"src/application/presence-adapter.ts",

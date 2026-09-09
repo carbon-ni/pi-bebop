@@ -94,14 +94,24 @@ import {
 import {
 	buildCrewSessionCaptureCommand,
 	buildCrewSessionAddCommand,
+	buildCrewSessionListCommand,
+	buildCrewSessionShowCommand,
 	crewSessionCaptureHelp,
 	crewSessionAddHelp,
+	crewSessionListHelp,
+	crewSessionShowHelp,
 	parseCrewSessionCaptureCommand,
 	parseCrewSessionAddCommand,
+	parseCrewSessionListCommand,
+	parseCrewSessionShowCommand,
 	runCrewSessionCaptureCommand,
 	runCrewSessionAddCommand,
+	runCrewSessionListCommand,
+	runCrewSessionShowCommand,
 	type CrewSessionCaptureCliOptions,
 	type CrewSessionAddCliOptions,
+	type CrewSessionListCliOptions,
+	type CrewSessionShowCliOptions,
 } from "./commands/crew-session.ts";
 import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./support/arguments.ts";
 import {
@@ -406,6 +416,38 @@ const crewSessionAddLeaf: CliLeaf = {
 	},
 	run: (options, context) => runCrewSessionAddCommand(options as CrewSessionAddCliOptions, context),
 };
+const crewSessionListLeaf: CliLeaf = {
+	id: "crew-session-list",
+	names: ["crew", "session", "list"],
+	build: () => buildCrewSessionListCommand(),
+	help: () => crewSessionListHelp(),
+	parse: (tokens, cwd) => parseCrewSessionListCommand([...tokens], cwd),
+	read: (command) => {
+		const opts = command.opts<{ format?: string; crew?: string; limit?: string; offset?: string }>();
+		return parseCrewSessionListCommand([
+			...(opts.crew === undefined ? [] : ["--crew", opts.crew]),
+			...(opts.limit === undefined ? [] : ["--limit", opts.limit]),
+			...(opts.offset === undefined ? [] : ["--offset", opts.offset]),
+			...(opts.format === undefined ? [] : ["--format", opts.format]),
+		]);
+	},
+	run: (options, context) => runCrewSessionListCommand(options as CrewSessionListCliOptions, context),
+};
+const crewSessionShowLeaf: CliLeaf = {
+	id: "crew-session-show",
+	names: ["crew", "session", "show"],
+	build: () => buildCrewSessionShowCommand(),
+	help: () => crewSessionShowHelp(),
+	parse: (tokens, cwd) => parseCrewSessionShowCommand([...tokens], cwd),
+	read: (command) => {
+		const opts = command.opts<{ format?: string }>();
+		return parseCrewSessionShowCommand([
+			command.args[0]!,
+			...(opts.format === undefined ? [] : ["--format", opts.format]),
+		]);
+	},
+	run: (options, context) => runCrewSessionShowCommand(options as CrewSessionShowCliOptions, context),
+};
 
 /** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
 const crewRolesLeaf: CliLeaf = {
@@ -552,6 +594,8 @@ export function createCliRegistry(): CliRegistry {
 		crewListLeaf,
 		crewSessionCaptureLeaf,
 		crewSessionAddLeaf,
+		crewSessionListLeaf,
+		crewSessionShowLeaf,
 		crewRolesLeaf,
 		memberStatusLeaf,
 		memberIdleWaitLeaf,
