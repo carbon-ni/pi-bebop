@@ -179,10 +179,7 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 		(registry.parseCliCommand(["session", "add", "id", "Alice"], "/p") as { command: string }).command,
 		"session-add",
 	);
-	assert.equal(
-		(registry.parseCliCommand(["session", "list"], "/p") as { command: string }).command,
-		"session-list",
-	);
+	assert.equal((registry.parseCliCommand(["session", "list"], "/p") as { command: string }).command, "session-list");
 	assert.equal(
 		(registry.parseCliCommand(["session", "show", "id"], "/p") as { command: string }).command,
 		"session-show",
