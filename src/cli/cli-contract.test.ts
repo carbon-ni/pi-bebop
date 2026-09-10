@@ -26,7 +26,7 @@ const cwd = "/project";
 // Command tree
 // ---------------------------------------------------------------------------
 
-test("command tree: home, send, crew init, member status, session list, member follow-up, member redirect are the public commands", () => {
+test("command tree: home, send, crew init, member status, session live, member follow-up, member redirect are the public commands", () => {
 	assert.deepEqual(parseCliCommand([], cwd), { command: "home" });
 	assert.equal(parseCliCommand(["send", "--socket", "/x", "--message", "m"], cwd).command, "send");
 	assert.equal(parseCliCommand(["crew", "init"], cwd).command, "crew-init");
@@ -39,7 +39,7 @@ test("command tree: home, send, crew init, member status, session list, member f
 test("usage errors name valid alternatives", () => {
 	assert.throws(
 		() => parseCliCommand(["frobnicate"], cwd),
-		/valid commands: send, crew init, crew list, crew session capture, crew session add, crew session list, crew session show, crew session resolve, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
+		/valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
 	);
 	// send with no target still reports the target requirement (not a framework help dump)
 	assert.throws(() => parseCliCommand(["send"], cwd), /Choose exactly one target/);
@@ -272,7 +272,7 @@ test("TASK-0165 canonical audience samples have measured TOON/JSON parity", () =
 		{
 			result: {
 				ok: true,
-				target: "session list",
+				target: "session live",
 				status: "completed",
 				data: { sessions: [], total: 0 },
 			},
@@ -367,7 +367,7 @@ test("gap: text format is concise plain text, never TOON/JSON keys", async () =>
 	const textUsage = await usageOutput(["bogus", "--format", "text"]);
 	assert.equal(
 		textUsage.trim(),
-		"Invalid command 'bogus'; valid commands: send, crew init, crew list, crew session capture, crew session add, crew session list, crew session show, crew session resolve, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast",
+		"Invalid command 'bogus'; valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast",
 	);
 	assert.ok(!textUsage.includes("ok:") && !textUsage.includes('{"'), "text usage has no structured scaffolding");
 	// success text is a short human line
@@ -453,7 +453,7 @@ test("PO: --session is not a global/root flag today; it must be added as an expl
 	// root-global without a tested contract change.
 	assert.throws(
 		() => parseCliCommand(["--session", "abc", "send", "--socket", "/x", "--message", "m"], cwd),
-		/Invalid command '--session'; valid commands: send, crew init, crew list, crew session capture, crew session add, crew session list, crew session show, crew session resolve, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
+		/Invalid command '--session'; valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
 	);
 });
 

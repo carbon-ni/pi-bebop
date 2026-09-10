@@ -20,8 +20,8 @@ Add read-only list and show commands that identify exact Crew Sessions, revalida
 ## Target commands
 
 ```text
-pi-bebop crew session list [--crew <locator>] [--format toon|json|text]
-pi-bebop crew session show <id> [--format toon|json|text]
+pi-bebop session list [--crew <locator>] [--format toon|json|text]
+pi-bebop session show <id> [--format toon|json|text]
 ```
 
 Names are search/display values. `show` uses stable exact ID; a non-unique name returns ambiguity with candidate IDs rather than guessing.
@@ -29,7 +29,7 @@ Names are search/display values. `show` uses stable exact ID; a non-unique name 
 ## Acceptance criteria
 
 - [ ] List returns stable ID, name, Crew identity, capture time, captured/expected counts, and derived `complete|partial|stale|invalid` summary in deterministic order.
-- [ ] Empty result is explicit and includes copyable `crew session capture` next step.
+- [ ] Empty result is explicit and includes copyable `session capture` next step.
 - [ ] Default list is bounded and reports total versus returned count plus exact continuation/full-list hint when truncated.
 - [ ] Optional exact Crew Locator filter validates trust before reading/filtering and never treats display name as identity.
 - [ ] Show returns manifest-order Member rows with captured/missing state, stored Pi Session identity presence, cwd availability, session-file availability, active-process observation, membership/manifest drift, and exact terminal reason.

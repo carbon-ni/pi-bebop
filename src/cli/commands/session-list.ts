@@ -12,14 +12,16 @@ import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 
 /**
- * TASK-0061: `session list` discovery surface. Bounded, deterministic, and
- * privacy-safe: reports reachable session id, safe aliases, and joined state
- * only. Never messages, prompts, model details, paths, instructions,
- * or tool history. Empty state is explicit with a copyable next step.
+ * TASK-0061 + TASK-0204: `pi-bebop session live` discovery surface. Bounded,
+ * deterministic, and privacy-safe: reports reachable session id, safe aliases,
+ * and joined state only. Never messages, prompts, model details, paths,
+ * instructions, or tool history. Empty state is explicit with a copyable next
+ * step. Renamed from `pi-bebop session list` (TASK-0061) to free the
+ * `session list` command word for the Crew Session list (TASK-0204).
  */
 
 export interface SessionListCliOptions {
-	readonly command: "session-list";
+	readonly command: "session-live";
 	readonly format: CliFormat;
 	readonly help?: boolean;
 }
@@ -38,12 +40,12 @@ const MAX_ALIASES_PER_SESSION = 8;
 const PROBE_TIMEOUT_MS = 500;
 
 export function buildSessionListCommand(): Command {
-	return new Command("list")
+	return new Command("live")
 		.description("List reachable Pi sessions with safe aliases and joined state")
 		.option(
 			"--format <format>",
 			"Output format: toon (default), json, or text",
-			defaultFormatForCommand("session-list"),
+			defaultFormatForCommand("session-live"),
 		)
 		.showHelpAfterError(false)
 		.helpOption(false);
@@ -51,7 +53,7 @@ export function buildSessionListCommand(): Command {
 
 export function sessionListHelp(): string {
 	return [
-		"pi-bebop session list [--format toon|json|text]",
+		"pi-bebop session live [--format toon|json|text]",
 		"",
 		"List reachable Pi sessions: session id, safe aliases, and joined state",
 		"(joined, unjoined, or unknown). Bounded discovery for shell callers;",
@@ -62,6 +64,7 @@ export function sessionListHelp(): string {
 		"  --format <format>   toon (default), json, or text",
 		"",
 		"Use the reported session id as --session <id> for member commands.",
+		"For Crew Session capture/list/show/add/resolve, see: pi-bebop session <sub>",
 		"",
 	].join("\n");
 }
@@ -73,10 +76,10 @@ function isCliFormat(value: string): value is CliFormat {
 }
 
 export function readSessionListCommand(parsed: Command): SessionListCliOptions {
-	const format = (parsed.opts<{ format?: string }>().format ?? defaultFormatForCommand("session-list")) as string;
+	const format = (parsed.opts<{ format?: string }>().format ?? defaultFormatForCommand("session-live")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	return { command: "session-list", format };
+	return { command: "session-live", format };
 }
 
 export function parseSessionListCommand(args: string[], _cwd = process.cwd()): SessionListCliOptions {
@@ -118,10 +121,10 @@ export function parseSessionListCommand(args: string[], _cwd = process.cwd()): S
 		}
 		throw error;
 	}
-	const format = (opts.format ?? defaultFormatForCommand("session-list")) as string;
+	const format = (opts.format ?? defaultFormatForCommand("session-live")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	return { command: "session-list", format: format as CliFormat, ...(help ? { help: true } : {}) };
+	return { command: "session-live", format: format as CliFormat, ...(help ? { help: true } : {}) };
 }
 
 export interface SessionListDependencies {
@@ -194,7 +197,7 @@ export async function runSessionListCommand(
 					sessions: [],
 					total: 0,
 					omitted: 0,
-					next: "start and join a Pi session, then rerun pi-bebop session list",
+					next: "start and join a Pi session, then rerun pi-bebop session live",
 				},
 			},
 			format: options.format,

@@ -20,7 +20,7 @@ Resolve one Crew Session plus exact Member into a validated Pi startup specifica
 ## Target command
 
 ```text
-pi-bebop crew session resolve <crew-session-id> <member> [--format toon|json|text]
+pi-bebop session resolve <crew-session-id> <member> [--format toon|json|text]
 ```
 
 ## Acceptance criteria

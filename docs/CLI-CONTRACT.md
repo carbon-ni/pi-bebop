@@ -32,7 +32,12 @@ Every result-producing leaf supports `--format text|toon|json`. Help and version
 | `member request list` | agent | TOON | text, JSON | choose oldest pending inbound/outbound request |
 | `member request wait` | agent | TOON | text, JSON | consume one terminal Request outcome |
 | `member request respond` | agent | TOON | text, JSON | confirm correlated Response submission |
-| `session list` | automation/diagnostic | TOON | text, JSON | select legacy session target or migrate to Crew discovery |
+| `session capture` | agent | TOON | text, JSON | snapshot joined online Members into a durable Crew Session |
+| `session add` | agent | TOON | text, JSON | capture one missing Member into an existing Crew Session |
+| `session list` | agent | TOON | text, JSON | list durable Crew Sessions (TASK-0204; was `crew session list`) |
+| `session show` | agent | TOON | text, JSON | inspect one exact Crew Session and its Member observations |
+| `session resolve` | agent | TOON | text, JSON | resolve one exact Member to a manual Pi startup specification |
+| `session live` | automation/diagnostic | TOON | text, JSON | list reachable Pi sessions (was `session list`; TASK-0204) |
 | `guest join` | agent | TOON | text, JSON | retain pending/approved Crew membership state |
 | `guest leave` | agent | TOON | text, JSON | confirm exact Crew membership removal/no-op |
 | `guest send` | agent | TOON | text, JSON | inspect authorized direct delivery outcome |
@@ -64,17 +69,23 @@ pi-bebop
 │   └── request send|list|wait|respond
 ├── guest
 │   └── join|leave|send|broadcast
-└── session list                # legacy transport diagnostics
+└── session
+    ├── capture                # Crew Session capture (TASK-0204)
+    ├── add                    # Crew Session member addition
+    ├── list                   # Crew Session listing (canonical)
+    ├── show                   # Crew Session inspection
+    ├── resolve                # Crew Session manual resume
+    └── live                   # live Pi Session discovery (TASK-0061, renamed from `session list`)
 ```
 
-New product workflows belong under `crew`, `member`, or `guest`. `session` and top-level `send` remain compatibility/diagnostic surfaces, not examples for normal Crew coordination.
+`pi-bebop crew session ...` is no longer supported; the rejection leaf returns `UsageError` with the replacement `pi-bebop session <capture|add|list|show|resolve>` (TASK-0204). New product workflows belong under `crew`, `member`, `guest`, or the `session` group above. Top-level `send` remains a compatibility surface.
 
 ## Terms at point of use
 
 Help must use these short definitions where a term first affects a decision. Long comparisons belong in the future `help delivery` guide.
 
 - **Joined Member**: current Pi session has claimed one exact manifest Member identity.
-- **Source session**: legacy live Pi runtime used to send a command. It is transport, not Crew/Member identity; normal name-first recovery must not ask users to choose one.
+- **Source session**: legacy live Pi runtime used to send a command (`pi-bebop session live` is the canonical live Pi Session discovery surface; TASK-0204). It is transport, not Crew/Member identity; normal name-first recovery must not ask users to choose one.
 - **Socket**: explicit local transport endpoint used only by low-level compatibility commands and diagnostics.
 - **Crew Intake**: one-way external → configured Crew contact delivery. It is not Broadcast or Guest membership.
 - **Follow-up**: non-interrupting message; if recipient is busy it queues behind active work.
@@ -145,9 +156,9 @@ These canonical samples were captured before Commander execution migration. Byte
 | --- | ---: | ---: | ---: | --- |
 | four Crew roles | 50 B | 122 B | 186 B | equal |
 | queued Accepted Follow-up | 41 B | 123 B | 135 B | equal |
-| empty session list | 24 B | 79 B | 89 B | equal |
+| empty session list (Crew Sessions, TASK-0204) | 24 B | 79 B | 89 B | equal |
 
-Earlier current-output characterization also found `crew roles` at 296 B TOON versus 37 B text, `session list --format text` losing rows and returning only `Message completed`, and home at 552 B structured output. These defects justify audience-specific presenters; they are not preserved behavior.
+Earlier current-output characterization also found `crew roles` at 296 B TOON versus 37 B text, `session list --format text` (Pi Sessions) losing rows and returning only `Message completed`, and home at 552 B structured output. These defects justify audience-specific presenters; they are not preserved behavior. The Pi Session `session list` was renamed to `session live` (TASK-0204) and `session list` is now the Crew Session list.
 
 Baseline path coverage required before migration tests:
 
@@ -165,7 +176,7 @@ These observations are baseline defects, not claims that current code already sa
 
 - `guest send` and `guest broadcast` currently reuse a parser helper that wrongly requires a positional Member socket although their Commander builders declare none. TASK-0168 must fix this while migrating Guest grammar and add executable happy-path coverage.
 - Leaf `-h`/`--help` is currently disabled or handled by local pre-scanners. TASK-0166–0168 must establish standard Commander help.
-- TASK-0170 closes the prior text presentation gap: `session list --format text` now renders bounded session rows and explicit empty/omitted state, while command-specific receipts remain available through the same text override.
+- TASK-0170 closes the prior text presentation gap: `session live --format text` (Pi Sessions) renders bounded session rows and explicit empty/omitted state, while command-specific receipts remain available through the same text override. The Crew Session `session list` and the Pi Session `session live` follow the same audience-aware text override.
 
 ## Review gate
 

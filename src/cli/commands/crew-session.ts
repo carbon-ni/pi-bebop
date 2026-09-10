@@ -33,7 +33,7 @@ function isCliFormat(value: string): value is CliFormat {
 }
 
 export interface CrewSessionCaptureCliOptions {
-	readonly command: "crew-session-capture";
+	readonly command: "session-capture";
 	readonly name: string;
 	readonly crew?: string;
 	readonly format: CliFormat;
@@ -42,7 +42,7 @@ export interface CrewSessionCaptureCliOptions {
 }
 
 export interface CrewSessionAddCliOptions {
-	readonly command: "crew-session-add";
+	readonly command: "session-add";
 	readonly id: string;
 	readonly member: string;
 	readonly format: CliFormat;
@@ -51,7 +51,7 @@ export interface CrewSessionAddCliOptions {
 }
 
 export interface CrewSessionListCliOptions {
-	readonly command: "crew-session-list";
+	readonly command: "session-list";
 	readonly crew?: string;
 	readonly limit: number;
 	readonly offset: number;
@@ -61,7 +61,7 @@ export interface CrewSessionListCliOptions {
 }
 
 export interface CrewSessionShowCliOptions {
-	readonly command: "crew-session-show";
+	readonly command: "session-show";
 	readonly id: string;
 	readonly format: CliFormat;
 	readonly full: boolean;
@@ -69,7 +69,7 @@ export interface CrewSessionShowCliOptions {
 }
 
 export interface CrewSessionResolveCliOptions {
-	readonly command: "crew-session-resolve";
+	readonly command: "session-resolve";
 	readonly id: string;
 	readonly member: string;
 	readonly format: CliFormat;
@@ -121,7 +121,7 @@ export function buildCrewSessionResolveCommand(): Command {
 
 export function crewSessionListHelp(): string {
 	return [
-		"pi-bebop crew session list [--crew <locator>] [--limit <count>] [--offset <count>] [--format toon|json|text]",
+		"pi-bebop session list [--crew <locator>] [--limit <count>] [--offset <count>] [--format toon|json|text]",
 		"",
 		"List durable Crew Sessions in stable ID order. Default output redacts Pi Session IDs, files, cwd, and roots.",
 		"The command is read-only and never launches Pi, opens a terminal, or repairs records.",
@@ -137,7 +137,7 @@ export function crewSessionListHelp(): string {
 
 export function crewSessionShowHelp(): string {
 	return [
-		"pi-bebop crew session show <crew-session-id> [--format toon|json|text]",
+		"pi-bebop session show <crew-session-id> [--format toon|json|text]",
 		"",
 		"Inspect one exact Crew Session in manifest order, including explicit stored session references.",
 		"The command is read-only and never launches Pi or modifies session files.",
@@ -147,7 +147,7 @@ export function crewSessionShowHelp(): string {
 
 export function crewSessionResolveHelp(): string {
 	return [
-		"pi-bebop crew session resolve <crew-session-id> <member> [--format toon|json|text]",
+		"pi-bebop session resolve <crew-session-id> <member> [--format toon|json|text]",
 		"",
 		"Validate one exact stored Member Session and print a manual Pi startup specification.",
 		"The command never launches Pi, opens a terminal, repairs records, or resumes a Crew.",
@@ -158,7 +158,7 @@ export function crewSessionResolveHelp(): string {
 
 export function crewSessionCaptureHelp(): string {
 	return [
-		"pi-bebop crew session capture <name> [--crew <locator>] [--format toon|json|text]",
+		"pi-bebop session capture <name> [--crew <locator>] [--format toon|json|text]",
 		"",
 		"Explicitly snapshot currently joined online Members into a durable local Crew Session.",
 		"Capture before closing the intended Pi sessions. It never guesses recent sessions,",
@@ -173,15 +173,15 @@ export function crewSessionCaptureHelp(): string {
 		"  --format <format>   toon (default), json, or text",
 		"",
 		"Examples:",
-		'  pi-bebop crew session capture "auth regression"',
-		'  pi-bebop crew session capture "release review" --crew .pi/bebop/crew.json --format text',
+		'  pi-bebop session capture "auth regression"',
+		'  pi-bebop session capture "release review" --crew .pi/bebop/crew.json --format text',
 		"",
 	].join("\n");
 }
 
 export function crewSessionAddHelp(): string {
 	return [
-		"pi-bebop crew session add <crew-session-id> <member> [--format toon|json|text]",
+		"pi-bebop session add <crew-session-id> <member> [--format toon|json|text]",
 		"",
 		"Capture one exact currently joined Member into a partial Crew Session.",
 		"Existing links are never replaced or rewritten. Resolution and process launch",
@@ -191,7 +191,7 @@ export function crewSessionAddHelp(): string {
 		"  --format <format>   toon (default), json, or text",
 		"",
 		"Example:",
-		"  pi-bebop crew session add cs_0123456789abcdef Alice --format text",
+		"  pi-bebop session add cs_0123456789abcdef Alice --format text",
 		"",
 	].join("\n");
 }
@@ -259,7 +259,7 @@ export function parseCrewSessionCaptureCommand(args: string[], _cwd = process.cw
 	);
 	if (parsed.args.length !== 1) throw new UsageError("Expected exactly one Crew Session name");
 	return {
-		command: "crew-session-capture",
+		command: "session-capture",
 		name: parsed.args[0]!,
 		...(parsed.opts.crew === undefined ? {} : { crew: parsed.opts.crew }),
 		format: readFormat(parsed.opts),
@@ -277,7 +277,7 @@ export function parseCrewSessionAddCommand(args: string[], _cwd = process.cwd())
 	);
 	if (parsed.args.length !== 2) throw new UsageError("Expected exact Crew Session ID and Member name");
 	return {
-		command: "crew-session-add",
+		command: "session-add",
 		id: parsed.args[0]!,
 		member: parsed.args[1]!,
 		format: readFormat(parsed.opts),
@@ -301,7 +301,7 @@ export function parseCrewSessionListCommand(args: string[], _cwd = process.cwd()
 	);
 	if (parsed.args.length !== 0) throw new UsageError("Crew Session list does not accept positional arguments");
 	return {
-		command: "crew-session-list",
+		command: "session-list",
 		...(parsed.opts.crew === undefined ? {} : { crew: parsed.opts.crew }),
 		limit: readCount(parsed.opts.limit, "limit", 25),
 		offset: readCount(parsed.opts.offset, "offset", 0),
@@ -320,7 +320,7 @@ export function parseCrewSessionShowCommand(args: string[], _cwd = process.cwd()
 	);
 	if (parsed.args.length !== 1) throw new UsageError("Expected exactly one Crew Session ID");
 	return {
-		command: "crew-session-show",
+		command: "session-show",
 		id: parsed.args[0]!,
 		format: readFormat(parsed.opts),
 		full: false,
@@ -337,7 +337,7 @@ export function parseCrewSessionResolveCommand(args: string[], _cwd = process.cw
 	);
 	if (parsed.args.length !== 2) throw new UsageError("Expected exact Crew Session ID and Member name");
 	return {
-		command: "crew-session-resolve",
+		command: "session-resolve",
 		id: parsed.args[0]!,
 		member: parsed.args[1]!,
 		format: readFormat(parsed.opts),
@@ -468,7 +468,7 @@ function listResult(result: CrewSessionListResult, target: string): CliResult {
 			returned: result.returned,
 			omitted: result.omitted,
 			truncated: result.truncated,
-			...(result.sessions.length === 0 ? { next: "pi-bebop crew session capture <name>" } : {}),
+			...(result.sessions.length === 0 ? { next: "pi-bebop session capture <name>" } : {}),
 		},
 	};
 }
