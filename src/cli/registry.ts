@@ -173,6 +173,12 @@ export interface CliLeaf {
 	readonly read?: (parsed: Command, cwd: string) => unknown;
 	/** Handler adapter — owns this command’s business logic. */
 	readonly run: (options: unknown, context: CliContext) => Promise<CliOutcome>;
+	/**
+	 * Hidden synthetic leaves (e.g. TASK-0204 legacy-path rejection) participate in
+	 * parse dispatch and the root tree but never appear in the public vocabulary,
+	 * home listing, or `valid commands` enumeration.
+	 */
+	readonly hiddenFromVocabulary?: true;
 }
 
 export interface ParsedCommand {
@@ -249,7 +255,9 @@ export function buildRootCommand(leaves: readonly CliLeaf[], hooks: CliCommandHo
  * computed vocabulary so home output derives from the same registry order.
  */
 export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
-	const vocabulary = leaves.filter((leaf) => leaf.names.length > 0).map((leaf) => leaf.names.join(" "));
+	const vocabulary = leaves
+		.filter((leaf) => leaf.names.length > 0 && leaf.hiddenFromVocabulary !== true)
+		.map((leaf) => leaf.names.join(" "));
 	const effectiveLeaves = leaves.map((leaf) =>
 		leaf.id === "home"
 			? {
@@ -388,10 +396,10 @@ const crewListLeaf: CliLeaf = {
 	run: (options, context) => runCrewListCommand(options as CrewListCliOptions, context),
 };
 
-/** TASK-0201: explicit Crew Session capture/add leaves. */
-const crewSessionCaptureLeaf: CliLeaf = {
-	id: "crew-session-capture",
-	names: ["crew", "session", "capture"],
+/** TASK-0201 + TASK-0204: Crew Session capture/add/list/show/resolve leaves renamed under `session ...`. */
+const sessionCaptureLeaf: CliLeaf = {
+	id: "session-capture",
+	names: ["session", "capture"],
 	build: () => buildCrewSessionCaptureCommand(),
 	help: () => crewSessionCaptureHelp(),
 	parse: (tokens, cwd) => parseCrewSessionCaptureCommand([...tokens], cwd),
@@ -405,9 +413,9 @@ const crewSessionCaptureLeaf: CliLeaf = {
 	},
 	run: (options, context) => runCrewSessionCaptureCommand(options as CrewSessionCaptureCliOptions, context),
 };
-const crewSessionAddLeaf: CliLeaf = {
-	id: "crew-session-add",
-	names: ["crew", "session", "add"],
+const sessionAddLeaf: CliLeaf = {
+	id: "session-add",
+	names: ["session", "add"],
 	build: () => buildCrewSessionAddCommand(),
 	help: () => crewSessionAddHelp(),
 	parse: (tokens, cwd) => parseCrewSessionAddCommand([...tokens], cwd),
@@ -421,9 +429,9 @@ const crewSessionAddLeaf: CliLeaf = {
 	},
 	run: (options, context) => runCrewSessionAddCommand(options as CrewSessionAddCliOptions, context),
 };
-const crewSessionListLeaf: CliLeaf = {
-	id: "crew-session-list",
-	names: ["crew", "session", "list"],
+const sessionListLeaf: CliLeaf = {
+	id: "session-list",
+	names: ["session", "list"],
 	build: () => buildCrewSessionListCommand(),
 	help: () => crewSessionListHelp(),
 	parse: (tokens, cwd) => parseCrewSessionListCommand([...tokens], cwd),
@@ -438,9 +446,9 @@ const crewSessionListLeaf: CliLeaf = {
 	},
 	run: (options, context) => runCrewSessionListCommand(options as CrewSessionListCliOptions, context),
 };
-const crewSessionShowLeaf: CliLeaf = {
-	id: "crew-session-show",
-	names: ["crew", "session", "show"],
+const sessionShowLeaf: CliLeaf = {
+	id: "session-show",
+	names: ["session", "show"],
 	build: () => buildCrewSessionShowCommand(),
 	help: () => crewSessionShowHelp(),
 	parse: (tokens, cwd) => parseCrewSessionShowCommand([...tokens], cwd),
@@ -453,9 +461,9 @@ const crewSessionShowLeaf: CliLeaf = {
 	},
 	run: (options, context) => runCrewSessionShowCommand(options as CrewSessionShowCliOptions, context),
 };
-const crewSessionResolveLeaf: CliLeaf = {
-	id: "crew-session-resolve",
-	names: ["crew", "session", "resolve"],
+const sessionResolveLeaf: CliLeaf = {
+	id: "session-resolve",
+	names: ["session", "resolve"],
 	build: () => buildCrewSessionResolveCommand(),
 	help: () => crewSessionResolveHelp(),
 	parse: (tokens, cwd) => parseCrewSessionResolveCommand([...tokens], cwd),
@@ -468,6 +476,33 @@ const crewSessionResolveLeaf: CliLeaf = {
 		]);
 	},
 	run: (options, context) => runCrewSessionResolveCommand(options as CrewSessionResolveCliOptions, context),
+};
+
+/**
+ * TASK-0204: legacy `pi-bebop crew session ...` rejection leaf. Registered with
+ * `names: ["crew", "session"]` so the longest-prefix matcher in the registry
+ * captures every `crew session <sub>` and the bare `crew session` invocation
+ * before any IO. The leaf never reaches transport; it throws a deterministic
+ * UsageError with the exact replacement command.
+ */
+const CREW_SESSION_REJECTED_HINT =
+	"'pi-bebop crew session ...' is no longer supported; use 'pi-bebop session <capture|add|list|show|resolve>'";
+const crewSessionRejectedLeaf: CliLeaf = {
+	id: "crew-session-rejected",
+	names: ["crew", "session"],
+	hiddenFromVocabulary: true,
+	build: () =>
+		new Command("session")
+			.description(CREW_SESSION_REJECTED_HINT)
+			.allowExcessArguments(true)
+			.allowUnknownOption(true),
+	help: () => CREW_SESSION_REJECTED_HINT,
+	parse: () => {
+		throw new UsageError(CREW_SESSION_REJECTED_HINT);
+	},
+	run: () => {
+		throw new UsageError(CREW_SESSION_REJECTED_HINT);
+	},
 };
 
 /** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
@@ -541,10 +576,10 @@ const memberIdleWaitLeaf: CliLeaf = {
 	run: (options, context) => runMemberIdleWaitCommand(options as MemberIdleWaitCliOptions, context),
 };
 
-/** TASK-0061: `session list` leaf — one registry contribution. */
-const sessionListLeaf: CliLeaf = {
-	id: "session-list",
-	names: ["session", "list"],
+/** TASK-0061 + TASK-0204: live Pi Session discovery renamed to `pi-bebop session live`. */
+const sessionLiveLeaf: CliLeaf = {
+	id: "session-live",
+	names: ["session", "live"],
 	build: () => buildSessionListCommand(),
 	help: () => sessionListHelp(),
 	parse: (tokens, cwd) => parseSessionListCommand([...tokens], cwd),
@@ -613,15 +648,16 @@ export function createCliRegistry(): CliRegistry {
 		sendLeaf,
 		crewInitLeaf,
 		crewListLeaf,
-		crewSessionCaptureLeaf,
-		crewSessionAddLeaf,
-		crewSessionListLeaf,
-		crewSessionShowLeaf,
-		crewSessionResolveLeaf,
+		sessionCaptureLeaf,
+		sessionAddLeaf,
+		sessionListLeaf,
+		sessionShowLeaf,
+		sessionResolveLeaf,
+		crewSessionRejectedLeaf,
 		crewRolesLeaf,
 		memberStatusLeaf,
 		memberIdleWaitLeaf,
-		sessionListLeaf,
+		sessionLiveLeaf,
 		memberFollowUpLeaf,
 		memberRedirectLeaf,
 		memberRequestSendLeaf,

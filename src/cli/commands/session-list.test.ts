@@ -57,13 +57,13 @@ const LIVE: FakeStore = {
 // --- parse ---
 
 test("session list parse: default toon, optional --format, --help short-circuit", () => {
-	assert.deepEqual(parseSessionListCommand([]), { command: "session-list", format: "toon" });
-	assert.deepEqual(parseSessionListCommand(["--format", "json"]), { command: "session-list", format: "json" });
+	assert.deepEqual(parseSessionListCommand([]), { command: "session-live", format: "toon" });
+	assert.deepEqual(parseSessionListCommand(["--format", "json"]), { command: "session-live", format: "json" });
 	assert.equal(parseSessionListCommand(["--help"]).help, true);
 	assert.throws(() => parseSessionListCommand(["--format", "toon", "--format", "json"]), /Duplicate flag: --format/);
 	assert.throws(() => parseSessionListCommand(["--help", "--help"]), /Duplicate flag: --help/);
 	assert.throws(() => parseSessionListCommand(["--format"]), /Missing value for --format/);
-	assert.deepEqual(parseSessionListCommand(["--format=json"]), { command: "session-list", format: "json" });
+	assert.deepEqual(parseSessionListCommand(["--format=json"]), { command: "session-live", format: "json" });
 	assert.throws(() => parseSessionListCommand(["--bogus"]), UsageError);
 	assert.throws(() => parseSessionListCommand(["--format", "xml"]), /Invalid --format/);
 });
@@ -71,7 +71,7 @@ test("session list parse: default toon, optional --format, --help short-circuit"
 // --- run ---
 
 test("session list run: live joined/unjoined sessions with safe aliases, exit 0", async () => {
-	const outcome = await runSessionListCommand({ command: "session-list", format: "json" }, context(), deps(LIVE));
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), deps(LIVE));
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, true);
@@ -94,7 +94,7 @@ test("session list run: ordering by primary alias then session id is determinist
 		probeAlive: () => true,
 		statusOf: () => "online",
 	};
-	const outcome = await runSessionListCommand({ command: "session-list", format: "json" }, context(), deps(store));
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), deps(store));
 	if (outcome.kind !== "result") throw new Error("expected result");
 	const sessions = (outcome.result.data as { sessions: SessionListEntry[] }).sessions;
 	assert.deepEqual(
@@ -110,7 +110,7 @@ test("session list run: non-live sockets are skipped, live but unqueryable is un
 		statusOf: () => null,
 		aliases: {},
 	};
-	const outcome = await runSessionListCommand({ command: "session-list", format: "json" }, context(), deps(store));
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), deps(store));
 	if (outcome.kind !== "result") throw new Error("expected result");
 	const sessions = (outcome.result.data as { sessions: SessionListEntry[] }).sessions;
 	assert.equal(sessions.length, 1);
@@ -127,7 +127,7 @@ test("session list run: bound 256 filesystem entries and 100 output sessions", a
 		probeAlive: () => true,
 		statusOf: () => "online",
 	};
-	const outcome = await runSessionListCommand({ command: "session-list", format: "json" }, context(), deps(store));
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), deps(store));
 	if (outcome.kind !== "result") throw new Error("expected result");
 	const data = outcome.result.data as { sessions: SessionListEntry[]; total: number; omitted: number };
 	// 292 entries − 256 scanned = 36 omitted by scan bound; 244 scanned sockets reach the output cap of 100 → 144 more omitted.
@@ -143,7 +143,7 @@ test("session list run: aliases capped at 8 per session", async () => {
 		probeAlive: () => true,
 		statusOf: () => "online",
 	};
-	const outcome = await runSessionListCommand({ command: "session-list", format: "json" }, context(), deps(store));
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), deps(store));
 	if (outcome.kind !== "result") throw new Error("expected result");
 	const sessions = (outcome.result.data as { sessions: SessionListEntry[] }).sessions;
 	assert.equal(sessions.length, 1);
@@ -152,14 +152,14 @@ test("session list run: aliases capped at 8 per session", async () => {
 
 test("session list run: empty store returns empty state with copyable next step, exit 0", async () => {
 	const store: FakeStore = { entries: ["dead.sock"], aliases: {}, probeAlive: () => false, statusOf: () => null };
-	const outcome = await runSessionListCommand({ command: "session-list", format: "json" }, context(), deps(store));
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), deps(store));
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, true);
 	assert.equal(outcome.result.status, "empty");
 	const data = outcome.result.data as { status: string; next: string };
 	assert.equal(data.status, "empty");
-	assert.match(data.next, /pi-bebop session list/);
+	assert.match(data.next, /pi-bebop session live/);
 	assert.equal(render(outcome).exit, 0);
 });
 
@@ -169,7 +169,7 @@ test("session list run: unreadable control store is control-store-unavailable, e
 	broken.readDir = async () => {
 		throw new Error("ENOENT");
 	};
-	const outcome = await runSessionListCommand({ command: "session-list", format: "json" }, context(), broken);
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), broken);
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind !== "result") return;
 	assert.equal(outcome.result.ok, false);
@@ -178,14 +178,14 @@ test("session list run: unreadable control store is control-store-unavailable, e
 });
 
 test("session list run: output never leaks socket paths, focus, or messages", async () => {
-	const outcome = await runSessionListCommand({ command: "session-list", format: "toon" }, context(), deps(LIVE));
+	const outcome = await runSessionListCommand({ command: "session-live", format: "toon" }, context(), deps(LIVE));
 	const text = render(outcome).text;
 	assert.doesNotMatch(text, /\.sock|\.alias|focus|Focus|message|instructions/i);
 });
 
 test("session list run: --help returns deterministic help text", async () => {
 	const outcome = await runSessionListCommand(
-		{ command: "session-list", format: "toon", help: true },
+		{ command: "session-live", format: "toon", help: true },
 		context(),
 		deps(LIVE),
 	);

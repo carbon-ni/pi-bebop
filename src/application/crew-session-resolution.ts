@@ -144,7 +144,7 @@ async function resolveRecord(
 		return failure(
 			"record-not-found",
 			"Crew Session record was not found",
-			"Run `crew session list` and choose an exact ID.",
+			"Run `pi-bebop session list` and choose an exact ID.",
 		);
 	if ("invalid" in entry)
 		return failure(

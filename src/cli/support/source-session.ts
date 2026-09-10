@@ -31,7 +31,7 @@ export type SourceResolution =
 	  }
 	| { readonly ok: false; readonly code: "session-required" | "invalid-session"; readonly message: string };
 
-export const SESSION_LIST_HINT = "pi-bebop session list";
+export const SESSION_LIST_HINT = "pi-bebop session live";
 
 export function resolveSourceSession(input: SourceSessionInput): SourceResolution {
 	const explicit = input.explicitSession;

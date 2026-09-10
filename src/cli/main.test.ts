@@ -508,7 +508,7 @@ test("aborts a held-open stdin read on SIGINT within a bounded deadline", async 
 	}
 });
 
-test("packaged artifact exposes the member status, session list, and crew roles leaves deterministically", async () => {
+test("packaged artifact exposes the member status, session live, and crew roles leaves deterministically", async () => {
 	const artifact = path.resolve("dist/cli/main.js");
 
 	// IO-free usage path: unsafe --session value is usage-class, exit 2.
@@ -527,7 +527,7 @@ test("packaged artifact exposes the member status, session list, and crew roles 
 	// Help paths are deterministic and exit 0.
 	for (const args of [
 		["member", "status", "--help"],
-		["session", "list", "--help"],
+		["session", "live", "--help"],
 		["crew", "roles", "--help"],
 	]) {
 		const child = spawn(process.execPath, [artifact, ...args], { stdio: ["ignore", "pipe", "pipe"] });
@@ -538,7 +538,7 @@ test("packaged artifact exposes the member status, session list, and crew roles 
 		});
 		const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
 		assert.equal(code, 0, args.join(" "));
-		assert.match(stdout, /pi-bebop member status|pi-bebop session list|pi-bebop crew roles/);
+		assert.match(stdout, /pi-bebop member status|pi-bebop session live|pi-bebop crew roles/);
 	}
 });
 
@@ -1294,7 +1294,7 @@ test("unknown command exits 2 with valid alternatives before any IO", async () =
 	assert.equal(code, 2);
 	assert.match(
 		text,
-		/valid commands: send, crew init, crew list, crew session capture, crew session add, crew session list, crew session show, crew session resolve, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
+		/valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
 	);
 });
 
@@ -1421,15 +1421,15 @@ test("no arguments shows compact TOON home state with crew init hint when missin
 			"send",
 			"crew init",
 			"crew list",
-			"crew session capture",
-			"crew session add",
-			"crew session list",
-			"crew session show",
-			"crew session resolve",
+			"session capture",
+			"session add",
+			"session list",
+			"session show",
+			"session resolve",
 			"crew roles",
 			"member status",
 			"member wait-idle",
-			"session list",
+			"session live",
 			"member follow-up",
 			"member redirect",
 			"member request send",

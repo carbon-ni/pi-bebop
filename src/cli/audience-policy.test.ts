@@ -10,7 +10,7 @@ test("every result command's declared default matches the audience matrix", () =
 		"send",
 		"crew-roles",
 		"crew-broadcast",
-		"session-list",
+		"session-live",
 		"member-status",
 		"member-idle-wait",
 		"member-follow-up",
@@ -70,7 +70,7 @@ test("all result command leaves parse explicit format overrides without transpor
 	const commandArgs: readonly (readonly string[])[] = [
 		["send", "--socket", "/tmp/socket.sock", "--message", "hello"],
 		["crew", "roles"],
-		["session", "list"],
+		["session", "live"],
 		["crew", "broadcast", "--message", "hello"],
 		["member", "status", "Bob"],
 		["member", "wait-idle", "Bob"],

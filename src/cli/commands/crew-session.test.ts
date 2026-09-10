@@ -95,7 +95,7 @@ async function project(withBoth = false): Promise<string> {
 // Parser and help contracts.
 test("crew session parsers accept exact names, IDs, formats, and help", () => {
 	assert.deepEqual(parseCrewSessionCaptureCommand(["auth-regression"], "/project"), {
-		command: "crew-session-capture",
+		command: "session-capture",
 		name: "auth-regression",
 		format: "toon",
 		full: false,
@@ -109,7 +109,7 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 		"json",
 	);
 	assert.deepEqual(parseCrewSessionCaptureCommand(["auth", "--help"], "/project"), {
-		command: "crew-session-capture",
+		command: "session-capture",
 		name: "auth",
 		format: "toon",
 		full: false,
@@ -127,7 +127,7 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 	assert.deepEqual(
 		parseCrewSessionListCommand(["--crew", ".pi/bebop/crew.json", "--limit", "10", "--offset=2"], "/project"),
 		{
-			command: "crew-session-list",
+			command: "session-list",
 			crew: ".pi/bebop/crew.json",
 			limit: 10,
 			offset: 2,
@@ -136,13 +136,13 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 		},
 	);
 	assert.deepEqual(parseCrewSessionShowCommand(["cs_0123456789abcdef", "--format", "json"], "/project"), {
-		command: "crew-session-show",
+		command: "session-show",
 		id: "cs_0123456789abcdef",
 		format: "json",
 		full: false,
 	});
 	assert.deepEqual(parseCrewSessionResolveCommand(["cs_0123456789abcdef", "Alice", "--format", "text"], "/project"), {
-		command: "crew-session-resolve",
+		command: "session-resolve",
 		id: "cs_0123456789abcdef",
 		member: "Alice",
 		format: "text",
@@ -168,7 +168,7 @@ test("crew session parsers accept exact names, IDs, formats, and help", () => {
 
 test("crew session resolve handler preserves exact startup fields and help", async () => {
 	const outcome = await runCrewSessionResolveCommand(
-		{ command: "crew-session-resolve", id: "cs_0123456789abcdef", member: "Alice", format: "json", full: false },
+		{ command: "session-resolve", id: "cs_0123456789abcdef", member: "Alice", format: "json", full: false },
 		context("/project"),
 		{
 			resolve: async () => ({
@@ -196,7 +196,7 @@ test("crew session resolve handler preserves exact startup fields and help", asy
 		assert.equal((outcome.result.data as { cwd: string }).cwd, "/project");
 	}
 	const help = await runCrewSessionResolveCommand(
-		{ command: "crew-session-resolve", id: "x", member: "Alice", format: "toon", full: false, help: true },
+		{ command: "session-resolve", id: "x", member: "Alice", format: "toon", full: false, help: true },
 		context("/project"),
 	);
 	assert.deepEqual(help, { kind: "help", text: crewSessionResolveHelp() });
@@ -204,7 +204,7 @@ test("crew session resolve handler preserves exact startup fields and help", asy
 
 test("crew session list/show handlers are read-only and return bounded failures", async () => {
 	const list = await runCrewSessionListCommand(
-		{ command: "crew-session-list", format: "json", full: false, limit: 25, offset: 0 },
+		{ command: "session-list", format: "json", full: false, limit: 25, offset: 0 },
 		context("/tmp"),
 	);
 	assert.equal(list.kind, "result");
@@ -214,7 +214,7 @@ test("crew session list/show handlers are read-only and return bounded failures"
 		assert.deepEqual(list.result.data && (list.result.data as { sessions: unknown[] }).sessions, []);
 	}
 	const show = await runCrewSessionShowCommand(
-		{ command: "crew-session-show", id: "cs_missing", format: "toon", full: false },
+		{ command: "session-show", id: "cs_missing", format: "toon", full: false },
 		context("/tmp"),
 	);
 	assert.equal(show.kind, "result");
@@ -223,12 +223,12 @@ test("crew session list/show handlers are read-only and return bounded failures"
 		assert.equal(show.result.status, "record-not-found");
 	}
 	const helpList = await runCrewSessionListCommand(
-		{ command: "crew-session-list", format: "toon", full: false, limit: 25, offset: 0, help: true },
+		{ command: "session-list", format: "toon", full: false, limit: 25, offset: 0, help: true },
 		context("/tmp"),
 	);
 	assert.deepEqual(helpList, { kind: "help", text: crewSessionListHelp() });
 	const helpShow = await runCrewSessionShowCommand(
-		{ command: "crew-session-show", id: "cs_missing", format: "toon", full: false, help: true },
+		{ command: "session-show", id: "cs_missing", format: "toon", full: false, help: true },
 		context("/tmp"),
 	);
 	assert.deepEqual(helpShow, { kind: "help", text: crewSessionShowHelp() });
@@ -270,7 +270,7 @@ test("capture handler resolves the canonical manifest and preserves structured s
 		let request: unknown;
 		const outcome = await runCrewSessionCaptureCommand(
 			{
-				command: "crew-session-capture",
+				command: "session-capture",
 				name: "auth regression",
 				crew: ".pi/bebop/crew.json",
 				format: "json",
@@ -307,7 +307,7 @@ test("capture handler resolves the canonical manifest and preserves structured s
 test("capture handler handles help, collisions, and operational failures without IO on help", async () => {
 	let called = false;
 	const help = await runCrewSessionCaptureCommand(
-		{ command: "crew-session-capture", name: "x", format: "toon", full: false, help: true },
+		{ command: "session-capture", name: "x", format: "toon", full: false, help: true },
 		context("/missing"),
 		dependencies(async () => {
 			called = true;
@@ -321,7 +321,7 @@ test("capture handler handles help, collisions, and operational failures without
 		for (const [outcome, status] of [
 			[
 				await runCrewSessionCaptureCommand(
-					{ command: "crew-session-capture", name: "x", format: "toon", full: false },
+					{ command: "session-capture", name: "x", format: "toon", full: false },
 					context(root),
 					dependencies(async () => failure("name-collision")),
 				),
@@ -329,7 +329,7 @@ test("capture handler handles help, collisions, and operational failures without
 			],
 			[
 				await runCrewSessionCaptureCommand(
-					{ command: "crew-session-capture", name: "x", format: "toon", full: false },
+					{ command: "session-capture", name: "x", format: "toon", full: false },
 					context(root),
 					dependencies(async () => failure("capture-empty")),
 				),
@@ -337,7 +337,7 @@ test("capture handler handles help, collisions, and operational failures without
 			],
 			[
 				await runCrewSessionCaptureCommand(
-					{ command: "crew-session-capture", name: "x", format: "toon", full: false },
+					{ command: "session-capture", name: "x", format: "toon", full: false },
 					context(root),
 					dependencies(async () => {
 						throw new Error("boom");
@@ -347,7 +347,7 @@ test("capture handler handles help, collisions, and operational failures without
 			],
 			[
 				await runCrewSessionCaptureCommand(
-					{ command: "crew-session-capture", name: "x", format: "toon", full: false },
+					{ command: "session-capture", name: "x", format: "toon", full: false },
 					context(root),
 					dependencies(async () => {
 						throw "boom";
@@ -368,7 +368,7 @@ test("capture handler rejects an untrusted explicit Locator", async () => {
 	const root = await project();
 	try {
 		const outcome = await runCrewSessionCaptureCommand(
-			{ command: "crew-session-capture", name: "x", crew: "/tmp/other/crew.json", format: "toon", full: false },
+			{ command: "session-capture", name: "x", crew: "/tmp/other/crew.json", format: "toon", full: false },
 			context(root),
 			dependencies(async () => success()),
 		);
@@ -381,7 +381,7 @@ test("capture handler rejects an untrusted explicit Locator", async () => {
 
 test("capture handler reports missing and ambiguous trusted layouts", async () => {
 	const missing = await runCrewSessionCaptureCommand(
-		{ command: "crew-session-capture", name: "x", format: "text", full: false },
+		{ command: "session-capture", name: "x", format: "text", full: false },
 		context("/tmp/no-such-bebop-project"),
 		dependencies(async () => success()),
 	);
@@ -390,7 +390,7 @@ test("capture handler reports missing and ambiguous trusted layouts", async () =
 	const root = await project(true);
 	try {
 		const ambiguous = await runCrewSessionCaptureCommand(
-			{ command: "crew-session-capture", name: "x", format: "toon", full: false },
+			{ command: "session-capture", name: "x", format: "toon", full: false },
 			context(root),
 			dependencies(async () => success()),
 		);
@@ -406,7 +406,7 @@ test("add handler uses exact ID/member, supports help, and maps stable failures"
 	try {
 		let request: unknown;
 		const outcome = await runCrewSessionAddCommand(
-			{ command: "crew-session-add", id: "cs_0123456789abcdef", member: "Alice", format: "text", full: false },
+			{ command: "session-add", id: "cs_0123456789abcdef", member: "Alice", format: "text", full: false },
 			context(root),
 			dependencies(
 				async () => success(),
@@ -419,7 +419,7 @@ test("add handler uses exact ID/member, supports help, and maps stable failures"
 		assert.equal(outcome.kind, "result");
 		assert.equal((request as { id: string }).id, "cs_0123456789abcdef");
 		const noSelector = await runCrewSessionAddCommand(
-			{ command: "crew-session-add", id: "cs_0123456789abcdef", member: "Alice", format: "toon", full: false },
+			{ command: "session-add", id: "cs_0123456789abcdef", member: "Alice", format: "toon", full: false },
 			context(root),
 			dependencies(
 				async () => success(),
@@ -430,7 +430,7 @@ test("add handler uses exact ID/member, supports help, and maps stable failures"
 		if (noSelector.kind === "result")
 			assert.equal((noSelector.result.data as { crew: string }).crew, "/project/.pi/bebop/crew.json");
 		const collision = await runCrewSessionAddCommand(
-			{ command: "crew-session-add", id: "cs_0123456789abcdef", member: "Alice", format: "toon", full: false },
+			{ command: "session-add", id: "cs_0123456789abcdef", member: "Alice", format: "toon", full: false },
 			context(root),
 			dependencies(
 				async () => success(),
@@ -440,13 +440,13 @@ test("add handler uses exact ID/member, supports help, and maps stable failures"
 		assert.equal(collision.kind, "result");
 		if (collision.kind === "result") assert.equal(collision.result.status, "member-already-bound");
 		const help = await runCrewSessionAddCommand(
-			{ command: "crew-session-add", id: "id", member: "Alice", format: "toon", full: false, help: true },
+			{ command: "session-add", id: "id", member: "Alice", format: "toon", full: false, help: true },
 			context("/missing"),
 			dependencies(async () => success()),
 		);
 		assert.deepEqual(help, { kind: "help", text: crewSessionAddHelp() });
 		const unknownFailure = await runCrewSessionAddCommand(
-			{ command: "crew-session-add", id: "id", member: "Alice", format: "toon", full: false },
+			{ command: "session-add", id: "id", member: "Alice", format: "toon", full: false },
 			context(root),
 			dependencies(
 				async () => success(),
@@ -458,7 +458,7 @@ test("add handler uses exact ID/member, supports help, and maps stable failures"
 		assert.equal(unknownFailure.kind, "result");
 		if (unknownFailure.kind === "result") assert.equal(unknownFailure.result.status, "operational");
 		const storeFailure = await runCrewSessionAddCommand(
-			{ command: "crew-session-add", id: "id", member: "Alice", format: "toon", full: false },
+			{ command: "session-add", id: "id", member: "Alice", format: "toon", full: false },
 			context(root),
 			dependencies(
 				async () => success(),

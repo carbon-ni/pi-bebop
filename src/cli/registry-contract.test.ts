@@ -68,7 +68,7 @@ test("synthetic nested/top-level leaves work through real parse/help/root/dispat
 	// Unknown commands list the full ordered vocabulary including the new leaves.
 	assert.throws(
 		() => registry.parseCliCommand(["nope"], "/p"),
-		/valid commands: send, crew init, crew list, crew session capture, crew session add, crew session list, crew session show, crew session resolve, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast, ping, crew audit/,
+		/valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast, ping, crew audit/,
 	);
 
 	// Command-tree metadata derives from the registry: top-level leaf + nested leaf under the crew group.
@@ -111,7 +111,7 @@ test("composeRegistry yields deterministic ordered parse/help/dispatch without s
 	);
 	assert.equal(
 		first.vocabulary().join(", "),
-		"send, crew init, crew list, crew session capture, crew session add, crew session list, crew session show, crew session resolve, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast, ping, crew audit",
+		"send, crew init, crew list, session capture, session add, session list, session show, session resolve, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast, ping, crew audit",
 	);
 	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), second.parseCliCommand(["ping", "a"], "/p"));
 	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), first.parseCliCommand(["ping", "a"], "/p"));
@@ -129,15 +129,16 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 			"send",
 			"crew-init",
 			"crew-list",
-			"crew-session-capture",
-			"crew-session-add",
-			"crew-session-list",
-			"crew-session-show",
-			"crew-session-resolve",
+			"session-capture",
+			"session-add",
+			"session-list",
+			"session-show",
+			"session-resolve",
+			"crew-session-rejected",
 			"crew-roles",
 			"member-status",
 			"member-idle-wait",
-			"session-list",
+			"session-live",
 			"member-follow-up",
 			"member-redirect",
 			"member-request-send",
@@ -155,7 +156,7 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	);
 	assert.equal(
 		registry.vocabulary().join(", "),
-		"send, crew init, crew list, crew session capture, crew session add, crew session list, crew session show, crew session resolve, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast",
+		"send, crew init, crew list, session capture, session add, session list, session show, session resolve, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast",
 	);
 	assert.equal((registry.parseCliCommand([], "/p") as { command: string }).command, "home");
 	assert.equal(
@@ -169,7 +170,27 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 		(registry.parseCliCommand(["member", "status", "Kelly"], "/p") as { command: string }).command,
 		"member-status",
 	);
-	assert.equal((registry.parseCliCommand(["session", "list"], "/p") as { command: string }).command, "session-list");
+	assert.equal((registry.parseCliCommand(["session", "live"], "/p") as { command: string }).command, "session-live");
+	assert.equal(
+		(registry.parseCliCommand(["session", "capture", "x"], "/p") as { command: string }).command,
+		"session-capture",
+	);
+	assert.equal(
+		(registry.parseCliCommand(["session", "add", "id", "Alice"], "/p") as { command: string }).command,
+		"session-add",
+	);
+	assert.equal(
+		(registry.parseCliCommand(["session", "list"], "/p") as { command: string }).command,
+		"session-list",
+	);
+	assert.equal(
+		(registry.parseCliCommand(["session", "show", "id"], "/p") as { command: string }).command,
+		"session-show",
+	);
+	assert.equal(
+		(registry.parseCliCommand(["session", "resolve", "id", "Alice"], "/p") as { command: string }).command,
+		"session-resolve",
+	);
 	assert.equal(
 		(registry.parseCliCommand(["member", "follow-up", "Kelly", "--message", "x"], "/p") as { command: string })
 			.command,
@@ -196,7 +217,15 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	);
 	assert.throws(
 		() => registry.parseCliCommand(["bogus"], "/p"),
-		/valid commands: send, crew init, crew list, crew session capture, crew session add, crew session list, crew session show, crew session resolve, crew roles, member status, member wait-idle, session list, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast/,
+		/valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast/,
+	);
+	assert.throws(
+		() => registry.parseCliCommand(["crew", "session", "capture", "x"], "/p"),
+		/'pi-bebop crew session \.\.\.' is no longer supported/,
+	);
+	assert.throws(
+		() => registry.parseCliCommand(["crew", "session"], "/p"),
+		/'pi-bebop crew session \.\.\.' is no longer supported/,
 	);
 
 	// Command-tree metadata derives from the registry: member + session groups exist.
@@ -216,7 +245,13 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	assert.ok(crew!.commands.some((command) => command.name() === "broadcast"));
 	const session = root.commands.find((command) => command.name() === "session");
 	assert.ok(session, "session group derived from registry");
+	assert.ok(session!.commands.some((command) => command.name() === "capture"));
+	assert.ok(session!.commands.some((command) => command.name() === "add"));
 	assert.ok(session!.commands.some((command) => command.name() === "list"));
+	assert.ok(session!.commands.some((command) => command.name() === "show"));
+	assert.ok(session!.commands.some((command) => command.name() === "resolve"));
+	assert.ok(session!.commands.some((command) => command.name() === "live"));
+	assert.ok(!session!.commands.some((command) => command.name() === "session"));
 	const guest = root.commands.find((command) => command.name() === "guest");
 	assert.ok(guest, "guest group derived from registry");
 	assert.ok(guest!.commands.some((command) => command.name() === "join"));
@@ -232,15 +267,15 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 		"send",
 		"crew init",
 		"crew list",
-		"crew session capture",
-		"crew session add",
-		"crew session list",
-		"crew session show",
-		"crew session resolve",
+		"session capture",
+		"session add",
+		"session list",
+		"session show",
+		"session resolve",
 		"crew roles",
 		"member status",
 		"member wait-idle",
-		"session list",
+		"session live",
 		"member follow-up",
 		"member redirect",
 		"member request send",
