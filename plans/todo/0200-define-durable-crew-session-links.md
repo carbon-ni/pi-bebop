@@ -21,12 +21,12 @@ Define a **Crew Session** as an explicit, named, machine-local link between one 
 
 ```text
 # While the intended Member sessions are online
-pi-bebop crew session capture "auth regression"
+pi-bebop session capture "auth regression"
 
 # After every process/tab has closed
-pi-bebop crew session list
-pi-bebop crew session show <crew-session>
-pi-bebop crew session resolve <crew-session> <member>
+pi-bebop session list
+pi-bebop session show <crew-session>
+pi-bebop session resolve <crew-session> <member>
 # user runs the returned exact Pi command in a chosen terminal
 ```
 
@@ -46,7 +46,7 @@ pi-bebop crew session resolve <crew-session> <member>
 - [ ] Each captured Member link records exact configured Member name/role, full Pi Session ID, persisted session-file reference, session working directory, and capture time; it never stores conversation content, credentials, provider tokens, Inbox content, or Role instruction text.
 - [ ] Capture is explicit and observes only currently joined Members belonging to exact Crew; no latest-session or timestamp inference exists.
 - [ ] Default capture may be `complete` or `partial`. Offline, unavailable, ephemeral, malformed, wrong-Crew, or unpersisted Members remain named with exact reasons and are never silently omitted.
-- [ ] Partial capture is durable and `crew session add <id> <member>` can add one previously missing exact Member later without changing other links. Replacing an existing different binding is deferred; it fails explicitly and requires a new Crew Session capture.
+- [ ] Partial capture is durable and `session add <id> <member>` can add one previously missing exact Member later without changing other links. Replacing an existing different binding is deferred; it fails explicitly and requires a new Crew Session capture.
 - [ ] A capture with zero valid Member links is `capture-empty`, exits 1, and writes no record. Partial success requires at least one valid link and remains exit 0 with every missing Member reason.
 - [ ] Exact recapture of same binding is idempotent. Duplicate Crew Session names require exact ID selection and never choose first/most recent.
 - [ ] Records live under a dedicated `crew-sessions/` directory within machine-local Bebop control state, outside repository and manifest. On POSIX, directory creation is `0700`, records are `0600`, current-user ownership is required, and any symlink, foreign owner, or group/world-writable root/record fails closed. Writes use private same-directory staging plus atomic publication and are never added by scaffold behavior.

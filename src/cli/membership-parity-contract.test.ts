@@ -513,14 +513,14 @@ test("per-tool exit shapes are closed: success 0, broadcast partial 1", () => {
 	}
 });
 
-test("session-list ordering and recovery next-step are explicit", () => {
+test("session-live ordering and recovery next-step are explicit", () => {
 	assert.match(contract.sessionList.ordering, /lexical/);
 	assert.match(contract.sessionList.ordering, /session id/);
 	assert.match(String(contract.sessionList.empty.next), /start and join/);
-	assert.equal(contract.sourceSelection.recoveryHint, "pi-bebop session list");
+	assert.equal(contract.sourceSelection.recoveryHint, "pi-bebop session live");
 });
 
-test("limits and defaults match the Message Payload and session-list contracts", () => {
+test("limits and defaults match the Message Payload and session-live contracts", () => {
 	assert.deepEqual(contract.sessionList.bounds, {
 		maxFilesystemEntries: 256,
 		maxOutputSessions: 100,
@@ -565,7 +565,7 @@ test("session-list truncation and classified alias privacy are explicit", () => 
 	assertArrayEqualSets(
 		contract.sessionList.truncation.topLevelOutput,
 		["sessions", "total", "omitted"],
-		"session list top-level output",
+		"session live top-level output",
 	);
 	assert.match(contract.sessionList.truncation.omittedZero, /0/);
 	assert.equal(contract.sessionList.empty.omitted, 0);
@@ -662,7 +662,7 @@ test("source selection is leaf-local, explicit-first, bounded, discoverable, and
 	assert.match(contract.sourceSelection.environmentRule, /exact session id only, never an alias/);
 	assert.equal(contract.sourceSelection.environmentFallback, "PI_SESSION_ID");
 	assert.equal(contract.sourceSelection.maxUtf8Bytes, 256);
-	assert.equal(contract.sourceSelection.recoveryHint, "pi-bebop session list");
+	assert.equal(contract.sourceSelection.recoveryHint, "pi-bebop session live");
 	assert.deepEqual(contract.sourceSelection.errors, [
 		"session-required",
 		"invalid-session",
@@ -676,7 +676,7 @@ test("source selection is leaf-local, explicit-first, bounded, discoverable, and
 		"transport-error",
 	]);
 
-	assert.equal(contract.sessionList.command, "pi-bebop session list [--format toon|json|text]");
+	assert.equal(contract.sessionList.command, "pi-bebop session live [--format toon|json|text]");
 	assert.equal(contract.sessionList.requiresSourceSession, false);
 	assert.equal(contract.sessionList.mutates, false);
 	assert.deepEqual(contract.sessionList.fields, ["sessionId", "aliases", "membership"]);

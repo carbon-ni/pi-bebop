@@ -16,8 +16,8 @@ import type { CliOutcome } from "../support/output.ts";
  * deterministic, and privacy-safe: reports reachable session id, safe aliases,
  * and joined state only. Never messages, prompts, model details, paths,
  * instructions, or tool history. Empty state is explicit with a copyable next
- * step. Renamed from `pi-bebop session list` to free the `session list`
- * command word for the Crew Session list (TASK-0204).
+ * step. Renamed from `pi-bebop session list` (TASK-0061) to free the
+ * `session list` command word for the Crew Session list (TASK-0204).
  */
 
 export interface SessionListCliOptions {

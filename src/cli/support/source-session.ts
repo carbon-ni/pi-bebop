@@ -2,11 +2,12 @@ import { getAliasPath, getSocketPath } from "../../infra/intray-paths.ts";
 import { isSafeAlias, isSafeSessionId } from "../../domain/index.ts";
 
 /**
- * TASK-0061: leaf-command-local source-session resolution. Deterministic and
- * IO-free: explicit `--session <id|alias>` wins; an unsafe/oversized explicit
- * value never falls back; without the flag, a safe exact `PI_SESSION_ID` is
- * used (never an alias); without either, `session-required` with the copyable
- * `pi-bebop session list` hint.
+ * TASK-0061 + TASK-0204: leaf-command-local source-session resolution.
+ * Deterministic and IO-free: explicit `--session <id|alias>` wins; an
+ * unsafe/oversized explicit value never falls back; without the flag, a safe
+ * exact `PI_SESSION_ID` is used (never an alias); without either,
+ * `session-required` with the copyable `pi-bebop session live` hint (the live
+ * Pi Session discovery surface; was `pi-bebop session list` before TASK-0204).
  *
  * Id-versus-alias cannot be decided without IO, so the pure stage returns both
  * candidate paths: the session-id socket first, then the alias symlink. The

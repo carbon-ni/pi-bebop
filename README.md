@@ -105,15 +105,15 @@ Capture before closing the intended Member sessions, then inspect and resolve
 one Member at a time later:
 
 ```bash
-pi-bebop crew session capture "auth regression"
-pi-bebop crew session list
-pi-bebop crew session show <crew-session-id>
-pi-bebop crew session resolve <crew-session-id> <member>
+pi-bebop session capture "auth regression"
+pi-bebop session list
+pi-bebop session show <crew-session-id>
+pi-bebop session resolve <crew-session-id> <member>
 # review the returned argv/cwd, then run the shell-escaped command manually
 ```
 
 Capture never guesses a latest session and keeps explicit missing reasons for
-Members it cannot validate. `crew session add <id> <member>` fills one missing
+Members it cannot validate. `session add <id> <member>` fills one missing
 link without replacing existing bindings. Resolution validates the exact case-sensitive Member, trusted manifest, supported
 Pi Session header, branch-aware active Membership, cwd, endpoint, and current
 process observation. A live endpoint returns `already-open`; an unreachable

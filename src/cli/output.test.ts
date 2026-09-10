@@ -123,11 +123,11 @@ test("text presents session rows, aliases, membership, totals, and omissions", (
 	assert.equal(text, "Sessions (3):\n- s-1 (alpha, project) — joined\n- s-2 — unknown\nOmitted: 1");
 	assert.match(
 		renderCliResult(
-			{ ok: true, target: "", status: "empty", data: { sessions: [], total: 0, next: "run session list" } },
+			{ ok: true, target: "", status: "empty", data: { sessions: [], total: 0, next: "run session live" } },
 			"text",
 			false,
 		),
-		/^No sessions found \(total: 0\)\. run session list$/,
+		/^No sessions found \(total: 0\)\. run session live$/,
 	);
 });
 

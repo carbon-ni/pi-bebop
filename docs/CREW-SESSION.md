@@ -14,14 +14,17 @@ liveness claim.
 
 ```text
 # While the intended Members are online:
-pi-bebop crew session capture "auth regression"
+pi-bebop session capture "auth regression"
 
 # Later, after processes or tabs close:
-pi-bebop crew session list
-pi-bebop crew session show <crew-session-id>
-pi-bebop crew session resolve <crew-session-id> <member>
+pi-bebop session list
+pi-bebop session show <crew-session-id>
+pi-bebop session resolve <crew-session-id> <member>
 # The user runs the returned exact Pi command in a chosen terminal.
 ```
+
+`pi-bebop crew session ...` is no longer supported; it returns `UsageError` with
+the replacement hint `pi-bebop session <capture|add|list|show|resolve>` (TASK-0204).
 
 Bebop never launches the whole Crew, opens a terminal, chooses a latest or
 most-recent session, or infers a relationship from timestamps, branches, roles,
@@ -118,7 +121,7 @@ uses a timestamp, follows a copied extension entry, or falls back from a
 custom session root to a default root. At least one valid link is required for
 an exit-0 `complete` or `partial` record.
 
-`crew session add <crew-session-id> <member>` requires the exact stable Crew
+`session add <crew-session-id> <member>` requires the exact stable Crew
 Session ID and exact case-sensitive configured Member name. It validates and
 captures only that previously missing Member. It is atomic: existing links,
 missing reasons, name, Crew identity, and capture history are not rewritten by
@@ -187,13 +190,13 @@ manifest, or deleted because a process closed.
 
 ## Inspection and manual resolution
 
-`crew session list` is read-only and returns bounded records in deterministic
+`session list` is read-only and returns bounded records in deterministic
 ID order, with total/returned/truncation metadata. Its default fields are ID,
 name, Crew public identity, capture time, expected/captured counts, and one of
 `complete`, `partial`, `stale`, or `invalid`. An empty result includes the
-copyable next step `pi-bebop crew session capture <name>`.
+copyable next step `pi-bebop session capture <name>`.
 
-`crew session show <crew-session-id>` requires the exact stable ID and returns
+`session show <crew-session-id>` requires the exact stable ID and returns
 manifest-order Member rows. It validates record schema and integrity without
 opening conversation bodies. It may show explicit session reference fields
 needed for inspection, current cwd/session-file availability, active-process

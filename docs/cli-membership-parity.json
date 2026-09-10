@@ -70,10 +70,10 @@
       "aborted",
       "transport-error"
     ],
-    "recoveryHint": "pi-bebop session list"
+    "recoveryHint": "pi-bebop session live"
   },
   "sessionList": {
-    "command": "pi-bebop session list [--format toon|json|text]",
+    "command": "pi-bebop session live [--format toon|json|text]",
     "requiresSourceSession": false,
     "mutates": false,
     "defaultFormat": "toon",
@@ -124,7 +124,7 @@
       "sessions": [],
       "total": 0,
       "omitted": 0,
-      "next": "start and join a Pi session, then rerun pi-bebop session list"
+      "next": "start and join a Pi session, then rerun pi-bebop session live"
     },
     "successStatus": "listed",
     "operationalErrors": [

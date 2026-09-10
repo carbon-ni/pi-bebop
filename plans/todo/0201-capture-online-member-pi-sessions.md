@@ -20,8 +20,8 @@ Add one explicit capture flow that queries each configured Member through its tr
 ## Target command
 
 ```text
-pi-bebop crew session capture <name> [--crew <locator>] [--format toon|json|text]
-pi-bebop crew session add <crew-session-id> <member> [--format toon|json|text]
+pi-bebop session capture <name> [--crew <locator>] [--format toon|json|text]
+pi-bebop session add <crew-session-id> <member> [--format toon|json|text]
 ```
 
 The command defaults to the canonical Crew in current trusted project. It does not prompt, launch Pi, or require all Members online.
@@ -40,7 +40,7 @@ The command defaults to the canonical Crew in current trusted project. It does n
 - [ ] Capture records complete/partial state plus a reason for every configured Member; offline/unavailable members never block recording valid links when at least one link succeeds. Zero valid links returns `capture-empty`, exits 1, and leaves no record.
 - [ ] New record publication uses private parent directory, restrictive file mode, same-directory staging, atomic rename, fsync where supported, and cleanup on failure.
 - [ ] Name collisions return matching bounded IDs and require exact ID; exact repeated capture is an unchanged success, while conflicting Member binding returns `member-already-bound` and never overwrites. Replacement is deferred; user creates a new Crew Session when a different binding is intended.
-- [ ] `crew session add <id> <member>` requires exact stable Crew Session ID and exact configured Member name, captures that Member through same validation path, and atomically fills only a missing link. Exact repeat is unchanged; another Member or existing binding is untouched.
+- [ ] `session add <id> <member>` requires exact stable Crew Session ID and exact configured Member name, captures that Member through same validation path, and atomically fills only a missing link. Exact repeat is unchanged; another Member or existing binding is untouched.
 - [ ] Adding a missing Member is atomic and cannot alter other bindings. Concurrent capture/add operations serialize or reject deterministically without lost updates.
 - [ ] Default TOON reports Crew Session ID/name, Crew, complete/partial state, captured count, missing Member reasons, and next `show` command without exposing raw dependency errors.
 - [ ] Exit 0 means record created/unchanged/extended with at least one valid link, exit 1 means operational failure or `capture-empty`, and exit 2 means usage error; partial capture is exit 0 with explicit `partial: true`.
