@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { CrewManifest, CrewMember, RpcCommandResponse } from "../domain/index.ts";
-import { createMemberMessageCoordinator, type MemberMessageDependencies } from "./member-message.ts";
+import {
+	createMemberMessageCoordinator,
+	MemberMessageError,
+	type MemberMessageDependencies,
+} from "./member-message.ts";
 import { submitCrewBroadcast, type CrewBroadcastApplicationError } from "./crew-broadcast.ts";
 
 type Call = { endpoint: string; command: Record<string, unknown> };
@@ -98,6 +102,24 @@ describe("submitCrewBroadcast", () => {
 		assert.equal(result.dispositions[1]!.code, "offline");
 		assert.equal(result.dispositions[2]!.code, "transport-error");
 		assert.deepEqual(result.summary, { delivered: 1, failed: 2, total: 3 });
+	});
+
+	test("classifies typed, aborted, offline, and timeout delivery failures", async () => {
+		const failures = new Map<string, Error>([
+			["/crew/tony.sock", new MemberMessageError("remote-rejected", "rejected")],
+			["/crew/mary.sock", Object.assign(new Error("cancelled"), { name: "AbortError" })],
+			["/crew/kelly.sock", Object.assign(new Error("not connected"), { code: "ENOTCONN" })],
+		]);
+		const result = await submitCrewBroadcast(
+			{ membership: membership(), message: "hello" },
+			dependencies([], failures),
+		);
+		assert.equal(result.ok, true);
+		if (result.ok)
+			assert.deepEqual(
+				result.dispositions.map((item) => item.code),
+				["remote-rejected", "aborted", "offline"],
+			);
 	});
 
 	test("busy targets use ordinary queued Follow-up delivery, never immediate delivery", async () => {
