@@ -20,7 +20,7 @@ const codingAgentPackage = JSON.parse(
  * together when the supported Pi package changes.
  */
 test("pinned Pi SessionManager exposes capture metadata through ExtensionContext", async () => {
-	assert.equal(codingAgentPackage.version, "0.84.2");
+	assert.equal(codingAgentPackage.version, "0.84.4");
 	const cwd = await mkdtemp(path.join("/tmp", "bebop-session-compat-cwd-"));
 	const sessionRoot = await mkdtemp(path.join("/tmp", "bebop-session-compat-root-"));
 	try {
