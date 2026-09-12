@@ -6,12 +6,12 @@ import { tmpdir } from "node:os";
 import type { CliContext } from "../support/context.ts";
 import { defaultCrewListDependencies, runCrewListCommand, type CrewListCliOptions } from "./crew-list.ts";
 
-function context(cwd: string): CliContext {
+function context(cwd: string, signal = new AbortController().signal): CliContext {
 	return {
 		cwd,
 		input: process.stdin,
 		output: process.stdout,
-		signal: new AbortController().signal,
+		signal,
 		environment: {},
 	};
 }
@@ -157,6 +157,22 @@ test("crew list merges live and observed records with bounded availability", asy
 			data.crews.find((crew) => crew.lastSeenAt !== undefined),
 			undefined,
 		);
+	}
+});
+
+test("crew list reports cancellation before discovery IO", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	const outcome = await runCrewListCommand(options, context("/project", controller.signal), {
+		...defaultCrewListDependencies,
+		manifestExists: async () => {
+			throw new Error("manifest discovery should not run after cancellation");
+		},
+	});
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") {
+		assert.equal(outcome.result.status, "empty");
+		assert.equal((outcome.result.data as { discovery: string }).discovery, "cancelled");
 	}
 });
 
