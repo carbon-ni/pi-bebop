@@ -11,7 +11,12 @@ import {
 	parseMemberRequestWaitCommand,
 } from "./commands/member-request.ts";
 import { parseMemberStatusCommand } from "./commands/member-status.ts";
-import { buildSessionListCommand, parseSessionListCommand, readSessionListCommand } from "./commands/session-list.ts";
+import {
+	buildSessionListCommand,
+	defaultSessionListDependencies,
+	parseSessionListCommand,
+	readSessionListCommand,
+} from "./commands/session-list.ts";
 import { buildCrewRolesCommand, parseCrewRolesCommand, readCrewRolesCommand } from "./commands/crew-roles.ts";
 
 const message = ["--message", "hello"] as const;
@@ -90,6 +95,11 @@ test("TASK-0193 parser seams cover durable and guest validation branches", () =>
 			),
 		/Missing value/,
 	);
+});
+
+test("TASK-0193 default session reader seams fail closed", async () => {
+	assert.equal(await defaultSessionListDependencies.readAliasTarget("/definitely-missing.alias"), null);
+	assert.equal(await defaultSessionListDependencies.queryStatus("/definitely-missing.sock"), null);
 });
 
 test("TASK-0193 parser seams cover session and role format/error paths", () => {
