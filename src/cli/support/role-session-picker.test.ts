@@ -46,3 +46,11 @@ test("aborting the picker cancels and closes the readline session", async () => 
 	assert.deepEqual(await result, { kind: "cancelled" });
 	input.end();
 });
+
+test("unexpected picker option failures are treated as cancellation", async () => {
+	const input = new PassThrough();
+	const output = new PassThrough();
+	const result = pickRoleSession([candidate], input, output, {} as AbortSignal);
+	assert.deepEqual(await result, { kind: "cancelled" });
+	input.end();
+});
