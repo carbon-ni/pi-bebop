@@ -39,6 +39,20 @@ test("interrupt evidence ignores malformed records and finds the latest valid ph
 	assert.equal(latestInterruptEvidence([]), null);
 	assert.equal(hasPendingInterrupt([valid], "Bob"), true);
 	assert.equal(hasPendingInterrupt([{ ...valid, data: { ...valid.data, phase: "handed-off" } }], "Bob"), false);
+	const timed = latestInterruptEvidence([{ ...valid, data: { ...valid.data, deliveredAt: 200, sentAt: 100 } }]);
+	assert.equal(timed?.deliveredAt, 200);
+	assert.equal(timed?.sentAt, 100);
+	for (const data of [
+		{ ...valid.data, phase: "unknown" },
+		{ ...valid.data, interruptId: "" },
+		{ ...valid.data, senderRole: "" },
+		{ ...valid.data, abortRequested: "yes" },
+		{ ...valid.data, deliveredAt: "later" },
+		{ ...valid.data, sentAt: -1 },
+	]) {
+		assert.equal(latestInterruptEvidence([{ ...valid, data }]), null);
+	}
+	assert.equal(hasPendingInterrupt([{ ...valid, data: { ...valid.data, targetName: "Alice" } }], "Bob"), false);
 });
 
 interface Surface {
