@@ -192,6 +192,21 @@ test("approved Guests join the transient recipient set after Members, in registr
 	}
 });
 
+test("timed-out Guests remain failed without Inbox fallback", async () => {
+	const result = await submitCrewBroadcast(
+		{
+			membership: membership("Bob"),
+			message: "crew update",
+			approvedGuests: [
+				{ guestName: "Alex", guestIdentity: "guest-a", callbackEndpoint: "/tmp/alex-callback.sock" },
+			],
+		},
+		dependencies([], new Map([["/tmp/alex-callback.sock", new Error("request timed out")]])),
+	);
+	assert.ok(result.ok);
+	if (result.ok) assert.equal(result.dispositions.at(-1)?.code, "timeout");
+});
+
 test("offline Guests fail explicitly in the dispositions without Inbox fallback", async () => {
 	const failures = new Map<string, Error>([
 		["/tmp/alex-callback.sock", Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })],
