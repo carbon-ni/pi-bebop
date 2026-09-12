@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { parseCrewManifest } from "../domain/index.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
 import { createGuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
+import { manifestFingerprint } from "../infra/crew-session-store.ts";
 import {
 	appendMembershipContext,
 	formatMembershipContext,
 	getLatestMembershipState,
 	MEMBERSHIP_ENTRY_TYPE,
 	membershipStateFromRuntime,
+	MEMBERSHIP_SNAPSHOT_VERSION,
 	appendGuestMembershipContext,
 } from "./membership-context.ts";
 
@@ -50,6 +52,10 @@ test("restores latest branch-aware active or inactive membership state", () => {
 		active: true,
 		socketPath: membership.socketPath,
 		manifestPath,
+		snapshotVersion: MEMBERSHIP_SNAPSHOT_VERSION,
+		memberName: "dev",
+		memberRole: "developer",
+		manifestFingerprint: manifestFingerprint(membership.manifest),
 	});
 });
 

@@ -149,6 +149,7 @@ export function createCliExecutionAdapter(registry: CliRegistry) {
 					input: request.input,
 					signal: request.signal,
 					environment: request.environment,
+					output: request.output,
 				};
 				dispatched = await leaf.run(options, context);
 			});

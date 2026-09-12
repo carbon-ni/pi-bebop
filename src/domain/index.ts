@@ -30,3 +30,4 @@ export * from "./guest-registry.ts";
 
 export * from "./guest-control.ts";
 export * from "./crew-session.ts";
+export * from "./membership-snapshot.ts";

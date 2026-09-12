@@ -138,6 +138,13 @@ import {
 } from "./commands/member-request.ts";
 import type { CliContext } from "./support/context.ts";
 import type { CliOutcome } from "./support/output.ts";
+import {
+	buildRoleSessionResumeCommand,
+	parseRoleSessionResumeCommand,
+	roleSessionResumeHelp,
+	runRoleSessionResumeCommand,
+	type RoleSessionResumeCliOptions,
+} from "./commands/role-session-resume.ts";
 
 /**
  * TASK-0063: the single owned CLI composition point (PO sequencing review,
@@ -505,6 +512,23 @@ const crewSessionRejectedLeaf: CliLeaf = {
 	},
 };
 
+/** TASK-0206: current-Crew role-scoped Pi Session picker. */
+const sessionResumeLeaf: CliLeaf = {
+	id: "session-resume",
+	names: ["session", "resume"],
+	build: () => buildRoleSessionResumeCommand(),
+	help: () => roleSessionResumeHelp(),
+	parse: (tokens, cwd) => parseRoleSessionResumeCommand(tokens, cwd),
+	read: (command) => {
+		const options = command.opts<{ role?: string; format?: string }>();
+		return parseRoleSessionResumeCommand([
+			...(options.role === undefined ? [] : ["--role", options.role]),
+			...(options.format === undefined ? [] : ["--format", options.format]),
+		]);
+	},
+	run: (options, context) => runRoleSessionResumeCommand(options as RoleSessionResumeCliOptions, context),
+};
+
 /** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
 const crewRolesLeaf: CliLeaf = {
 	id: "crew-roles",
@@ -653,6 +677,7 @@ export function createCliRegistry(): CliRegistry {
 		sessionListLeaf,
 		sessionShowLeaf,
 		sessionResolveLeaf,
+		sessionResumeLeaf,
 		crewSessionRejectedLeaf,
 		crewRolesLeaf,
 		memberStatusLeaf,

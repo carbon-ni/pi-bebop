@@ -1,42 +1,31 @@
 import type { Membership } from "../infra/membership-runtime.ts";
-import { GUEST_CAPABILITIES } from "../domain/index.ts";
+import {
+	GUEST_CAPABILITIES,
+	MEMBERSHIP_ENTRY_TYPE,
+	MEMBERSHIP_SNAPSHOT_VERSION,
+	type PersistedMembershipState,
+} from "../domain/index.ts";
+import { manifestFingerprint } from "../infra/crew-session-store.ts";
 import type { GuestMembershipRecord } from "../domain/index.ts";
+
+export { MEMBERSHIP_ENTRY_TYPE, MEMBERSHIP_SNAPSHOT_VERSION, getLatestMembershipState } from "../domain/index.ts";
+export type { PersistedMembershipState } from "../domain/index.ts";
 import type { GuestMembershipRuntime } from "../infra/guest-membership-runtime.ts";
 
-export const MEMBERSHIP_ENTRY_TYPE = "intray-membership";
 export const GUEST_MEMBERSHIP_ENTRY_TYPE = "intray-guest-memberships";
 export const MEMBERSHIP_CONTEXT_MARKER = "## Current crew identity";
 export const GUEST_MEMBERSHIP_CONTEXT_MARKER = "## Current Guest identity";
 
-export interface PersistedMembershipState {
-	readonly active: boolean;
-	readonly socketPath: string;
-	readonly manifestPath?: string;
-}
-
-export function getLatestMembershipState(entries: readonly unknown[]): PersistedMembershipState | null {
-	for (let index = entries.length - 1; index >= 0; index -= 1) {
-		const entry = entries[index] as { type?: string; customType?: string; data?: unknown };
-		if (
-			entry.type !== "custom" ||
-			entry.customType !== MEMBERSHIP_ENTRY_TYPE ||
-			!entry.data ||
-			typeof entry.data !== "object"
-		)
-			continue;
-		const data = entry.data as Partial<PersistedMembershipState>;
-		if (typeof data.active !== "boolean" || typeof data.socketPath !== "string") continue;
-		return {
-			active: data.active,
-			socketPath: data.socketPath,
-			manifestPath: typeof data.manifestPath === "string" ? data.manifestPath : undefined,
-		};
-	}
-	return null;
-}
-
 export function membershipStateFromRuntime(membership: Membership, active = true): PersistedMembershipState {
-	return { active, socketPath: membership.socketPath, manifestPath: membership.manifestPath };
+	return {
+		active,
+		socketPath: membership.socketPath,
+		manifestPath: membership.manifestPath,
+		snapshotVersion: MEMBERSHIP_SNAPSHOT_VERSION,
+		memberName: membership.member.name,
+		memberRole: membership.member.role,
+		manifestFingerprint: manifestFingerprint(membership.manifest),
+	};
 }
 
 export function getLatestGuestMembershipRecords(entries: readonly unknown[]): readonly unknown[] {

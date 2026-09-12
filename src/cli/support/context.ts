@@ -1,4 +1,4 @@
-import type { Readable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 
 /**
  * TASK-0063: shared handler context. Handlers receive injected streams, the
@@ -14,4 +14,6 @@ export interface CliContext {
 	readonly signal: AbortSignal;
 	/** Optional process environment seam for deterministic execution adapters. */
 	readonly environment?: NodeJS.ProcessEnv;
+	/** Output stream for interactive command-owned UI, when needed. */
+	readonly output?: Writable;
 }

@@ -96,6 +96,21 @@ server, joins, or mutates files. Start each member by its manifest role;
 `/crew members` shows exactly `current`, `online`, or `offline` with configured
 project socket paths.
 
+## Resume one exact role session
+
+Use the separate role-scoped picker when you need one prior Pi Session for the
+current trusted Crew role:
+
+```bash
+pi-bebop session resume --role developer
+```
+
+It lists only sessions Bebop attributed on their active branch to that exact
+role and current manifest fingerprint. Cancel or empty discovery launches
+nothing; selecting a session revalidates it, then launches only that exact
+session with its stored working directory. It never invokes Pi's native picker
+or resumes a whole Crew. See [the role-session contract](docs/ROLE-SESSION-RESUME.md).
+
 ## Preserve exact Member sessions
 
 A **Crew Session** is a named, machine-local bookmark linking one trusted Crew

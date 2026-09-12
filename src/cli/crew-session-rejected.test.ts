@@ -115,7 +115,7 @@ test("Commander tree: session group has capture/add/list/show/resolve/live and n
 	const session = registry.root().commands.find((command) => command.name() === "session");
 	assert.ok(session, "session group present");
 	const subNames = session!.commands.map((command) => command.name());
-	assert.deepEqual(subNames.sort(), ["add", "capture", "list", "live", "resolve", "show"]);
+	assert.deepEqual(subNames.sort(), ["add", "capture", "list", "live", "resolve", "resume", "show"]);
 	assert.ok(
 		!subNames.includes("session"),
 		`session group must not contain a 'session' subcommand: ${subNames.join(", ")}`,

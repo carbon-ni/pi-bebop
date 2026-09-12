@@ -100,6 +100,32 @@ test("crew list probes configured Members concurrently and exposes only product 
 	assert.equal(JSON.stringify(data), JSON.stringify(data).replace("/project", ""));
 });
 
+test("crew availability distinguishes empty, offline, and fully online rosters", async () => {
+	const empty = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		context(),
+		deps({ readManifest: async () => ({ ...manifest("empty"), members: [] }) }),
+	);
+	assert.equal((result(empty).data as { crews: Array<{ availability: string }> }).crews[0]?.availability, "unknown");
+
+	const offline = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		context(),
+		deps({ probeMember: async () => false }),
+	);
+	assert.equal(
+		(result(offline).data as { crews: Array<{ availability: string }> }).crews[0]?.availability,
+		"offline",
+	);
+
+	const online = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		context(),
+		deps({ probeMember: async () => true }),
+	);
+	assert.equal((result(online).data as { crews: Array<{ availability: string }> }).crews[0]?.availability, "online");
+});
+
 test("duplicate selectors disclose only deterministic Locator recovery values", async () => {
 	const paths = ["/project/.pi/bebop/crew.json", "/project/.pi/crew/crew.json"];
 	const outcome = await runCrewListCommand(

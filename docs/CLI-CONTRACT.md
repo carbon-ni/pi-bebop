@@ -37,6 +37,7 @@ Every result-producing leaf supports `--format text|toon|json`. Help and version
 | `session list` | agent | TOON | text, JSON | list durable Crew Sessions (TASK-0204; was `crew session list`) |
 | `session show` | agent | TOON | text, JSON | inspect one exact Crew Session and its Member observations |
 | `session resolve` | agent | TOON | text, JSON | resolve one exact Member to a manual Pi startup specification |
+| `session resume --role <exact-role>` | agent | TOON | text, JSON | pick one current-Crew role-attributed Pi Session |
 | `session live` | automation/diagnostic | TOON | text, JSON | list reachable Pi sessions (was `session list`; TASK-0204) |
 | `guest join` | agent | TOON | text, JSON | retain pending/approved Crew membership state |
 | `guest leave` | agent | TOON | text, JSON | confirm exact Crew membership removal/no-op |
@@ -75,6 +76,7 @@ pi-bebop
     ├── list                   # Crew Session listing (canonical)
     ├── show                   # Crew Session inspection
     ├── resolve                # Crew Session manual resume
+    ├── resume                 # current-Crew role-attributed Pi Session picker
     └── live                   # live Pi Session discovery (TASK-0061, renamed from `session list`)
 ```
 
