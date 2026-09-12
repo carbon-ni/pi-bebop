@@ -31,7 +31,34 @@ const addOptions = {
 	full: false,
 };
 
-test("Crew Session command adapters preserve empty, invalid, and operational outcomes", async () => {
+test("Crew Session command adapters preserve help, empty, invalid, and operational outcomes", async () => {
+	assert.equal(
+		(
+			await runCrewSessionListCommand(
+				{ command: "session-list", limit: 25, offset: 0, format: "toon", full: false, help: true },
+				context(),
+			)
+		).kind,
+		"help",
+	);
+	assert.equal(
+		(
+			await runCrewSessionShowCommand(
+				{ command: "session-show", id: "x", format: "toon", full: false, help: true },
+				context(),
+			)
+		).kind,
+		"help",
+	);
+	assert.equal(
+		(
+			await runCrewSessionResolveCommand(
+				{ command: "session-resolve", id: "x", member: "A", format: "toon", full: false, help: true },
+				context(),
+			)
+		).kind,
+		"help",
+	);
 	const emptyList = await runCrewSessionListCommand(
 		{ command: "session-list", limit: 25, offset: 0, format: "toon", full: false },
 		context(),
@@ -53,6 +80,11 @@ test("Crew Session command adapters preserve empty, invalid, and operational out
 	);
 	assert.equal(resolveFailure.kind, "result");
 	if (resolveFailure.kind === "result") assert.equal(resolveFailure.result.error?.code, "record-not-found");
+
+	const captureHelp = await runCrewSessionCaptureCommand({ ...captureOptions, help: true }, context());
+	assert.equal(captureHelp.kind, "help");
+	const addHelp = await runCrewSessionAddCommand({ ...addOptions, help: true }, context());
+	assert.equal(addHelp.kind, "help");
 
 	const resolveSuccess = await runCrewSessionResolveCommand(
 		{ command: "session-resolve", id: "cs_ok", member: "Alice", format: "json", full: true },
@@ -98,6 +130,26 @@ test("Crew Session capture and add adapters reject untrusted locators before mut
 		assert.equal(capture.kind, "result");
 		if (capture.kind === "result") assert.equal(capture.result.status, "operational");
 
+		const successfulOutcome = {
+			ok: true as const,
+			record: {
+				id: "cs_0123456789abcdef",
+				name: "review",
+				state: "partial" as const,
+				crew: { selector: "alpha", locator: ".pi/bebop/crew.json" },
+				members: [{ name: "Alice" }],
+			},
+			capturedCount: 1,
+			missing: [],
+		};
+		const successfulCapture = await runCrewSessionCaptureCommand(
+			{ ...captureOptions, crew: ".pi/bebop/crew.json" },
+			context(root),
+			{ capture: async () => successfulOutcome, add: async () => successfulOutcome },
+		);
+		assert.equal(successfulCapture.kind, "result");
+		if (successfulCapture.kind === "result") assert.equal(successfulCapture.result.status, "partial");
+
 		const captured = await runCrewSessionCaptureCommand(
 			{ ...captureOptions, crew: ".pi/bebop/crew.json" },
 			context(root),
@@ -120,6 +172,12 @@ test("Crew Session capture and add adapters reject untrusted locators before mut
 		});
 		assert.equal(add.kind, "result");
 		if (add.kind === "result") assert.equal(add.result.status, "capture-empty");
+		const successfulAdd = await runCrewSessionAddCommand(addOptions, context(root), {
+			capture: async () => successfulOutcome,
+			add: async () => successfulOutcome,
+		});
+		assert.equal(successfulAdd.kind, "result");
+		if (successfulAdd.kind === "result") assert.equal(successfulAdd.result.status, "partial");
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
