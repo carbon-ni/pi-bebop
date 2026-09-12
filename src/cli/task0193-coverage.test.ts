@@ -11,8 +11,8 @@ import {
 	parseMemberRequestWaitCommand,
 } from "./commands/member-request.ts";
 import { parseMemberStatusCommand } from "./commands/member-status.ts";
-import { parseSessionListCommand } from "./commands/session-list.ts";
-import { parseCrewRolesCommand } from "./commands/crew-roles.ts";
+import { buildSessionListCommand, parseSessionListCommand, readSessionListCommand } from "./commands/session-list.ts";
+import { buildCrewRolesCommand, parseCrewRolesCommand, readCrewRolesCommand } from "./commands/crew-roles.ts";
 
 const message = ["--message", "hello"] as const;
 
@@ -93,6 +93,19 @@ test("TASK-0193 parser seams cover durable and guest validation branches", () =>
 });
 
 test("TASK-0193 parser seams cover session and role format/error paths", () => {
+	const sessionCommand = buildSessionListCommand();
+	assert.equal(readSessionListCommand(sessionCommand).format, "toon");
+	sessionCommand.setOptionValue("format", "json");
+	assert.equal(readSessionListCommand(sessionCommand).format, "json");
+	sessionCommand.setOptionValue("format", "xml");
+	assert.throws(() => readSessionListCommand(sessionCommand), /Invalid --format/);
+	const rolesCommand = buildCrewRolesCommand();
+	assert.equal(readCrewRolesCommand(rolesCommand).format, "toon");
+	rolesCommand.setOptionValue("format", "json");
+	rolesCommand.setOptionValue("full", true);
+	assert.deepEqual(readCrewRolesCommand(rolesCommand), { command: "crew-roles", format: "json", full: true });
+	rolesCommand.setOptionValue("format", "xml");
+	assert.throws(() => readCrewRolesCommand(rolesCommand), /Invalid --format/);
 	assert.equal(parseSessionListCommand(["--format", "json"]).format, "json");
 	assert.equal(parseSessionListCommand(["--help"]).help, true);
 	assert.throws(() => parseSessionListCommand(["--bogus"]), /unknown option/);
