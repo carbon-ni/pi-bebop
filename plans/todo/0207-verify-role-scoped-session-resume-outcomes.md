@@ -1,7 +1,7 @@
 ---
 id: TASK-0207
 title: Verify role-scoped session resume outcomes
-status: done
+status: doing
 depends_on: [TASK-0206]
 priority: high
 tags: [crew, session, resume, cli, pi, safety, regression, tdd]
