@@ -217,6 +217,22 @@ test("the real CLI keeps resume help and syntax errors inside the output boundar
 		2,
 	);
 	assert.match(errorText, /unknown option|unknown flag/i);
+
+	const operationalOutput = new PassThrough();
+	let operationalText = "";
+	operationalOutput.on("data", (chunk) => {
+		operationalText += chunk;
+	});
+	assert.equal(
+		await runCli(
+			["session", "resume", "--role", "developer", "--format", "text"],
+			"/project",
+			process.stdin,
+			operationalOutput,
+		),
+		1,
+	);
+	assert.match(operationalText, /no supported Crew manifest/i);
 });
 
 test("empty and cancelled selections never launch or fall back", async () => {
