@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseDurableMessageCommand } from "./commands/durable-message.ts";
-import { parseGuestJoinCommand, parseGuestLeaveCommand, parseGuestMessageCommand } from "./commands/guest.ts";
+import {
+	buildGuestJoinCommand,
+	buildGuestLeaveCommand,
+	buildGuestMessageCommand,
+	parseGuestJoinCommand,
+	parseGuestLeaveCommand,
+	parseGuestMessageCommand,
+	readGuestJoinCommand,
+	readGuestLeaveCommand,
+	readGuestMessageCommand,
+} from "./commands/guest.ts";
 import { parseMemberIdleWaitCommand } from "./commands/member-idle-wait.ts";
 import { parseMemberInterruptCommand } from "./commands/member-interrupt.ts";
 import { parseMemberMessageCommand } from "./commands/member-message.ts";
@@ -47,6 +57,52 @@ test("TASK-0193 parser seams cover member command Commander error mappings", () 
 	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--timeout"]), /Missing value/);
 	assert.equal(parseMemberIdleWaitCommand(["--help"]).help, true);
 	assert.equal(parseMemberInterruptCommand(["--help"]).help, true);
+});
+
+test("TASK-0193 Commander readers preserve guest values and help defaults", () => {
+	const join = buildGuestJoinCommand();
+	join.parse(["/tmp/member.sock", "--identity", "guest-1", "--as", "Guest", "--callback", "/tmp/callback.sock"], {
+		from: "user",
+	});
+	assert.equal(readGuestJoinCommand(join).guestName, "Guest");
+	join.setOptionValue("help", true);
+	assert.equal(readGuestJoinCommand(join).help, true);
+
+	const send = buildGuestMessageCommand("send");
+	send.parse(
+		[
+			"--crew",
+			"crew-1",
+			"--identity",
+			"guest-1",
+			"--as",
+			"Guest",
+			"--callback",
+			"callback.sock",
+			"--capability",
+			"capability",
+			"--message",
+			"hello",
+			"--target",
+			"Alice",
+		],
+		{ from: "user" },
+	);
+	assert.equal(readGuestMessageCommand(send, "send").target, "Alice");
+	send.setOptionValue("help", true);
+	assert.equal(readGuestMessageCommand(send, "send").help, true);
+
+	const broadcast = buildGuestMessageCommand("broadcast");
+	broadcast.setOptionValue("help", true);
+	assert.equal(readGuestMessageCommand(broadcast, "broadcast").command, "guest-broadcast");
+
+	const leave = buildGuestLeaveCommand();
+	leave.parse(["/tmp/member.sock", "--crew", "crew-1", "--identity", "guest-1", "--callback", "callback.sock"], {
+		from: "user",
+	});
+	assert.equal(readGuestLeaveCommand(leave).crewId, "crew-1");
+	leave.setOptionValue("help", true);
+	assert.equal(readGuestLeaveCommand(leave).help, true);
 });
 
 test("TASK-0193 parser seams cover durable and guest validation branches", () => {
