@@ -130,7 +130,6 @@ alone/sequentially, never in a parallel tool batch") and README guidance.
 
 ## Out of scope
 
-- Changing `wait_for_request_outcome`.
 - Reading Pi private queues or storing message content in the wake gate.
 - Converting Follow-up into Redirect or changing sender-facing delivery intent.
 - Treating message receipt as target idle, acknowledgement, response, or task completion.

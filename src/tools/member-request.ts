@@ -4,6 +4,7 @@ import {
 	formatRequestOutcome,
 	formatRequestOutcomeWithHeader,
 	MessagePayloadSchema,
+	type AcceptedLocalMessageWakeGate,
 	type RequestOutcome,
 } from "../domain/index.ts";
 import { MemberMessageError } from "../application/member-message.ts";
@@ -47,6 +48,8 @@ type ToolResult = {
 	content: Array<{ type: "text"; text: string }>;
 	isError?: boolean;
 	details: unknown;
+	/** Stop the content-free continuation so an accepted message is consumed next. */
+	terminate?: boolean;
 };
 
 function success(text: string, details: unknown): ToolResult {
@@ -62,25 +65,39 @@ function flowFor(state: SocketState): MemberRequestFlow {
 
 type RequestOutcomeWait =
 	| { readonly ok: true; readonly outcome: RequestOutcome }
-	| { readonly ok: false; readonly code: "aborted" | "already-waiting" | "no-pending-requests" };
+	| { readonly ok: true; readonly wake: "message-received" }
+	| {
+			readonly ok: false;
+			readonly code: "aborted" | "already-waiting" | "no-pending-requests" | "wait-in-progress";
+	  };
 
-function waitForRequestOutcome(flow: MemberRequestFlow, signal?: AbortSignal): Promise<RequestOutcomeWait> {
+/**
+ * Blocks on the next Request outcome, but yields first to an accepted local
+ * Bebop delivery. The wake gate is shared with wait_for_member_idle so an
+ * inbound message can always reach the model instead of parking behind a
+ * coordination wait.
+ */
+function waitForRequestOutcome(
+	flow: MemberRequestFlow,
+	wakeGate: AcceptedLocalMessageWakeGate,
+	signal?: AbortSignal,
+): Promise<RequestOutcomeWait> {
 	return new Promise((resolve) => {
 		let active = true;
 		let cancel: (() => void) | undefined;
-		const onAbort = () => {
-			if (!active) return;
-			active = false;
+		const cleanup = () => {
 			cancel?.();
+			wakeGate.release(onAcceptedMessage);
 			signal?.removeEventListener("abort", onAbort);
-			resolve({ ok: false, code: "aborted" });
 		};
 		const finish = (result: RequestOutcomeWait) => {
 			if (!active) return;
 			active = false;
-			signal?.removeEventListener("abort", onAbort);
+			cleanup();
 			resolve(result);
 		};
+		const onAbort = () => finish({ ok: false, code: "aborted" });
+		const onAcceptedMessage = () => finish({ ok: true, wake: "message-received" });
 		const waiting = flow.waitForRequestOutcome((outcome) => finish({ ok: true, outcome }));
 		if (waiting.ok === false) {
 			finish({ ok: false, code: waiting.code });
@@ -91,6 +108,12 @@ function waitForRequestOutcome(flow: MemberRequestFlow, signal?: AbortSignal): P
 			return;
 		}
 		cancel = waiting.cancel;
+		const armed = wakeGate.arm(onAcceptedMessage);
+		if (armed.ok === false) {
+			cancel();
+			finish({ ok: false, code: "wait-in-progress" });
+			return;
+		}
 		if (signal?.aborted) onAbort();
 		else signal?.addEventListener("abort", onAbort, { once: true });
 	});
@@ -177,22 +200,32 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 		name: "wait_for_request_outcome",
 		label: "Wait for Request Outcome",
 		description:
-			"Requester-side: block this tool call until the oldest terminal outbound Request outcome arrives: Response, offline, timeout(response-after-idle), or timeout(max-wait). Call only after you sent a Member request; it never handles inbound assignments or ordinary messages. The bounded wait is cancellable and does not poll, monitor, or return unrelated Crew activity. It preserves full Response instructions and presents recovery choices without claiming completion, correctness, or availability.",
+			"Requester-side: block this tool call until the oldest terminal outbound Request outcome arrives: Response, offline, timeout(response-after-idle), or timeout(max-wait). An accepted inbound Bebop message releases this wait so the message can be consumed before waiting again; it does not settle the outbound Request. The wait never handles inbound assignments or ordinary messages itself. Call only after you sent a Member request. The bounded wait is cancellable and does not poll, monitor, or claim completion, correctness, or availability.",
 		parameters: emptyParameters,
 		async execute(_id, _params, signal) {
 			try {
 				const flow = flowFor(state);
 				if (!flow.hasPendingRequestOutcome())
 					return success("All outbound Member Request outcomes are settled.", { pending_count: 0 });
-				const waited = await waitForRequestOutcome(flow, signal);
+				const waited = await waitForRequestOutcome(flow, state.wakeGate, signal);
 				if (waited.ok === false) {
 					if (waited.code === "no-pending-requests")
 						return success("All outbound Member Request outcomes are settled.", { pending_count: 0 });
 					if (waited.code === "aborted") return failure("aborted", "Request outcome wait aborted");
 					if (waited.code === "already-waiting")
 						return failure(waited.code, "Another Request outcome wait is already active");
+					if (waited.code === "wait-in-progress")
+						return failure(waited.code, "Another Bebop blocking wait is already active");
 					return failure("wait-failed", `Could not wait for request outcome: ${waited.code}`);
 				}
+				if ("wake" in waited)
+					return {
+						...success(
+							"Request outcome wait released because an accepted Bebop message is ready; process it before waiting again.",
+							{ outcome: waited.wake },
+						),
+						terminate: true,
+					};
 				return success(formatRequestOutcomeWithHeader(waited.outcome), { result: waited.outcome });
 			} catch {
 				return failure("wait-failed", "Could not wait for request outcome");
