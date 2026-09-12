@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import { PassThrough } from "node:stream";
 import {
 	roleSessionResumeHelp,
@@ -9,6 +11,8 @@ import {
 import type { RoleSessionCandidate } from "../../application/role-session-resume.ts";
 import type { CliContext } from "../support/context.ts";
 import { runCli } from "../run.ts";
+
+const execFile = promisify(execFileCallback);
 
 const candidate: RoleSessionCandidate = {
 	sessionId: "session-1",
@@ -136,6 +140,42 @@ test("picks, revalidates, and launches exactly one selected Pi session", async (
 	});
 });
 
+test("stale and malformed selected evidence never spawns Pi", async () => {
+	const failureCodes = [
+		"missing-session-file",
+		"malformed-session",
+		"untrusted-session-root",
+		"session-id-mismatch",
+		"session-cwd-mismatch",
+	] as const;
+	let launches = 0;
+	for (const code of failureCodes) {
+		const outcome = await runRoleSessionResumeCommand(
+			{ command: "session-resume", role: "developer", format: "toon", full: false },
+			context(),
+			{
+				discover: async () => ({
+					ok: true as const,
+					member: { name: "Alice", role: "developer", socketPath: "/crew/alice.sock" },
+					candidates: [candidate],
+					skipped: 0,
+				}),
+				resolve: async () => ({ ok: false as const, code, message: `rejected: ${code}` }),
+				pick: async () => ({ kind: "selected" as const, candidate }),
+				launcher: {
+					launch: async () => {
+						launches += 1;
+						return { ok: true as const, exitCode: 0 };
+					},
+				},
+			},
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind === "result") assert.equal(outcome.result.error?.code, code);
+	}
+	assert.equal(launches, 0);
+});
+
 test("resolution and launch failures stay bounded", async () => {
 	const resolvedFailure = await runRoleSessionResumeCommand(
 		{ command: "session-resume", role: "developer", format: "toon", full: false },
@@ -196,6 +236,12 @@ test("selected sessions without names use the stable session id and default outp
 	);
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind === "result") assert.equal(outcome.result.response, "Resumed session-1");
+});
+
+test("plain Pi -r remains Pi's native resume picker surface", async () => {
+	const { stdout } = await execFile("pi", ["-r", "--help"]);
+	assert.match(stdout, /Select a session to resume/);
+	assert.doesNotMatch(stdout, /role-attributed|session resume --role/i);
 });
 
 test("the real CLI keeps resume help and syntax errors inside the output boundary", async () => {

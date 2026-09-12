@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import { mkdtemp, readFile, rm, stat, mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
+import { SessionManager, type SessionManager as SessionManagerType } from "@earendil-works/pi-coding-agent";
 import { manifestFingerprint } from "../infra/crew-session-store.ts";
-import { MEMBERSHIP_SNAPSHOT_VERSION } from "../pi/membership-context.ts";
+import {
+	MEMBERSHIP_ENTRY_TYPE,
+	MEMBERSHIP_SNAPSHOT_VERSION,
+	getLatestMembershipState,
+} from "../pi/membership-context.ts";
+import { readTrustedCrewManifestMetadata } from "../infra/crew-manifest-store.ts";
 import { discoverRoleSessionCandidates, resolveRoleSessionCandidate } from "./role-session-resume.ts";
 
 const manifest = {
@@ -27,7 +35,7 @@ function manager(id: string, state: Record<string, unknown> | undefined) {
 		getSessionDir: () => "/sessions",
 		getBranch: () =>
 			state === undefined ? [] : [{ type: "custom", customType: "intray-membership", data: state }],
-	} as unknown as SessionManager;
+	} as unknown as SessionManagerType;
 }
 
 function deps(
@@ -171,6 +179,70 @@ test("maps list, open, branch, validation, and endpoint failures to bounded disc
 		},
 	);
 	assert.equal(invalid.ok && invalid.skipped, 1);
+});
+
+test("integrates public SessionManager listAll/open with persisted active-branch attribution", async () => {
+	const projectRoot = await mkdtemp(path.join(tmpdir(), "bebop-role-session-project-"));
+	const sessionRoot = path.join(projectRoot, "sessions");
+	const manifestPathOnDisk = path.join(projectRoot, ".pi", "bebop", "crew.json");
+	try {
+		await mkdir(path.dirname(manifestPathOnDisk), { recursive: true });
+		await writeFile(
+			manifestPathOnDisk,
+			JSON.stringify({
+				version: 1,
+				members: [{ name: "Alice", role: "developer", socket: "sockets/alice.sock" }],
+				presence: { notifications: true },
+			}),
+		);
+		const parsedManifest = await readTrustedCrewManifestMetadata(manifestPathOnDisk, projectRoot, () => true);
+		const persisted = SessionManager.create(projectRoot, sessionRoot, { id: "pi-persisted-role-session" });
+		persisted.appendCustomEntry(MEMBERSHIP_ENTRY_TYPE, {
+			active: true,
+			socketPath: parsedManifest.members[0]!.socketPath,
+			manifestPath: manifestPathOnDisk,
+			snapshotVersion: MEMBERSHIP_SNAPSHOT_VERSION,
+			memberName: "Alice",
+			memberRole: "developer",
+			manifestFingerprint: manifestFingerprint(parsedManifest),
+		});
+		// A user/assistant pair forces the supported SessionManager persistence path to flush.
+		persisted.appendMessage({ role: "user", content: "known history", timestamp: Date.now() } as never);
+		persisted.appendMessage({ role: "assistant", content: "known reply", timestamp: Date.now() } as never);
+		const sessionFile = persisted.getSessionFile()!;
+		const beforeBytes = await readFile(sessionFile);
+		const beforeStat = await stat(sessionFile);
+		const listed = await SessionManager.listAll(sessionRoot);
+		const listedInfo = listed.find((info) => info.id === persisted.getSessionId());
+		assert.ok(listedInfo, "SessionManager.listAll must expose the persisted session");
+		const reopened = SessionManager.open(listedInfo.path, sessionRoot);
+		assert.equal(reopened.getHeader()?.id, persisted.getSessionId());
+		assert.equal(getLatestMembershipState(reopened.getBranch())?.active, true);
+		assert.deepEqual(await readFile(sessionFile), beforeBytes);
+		assert.equal((await stat(sessionFile)).mtimeMs, beforeStat.mtimeMs);
+
+		const discovered = await discoverRoleSessionCandidates(
+			{ projectRoot, role: "developer" },
+			{
+				manifestExists: async (file) => file === manifestPathOnDisk,
+				readManifest: readTrustedCrewManifestMetadata,
+				listSessions: async () => SessionManager.listAll(sessionRoot),
+				openSession: async (file) => SessionManager.open(file, sessionRoot),
+				validateSession: async () => undefined,
+				resolveEndpoint: async (socket) => socket,
+				probe: async () => false,
+			},
+		);
+		assert.equal(discovered.ok, true);
+		if (discovered.ok) {
+			assert.deepEqual(
+				discovered.candidates.map(({ sessionId, sessionFile, cwd }) => ({ sessionId, sessionFile, cwd })),
+				[{ sessionId: "pi-persisted-role-session", sessionFile, cwd: projectRoot }],
+			);
+		}
+	} finally {
+		await rm(projectRoot, { recursive: true, force: true });
+	}
 });
 
 test("revalidates the selected candidate and refuses a live endpoint", async () => {
