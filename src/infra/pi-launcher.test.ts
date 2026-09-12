@@ -35,3 +35,43 @@ test("launches exact Pi session with original cwd, inherited stdio, and no shell
 		options: { cwd: "/original/project", env: { PATH: "/bin" }, stdio: "inherit" },
 	});
 });
+
+test("propagates child failure and cancellation without claiming resume success", async () => {
+	for (const close of [
+		[7, null],
+		[null, "SIGTERM"],
+	] as const) {
+		const child = new FakeChild();
+		const launcher = createPiLauncher((() => {
+			setImmediate(() => child.emit("close", ...close));
+			return child;
+		}) as never);
+		const result = await launcher.launch({ sessionFile: "/sessions/exact.jsonl", cwd: "/project" });
+		assert.deepEqual(result, {
+			ok: false,
+			code: "child-failed",
+			message: `Pi exited with code ${close[0] ?? "unknown"}`,
+		});
+	}
+	const child = new FakeChild();
+	const launcher = createPiLauncher((() => {
+		setImmediate(() => child.emit("close", null, "SIGINT"));
+		return child;
+	}) as never);
+	assert.deepEqual(await launcher.launch({ sessionFile: "/sessions/exact.jsonl", cwd: "/project" }), {
+		ok: false,
+		code: "cancelled",
+		message: "Pi resume was cancelled",
+	});
+});
+
+test("maps synchronous spawn failures to a bounded launcher result", async () => {
+	const launcher = createPiLauncher((() => {
+		throw new Error("no pi");
+	}) as never);
+	assert.deepEqual(await launcher.launch({ sessionFile: "/sessions/exact.jsonl", cwd: "/project" }), {
+		ok: false,
+		code: "spawn-failed",
+		message: "no pi",
+	});
+});

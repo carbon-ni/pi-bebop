@@ -7,8 +7,12 @@ export interface PiLaunchRequest {
 }
 
 export type PiLaunchResult =
-	| { readonly ok: true; readonly exitCode: number | null }
-	| { readonly ok: false; readonly code: "spawn-failed" | "cancelled"; readonly message: string };
+	| { readonly ok: true; readonly exitCode: 0 }
+	| {
+			readonly ok: false;
+			readonly code: "spawn-failed" | "cancelled" | "child-failed";
+			readonly message: string;
+	  };
 
 export interface PiLauncher {
 	readonly launch: (request: PiLaunchRequest) => Promise<PiLaunchResult>;
@@ -42,7 +46,11 @@ function waitForPi(child: ChildProcess): Promise<PiLaunchResult> {
 				finish({ ok: false, code: "cancelled", message: "Pi resume was cancelled" });
 				return;
 			}
-			finish({ ok: true, exitCode });
+			if (exitCode !== 0) {
+				finish({ ok: false, code: "child-failed", message: `Pi exited with code ${exitCode ?? "unknown"}` });
+				return;
+			}
+			finish({ ok: true, exitCode: 0 });
 		});
 	});
 }
