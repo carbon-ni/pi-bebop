@@ -8,6 +8,7 @@ import {
 } from "./role-session-resume.ts";
 import type { RoleSessionCandidate } from "../../application/role-session-resume.ts";
 import type { CliContext } from "../support/context.ts";
+import { runCli } from "../run.ts";
 
 const candidate: RoleSessionCandidate = {
 	sessionId: "session-1",
@@ -195,6 +196,27 @@ test("selected sessions without names use the stable session id and default outp
 	);
 	assert.equal(outcome.kind, "result");
 	if (outcome.kind === "result") assert.equal(outcome.result.response, "Resumed session-1");
+});
+
+test("the real CLI keeps resume help and syntax errors inside the output boundary", async () => {
+	const helpOutput = new PassThrough();
+	let helpText = "";
+	helpOutput.on("data", (chunk) => {
+		helpText += chunk;
+	});
+	assert.equal(await runCli(["session", "resume", "--help"], "/project", process.stdin, helpOutput), 0);
+	assert.match(helpText, /session resume --role/);
+
+	const errorOutput = new PassThrough();
+	let errorText = "";
+	errorOutput.on("data", (chunk) => {
+		errorText += chunk;
+	});
+	assert.equal(
+		await runCli(["session", "resume", "--role", "developer", "--unknown"], "/project", process.stdin, errorOutput),
+		2,
+	);
+	assert.match(errorText, /unknown option|unknown flag/i);
 });
 
 test("empty and cancelled selections never launch or fall back", async () => {
