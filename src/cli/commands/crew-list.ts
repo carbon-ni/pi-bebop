@@ -375,6 +375,14 @@ export async function runCrewListCommand(
 	context: CliContext,
 	deps: CrewListDependencies = defaultCrewListDependencies,
 ): Promise<CliOutcome> {
+	return executeCrewListCommand(options, context, deps);
+}
+
+async function executeCrewListCommand(
+	options: CrewListCliOptions,
+	context: CliContext,
+	deps: CrewListDependencies = defaultCrewListDependencies,
+): Promise<CliOutcome> {
 	if (options.help) return { kind: "help", text: crewListHelp() };
 	const discovery = createDiscoveryWindow(context.signal);
 	try {
