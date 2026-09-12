@@ -116,6 +116,50 @@ test("crew list reads supported manifests through the trusted filesystem boundar
 	}
 });
 
+test("crew list merges live and observed records with bounded availability", async () => {
+	const projectRoot = "/project";
+	const canonical = "/project/.pi/bebop/crew.json";
+	const live = "/project/.pi/runtime/live.json";
+	const observed = "/project/.pi/runtime/observed.json";
+	const manifest = {
+		version: 1 as const,
+		crew: { id: "alpha", displayName: "Alpha" },
+		members: [
+			{ name: "Alice", role: "developer", socket: "/sockets/alice.sock", socketPath: "/sockets/alice.sock" },
+			{ name: "Bob", role: "reviewer", socket: "/sockets/bob.sock", socketPath: "/sockets/bob.sock" },
+		],
+		presence: { notifications: true },
+	};
+	const emptyCrew = { ...manifest, crew: undefined, members: [] };
+	const outcome = await runCrewListCommand(options, context(projectRoot), {
+		...defaultCrewListDependencies,
+		manifestExists: async (file) => file === canonical,
+		readManifest: async (file) => (file === observed ? emptyCrew : manifest),
+		readLiveRuntimes: async () => [
+			{ manifestPath: canonical, observedAt: "2026-09-12T00:00:00.000Z", availability: "online" },
+			{ manifestPath: live, observedAt: "2026-09-12T00:00:01.000Z", availability: "online" },
+		],
+		readObservedLocators: async () => [
+			{ manifestPath: observed, lastSeenAt: "2026-09-11T00:00:00.000Z", availability: "offline" },
+		],
+		probeMember: async (socket) => socket.endsWith("alice.sock"),
+	});
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") {
+		const data = outcome.result.data as { crews: Array<Record<string, unknown>>; total: number };
+		assert.equal(data.total, 2);
+		assert.deepEqual(
+			data.crews.map((crew) => crew.selector),
+			["alpha", "alpha"],
+		);
+		assert.ok(data.crews.some((crew) => crew.availability === "partial"));
+		assert.equal(
+			data.crews.find((crew) => crew.lastSeenAt !== undefined),
+			undefined,
+		);
+	}
+});
+
 test("crew list keeps manifests without a Crew identity unaddressable", async () => {
 	const projectRoot = await mkdtemp(path.join(tmpdir(), "bebop-crew-list-unaddressable-"));
 	const manifestPath = path.join(projectRoot, ".pi", "bebop", "crew.json");
