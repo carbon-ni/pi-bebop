@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildMemberIdleWaitCommand, readMemberIdleWaitCommand } from "./member-idle-wait.ts";
 import { buildMemberStatusCommand, readMemberStatusCommand } from "./member-status.ts";
+import { buildDurableMessageCommand, readDurableMessageCommand } from "./durable-message.ts";
+import { buildMemberInterruptCommand, readMemberInterruptCommand } from "./member-interrupt.ts";
 import { buildMemberMessageCommand, readMemberMessageCommand } from "./member-message.ts";
 import {
 	buildMemberRequestListCommand,
@@ -48,6 +50,21 @@ test("migrated member Commander readers preserve optional values and defaults", 
 		stdin: false,
 		format: "text",
 	});
+
+	const redirect = buildMemberMessageCommand("redirect");
+	parse(redirect, ["Alice", "--stdin", "--session", "source"]);
+	assert.equal(readMemberMessageCommand(redirect, "redirect").stdin, true);
+
+	const interrupt = buildMemberInterruptCommand();
+	parse(interrupt, ["Alice", "--message", "recover"]);
+	assert.equal(readMemberInterruptCommand(interrupt).command, "member-interrupt");
+
+	const inbox = buildDurableMessageCommand("inbox");
+	parse(inbox, ["Alice", "--message", "hello"]);
+	assert.equal(readDurableMessageCommand(inbox, "inbox").member, "Alice");
+	const broadcast = buildDurableMessageCommand("broadcast");
+	parse(broadcast, ["--stdin", "--format", "json"]);
+	assert.equal(readDurableMessageCommand(broadcast, "broadcast").stdin, true);
 });
 
 test("member request readers preserve each command vocabulary and source", () => {
