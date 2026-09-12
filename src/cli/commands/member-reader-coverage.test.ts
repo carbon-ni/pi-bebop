@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildMemberIdleWaitCommand, readMemberIdleWaitCommand } from "./member-idle-wait.ts";
-import { buildMemberStatusCommand, readMemberStatusCommand } from "./member-status.ts";
+import { buildMemberIdleWaitCommand, memberIdleWaitHelp, readMemberIdleWaitCommand } from "./member-idle-wait.ts";
+import { buildMemberStatusCommand, memberStatusHelp, readMemberStatusCommand } from "./member-status.ts";
 import { buildDurableMessageCommand, readDurableMessageCommand } from "./durable-message.ts";
 import { buildMemberInterruptCommand, readMemberInterruptCommand } from "./member-interrupt.ts";
 import { buildMemberMessageCommand, readMemberMessageCommand } from "./member-message.ts";
@@ -14,6 +14,7 @@ import {
 	readMemberRequestRespondCommand,
 	readMemberRequestSendCommand,
 	readMemberRequestWaitCommand,
+	memberRequestHelp,
 } from "./member-request.ts";
 
 function parse(command: { parse: (args: string[], options: { from: "user" }) => unknown }, args: string[]) {
@@ -21,6 +22,8 @@ function parse(command: { parse: (args: string[], options: { from: "user" }) => 
 }
 
 test("migrated member Commander readers preserve optional values and defaults", () => {
+	assert.match(memberIdleWaitHelp(), /event-driven/);
+	assert.match(memberStatusHelp(), /mechanical/);
 	const status = buildMemberStatusCommand();
 	parse(status, ["Alice", "--session", "source"]);
 	assert.deepEqual(readMemberStatusCommand(status), {
@@ -68,6 +71,8 @@ test("migrated member Commander readers preserve optional values and defaults", 
 });
 
 test("member request readers preserve each command vocabulary and source", () => {
+	for (const kind of ["send", "list", "wait", "respond"] as const)
+		assert.match(memberRequestHelp(kind), /Request IDs are opaque/);
 	const send = buildMemberRequestSendCommand();
 	parse(send, ["Alice", "--message", "hello", "--response-grace", "60s", "--max-wait", "120s"]);
 	assert.equal(readMemberRequestSendCommand(send).command, "member-request-send");
@@ -83,12 +88,18 @@ test("member request readers preserve each command vocabulary and source", () =>
 		direction: "inbound",
 		format: "json",
 	});
+	list.setOptionValue("help", true);
+	assert.equal(readMemberRequestListCommand(list).help, true);
 
 	const wait = buildMemberRequestWaitCommand();
 	parse(wait, ["request-1"]);
 	assert.equal(readMemberRequestWaitCommand(wait).command, "member-request-wait");
+	wait.setOptionValue("help", true);
+	assert.equal(readMemberRequestWaitCommand(wait).help, true);
 
 	const respond = buildMemberRequestRespondCommand();
 	parse(respond, ["request-1", "--message", "answer"]);
 	assert.equal(readMemberRequestRespondCommand(respond).command, "member-request-respond");
+	respond.setOptionValue("help", true);
+	assert.equal(readMemberRequestRespondCommand(respond).help, true);
 });
