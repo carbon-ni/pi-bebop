@@ -1,7 +1,7 @@
 ---
 id: TASK-0206
 title: Implement role-scoped Bebop session picker
-status: doing
+status: done
 depends_on: [TASK-0205]
 priority: high
 tags: [crew, session, resume, cli, pi, persistence, safety, tdd]
