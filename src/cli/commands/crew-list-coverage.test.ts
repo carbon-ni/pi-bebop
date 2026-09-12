@@ -4,7 +4,15 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import type { CliContext } from "../support/context.ts";
-import { defaultCrewListDependencies, runCrewListCommand, type CrewListCliOptions } from "./crew-list.ts";
+import {
+	buildCrewListCommand,
+	crewListHelp,
+	defaultCrewListDependencies,
+	parseCrewListCommand,
+	readCrewListCommand,
+	runCrewListCommand,
+	type CrewListCliOptions,
+} from "./crew-list.ts";
 
 function context(cwd: string, signal = new AbortController().signal): CliContext {
 	return {
@@ -17,6 +25,24 @@ function context(cwd: string, signal = new AbortController().signal): CliContext
 }
 
 const options: CrewListCliOptions = { command: "crew-list", format: "json", full: true };
+
+test("crew list parser and Commander reader keep help, defaults, and errors stable", () => {
+	assert.match(crewListHelp(), /Duplicate selectors/);
+	assert.equal(readCrewListCommand(buildCrewListCommand()).format, "toon");
+	const command = buildCrewListCommand();
+	command.setOptionValue("format", "json");
+	command.setOptionValue("full", true);
+	assert.deepEqual(readCrewListCommand(command), options);
+	assert.deepEqual(parseCrewListCommand(["--help", "--full", "--format=json"]), {
+		command: "crew-list",
+		format: "json",
+		full: true,
+		help: true,
+	});
+	assert.throws(() => parseCrewListCommand(["--full", "--full"]), /Duplicate flag/);
+	assert.throws(() => parseCrewListCommand(["--format"]), /Missing value/);
+	assert.throws(() => parseCrewListCommand(["--format", "xml"]), /Invalid --format/);
+});
 
 test("crew list exposes duplicate trusted selectors with recovery locators", async () => {
 	const projectRoot = await mkdtemp(path.join(tmpdir(), "bebop-crew-list-duplicates-"));
