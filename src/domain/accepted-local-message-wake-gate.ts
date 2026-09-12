@@ -4,9 +4,9 @@
  * One session-local gate that stores listeners ONLY - never message content,
  * routes, history, or Pi queue state. Bebop-owned model-bound deliveries call
  * `notifyAccepted(deliveryId)` after protocol acceptance and BEFORE
- * `pi.sendMessage`; an armed listener claims the wake and the blocked
- * `wait_for_member_idle` is released. The delivered message itself is
- * untouched: it keeps its original Follow-up/Redirect mode and FIFO position.
+ * `pi.sendMessage`; an armed listener claims the wake and the blocked local
+ * coordination wait is released. The delivered message itself is untouched:
+ * it keeps its original Follow-up/Redirect mode and FIFO position.
  *
  * Scope: Follow-up, Redirect, Member request, Inbox, Broadcast, and reminder.
  * A Response arriving on its request-scoped RPC channel is not a wake.
@@ -29,7 +29,7 @@ export type AcceptedLocalMessageWakeArmResult =
 export class AcceptedLocalMessageWakeGate {
 	private readonly listeners = new Set<AcceptedLocalMessageWakeListener>();
 
-	/** Synchronously register the single local blocking-idle-wait listener. */
+	/** Synchronously register the single local blocking-wait listener. */
 	arm(listener: AcceptedLocalMessageWakeListener): AcceptedLocalMessageWakeArmResult {
 		if (this.listeners.size > 0) return { ok: false, code: "wait-in-progress" };
 		this.listeners.add(listener);
@@ -58,7 +58,7 @@ export class AcceptedLocalMessageWakeGate {
 		this.listeners.delete(listener);
 	}
 
-	/** True while a local blocking wait is armed (concurrency gate for tests/tools). */
+	/** True while a local blocking wait is armed (shared concurrency gate). */
 	get armed(): boolean {
 		return this.listeners.size > 0;
 	}

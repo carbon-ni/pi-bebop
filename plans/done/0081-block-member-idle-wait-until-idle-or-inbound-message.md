@@ -84,7 +84,7 @@ must be documented rather than hidden by polling or heuristic completion.
 - [ ] Inbound message atomically cancels idle subscription, resolves neutral wake, stays FIFO queued, and is processed before Lead `agent_settled`.
 - [ ] Same-boundary message wins idle; idle winning just before message never drops queued message.
 - [ ] All timers, socket listeners, and local message-wake listeners clean up once on every path.
-- [ ] Remove Member Idle Wait use of `YieldingWaitRuntime`, `crew-wait-resume`, and parked/resume shared events; Request outcome yielding remains unchanged.
+- [ ] Remove Member Idle Wait use of `YieldingWaitRuntime`, `crew-wait-resume`, and parked/resume shared events; Request outcome waiting remains a same-call blocking wait and also uses the shared accepted-message wake.
 - [ ] No polling, sleeps, private Pi queue mutation, message-content parsing, task inference, or selective FIFO removal.
 - [ ] Mutual blocking limitation and inbound-message scope are explicit in tool help and workflow docs.
 - [ ] Focused real-socket integration proves busy target → inbound Follow-up wake and busy target → `agent_settled` wake.
@@ -93,5 +93,4 @@ must be documented rather than hidden by polling or heuristic completion.
 ## Out of scope
 
 - Making arbitrary third-party extension messages observable.
-- Changing `wait_for_request_outcome`.
 - Inferring task completion from idle or message arrival.

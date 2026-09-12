@@ -106,13 +106,15 @@ wait_for_request_outcome()
 ```
 
 No arguments. It blocks this tool call until the oldest terminal outbound
-Request outcome arrives: Response, offline, or a bounded timeout. The wait is
+Request outcome arrives: Response, offline, or a bounded timeout. An accepted
+inbound Bebop message also releases the wait so the message can be consumed
+before waiting again; this does not settle the outbound Request. The wait is
 cancellable, has one local waiter, and does not poll or return Presence, Member
 Status, Broadcast, Inbox, or unrelated Crew activity. It is requester-side
-only: call it after you sent `send_member_request`, never to handle an inbound
-Member request or an ordinary message. When no pending outbound Member request
-exists, it returns a normal `all-settled` success with `pending_count: 0`.
-Waiting is only appropriate when no immediate coordination action remains.
+only: call it after you sent `send_member_request`. When no pending outbound
+Member request exists, it returns a normal `all-settled` success with
+`pending_count: 0`. Waiting is only appropriate when no immediate coordination
+action remains.
 
 ## Request outcomes
 

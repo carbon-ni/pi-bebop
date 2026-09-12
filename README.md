@@ -147,8 +147,10 @@ immediately in the next model continuation; message-received never implies idle 
 parallel tool batch: Pi only skips the content-free continuation when every result terminates, so a mixed batch may consume the waking message
 one continuation later. The bounded timeout is always the fallback.
 `wait_for_request_outcome` blocks the current tool call until a terminal
-outcome or bounded safeguard releases it; it does not guarantee another Member
-will respond.
+outcome or bounded safeguard releases it. An accepted inbound Bebop message
+also releases the wait so the message can be consumed before waiting again;
+this does not settle the outbound request or guarantee another Member will
+respond.
 
 ## Boundaries
 

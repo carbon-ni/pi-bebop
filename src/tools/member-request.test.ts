@@ -42,6 +42,7 @@ test("request outcome waiting is blocking and distinct from accepted-only follow
 	assert.match(wait.description, /oldest terminal outbound Request outcome/i);
 	assert.match(wait.description, /block this tool call/i);
 	assert.match(wait.description, /bounded wait is cancellable/i);
+	assert.match(wait.description, /accepted inbound Bebop message releases/i);
 	assert.doesNotMatch(wait.description, /crew-wait-resume|yields the run/i);
 });
 
@@ -77,10 +78,50 @@ test("TASK-0151: wait blocks the same tool call until a terminal Response arrive
 	assert.equal(result.isError, undefined);
 	assert.equal(result.terminate, undefined);
 	assert.equal(result.details.result.kind, "response");
+	assert.equal(state.wakeGate.armed, false, "terminal outcome releases the shared message wake gate");
 	assert.match(String(result.content[0]?.text ?? ""), /Evidence attached: 3 findings/);
 	assert.match(String(result.content[0]?.text ?? ""), /1\. review finding 1/);
 	assert.match(String(result.content[0]?.text ?? ""), /2\. confirm gate/);
 	assert.equal(registry.outboundCount(), 0);
+});
+
+test("accepted inbound messages release the Request outcome wait without settling the outbound request", async () => {
+	const { tools, state } = setup();
+	const registry = registerAccepted(state);
+	const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(state.wakeGate.armed, true, "the Request outcome wait arms the shared message wake gate");
+	assert.equal(state.wakeGate.notifyAccepted("delivery-1"), true);
+
+	const result = await pending;
+	assert.equal(result.isError, undefined);
+	assert.equal(result.terminate, true, "the message wake skips the content-free continuation");
+	assert.deepEqual(result.details, { outcome: "message-received" });
+	assert.equal(registry.outboundCount(), 1, "message wake does not settle the outbound request");
+	assert.equal(state.wakeGate.armed, false, "the consumed wake listener is cleaned up");
+
+	registry.resolveResponse({
+		requestId: "active",
+		member: { name: "qa", role: "reviewer" },
+		message: "The later response",
+		instructions: [],
+	});
+	const later = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(later.details.result.message, "The later response");
+});
+
+test("an existing blocking wait rejects a Request outcome waiter without leaving registry state armed", async () => {
+	const { tools, state } = setup();
+	const registry = registerAccepted(state);
+	const listener = () => undefined;
+	assert.deepEqual(state.wakeGate.arm(listener), { ok: true });
+
+	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "wait-in-progress");
+	assert.equal(registry.outboundCount(), 1);
+	state.wakeGate.release(listener);
+	assert.equal(state.wakeGate.armed, false);
 });
 
 test("TASK-0151: terminal outcomes resolve the blocked call with actionable recovery", async () => {
@@ -140,6 +181,7 @@ test("TASK-0151: abort releases the blocked waiter without changing request stat
 	const result = await pending;
 	assert.equal(result.isError, true);
 	assert.equal(result.details.error, "aborted");
+	assert.equal(state.wakeGate.armed, false, "abort releases the shared message wake gate");
 	assert.equal(result.terminate, undefined);
 	assert.equal(registry.outboundCount(), 1);
 	const released = registry.waitForUpdate(() => undefined);
