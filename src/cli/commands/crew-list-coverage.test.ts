@@ -18,6 +18,42 @@ function context(cwd: string): CliContext {
 
 const options: CrewListCliOptions = { command: "crew-list", format: "json", full: true };
 
+test("crew list exposes duplicate trusted selectors with recovery locators", async () => {
+	const projectRoot = await mkdtemp(path.join(tmpdir(), "bebop-crew-list-duplicates-"));
+	try {
+		const manifest = JSON.stringify({
+			version: 1,
+			crew: { id: "alpha", displayName: "Alpha" },
+			members: [{ name: "Alice", role: "developer", socket: "sockets/alice.sock" }],
+			presence: { notifications: true },
+		});
+		for (const directory of [".pi/bebop", ".pi/crew"]) {
+			const file = path.join(projectRoot, directory, "crew.json");
+			await mkdir(path.dirname(file), { recursive: true });
+			await writeFile(file, manifest);
+		}
+		const outcome = await runCrewListCommand(options, context(projectRoot), {
+			...defaultCrewListDependencies,
+			readLiveRuntimes: async () => [],
+			readObservedLocators: async () => [],
+			probeMember: async () => true,
+		});
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind === "result") {
+			const crews = (outcome.result.data as { crews: Array<Record<string, unknown>> }).crews;
+			assert.equal(outcome.result.status, "listed");
+			assert.equal(crews.length, 2);
+			assert.deepEqual(
+				crews.map((crew) => crew.selector),
+				["alpha", "alpha"],
+			);
+			assert.ok(crews.every((crew) => crew.availability === "online" && typeof crew.locator === "string"));
+		}
+	} finally {
+		await rm(projectRoot, { recursive: true, force: true });
+	}
+});
+
 test("crew list reads supported manifests through the trusted filesystem boundary", async () => {
 	const projectRoot = await mkdtemp(path.join(tmpdir(), "bebop-crew-list-"));
 	const manifestPath = path.join(projectRoot, ".pi", "bebop", "crew.json");
@@ -75,6 +111,42 @@ test("crew list reads supported manifests through the trusted filesystem boundar
 		assert.equal(untrusted.kind, "result");
 		if (untrusted.kind === "result")
 			assert.equal((untrusted.result.data as { invalidCandidates: number }).invalidCandidates, 1);
+	} finally {
+		await rm(projectRoot, { recursive: true, force: true });
+	}
+});
+
+test("crew list keeps manifests without a Crew identity unaddressable", async () => {
+	const projectRoot = await mkdtemp(path.join(tmpdir(), "bebop-crew-list-unaddressable-"));
+	const manifestPath = path.join(projectRoot, ".pi", "bebop", "crew.json");
+	try {
+		await mkdir(path.dirname(manifestPath), { recursive: true });
+		await writeFile(
+			manifestPath,
+			JSON.stringify({
+				version: 1,
+				members: [{ name: "Alice", role: "developer", socket: "sockets/alice.sock" }],
+				presence: { notifications: true },
+			}),
+		);
+		const outcome = await runCrewListCommand(options, context(projectRoot), {
+			...defaultCrewListDependencies,
+			readLiveRuntimes: async () => [],
+			readObservedLocators: async () => [],
+		});
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind === "result") {
+			const crew = (outcome.result.data as { crews: Array<Record<string, unknown>> }).crews[0];
+			assert.equal(outcome.result.status, "listed");
+			assert.deepEqual(crew, {
+				availability: "unaddressable",
+				memberCount: 1,
+				onlineMembers: 0,
+				observedAt: crew?.observedAt,
+				addressable: false,
+				reason: "missing-crew-id",
+			});
+		}
 	} finally {
 		await rm(projectRoot, { recursive: true, force: true });
 	}
