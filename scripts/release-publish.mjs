@@ -38,9 +38,12 @@ function isMissingNpmArtifactError(error) {
 			return false;
 		}
 	}
-	if (MISSING_NPM_CODES.has(error?.code)) return true;
+	const errorCode = typeof error?.code === "string" ? error.code.toUpperCase() : undefined;
+	if (errorCode?.startsWith("E")) return MISSING_NPM_CODES.has(errorCode);
 	const stderr = typeof error?.stderr === "string" ? error.stderr : "";
-	return MISSING_NPM_CODES.has(stderr.match(/\b(E404|ETARGET)\b/i)?.[1]?.toUpperCase());
+	return MISSING_NPM_CODES.has(
+		stderr.match(/(?:^|\n)\s*npm\s+(?:error|ERR!)\s+code\s+(E404|ETARGET)\b/im)?.[1]?.toUpperCase(),
+	);
 }
 
 async function sha256(file) {

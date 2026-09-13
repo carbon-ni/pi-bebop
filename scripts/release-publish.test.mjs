@@ -89,10 +89,13 @@ test("structured ETARGET missing version is treated as publishable", async () =>
 
 test("npm authentication and network errors remain fatal", async () => {
 	for (const error of [
-		Object.assign(new Error("unauthorized"), { code: "E401", stderr: "npm error code E401" }),
+		Object.assign(new Error("unauthorized"), {
+			code: "E401",
+			stderr: "npm error code E401; registry mentioned ETARGET while checking metadata",
+		}),
 		Object.assign(new Error("registry unavailable"), {
 			code: "EAI_AGAIN",
-			stderr: "getaddrinfo EAI_AGAIN registry.npmjs.org",
+			stderr: "getaddrinfo EAI_AGAIN registry.npmjs.org; cached E404 response",
 		}),
 	]) {
 		const { root, tarball } = await fixture();
