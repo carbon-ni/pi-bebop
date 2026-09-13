@@ -61,15 +61,21 @@ pi-bebop --help
 Or install the packed tarball into a project:
 
 ```bash
-npm install ./carbon-ni-pi-bebop-0.1.0.tgz
+npm install ./carbon-ni-pi-bebop-0.2.0.tgz
 npx pi-bebop --help
 ```
 
 `pi-bebop --help` prints deterministic root help and exits 0 with no project,
 session, or filesystem IO. Leaf help is `pi-bebop <command> --help`; leaf `-h`
 is intentionally a structured usage error (exit 2), matching the
-canonical-long-flags-only contract. The scoped package is prepared for publication
-but is not published to npm yet; install from a checkout or tarball locally.
+canonical-long-flags-only contract.
+
+## What's new in 0.2.0
+
+- **Crew Sessions** — capture, list, inspect, resolve, and resume one exact role session.
+- **Session CLI migration** — the `session` command family replaces the former `crew session` naming.
+- **Guest lifecycle and messaging** — trusted admission, revocation, direct messaging, and deterministic broadcast fan-out.
+- **Reliable waits and requests** — correlated outcomes, inbound-message wake-up, bounded deadlines, and explicit failure states.
 
 ## Start a Crew
 

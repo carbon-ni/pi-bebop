@@ -11,8 +11,9 @@ const fixture = path.join(root, "package-fixtures", "release-consumer");
 const archiveDir = await mkdtemp(path.join(tmpdir(), "pi-bebop-package-"));
 const consumerDir = await mkdtemp(path.join(tmpdir(), "pi-bebop-consumer-"));
 const environment = { ...process.env, NODE_PATH: "" };
-const packageName = "@carbon-ni/pi-bebop";
-const packageVersion = "0.1.0";
+const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+const packageName = packageJson.name;
+const packageVersion = packageJson.version;
 const allowedPath = (file) =>
 	file === "LICENSE" ||
 	file === "README.md" ||

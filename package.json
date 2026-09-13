@@ -7,7 +7,7 @@
 		"type": "git",
 		"url": "https://github.com/carbon-ni/pi-bebop"
 	},
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Independent crew management for Pi agents",
 	"type": "module",
 	"main": "./dist/extension.js",
