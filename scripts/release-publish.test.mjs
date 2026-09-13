@@ -25,6 +25,18 @@ const npmMissing = () => {
 	return error;
 };
 
+const npmTargetMissing = () => {
+	const error = new Error("npm pack failed");
+	error.stdout = JSON.stringify({
+		error: {
+			code: "ETARGET",
+			summary: "No matching version found for @carbon-ni/pi-bebop@0.2.0.",
+		},
+	});
+	error.stderr = "npm error code ETARGET";
+	return error;
+};
+
 test("missing publication uploads npm, GitHub artifact, and checksum", async () => {
 	const { root, tarball } = await fixture();
 	const calls = [];
@@ -46,6 +58,94 @@ test("missing publication uploads npm, GitHub artifact, and checksum", async () 
 		});
 		assert.ok(calls.some(([, args]) => args[0] === "publish"));
 		assert.equal(calls.filter(([, args]) => args[1] === "upload").length, 2);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("structured ETARGET missing version is treated as publishable", async () => {
+	const { root, tarball } = await fixture();
+	const calls = [];
+	try {
+		const run = async (command, args) => {
+			calls.push([command, args]);
+			if (command === "npm" && args[0] === "pack") throw npmTargetMissing();
+			if (command === "gh" && args[1] === "view") return { stdout: JSON.stringify({ assets: [] }) };
+			return { stdout: "" };
+		};
+		await publishRelease({
+			tarball,
+			packageName: "@carbon-ni/pi-bebop",
+			version: "0.2.0",
+			releaseTag: "v0.2.0",
+			npmTag: "latest",
+			run,
+		});
+		assert.ok(calls.some(([, args]) => args[0] === "publish"));
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("npm authentication and network errors remain fatal", async () => {
+	for (const error of [
+		Object.assign(new Error("unauthorized"), { code: "E401", stderr: "npm error code E401" }),
+		Object.assign(new Error("registry unavailable"), {
+			code: "EAI_AGAIN",
+			stderr: "getaddrinfo EAI_AGAIN registry.npmjs.org",
+		}),
+	]) {
+		const { root, tarball } = await fixture();
+		const calls = [];
+		try {
+			await assert.rejects(
+				publishRelease({
+					tarball,
+					packageName: "@carbon-ni/pi-bebop",
+					version: "0.2.0",
+					releaseTag: "v0.2.0",
+					npmTag: "latest",
+					run: async (command, args) => {
+						calls.push([command, args]);
+						if (command === "npm" && args[0] === "pack") throw error;
+						return { stdout: "" };
+					},
+				}),
+				(actual) => actual === error,
+			);
+			assert.deepEqual(
+				calls.map(([, args]) => args[0]),
+				["pack"],
+			);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	}
+});
+
+test("malformed npm pack JSON remains fatal", async () => {
+	const { root, tarball } = await fixture();
+	const calls = [];
+	try {
+		await assert.rejects(
+			publishRelease({
+				tarball,
+				packageName: "@carbon-ni/pi-bebop",
+				version: "0.2.0",
+				releaseTag: "v0.2.0",
+				npmTag: "latest",
+				run: async (command, args) => {
+					calls.push([command, args]);
+					if (command === "npm" && args[0] === "pack") return { stdout: "{not-json" };
+					return { stdout: "" };
+				},
+			}),
+			SyntaxError,
+		);
+		assert.deepEqual(
+			calls.map(([, args]) => args[0]),
+			["pack"],
+		);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

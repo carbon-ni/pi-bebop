@@ -26,6 +26,23 @@ export function qualityGateAllowsPublish(result) {
 	return result === "success";
 }
 
+const MISSING_NPM_CODES = new Set(["E404", "ETARGET"]);
+
+function isMissingNpmArtifactError(error) {
+	const stdout = typeof error?.stdout === "string" ? error.stdout.trim() : "";
+	if (stdout) {
+		try {
+			const parsed = JSON.parse(stdout);
+			return MISSING_NPM_CODES.has(parsed?.error?.code);
+		} catch {
+			return false;
+		}
+	}
+	if (MISSING_NPM_CODES.has(error?.code)) return true;
+	const stderr = typeof error?.stderr === "string" ? error.stderr : "";
+	return MISSING_NPM_CODES.has(stderr.match(/\b(E404|ETARGET)\b/i)?.[1]?.toUpperCase());
+}
+
 async function sha256(file) {
 	return createHash("sha256")
 		.update(await readFile(file))
@@ -45,7 +62,7 @@ async function npmArtifact(packageName, version, directory, run) {
 		const entry = JSON.parse(result.stdout)[0];
 		return path.join(directory, entry.filename);
 	} catch (error) {
-		if (/E404|not found/i.test(error.stderr ?? "")) return null;
+		if (isMissingNpmArtifactError(error)) return null;
 		throw error;
 	}
 }
