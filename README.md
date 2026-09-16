@@ -26,10 +26,24 @@ members; it has no task, Git, review, or CI ownership.
 
 - **Independent Pi Members** — each member is its own Pi session with its own
   context, plans, and tools; nothing is shared implicitly.
+- **Persistent context instead of repeated handoffs** — Bebop keeps each role in
+  an ongoing Pi session, allowing repeated calls to reuse provider-cached input.
+  The example below shows **97.9% cached input for dev** and **97.5% for QA**.
+  These are observed results, not guaranteed rates or a benchmark against
+  subagent architectures. Subagents can also reuse cached input; results depend
+  on the provider, model, and workload. Bebop does not implement its own model cache.
 - **Project-local crew identity** — a trusted `.pi/bebop/crew.json` manifest owns
   names, roles, sockets, and instructions; no global registry.
 - **Explicit communication and lifecycle tools** — every message, request, inbox,
   interrupt, and wait has a distinct tool with a one-phrase guarantee.
+
+### Cache reuse in practice
+
+![Crew session statistics showing 97.9% cached input for dev (top right) and 97.5% for QA (bottom right).](docs/images/crew-cache-reuse.png)
+
+*One Crew's session statistics, September 16, 2026. Percentages describe cached
+input tokens, not the percentage of requests that hit a cache. Repeated calls
+can reuse earlier input, so these totals are cumulative—not unique context size.*
 
 ## Install
 
