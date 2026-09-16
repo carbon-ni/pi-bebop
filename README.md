@@ -3,7 +3,7 @@
 <img width="250" alt="bebop" src="https://github.com/user-attachments/assets/ff4eccd9-73e7-4e09-a617-ce7b7db7e299" align="right" />
 
 <div>
-Make independent PI instances part of a dysfunctional but effective crew.  
+Make independent Pi instances part of a dysfunctional but effective crew.
 </div>
 
 </br>
@@ -14,190 +14,168 @@ Make independent PI instances part of a dysfunctional but effective crew.
 
 ## What is Pi Bebop
 
-Pi Bebop gives your Pi agents a project-local crew: independent members with
-names and roles, a trusted manifest, and explicit communication and lifecycle
-tools between them. Members join from any worktree or path, and every agent-facing
-surface is active only while the member is joined.
+Pi Bebop lets independent Pi sessions work as a crew.
+Each member has a name, a role, and its own conversation, context, and tools.
+Members can join from different worktrees or paths and talk to each other without sharing a conversation.
 
-Bebop is transport, not workflow. It moves messages and lifecycle signals between
-members; it has no task, Git, review, or CI ownership.
+The thing is, communication is not the same as orchestration.
+Bebop moves messages and tracks who has joined. It doesn't assign tasks, pick workers, or decide when work is done.
+Your crew decides how to work.
 
 ## Why Bebop
 
-- **Independent Pi Members** — each member is its own Pi session with its own
-  context, plans, and tools; nothing is shared implicitly.
-- **Persistent context instead of repeated handoffs** — Bebop keeps each role in
-  an ongoing Pi session, allowing repeated calls to reuse provider-cached input.
-  The example below shows **97.9% cached input for dev** and **97.5% for QA**.
-  These are observed results, not guaranteed rates or a benchmark against
-  subagent architectures. Subagents can also reuse cached input; results depend
-  on the provider, model, and workload. Bebop does not implement its own model cache.
-- **Project-local crew identity** — a trusted `.pi/bebop/crew.json` manifest owns
-  names, roles, sockets, and instructions; no global registry.
-- **Explicit communication and lifecycle tools** — every message, request, inbox,
-  interrupt, and wait has a distinct tool with a one-phrase guarantee.
+- **Keep each member independent.** Each role can keep working in its own Pi session, with its own context, plans, and tools.
+- **Keep context around.** An ongoing session lets repeated calls reuse input cached by the model provider. The example below shows 97.9% cached input for dev and 97.5% for QA.
+- **Keep crew identity in the project.** Names, roles, sockets, and instructions live in a trusted `.pi/bebop/crew.json`, not a global registry.
+- **Say what kind of message you mean.** Send information, ask for a response, leave something in an inbox, or interrupt stuck work. Each operation has a different promise.
 
 ### Cache reuse in practice
 
 ![Crew session statistics showing 97.9% cached input for dev (top right) and 97.5% for QA (bottom right).](docs/images/crew-cache-reuse.png)
 
-*One Crew's session statistics, September 16, 2026. Percentages describe cached
-input tokens, not the percentage of requests that hit a cache. Repeated calls
-can reuse earlier input, so these totals are cumulative—not unique context size.*
+These are results from one Crew on September 16, 2026, not guaranteed rates or a benchmark against subagents.
+Subagents can reuse cached input too. Results depend on the provider, model, and workload (Bebop doesn't implement a model cache).
+
+The percentages count cached input tokens, not requests that hit a cache.
+Repeated calls can reuse earlier input, so these totals are cumulative. They aren't the size of each session's context.
 
 ## Install
 
-### Extension
+### Pi extension
 
 ```bash
-## Npm
 pi install npm:@carbon-ni/pi-bebop
+```
 
-## GitHub release
+Or install from GitHub:
+
+```bash
 pi install git:github.com/carbon-ni/pi-bebop
 ```
 
 ### CLI
 
 ```bash
-## Install
 npm install -g @carbon-ni/pi-bebop
-
-## Npx
-npx @carbon-ni/pi-bebop --help
-```
-
-Install from this checkout so the `pi-bebop` bin is on your PATH:
-
-```bash
-npm link
 pi-bebop --help
 ```
 
-Or install the packed tarball into a project:
+Without a global install:
 
 ```bash
-npm install ./carbon-ni-pi-bebop-0.2.0.tgz
-npx pi-bebop --help
+npx @carbon-ni/pi-bebop --help
 ```
 
-`pi-bebop --help` prints deterministic root help and exits 0 with no project,
-session, or filesystem IO. Leaf help is `pi-bebop <command> --help`; leaf `-h`
-is intentionally a structured usage error (exit 2), matching the
-canonical-long-flags-only contract.
-
-## What's new in 0.2.0
-
-- **Crew Sessions** — capture, list, inspect, resolve, and resume one exact role session.
-- **Session CLI migration** — the `session` command family replaces the former `crew session` naming.
-- **Guest lifecycle and messaging** — trusted admission, revocation, direct messaging, and deterministic broadcast fan-out.
-- **Reliable waits and requests** — correlated outcomes, inbound-message wake-up, bounded deadlines, and explicit failure states.
+For command help, use `pi-bebop <command> --help`.
+Use the full `--help` flag for subcommands; `-h` returns a usage error.
 
 ## Start a Crew
 
 ```bash
 pi-bebop crew init
-# discover the configured roles before choosing identity (read-only):
 pi-bebop crew roles
-pi --crew-role lead
-pi --crew-role developer
-# in each member session, inspect the authoritative roster:
-/crew members
 ```
 
-`crew init` creates a version 2 `.pi/bebop/crew.json`, shared and role
-instruction templates, and a `sockets/` directory — deterministic,
-non-interactive, and a safe no-op on rerun. Its default is concise human-readable
-text showing the created/verified state, target project, relevant paths, and next
-command; use `--format toon` or `--format json` for structured output. Review
-names, Intake contact, common guidance, and role instructions before joining.
-`pi-bebop crew roles` prints the exact configured role values (TOON by default,
-`--format json|text`) rooted at the current working directory, so startup role
-selection never depends on opening `crew.json` manually; it never starts a
-server, joins, or mutates files. Start each member by its manifest role;
-`/crew members` shows exactly `current`, `online`, or `offline` with configured
-project socket paths.
+`crew init` creates `.pi/bebop/crew.json`, shared and role instructions, and a `sockets/` directory.
+It doesn't prompt or overwrite existing files. An exact rerun changes nothing; partial or conflicting layouts return an error.
+Review the names, Intake contact, and instructions before joining.
 
-## Resume one exact role session
+`crew roles` lists the exact roles configured in that manifest. It doesn't start a server or join a member.
+Start each member in a separate terminal, using its configured role:
 
-Use the separate role-scoped picker when you need one prior Pi Session for the
-current trusted Crew role:
+```bash
+pi --crew-role lead
+pi --crew-role developer
+```
+
+Then use `/crew members` inside Pi to see who's `current`, `online`, or `offline`.
+Bebop's agent tools are available only while the member is joined.
+See [Crew setup](docs/CREW-INIT.md) for the manifest and instruction details.
+
+## Resume a session by role
+
+To pick an earlier session for a role in the current Crew:
 
 ```bash
 pi-bebop session resume --role developer
 ```
 
-It lists only sessions Bebop attributed on their active branch to that exact
-role and current manifest fingerprint. Cancel or empty discovery launches
-nothing; selecting a session revalidates it, then launches only that exact
-session with its stored working directory. It never invokes Pi's native picker
-or resumes a whole Crew. See [the role-session contract](docs/ROLE-SESSION-RESUME.md).
+Choose a result and Bebop opens that exact Pi session in its original working directory.
+It doesn't copy the conversation, start a new session, or resume the whole Crew.
+Cancel the picker, or find no matching sessions, and nothing launches.
 
-## Preserve exact Member sessions
+The picker only includes sessions with recorded membership matching the current Crew, role, and manifest fingerprint.
+Older sessions without that record, or sessions whose record no longer matches, won't appear.
+Plain `pi -r` stays unchanged. See [role session resume](docs/ROLE-SESSION-RESUME.md) for the matching and safety rules.
 
-A **Crew Session** is a named, machine-local bookmark linking one trusted Crew
-to the exact persisted Pi Session of each Member captured while online. It is
-not a shared conversation, process group, task, lock, or whole-Crew launcher.
-Capture before closing the intended Member sessions, then inspect and resolve
-one Member at a time later:
+## Bookmark Member sessions together
+
+A **Crew Session** is a named bookmark stored on your machine.
+It links a Crew to the exact Pi Session of each Member captured while online.
+It isn't a shared conversation or a way to launch everyone at once.
+
+Capture before closing the sessions you want to keep:
 
 ```bash
 pi-bebop session capture "auth regression"
 pi-bebop session list
 pi-bebop session show <crew-session-id>
 pi-bebop session resolve <crew-session-id> <member>
-# review the returned argv/cwd, then run the shell-escaped command manually
 ```
 
-Capture never guesses a latest session and keeps explicit missing reasons for
-Members it cannot validate. `session add <id> <member>` fills one missing
-link without replacing existing bindings. Resolution validates the exact case-sensitive Member, trusted manifest, supported
-Pi Session header, branch-aware active Membership, cwd, endpoint, and current
-process observation. A live endpoint returns `already-open`; an unreachable
-endpoint is qualified and is not a lock or race-free guarantee. The result keeps
-`argv` and `cwd` separate and never adds role/socket flags, model settings,
-prompts, or repair instructions. Review the returned fields before running the
-shell-escaped `pi --session <absolute-file>` command manually. Full Pi Session
-references appear only on these explicit commands. See the [normative Crew
-Session contract](docs/CREW-SESSION.md) for identity, storage, trust, privacy,
-and stale-session rules.
+Capture records missing Members with a reason instead of guessing their latest session.
+Use `session add <id> <member>` to fill a missing link without replacing an existing one.
 
-## Choose communication
+Unlike the role picker, `session resolve` doesn't launch Pi.
+It validates the saved session and returns the command and working directory separately.
+Review them, then run the returned `pi --session <absolute-file>` command yourself.
+It doesn't add role, socket, model, or prompt flags.
 
-| Tool                  | Use when                                                | Guarantee                                                                              |
-| --------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `send_member_request` | you need one correlated answer, report, or verdict      | accepted delivery; call `wait_for_request_outcome` to block until the terminal outcome |
-| `send_follow_up`      | ordinary information                                    | accepted delivery only; no correlated Response expected                                |
-| `redirect_member`     | change what a member is doing next                      | steered before the target's next model step; never aborts                              |
-| `send_to_inbox`       | the peer may be offline                                 | persisted durably; read later as a normal follow-up                                    |
-| `interrupt_member`    | work is stuck, harmful, or based on invalid assumptions | best-effort abort plus recovery guidance; never rolls back side effects                |
-| `broadcast_to_crew`   | a shared team-wide constraint                           | transient Broadcast Follow-up to every other member; per-recipient delivery outcomes   |
+An open endpoint returns `already-open`. An unreachable endpoint is not proof that the session is closed, and resolution doesn't lock it.
+See [Crew Sessions](docs/CREW-SESSION.md) for identity checks, storage, privacy, and stale sessions.
 
-The standalone `pi-bebop send --socket` command is accepted-delivery only by
-default. Its legacy `--wait turn_end` mode is rejected because Pi exposes only
-a global completion event, which cannot be causally tied to this delivery. Use `pi-bebop member request send` followed by `pi-bebop member request wait`,
-or `pi-bebop ask <crew[/member]>`, when one correlated response is required.
+## Choose how to communicate
 
-`wait_for_member_idle` blocks the current run until the target settles to mechanical idle, goes offline, the bounded timeout expires, or an accepted
-Bebop message releases the wait under its original delivery mode. When this is the only call in the tool batch, the waking message is consumed
-immediately in the next model continuation; message-received never implies idle or completion. Call this coordination wait alone, not in a
-parallel tool batch: Pi only skips the content-free continuation when every result terminates, so a mixed batch may consume the waking message
-one continuation later. The bounded timeout is always the fallback.
-`wait_for_request_outcome` blocks the current tool call until a terminal
-outcome or bounded safeguard releases it. An accepted inbound Bebop message
-also releases the wait so the message can be consumed before waiting again;
-this does not settle the outbound request or guarantee another Member will
-respond.
+| Tool | Use it when | What it promises |
+| --- | --- | --- |
+| `send_member_request` | You need an answer, report, or verdict | Requests one response tied to your request. Use `wait_for_request_outcome` to wait for a response, offline result, or timeout. |
+| `send_follow_up` | You're sharing information | Accepted delivery, with no response expected. |
+| `redirect_member` | You need to change what a member does next | Delivers guidance before the next model step, without aborting the turn. |
+| `send_to_inbox` | The member may be offline | Saves the message for later delivery as a follow-up. |
+| `interrupt_member` | Work is stuck, harmful, or based on a wrong assumption | Tries to abort and deliver recovery guidance. It can't undo work already done. |
+| `broadcast_to_crew` | Everyone else needs the same information | Attempts delivery to each other member and reports each outcome. It doesn't save messages to an inbox. |
 
-## Boundaries
+Accepted delivery doesn't mean the member read the message or finished the work.
+A response doesn't prove the result is correct either.
 
-- Roles are responsibility, not permissions; repeated roles route by exact name.
-- Online or idle is reachability at last observation — never availability or
-  progress.
-- Accepted, Persisted, or Response is never completion; Bebop has no task, Git,
-  review, or CI ownership.
-- Bebop is transport, not workflow: it never claims exactly-once execution and
-  never picks workers or classifies content.
+From the CLI, use `pi-bebop member request send` followed by `pi-bebop member request wait`, or `pi-bebop ask <crew[/member]>`, when you need a response tied to a request.
+`pi-bebop send --socket` only confirms accepted delivery by default.
+Its old `--wait turn_end` mode is rejected because Pi's turn completion event can't be tied to that message.
+
+### Waiting isn't proof of progress
+
+`wait_for_member_idle` waits for the member to become idle, go offline, or reach the timeout.
+An incoming Bebop message can also release the wait. That doesn't mean the member became idle or finished anything.
+Call this wait on its own, not in a parallel tool batch, so an incoming message can be consumed immediately.
+
+`wait_for_request_outcome` waits for a response or another terminal outcome, such as a timeout.
+An incoming Bebop message can release this wait too, so it can be handled before waiting again.
+That doesn't settle the request or guarantee a response.
+See [Member requests](docs/MEMBER-REQUEST-WORKFLOW.md) for the full flow.
+
+## What Bebop doesn't decide
+
+- Roles describe responsibility, not permissions. When more than one member has a role, use an exact member name.
+- Online and idle describe observed runtime state, not availability or progress.
+- Accepting a message, saving it, or returning a response doesn't mean a task is complete.
+- Bebop doesn't own tasks, Git, reviews, or CI. It doesn't pick workers, classify message content, or guarantee exactly-once execution.
+
+## What's new in 0.2.0
+
+- **Sessions:** bookmark Member sessions and use a separate picker to resume a session by role.
+- **Session CLI:** `session` replaces the former `crew session` command family.
+- **Guests:** admit and revoke trusted guests, send direct messages, and broadcast in a defined order.
+- **Waits and requests:** tie responses to requests, wake waits for incoming messages, and report timeouts and failures explicitly.
 
 ## Development
 
@@ -207,9 +185,22 @@ npm run build
 npm test
 ```
 
-`make all` runs the pre-push gate (format, package, lint, build, test, security).
-Release verification is separate because it installs a pinned consumer dependency
-set and may need network:
+To use the CLI from this checkout:
+
+```bash
+npm link
+pi-bebop --help
+```
+
+Or install a packed release into a project:
+
+```bash
+npm install ./carbon-ni-pi-bebop-0.2.0.tgz
+npx pi-bebop --help
+```
+
+`make all` runs the pre-push gate: format, package, lint, build, test, and security checks.
+Release verification is separate because it installs pinned consumer dependencies and may need network access:
 
 ```bash
 make package-verify
