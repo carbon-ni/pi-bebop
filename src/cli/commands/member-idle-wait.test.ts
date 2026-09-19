@@ -1,12 +1,27 @@
 import assert from "node:assert/strict";
 import * as net from "node:net";
 import test from "node:test";
+import { Command } from "commander";
+import { UsageError } from "../support/arguments.ts";
 import {
+	buildMemberIdleWaitCommand,
 	defaultMemberIdleWaitCliDependencies,
 	mapIdleWaitTransportError,
 	normalizeIdleWaitTransportOutcome,
+	readMemberIdleWaitCommand,
 	runMemberIdleWaitCommand,
 } from "./member-idle-wait.ts";
+
+function parseInto(tokens: readonly string[]): Command {
+	const command = buildMemberIdleWaitCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse([...tokens], { from: "user" });
+	return command;
+}
+function waitOptions(tokens: readonly string[] = ["Bob"]) {
+	return readMemberIdleWaitCommand(parseInto(tokens));
+}
 
 const source = { ok: true as const, kind: "id" as const, idSocketPath: "/id.sock", aliasSocketPath: "/alias.sock" };
 const result = {
@@ -117,4 +132,64 @@ test("default wait transport maps unavailable source errors without rejecting", 
 	);
 	assert.equal(outcome.ok, false);
 	if (!outcome.ok) assert.equal(outcome.code, "unknown-session");
+});
+
+test("member wait-idle maps rejected transport promises instead of rejecting", async () => {
+	const outcome = await runMemberIdleWaitCommand(waitOptions(), context, {
+		resolveSource: () => source,
+		environmentSession: () => undefined,
+		sendWait: async () => {
+			throw Object.assign(new Error("refused"), { code: "ECONNREFUSED" });
+		},
+	});
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") assert.equal(outcome.result.error?.code, "offline-session");
+});
+
+test("member wait-idle source resolution failures are usage-class", async () => {
+	await assert.rejects(
+		() =>
+			runMemberIdleWaitCommand(waitOptions(), context, {
+				resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }),
+				environmentSession: () => undefined,
+				sendWait: async () => ({ ok: true, result }),
+			}),
+		(error: unknown) => error instanceof UsageError && error.message === "missing",
+	);
+	const malformed = await runMemberIdleWaitCommand(waitOptions(), context, {
+		resolveSource: () => source,
+		environmentSession: () => undefined,
+		sendWait: async () => ({ ok: true, result: { ...result, outcome: "not-an-outcome" } as never }),
+	});
+	assert.equal(malformed.kind, "result");
+	if (malformed.kind === "result") assert.equal(malformed.result.error?.code, "malformed-response");
+});
+
+test("member wait-idle maps thrown transport errors deterministically", async () => {
+	for (const [error, code] of [
+		[Object.assign(new Error("refused"), { code: "ECONNREFUSED" }), "offline-session"],
+		[Object.assign(new Error("not connected"), { code: "ENOTCONN" }), "offline-session"],
+		[new Error("RPC request timeout"), "timeout"],
+		[Object.assign(new Error("abort"), { name: "AbortError" }), "aborted"],
+	] as const) {
+		const outcome = await runMemberIdleWaitCommand(waitOptions(), context, {
+			resolveSource: () => source,
+			environmentSession: () => undefined,
+			sendWait: async () => {
+				throw error;
+			},
+		});
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind === "result") assert.equal(outcome.result.error?.code, code);
+	}
+});
+
+test("member wait-idle preserves aborted outcome and does not reinterpret it", async () => {
+	const outcome = await runMemberIdleWaitCommand(waitOptions(), context, {
+		resolveSource: () => source,
+		environmentSession: () => undefined,
+		sendWait: async () => ({ ok: false, code: "aborted" }),
+	});
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") assert.equal(outcome.result.error?.code, "aborted");
 });
