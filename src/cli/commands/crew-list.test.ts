@@ -69,7 +69,7 @@ test("crew list reader preserves full and rejects invalid formats", () => {
 	assert.deepEqual(readCrewListCommand(command), { command: "crew-list", format: "text", full: true });
 	const defaults = buildCrewListCommand().exitOverride();
 	defaults.parse(["node", "list"], { from: "node" });
-	assert.deepEqual(readCrewListCommand(defaults), { command: "crew-list", format: "toon", full: false });
+	assert.deepEqual(readCrewListCommand(defaults), { command: "crew-list", format: "text", full: false });
 	const invalid = buildCrewListCommand().exitOverride();
 	invalid.parse(["node", "list", "--format", "yaml"], { from: "node" });
 	assert.throws(() => readCrewListCommand(invalid), UsageError);

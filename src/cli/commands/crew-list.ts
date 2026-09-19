@@ -78,7 +78,7 @@ export function buildCrewListCommand(): Command {
 		.description("List locally known Crews by public identity")
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("crew-list"),
 		)
 		.option("--full", "Full response without response truncation")

@@ -326,10 +326,13 @@ test("packaged crew roles reads a real scaffolded manifest and exits 0 without m
 		assert.equal(parsed.data.roleCount, 4);
 		assert.equal(parsed.data.memberCount, 4);
 
-		// Text format is a short human line.
-		const text = await run(["crew", "roles", "--format", "text"]);
+		// Text is the concise default and remains available explicitly.
+		const text = await run(["crew", "roles"]);
 		assert.equal(text.code, 0, text.stdout);
 		assert.match(text.stdout, /4 configured roles: lead, product, developer, quality/);
+		const explicitText = await run(["crew", "roles", "--format", "text"]);
+		assert.equal(explicitText.code, 0, explicitText.stdout);
+		assert.equal(explicitText.stdout, text.stdout);
 
 		// Manifest is byte-identical after discovery (no mutation).
 		const manifestPath = path.join(dir, ".pi/bebop/crew.json");

@@ -35,7 +35,7 @@ export function buildRoleSessionResumeCommand(): Command {
 		.requiredOption("--role <exact-role>", "exact configured role")
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("session-resume"),
 		)
 		.addHelpText(

@@ -44,7 +44,7 @@ export function buildSessionListCommand(): Command {
 		.description("List reachable Pi sessions with safe aliases and joined state")
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("session-live"),
 		)
 		.addHelpText(

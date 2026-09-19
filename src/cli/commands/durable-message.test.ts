@@ -101,7 +101,7 @@ test("durable message readers preserve inbox and broadcast grammar", () => {
 		message: "hello",
 		instructions: ["one"],
 		stdin: false,
-		format: "toon",
+		format: "text",
 	});
 	const broadcast = parseInto("broadcast", ["--stdin", "--format", "text", "--session", "source-1"]);
 	assert.equal(broadcast.command, "crew-broadcast");

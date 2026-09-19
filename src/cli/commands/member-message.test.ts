@@ -114,7 +114,7 @@ test("member message readers preserve intent and source options", () => {
 		message: "wrap up",
 		instructions: ["one"],
 		stdin: false,
-		format: "toon",
+		format: "text",
 	});
 	const redirect = parseInto("redirect", ["Kelly", "--stdin", "--format", "text", "--session", "source-1"]);
 	assert.equal(redirect.intent, "redirect");

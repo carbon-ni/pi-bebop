@@ -63,7 +63,7 @@ test("crew roles reader preserves full and format options and rejects invalid fo
 	assert.deepEqual(readCrewRolesCommand(command), { command: "crew-roles", format: "text", full: true });
 	const defaults = buildCrewRolesCommand().exitOverride();
 	defaults.parse(["node", "roles"], { from: "node" });
-	assert.deepEqual(readCrewRolesCommand(defaults), { command: "crew-roles", format: "toon", full: false });
+	assert.deepEqual(readCrewRolesCommand(defaults), { command: "crew-roles", format: "text", full: false });
 	const invalid = buildCrewRolesCommand().exitOverride();
 	invalid.parse(["node", "roles", "--format", "yaml"], { from: "node" });
 	assert.throws(() => readCrewRolesCommand(invalid), UsageError);

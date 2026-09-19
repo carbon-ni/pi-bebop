@@ -64,7 +64,7 @@ test("session live reader preserves format and rejects invalid formats", () => {
 	assert.deepEqual(readSessionListCommand(command), { command: "session-live", format: "text" });
 	const defaults = buildSessionListCommand().exitOverride();
 	defaults.parse(["node", "live"], { from: "node" });
-	assert.deepEqual(readSessionListCommand(defaults), { command: "session-live", format: "toon" });
+	assert.deepEqual(readSessionListCommand(defaults), { command: "session-live", format: "text" });
 	const invalid = buildSessionListCommand().exitOverride();
 	invalid.parse(["node", "live", "--format", "yaml"], { from: "node" });
 	assert.throws(() => readSessionListCommand(invalid), UsageError);

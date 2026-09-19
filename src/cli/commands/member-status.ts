@@ -38,7 +38,7 @@ export function buildMemberStatusCommand(): Command {
 		.option("--session <id|alias>", "Source joined Pi session id or alias (default: PI_SESSION_ID)")
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("member-status"),
 		)
 		.argument("[<member>]", "Crew member name or unique role")
