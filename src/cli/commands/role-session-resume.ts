@@ -27,7 +27,6 @@ export interface RoleSessionResumeCliOptions {
 	readonly role: string;
 	readonly format: CliFormat;
 	readonly full: boolean;
-	readonly help?: boolean;
 }
 
 export function buildRoleSessionResumeCommand(): Command {
@@ -38,68 +37,27 @@ export function buildRoleSessionResumeCommand(): Command {
 			"--format <format>",
 			"Output format: toon (default), json, or text",
 			defaultFormatForCommand("session-resume"),
+		)
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Show only existing Pi Sessions explicitly attributed to the exact current Crew role.",
+				"Selecting one reopens that exact session with its stored working directory.",
+				"Unattributed, inactive, malformed, stale, drifted, and already-online sessions are excluded.",
+				"The command never creates a session, opens Pi's native picker, or resumes the whole Crew.",
+			].join("\n"),
 		);
 }
 
-export function roleSessionResumeHelp(): string {
-	return [
-		"pi-bebop session resume --role <exact-role> [--format toon|json|text]",
-		"",
-		"Show only existing Pi Sessions explicitly attributed to the exact current Crew role.",
-		"Selecting one reopens that exact session with its stored working directory.",
-		"Unattributed, inactive, malformed, stale, drifted, and already-online sessions are excluded.",
-		"The command never creates a session, opens Pi's native picker, or resumes the whole Crew.",
-		"",
-	].join("\n");
-}
-
-function parseWithCommander(args: readonly string[]): { role?: string; format?: string; help: boolean } {
-	const program = buildRoleSessionResumeCommand()
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} })
-		.option("--help");
-	let help = false;
-	const tokens: string[] = [];
-	const seen = new Set<string>();
-	for (let index = 0; index < args.length; index += 1) {
-		const token = args[index]!;
-		if (token === "--help" || token === "-h") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		const flag = token.startsWith("--role=") ? "--role" : token.startsWith("--format=") ? "--format" : token;
-		if (flag === "--role" || flag === "--format") {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-		}
-		tokens.push(token);
-	}
-	if (help) return { ...program.opts(), help };
-	try {
-		program.parse(tokens, { from: "user" });
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError") {
-			if ((error as Error & { code?: string }).code === "commander.optionMissingArgument")
-				throw new UsageError("Missing value for --role or --format");
-			throw new UsageError(error.message);
-		}
-		throw error;
-	}
-	return { ...program.opts(), help };
-}
-
-export function parseRoleSessionResumeCommand(
-	args: readonly string[],
-	_cwd = process.cwd(),
-): RoleSessionResumeCliOptions {
-	const parsed = parseWithCommander(args);
+export function readRoleSessionResumeCommand(parsed: Command): RoleSessionResumeCliOptions {
+	const opts = parsed.opts<{ role?: string; format?: string }>();
+	if (opts.role === undefined || opts.role.trim().length === 0) throw new UsageError("Missing --role <exact-role>;");
 	return {
 		command: "session-resume",
-		role: parsed.role ?? "",
-		format: readFormat(parsed.format),
+		role: opts.role,
+		format: readFormat(opts.format),
 		full: false,
-		...(parsed.help ? { help: true } : {}),
 	};
 }
 
@@ -132,7 +90,6 @@ export async function runRoleSessionResumeCommand(
 	context: CliContext,
 	dependencies: RoleSessionResumeCliDependencies = defaultDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: roleSessionResumeHelp() };
 	const target = options.role;
 	try {
 		const discovery = await dependencies.discover({ projectRoot: path.resolve(context.cwd), role: options.role });

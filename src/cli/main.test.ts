@@ -9,9 +9,6 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { errorCode, isCliEntrypoint, runCli } from "./main.ts";
-import { rootCliHelp } from "./root-help.ts";
-import { createCliRegistry } from "./registry.ts";
-import { crewInitHelp } from "../domain/index.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
 import { decode } from "@toon-format/toon";
@@ -125,7 +122,7 @@ test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 re
 		await symlink(path.join("..", "pi-bebop", "dist", "cli", "main.js"), bin);
 		const environment = { ...process.env, NODE_PATH: "" };
 
-		// No-argument invocation through the real bin path: compact TOON home, exit 0.
+		// No-argument invocation through the real bin path: Commander root help, exit 0.
 		const child = spawn(process.execPath, [bin], {
 			cwd: prefix,
 			env: environment,
@@ -138,8 +135,8 @@ test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 re
 		});
 		const homeCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
 		assert.equal(homeCode, 0, homeOut);
-		assert.match(homeOut, /status: home/);
-		assert.match(homeOut, /scaffold: missing/);
+		assert.match(homeOut, /^Usage: pi-bebop/);
+		assert.match(homeOut, /Commands:/);
 
 		// Real commands through the bin symlink match direct artifact semantics exactly.
 		const artifact = path.join(packageRoot, "dist/cli/main.js");
@@ -159,59 +156,67 @@ test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 re
 	}
 });
 
-test("root --help and -h return deterministic concise help with exit 0 and no IO", async () => {
-	const helpText = rootCliHelp(createCliRegistry().vocabulary());
-	for (const flag of ["--help", "-h"]) {
+test("root --help and -h return Commander-owned help with exit 0 and no IO", async () => {
+	async function capture(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
 		const output = new PassThrough();
+		const err = new PassThrough();
 		let text = "";
+		let errText = "";
 		output.setEncoding("utf8");
+		err.setEncoding("utf8");
 		output.on("data", (chunk) => {
 			text += chunk;
 		});
-		const code = await runCli([flag], process.cwd(), process.stdin, output);
-		assert.equal(code, 0, flag);
-		assert.equal(text, helpText, flag);
+		err.on("data", (chunk) => {
+			errText += chunk;
+		});
+		const code = await runCli(args, process.cwd(), process.stdin, output, err);
+		return { code, stdout: text, stderr: errText };
+	}
+	for (const flag of ["--help", "-h"]) {
+		const first = await capture([flag]);
+		const second = await capture([flag]);
+		assert.equal(first.code, 0, flag);
+		assert.equal(first.stdout, second.stdout, flag);
+		assert.equal(first.stderr, "", flag);
+		assert.match(first.stdout, /^Usage: pi-bebop/);
+		assert.match(first.stdout, /Commands:/);
 	}
 	// Root help performs no filesystem/project/session IO: a deleted cwd is fine.
 	const nowhere = await mkdtemp(path.join(tmpdir(), "bebop-root-help-"));
 	await rm(nowhere, { recursive: true, force: true });
-	const output = new PassThrough();
-	let text = "";
-	output.setEncoding("utf8");
-	output.on("data", (chunk) => {
-		text += chunk;
-	});
-	const code = await runCli(["--help"], nowhere, process.stdin, output);
-	assert.equal(code, 0);
-	assert.equal(text, helpText);
-	// Root help in first position wins deterministically, even with trailing args.
-	const trailing = new PassThrough();
-	let trailingText = "";
-	trailing.setEncoding("utf8");
-	trailing.on("data", (chunk) => {
-		trailingText += chunk;
-	});
-	assert.equal(await runCli(["-h", "anything"], process.cwd(), process.stdin, trailing), 0);
-	assert.equal(trailingText, helpText);
+	const nowhereRun = await capture(["--help"]);
+	assert.equal(nowhereRun.code, 0);
+	assert.match(nowhereRun.stdout, /^Usage: pi-bebop/);
+	// No arguments render the same root help and exit 0.
+	const noArgs = await capture([]);
+	assert.equal(noArgs.code, 0);
+	assert.match(noArgs.stdout, /^Usage: pi-bebop/);
 });
 
-test("unknown root flags still produce structured usage output with exit 2", async () => {
+test("unknown root options are usage failures: plain stderr, exit 2, empty stdout", async () => {
 	for (const args of [["-x"], ["--nope"]]) {
 		const output = new PassThrough();
+		const err = new PassThrough();
 		let text = "";
+		let errText = "";
 		output.setEncoding("utf8");
+		err.setEncoding("utf8");
 		output.on("data", (chunk) => {
 			text += chunk;
 		});
-		const code = await runCli(args, process.cwd(), process.stdin, output);
+		err.on("data", (chunk) => {
+			errText += chunk;
+		});
+		const code = await runCli(args, process.cwd(), process.stdin, output, err);
 		assert.equal(code, 2, args.join(" "));
-		assert.match(text, /Invalid command/);
+		assert.match(errText, /error: (unknown|invalid) option/, args.join(" "));
+		assert.equal(text, "", args.join(" "));
 	}
 });
 
 test("leaf -h is standard help and never reaches a handler", async () => {
 	const leaves: string[][] = [
-		["send"],
 		["crew", "init"],
 		["member", "status"],
 		["member", "wait-idle"],
@@ -235,285 +240,17 @@ test("leaf -h is standard help and never reaches a handler", async () => {
 	}
 });
 
-test("runs against a live Unix socket and sends ordered instructions and claimed origin", async () => {
-	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-"));
-	const socketPath = path.join(dir, "member.sock");
-	const sentParams: any[] = [];
-	const server = net.createServer((socket) => {
-		socket.setEncoding("utf8");
-		let buffer = "";
-		socket.on("data", (chunk) => {
-			buffer += chunk;
-			while (buffer.includes("\n")) {
-				const [line, rest] = buffer.split(/\n(.*)/s);
-				buffer = rest ?? "";
-				if (!line) continue;
-				const command = JSON.parse(line) as { method: string; id: string; params?: unknown };
-				if (command.method === "message.send") {
-					sentParams.push(command.params);
-					socket.write(
-						JSON.stringify({
-							jsonrpc: "2.0",
-							id: command.id,
-							result: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
-						}) + "\n",
-					);
-				}
-				if (command.method === "event.subscribe") {
-					socket.write(
-						JSON.stringify({
-							jsonrpc: "2.0",
-							id: command.id,
-							result: { subscriptionId: command.id, event: "turn_end" },
-						}) + "\n",
-					);
-					socket.write(
-						JSON.stringify({
-							jsonrpc: "2.0",
-							method: "session.turn_end",
-							params: {
-								subscriptionId: command.id,
-								message: { role: "assistant", content: "answer", timestamp: 1 },
-								turnIndex: 2,
-							},
-						}) + "\n",
-					);
-				}
-			}
-		});
-	});
-	await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-	try {
-		const output = new PassThrough();
-		let text = "";
-		output.setEncoding("utf8");
-		output.on("data", (chunk) => {
-			text += chunk;
-		});
-		const code = await runCli(
-			[
-				"send",
-				"--socket",
-				socketPath,
-				"--message",
-				"hello",
-				"--instruction",
-				"first",
-				"--instruction",
-				"second",
-				"--from",
-				"CI",
-				"--wait",
-				"accepted",
-				"--format",
-				"json",
-			],
-			process.cwd(),
-			process.stdin,
-			output,
-		);
-		assert.equal(code, 0);
-		assert.equal(JSON.parse(text).status, "accepted");
-		assert.deepEqual(sentParams[0], {
-			content: "hello",
-			instructions: ["first", "second"],
-			origin: { kind: "external", label: "CI" },
-			delivery: "immediate",
-		});
-		const stdin = new PassThrough();
-		const stdinOutput = new PassThrough();
-		const stdinPending = runCli(
-			[
-				"send",
-				"--socket",
-				socketPath,
-				"--stdin",
-				"--instruction",
-				"from-flag",
-				"--from",
-				"CI",
-				"--wait",
-				"accepted",
-				"--format",
-				"json",
-			],
-			process.cwd(),
-			stdin,
-			stdinOutput,
-		);
-		stdin.end("stdin is content only");
-		assert.equal(await stdinPending, 0);
-		assert.deepEqual(sentParams[1], {
-			content: "stdin is content only",
-			instructions: ["from-flag"],
-			origin: { kind: "external", label: "CI" },
-			delivery: "immediate",
-		});
-	} finally {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		await rm(dir, { recursive: true, force: true });
-	}
-});
-
-test("rejects turn_end output because global completion is not delivery-correlated", async () => {
-	await withEndpoint(
-		(command, socket) => {
-			if (command.method === "message.send") {
-				socket.write(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						id: command.id,
-						result: { deliveryId: `delivery-${command.id}`, disposition: "steered" },
-					}) + "\n",
-				);
-			}
-			if (command.method === "event.subscribe") {
-				socket.write(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						id: command.id,
-						result: { subscriptionId: command.id, event: "turn_end" },
-					}) + "\n",
-				);
-				// This is a prior/unrelated assistant result from the busy target.
-				socket.write(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						method: "session.turn_end",
-						params: {
-							subscriptionId: command.id,
-							message: { role: "assistant", content: "unrelated prior result", timestamp: 1 },
-							turnIndex: 7,
-						},
-					}) + "\n",
-				);
-				setTimeout(() => socket.destroy(), 100);
-			}
-		},
-		async (socketPath, messages) => {
-			const output = new PassThrough();
-			let text = "";
-			output.setEncoding("utf8");
-			output.on("data", (chunk) => {
-				text += chunk;
-			});
-			const code = await runCli(
-				["send", "--socket", socketPath, "--message", "new request", "--wait", "turn_end", "--format", "json"],
-				root,
-				process.stdin,
-				output,
-			);
-			assert.equal(code, 1);
-			assert.equal(messages.length, 0, "unsupported response mode must fail before transport");
-			const result = JSON.parse(text);
-			assert.equal(result.ok, false);
-			assert.equal(result.error.code, "uncorrelated-response");
-			assert.equal(text.includes("unrelated prior result"), false);
-		},
-	);
-});
-
-test("renders stdin read failures in the selected structured format", async () => {
-	const input = new PassThrough();
-	const output = new PassThrough();
-	let text = "";
-	output.setEncoding("utf8");
-	output.on("data", (chunk) => {
-		text += chunk;
-	});
-	const pending = runCli(
-		["send", "--socket", "/offline.sock", "--stdin", "--format", "json"],
-		process.cwd(),
-		input,
-		output,
-	);
-	input.emit("error", Object.assign(new Error("stdin closed"), { code: "EIO" }));
-	assert.equal(await pending, 1);
-	assert.deepEqual(JSON.parse(text), {
-		ok: false,
-		target: "/offline.sock",
-		status: "error",
-		error: { code: "offline", message: "stdin closed" },
-	});
-});
-
-test("rejects empty stdin before connecting", async () => {
-	const input = new PassThrough();
-	input.end();
-	const output = new PassThrough();
-	let text = "";
-	output.setEncoding("utf8");
-	output.on("data", (chunk) => {
-		text += chunk;
-	});
-	const code = await runCli(
-		["send", "--socket", "/offline.sock", "--stdin", "--format", "json"],
-		process.cwd(),
-		input,
-		output,
-	);
-	assert.equal(code, 2);
-	assert.equal(JSON.parse(text).error.code, "usage");
-});
-
-test("runs the built CLI artifact under plain Node", async () => {
-	const artifact = path.resolve("dist/cli/main.js");
-	const child = spawn(process.execPath, [artifact, "send", "--socket", "/x", "--message", "a", "--wait", "later"], {
-		stdio: ["ignore", "pipe", "pipe"],
-	});
-	let stdout = "";
-	child.stdout.setEncoding("utf8");
-	child.stdout.on("data", (chunk) => {
-		stdout += chunk;
-	});
-	const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
-	assert.equal(code, 2);
-	assert.match(stdout, /Invalid --wait/);
-});
-
-test("aborts a held-open stdin read on SIGINT within a bounded deadline", async () => {
-	const script = path.resolve("dist/cli/main.js");
-	const child = spawn(
-		process.execPath,
-		[script, "send", "--socket", "/offline.sock", "--stdin", "--format", "json"],
-		{ stdio: ["pipe", "pipe", "pipe"] },
-	);
-	let stdout = "";
-	child.stdout.setEncoding("utf8");
-	child.stdout.on("data", (chunk) => {
-		stdout += chunk;
-	});
-	const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
-		child.once("exit", (code, signal) => resolve({ code, signal })),
-	);
-	await new Promise((resolve) => setTimeout(resolve, 300));
-	child.kill("SIGINT");
-	let timer: NodeJS.Timeout | undefined;
-	try {
-		const exit = await Promise.race([
-			exitPromise,
-			new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new Error("CLI did not exit after SIGINT deadline")), 3000);
-			}),
-		]);
-		assert.equal(exit.code, 1);
-		assert.equal(exit.signal, null);
-		assert.equal(JSON.parse(stdout).error.code, "aborted");
-	} catch (error) {
-		child.kill("SIGKILL");
-		await exitPromise;
-		throw error;
-	} finally {
-		if (timer) clearTimeout(timer);
-	}
-});
-
 test("packaged artifact exposes the member status, session live, and crew roles leaves deterministically", async () => {
 	const artifact = path.resolve("dist/cli/main.js");
 
-	// IO-free usage path: unsafe --session value is usage-class, exit 2.
+	// IO-free usage path: unsafe --session value is usage-class — stderr, exit 2, empty stdout.
 	const unsafe = spawn(process.execPath, [artifact, "member", "status", "Kelly", "--session", "../x"], {
 		stdio: ["ignore", "pipe", "pipe"],
+	});
+	let unsafeErr = "";
+	unsafe.stderr.setEncoding("utf8");
+	unsafe.stderr.on("data", (chunk) => {
+		unsafeErr += chunk;
 	});
 	let unsafeOut = "";
 	unsafe.stdout.setEncoding("utf8");
@@ -522,7 +259,8 @@ test("packaged artifact exposes the member status, session live, and crew roles 
 	});
 	const unsafeCode = await new Promise<number>((resolve) => unsafe.once("exit", (value) => resolve(value ?? 1)));
 	assert.equal(unsafeCode, 2);
-	assert.match(unsafeOut, /invalid-session/);
+	assert.equal(unsafeOut, "");
+	assert.match(unsafeErr, /Invalid --session/);
 
 	// Help paths are deterministic and exit 0.
 	for (const args of [
@@ -606,23 +344,29 @@ test("packaged crew roles fails explicitly on missing and ambiguous manifests", 
 	const emptyDir = await mkdtemp(path.join(tmpdir(), "bebop-cli-roles-empty-"));
 	const ambiguousDir = await mkdtemp(path.join(tmpdir(), "bebop-cli-roles-both-"));
 	try {
-		const run = (cwd: string, args: string[]): Promise<{ code: number; stdout: string }> =>
+		const run = (cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> =>
 			new Promise((resolve) => {
 				const child = spawn(process.execPath, [artifact, ...args], {
 					cwd,
 					stdio: ["ignore", "pipe", "pipe"],
 				});
 				let stdout = "";
+				let stderr = "";
 				child.stdout.setEncoding("utf8");
 				child.stdout.on("data", (chunk) => {
 					stdout += chunk;
 				});
-				child.once("exit", (code) => resolve({ code: code ?? 1, stdout }));
+				child.stderr.setEncoding("utf8");
+				child.stderr.on("data", (chunk) => {
+					stderr += chunk;
+				});
+				child.once("exit", (code) => resolve({ code: code ?? 1, stdout, stderr }));
 			});
 
 		const missing = await run(emptyDir, ["crew", "roles", "--format", "json"]);
 		assert.equal(missing.code, 1);
-		assert.equal(JSON.parse(missing.stdout).error.code, "missing-manifest");
+		assert.equal(missing.stdout, "");
+		assert.match(missing.stderr, /missing-manifest|no supported crew manifest/);
 
 		// Both supported layouts present -> ambiguous dual-layout failure.
 		const scaffold = {
@@ -636,7 +380,8 @@ test("packaged crew roles fails explicitly on missing and ambiguous manifests", 
 		await writeFile(path.join(ambiguousDir, ".pi/crew/crew.json"), JSON.stringify(scaffold));
 		const both = await run(ambiguousDir, ["crew", "roles", "--format", "json"]);
 		assert.equal(both.code, 1);
-		assert.equal(JSON.parse(both.stdout).error.code, "ambiguous-manifest");
+		assert.equal(both.stdout, "");
+		assert.match(both.stderr, /ambiguous-manifest|both supported crew manifests/);
 	} finally {
 		await rm(emptyDir, { recursive: true, force: true });
 		await rm(ambiguousDir, { recursive: true, force: true });
@@ -764,163 +509,6 @@ test("packaged CLI proves a real end-to-end status query with online then offlin
 	assert.equal(offlineDecoded.data.status.activity, "unavailable");
 });
 
-test("uses injected output for selected-format usage errors", async () => {
-	const output = new PassThrough();
-	let text = "";
-	output.setEncoding("utf8");
-	output.on("data", (chunk) => {
-		text += chunk;
-	});
-	const code = await runCli(
-		["send", "--socket", "/x", "--message", "a", "--format", "json", "--wait", "later"],
-		process.cwd(),
-		process.stdin,
-		output,
-	);
-	assert.equal(code, 2);
-	assert.equal(JSON.parse(text).error.code, "usage");
-});
-
-test("covers accepted, rejection, timeout, exact multiline stdin, and no sender metadata", async () => {
-	await withEndpoint(
-		(command, socket) => {
-			if (command.method === "message.send")
-				socket.write(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						id: command.id,
-						result: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
-					}) + "\n",
-				);
-		},
-		async (socketPath, messages) => {
-			const input = new PassThrough();
-			input.end("line one\nline two\n");
-			const output = new PassThrough();
-			let text = "";
-			output.setEncoding("utf8");
-			output.on("data", (chunk) => {
-				text += chunk;
-			});
-			assert.equal(
-				await runCli(
-					["send", "--socket", socketPath, "--stdin", "--wait", "accepted", "--format", "json"],
-					root,
-					input,
-					output,
-				),
-				0,
-			);
-			assert.equal(JSON.parse(text).status, "accepted");
-			assert.equal((messages[0]?.params as { content?: string })?.content, "line one\nline two\n");
-			assert.equal(((messages[0]?.params as { content?: string })?.content ?? "").includes("sender_info"), false);
-		},
-	);
-	await withEndpoint(
-		(command, socket) => {
-			if (command.method === "message.send")
-				socket.write(
-					JSON.stringify({ jsonrpc: "2.0", id: command.id, error: { code: 5000, message: "busy" } }) + "\n",
-				);
-		},
-		async (socketPath) => {
-			const output = new PassThrough();
-			let text = "";
-			output.setEncoding("utf8");
-			output.on("data", (chunk) => {
-				text += chunk;
-			});
-			assert.equal(
-				await runCli(
-					["send", "--socket", socketPath, "--message", "x", "--wait", "accepted", "--format", "json"],
-					root,
-					process.stdin,
-					output,
-				),
-				1,
-			);
-			assert.equal(JSON.parse(text).ok, false);
-		},
-	);
-	await withEndpoint(
-		() => undefined,
-		async (socketPath) => {
-			const output = new PassThrough();
-			let text = "";
-			output.setEncoding("utf8");
-			output.on("data", (chunk) => {
-				text += chunk;
-			});
-			assert.equal(
-				await runCli(
-					[
-						"send",
-						"--socket",
-						socketPath,
-						"--message",
-						"x",
-						"--wait",
-						"accepted",
-						"--timeout",
-						"20ms",
-						"--format",
-						"json",
-					],
-					root,
-					process.stdin,
-					output,
-				),
-				1,
-			);
-			assert.equal(JSON.parse(text).error.code, "timeout");
-		},
-	);
-});
-
-test("delivers through symlinked bebop and crew endpoint layouts", async () => {
-	await withEndpoint(
-		(command, socket) => {
-			if (command.method === "message.send")
-				socket.write(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						id: command.id,
-						result: { deliveryId: `delivery-${command.id}`, disposition: "direct" },
-					}) + "\n",
-				);
-		},
-		async (socketPath) => {
-			const project = await mkdtemp(path.join(tmpdir(), "bebop-layout-"));
-			try {
-				for (const layout of ["bebop", "crew"]) {
-					const sockets = path.join(project, ".pi", layout, "sockets");
-					await mkdir(sockets, { recursive: true });
-					const link = path.join(sockets, "member.sock");
-					await symlink(socketPath, link);
-					const output = new PassThrough();
-					let text = "";
-					output.setEncoding("utf8");
-					output.on("data", (chunk) => {
-						text += chunk;
-					});
-					assert.equal(
-						await runCli(
-							["send", "--socket", link, "--message", layout, "--wait", "accepted", "--format", "json"],
-							root,
-							process.stdin,
-							output,
-						),
-						0,
-					);
-					assert.equal(JSON.parse(text).status, "accepted");
-				}
-			} finally {
-				await rm(project, { recursive: true, force: true });
-			}
-		},
-	);
-});
-
 test("packs and executes the bundled CLI locally without registry access", async () => {
 	const archiveDir = await mkdtemp(path.join(tmpdir(), "bebop-pack-"));
 	const extract = await mkdtemp(path.join(tmpdir(), "bebop-extracted-"));
@@ -934,27 +522,18 @@ test("packs and executes the bundled CLI locally without registry access", async
 		const packageJson = JSON.parse(await readFile(path.join(extract, "package.json"))) as { main?: string };
 		assert.equal(packageJson.main, "./dist/extension.js");
 		assert.equal((await readFile(path.join(extract, "dist/extension.js"))).includes("send_follow_up"), true);
-		let cliError: { code?: number; stdout?: string } | undefined;
+		let cliError: { code?: number; stdout?: string; stderr?: string } | undefined;
 		try {
 			await execFile(
 				process.execPath,
-				[
-					path.join(extract, "dist/cli/main.js"),
-					"send",
-					"--socket",
-					"/x",
-					"--message",
-					"x",
-					"--wait",
-					"invalid",
-				],
+				[path.join(extract, "dist/cli/main.js"), "send", "--socket", "/x", "--message", "x"],
 				{ cwd: extract, env: { ...process.env, NODE_PATH: "" } },
 			);
 		} catch (error) {
-			cliError = error as { code?: number; stdout?: string };
+			cliError = error as { code?: number; stdout?: string; stderr?: string };
 		}
 		assert.equal(cliError?.code, 2);
-		assert.match(cliError?.stdout ?? "", /Invalid --wait/);
+		assert.match(cliError?.stderr ?? "", /unknown command 'send'/);
 	} finally {
 		await rm(archiveDir, { recursive: true, force: true });
 		await rm(extract, { recursive: true, force: true });
@@ -974,7 +553,6 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		await execFile("tar", ["-xzf", path.join(archiveDir, archive), "-C", extract, "--strip-components=1"]);
 		const artifact = path.join(extract, "dist/cli/main.js");
 		const helpLeaves = [
-			["send"],
 			["crew", "init"],
 			["member", "status"],
 			["member", "follow-up"],
@@ -1036,7 +614,7 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 			return server;
 		};
 		const runWait = async (format: "toon" | "json" | "text", timeout = "1s") =>
-			new Promise<{ code: number; stdout: string }>((resolve) => {
+			new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
 				const child = spawn(
 					process.execPath,
 					[artifact, "member", "wait-idle", "Bob", "--timeout", timeout, "--format", format],
@@ -1047,9 +625,12 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 					},
 				);
 				let stdout = "";
+				let stderr = "";
 				child.stdout.setEncoding("utf8");
 				child.stdout.on("data", (chunk) => (stdout += chunk));
-				child.once("exit", (code) => resolve({ code: code ?? 1, stdout }));
+				child.stderr.setEncoding("utf8");
+				child.stderr.on("data", (chunk) => (stderr += chunk));
+				child.once("exit", (code) => resolve({ code: code ?? 1, stdout, stderr }));
 			});
 
 		const idleServers: net.Server[] = [];
@@ -1069,7 +650,8 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		const timeoutServer = await respond("timeout");
 		const timeoutResult = await runWait("json", "1s");
 		assert.equal(timeoutResult.code, 1);
-		assert.match(timeoutResult.stdout, /timeout/);
+		assert.equal(timeoutResult.stdout, "");
+		assert.match(timeoutResult.stderr, /timeout/);
 		await closeRpcServer(timeoutServer);
 
 		const signalServer = await respond("timeout");
@@ -1092,210 +674,26 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 	}
 });
 
-test(
-	"reports real Unix socket directory permission denial",
-	{
-		skip:
-			process.platform === "win32" || process.getuid?.() === 0
-				? "Unix permission fixture unsupported for Windows/root"
-				: false,
-	},
-	async () => {
-		const dir = await mkdtemp(path.join(tmpdir(), "bebop-permission-"));
-		try {
-			await chmod(dir, 0o000);
-			const output = new PassThrough();
-			let text = "";
-			output.setEncoding("utf8");
-			output.on("data", (chunk) => {
-				text += chunk;
-			});
-			const code = await runCli(
-				[
-					"send",
-					"--socket",
-					path.join(dir, "member.sock"),
-					"--message",
-					"x",
-					"--format",
-					"json",
-					"--wait",
-					"accepted",
-					"--timeout",
-					"100ms",
-				],
-				process.cwd(),
-				process.stdin,
-				output,
-			);
-			assert.equal(code, 1);
-			assert.equal(JSON.parse(text).error.code, "permission-denied");
-		} finally {
-			await chmod(dir, 0o700);
-			await rm(dir, { recursive: true, force: true });
-		}
-	},
-);
-
-test("distinguishes permission denial from an offline endpoint", () => {
-	assert.equal(errorCode(Object.assign(new Error("denied"), { code: "EACCES" })), "permission-denied");
-	assert.equal(errorCode(Object.assign(new Error("missing"), { code: "ENOENT" })), "offline");
-});
-
-import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
-
-async function withCrewManifest(
-	contact: string | undefined,
-	run: (manifestPath: string) => Promise<void>,
-): Promise<void> {
-	const dir = await mkdtemp(path.join(tmpdir(), "bebop-intake-"));
-	const layout = path.join(dir, ".pi", "bebop");
-	const sockets = path.join(layout, "sockets");
-	await mkdir(sockets, { recursive: true });
-	const manifestPath = path.join(layout, "crew.json");
-	const members = [
-		{ name: "Mary", role: "po", socket: "sockets/po.sock" },
-		{ name: "Bob", role: "dev", socket: "sockets/dev.sock" },
-	];
-	await writeFile(
-		manifestPath,
-		JSON.stringify({ version: 1, members, ...(contact === undefined ? {} : { intake: { contact } }) }),
-	);
-	try {
-		await run(manifestPath);
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-}
-
-function capture() {
+test("unknown command exits 2 with local usage before any IO", async () => {
 	const output = new PassThrough();
+	const err = new PassThrough();
 	let text = "";
+	let errText = "";
 	output.setEncoding("utf8");
+	err.setEncoding("utf8");
 	output.on("data", (chunk) => {
 		text += chunk;
 	});
-	return { output, text: () => text };
-}
-
-test("--crew persists one-way intake for the configured contact while offline", async () => {
-	await withCrewManifest("Mary", async (manifestPath) => {
-		const { output, text } = capture();
-		const code = await runCli(
-			[
-				"send",
-				"--crew",
-				manifestPath,
-				"--message",
-				"evaluate this request",
-				"--from",
-				"jira-automation",
-				"--format",
-				"json",
-			],
-			process.cwd(),
-			process.stdin,
-			output,
-		);
-		assert.equal(code, 0);
-		const parsed = JSON.parse(text());
-		assert.equal(parsed.status, "persisted");
-		assert.equal(parsed.data.contact, "Mary");
-		assert.equal(parsed.data.contactRole, "po");
-		assert.equal(parsed.data.persisted, true);
-		assert.match(parsed.data.itemId, /^inbox-/);
-		for (const forbidden of ["delivered", "completed", "assigned", "answered"]) {
-			assert.ok(!text().toLowerCase().includes(forbidden), `forbidden word: ${forbidden}`);
-		}
+	err.on("data", (chunk) => {
+		errText += chunk;
 	});
-});
-
-test("--crew without a configured contact reports external-intake-disabled", async () => {
-	await withCrewManifest(undefined, async (manifestPath) => {
-		const { output, text } = capture();
-		const code = await runCli(
-			["send", "--crew", manifestPath, "--message", "x", "--format", "json"],
-			process.cwd(),
-			process.stdin,
-			output,
-		);
-		assert.equal(code, 1);
-		assert.equal(JSON.parse(text()).error.code, "external-intake-disabled");
-	});
-});
-
-test("--crew outside an exact supported layout reports untrusted-path", async () => {
-	const dir = await mkdtemp(path.join(tmpdir(), "bebop-intake-layout-"));
-	try {
-		const manifestPath = path.join(dir, "crew.json");
-		await writeFile(manifestPath, JSON.stringify({ version: 1, members: [] }));
-		const { output, text } = capture();
-		const code = await runCli(
-			["send", "--crew", manifestPath, "--message", "x", "--format", "json"],
-			process.cwd(),
-			process.stdin,
-			output,
-		);
-		assert.equal(code, 1);
-		assert.equal(JSON.parse(text()).error.code, "untrusted-path");
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
-
-test("--crew with a full contact inbox reports inbox-full", async () => {
-	await withCrewManifest("Mary", async (manifestPath) => {
-		const projectRoot = path.dirname(path.dirname(path.dirname(manifestPath)));
-		const store = await openTrustedMemberInboxStore({
-			manifestPath,
-			projectRoot,
-			isProjectTrusted: () => true,
-			member: {
-				name: "Mary",
-				role: "po",
-				socketPath: path.join(path.dirname(manifestPath), "sockets", "po.sock"),
-			},
-		});
-		for (let index = 0; index < 64; index += 1) {
-			await store.enqueue({ content: `fill-${index}` }, 1000 + index);
-		}
-		const { output, text } = capture();
-		const code = await runCli(
-			["send", "--crew", manifestPath, "--message", "overflow", "--format", "json"],
-			process.cwd(),
-			process.stdin,
-			output,
-		);
-		assert.equal(code, 1);
-		assert.equal(JSON.parse(text()).error.code, "inbox-full");
-	});
-});
-
-test("crew init --help exits 0 without IO and shows deterministic local help", async () => {
-	const output = new PassThrough();
-	let text = "";
-	output.setEncoding("utf8");
-	output.on("data", (chunk) => {
-		text += chunk;
-	});
-	const code = await runCli(["crew", "init", "--help"], process.cwd(), process.stdin, output);
-	assert.equal(code, 0);
-	assert.equal(text, crewInitHelp());
-});
-
-test("unknown command exits 2 with valid alternatives before any IO", async () => {
-	const output = new PassThrough();
-	let text = "";
-	output.setEncoding("utf8");
-	output.on("data", (chunk) => {
-		text += chunk;
-	});
-	const code = await runCli(["frobnicate"], process.cwd(), process.stdin, output);
+	const code = await runCli(["frobnicate"], process.cwd(), process.stdin, output, err);
 	assert.equal(code, 2);
-	assert.match(
-		text,
-		/valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, session resume, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast/,
-	);
+	assert.equal(text, "");
+	assert.match(errText, /error: unknown command 'frobnicate'/);
+	assert.match(errText, /Usage: pi-bebop/);
+	// No full flattened leaf vocabulary dump.
+	assert.equal(errText.includes("member request respond"), false);
 });
 
 test("crew init creates a fresh canonical scaffold in a temp project with created status", async () => {
@@ -1362,16 +760,27 @@ test("crew init conflict leaves user content untouched and exits 1", async () =>
 		const userManifest = '{"version":999}';
 		await writeFile(path.join(dir, ".pi/bebop/crew.json"), userManifest);
 		const output = new PassThrough();
+		const err = new PassThrough();
 		let text = "";
+		let errText = "";
 		output.setEncoding("utf8");
+		err.setEncoding("utf8");
 		output.on("data", (chunk) => {
 			text += chunk;
 		});
-		const code = await runCli(["crew", "init", "--project", dir, "--format", "json"], dir, process.stdin, output);
+		err.on("data", (chunk) => {
+			errText += chunk;
+		});
+		const code = await runCli(
+			["crew", "init", "--project", dir, "--format", "json"],
+			dir,
+			process.stdin,
+			output,
+			err,
+		);
 		assert.equal(code, 1);
-		const parsed = JSON.parse(text);
-		assert.equal(parsed.ok, false);
-		assert.equal(parsed.error.code, "managed-file-differs");
+		assert.equal(text, "");
+		assert.match(errText, /managed-file-differs|conflict/);
 		assert.equal(await readFile(path.join(dir, ".pi/bebop/crew.json"), "utf8"), userManifest);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
@@ -1401,54 +810,6 @@ async function pathExists(p: string): Promise<boolean> {
 		return false;
 	}
 }
-
-test("no arguments shows compact TOON home state with crew init hint when missing", async () => {
-	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-home-"));
-	try {
-		const output = new PassThrough();
-		let text = "";
-		output.setEncoding("utf8");
-		output.on("data", (chunk) => {
-			text += chunk;
-		});
-		const code = await runCli([], dir, process.stdin, output);
-		assert.equal(code, 0);
-		const decoded = decodeTOON(text);
-		assert.equal(decoded.status, "home");
-		assert.equal(decoded.data.scaffold, "missing");
-		assert.equal(decoded.data.next, "pi-bebop crew init");
-		assert.deepEqual(decoded.data.commands, [
-			"send",
-			"crew init",
-			"crew list",
-			"session capture",
-			"session add",
-			"session list",
-			"session show",
-			"session resolve",
-			"session resume",
-			"crew roles",
-			"member status",
-			"member wait-idle",
-			"session live",
-			"member follow-up",
-			"member redirect",
-			"member request send",
-			"member request list",
-			"member request wait",
-			"member request respond",
-			"member interrupt",
-			"member inbox send",
-			"crew broadcast",
-			"guest join",
-			"guest leave",
-			"guest send",
-			"guest broadcast",
-		]);
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
 
 function decodeTOON(text: string): Record<string, unknown> {
 	return decode(text);

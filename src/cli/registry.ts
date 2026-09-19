@@ -1,225 +1,146 @@
 import path from "node:path";
 import { Command } from "commander";
 import { buildCrewInitCommand, readCrewInitCommand } from "./commands/crew-init.ts";
-import { buildSendCommand, readSendCommand } from "./commands/send.ts";
-import { parseCrewInitCommand, parseSendCommand } from "./parser.ts";
-import { crewInitHelp } from "../domain/index.ts";
-import { sendHelp } from "./commands/send.ts";
-import { runHomeCommand } from "./commands/home-handler.ts";
 import { runCrewInitCommand } from "./commands/crew-init-handler.ts";
-import { runSendCommand } from "./commands/send-handler.ts";
-import {
-	parseMemberStatusCommand,
-	readMemberStatusCommand,
-	runMemberStatusCommand,
-	memberStatusHelp,
-	buildMemberStatusCommand,
-	type MemberStatusCliOptions,
-} from "./commands/member-status.ts";
-import {
-	parseMemberIdleWaitCommand,
-	readMemberIdleWaitCommand,
-	runMemberIdleWaitCommand,
-	memberIdleWaitHelp,
-	buildMemberIdleWaitCommand,
-	type MemberIdleWaitCliOptions,
-} from "./commands/member-idle-wait.ts";
-import {
-	parseSessionListCommand,
-	readSessionListCommand,
-	runSessionListCommand,
-	sessionListHelp,
-	buildSessionListCommand,
-	type SessionListCliOptions,
-} from "./commands/session-list.ts";
+import type { CrewInitCliOptions } from "./support/arguments.ts";
 import {
 	buildGuestJoinCommand,
 	buildGuestLeaveCommand,
-	guestJoinHelp,
-	guestLeaveHelp,
-	guestMessageHelp,
 	buildGuestMessageCommand,
-	parseGuestMessageCommand,
-	readGuestMessageCommand,
-	runGuestMessageCommand,
-	parseGuestJoinCommand,
 	readGuestJoinCommand,
-	parseGuestLeaveCommand,
 	readGuestLeaveCommand,
+	readGuestMessageCommand,
 	runGuestJoinCommand,
 	runGuestLeaveCommand,
+	runGuestMessageCommand,
 	type GuestJoinCliOptions,
 	type GuestLeaveCliOptions,
+	type GuestMessageCliOptions,
 } from "./commands/guest.ts";
 import {
-	parseMemberMessageCommand,
-	readMemberMessageCommand,
-	runMemberMessageCommand,
-	memberMessageHelp,
-	buildMemberMessageCommand,
-	type MemberMessageCliOptions,
-} from "./commands/member-message.ts";
-import {
-	parseDurableMessageCommand,
-	readDurableMessageCommand,
-	runDurableMessageCommand,
-	durableMessageHelp,
-	buildDurableMessageCommand,
-	type DurableMessageCliOptions,
-} from "./commands/durable-message.ts";
-import {
-	parseMemberInterruptCommand,
-	readMemberInterruptCommand,
-	runMemberInterruptCommand,
-	memberInterruptHelp,
-	buildMemberInterruptCommand,
-	type MemberInterruptCliOptions,
-} from "./commands/member-interrupt.ts";
-import {
-	parseCrewRolesCommand,
-	readCrewRolesCommand,
-	runCrewRolesCommand,
-	crewRolesHelp,
-	buildCrewRolesCommand,
-	type CrewRolesCliOptions,
-} from "./commands/crew-roles.ts";
-import {
-	parseCrewListCommand,
+	buildCrewListCommand,
 	readCrewListCommand,
 	runCrewListCommand,
-	crewListHelp,
-	buildCrewListCommand,
 	type CrewListCliOptions,
 } from "./commands/crew-list.ts";
 import {
-	buildCrewSessionCaptureCommand,
 	buildCrewSessionAddCommand,
+	buildCrewSessionCaptureCommand,
 	buildCrewSessionListCommand,
-	buildCrewSessionShowCommand,
 	buildCrewSessionResolveCommand,
-	crewSessionCaptureHelp,
-	crewSessionAddHelp,
-	crewSessionListHelp,
-	crewSessionShowHelp,
-	crewSessionResolveHelp,
-	parseCrewSessionCaptureCommand,
-	parseCrewSessionAddCommand,
-	parseCrewSessionListCommand,
-	parseCrewSessionShowCommand,
-	parseCrewSessionResolveCommand,
-	runCrewSessionCaptureCommand,
+	buildCrewSessionShowCommand,
+	readCrewSessionAddCommand,
+	readCrewSessionCaptureCommand,
+	readCrewSessionListCommand,
+	readCrewSessionResolveCommand,
+	readCrewSessionShowCommand,
 	runCrewSessionAddCommand,
+	runCrewSessionCaptureCommand,
 	runCrewSessionListCommand,
-	runCrewSessionShowCommand,
 	runCrewSessionResolveCommand,
-	type CrewSessionCaptureCliOptions,
+	runCrewSessionShowCommand,
 	type CrewSessionAddCliOptions,
+	type CrewSessionCaptureCliOptions,
 	type CrewSessionListCliOptions,
-	type CrewSessionShowCliOptions,
 	type CrewSessionResolveCliOptions,
+	type CrewSessionShowCliOptions,
 } from "./commands/crew-session.ts";
-import { UsageError, type CrewInitCliOptions, type SendCliOptions } from "./support/arguments.ts";
+import {
+	buildCrewRolesCommand,
+	readCrewRolesCommand,
+	runCrewRolesCommand,
+	type CrewRolesCliOptions,
+} from "./commands/crew-roles.ts";
+import {
+	buildMemberStatusCommand,
+	readMemberStatusCommand,
+	runMemberStatusCommand,
+	type MemberStatusCliOptions,
+} from "./commands/member-status.ts";
+import {
+	buildMemberIdleWaitCommand,
+	readMemberIdleWaitCommand,
+	runMemberIdleWaitCommand,
+	type MemberIdleWaitCliOptions,
+} from "./commands/member-idle-wait.ts";
+import {
+	buildSessionListCommand,
+	readSessionListCommand,
+	runSessionListCommand,
+	type SessionListCliOptions,
+} from "./commands/session-list.ts";
+import {
+	buildMemberMessageCommand,
+	readMemberMessageCommand,
+	runMemberMessageCommand,
+	type MemberMessageCliOptions,
+} from "./commands/member-message.ts";
+import {
+	buildDurableMessageCommand,
+	readDurableMessageCommand,
+	runDurableMessageCommand,
+	type DurableMessageCliOptions,
+} from "./commands/durable-message.ts";
+import {
+	buildMemberInterruptCommand,
+	readMemberInterruptCommand,
+	runMemberInterruptCommand,
+	type MemberInterruptCliOptions,
+} from "./commands/member-interrupt.ts";
 import {
 	buildMemberRequestSendCommand,
 	buildMemberRequestListCommand,
 	buildMemberRequestWaitCommand,
 	buildMemberRequestRespondCommand,
-	memberRequestHelp,
-	parseMemberRequestSendCommand,
 	readMemberRequestSendCommand,
-	parseMemberRequestListCommand,
 	readMemberRequestListCommand,
-	parseMemberRequestWaitCommand,
 	readMemberRequestWaitCommand,
-	parseMemberRequestRespondCommand,
 	readMemberRequestRespondCommand,
 	runMemberRequestCommand,
 	type MemberRequestCliOptions,
 } from "./commands/member-request.ts";
-import type { CliContext } from "./support/context.ts";
-import type { CliOutcome } from "./support/output.ts";
 import {
 	buildRoleSessionResumeCommand,
-	parseRoleSessionResumeCommand,
-	roleSessionResumeHelp,
+	readRoleSessionResumeCommand,
 	runRoleSessionResumeCommand,
 	type RoleSessionResumeCliOptions,
 } from "./commands/role-session-resume.ts";
+import type { CliContext } from "./support/context.ts";
+import type { CliOutcome } from "./support/output.ts";
 
 /**
- * TASK-0063: the single owned CLI composition point (PO sequencing review,
- * QA blocker resolution).
- *
- * Every command is ONE leaf module owning its vocabulary (`names`), schema
- * metadata (`build`), help, parser (`parse`), and handler adapter (`run`).
- * `composeRegistry` derives everything else from the ordered leaf list:
- *
- * - parse vocabulary (parseCliCommand matches the longest leaf name prefix),
- * - command-tree metadata (root builds groups/leaves from leaf names),
- * - help (leafById(id).help()),
- * - dispatch (leafById(id).run(options, context)).
- *
- * Adding a membership leaf (TASK-0061..0067) is exactly ONE registry
- * contribution: append one leaf module to the `leaves` array. No parser,
- * root-tree, dispatch, or existing-handler edits are required. Registry-only
- * edits are owned by the TASK-0061 integration owner.
+ * TASK-0209: the single CLI composition point. Every command is ONE leaf
+ * module owning its Commander grammar (`build`), its semantic reader
+ * (`read`), and its handler adapter (`run`). Command discovery, help, and
+ * syntax errors are delegated to Commander; leaf modules never duplicate
+ * grammar, prose help, or error rewording.
  */
 
 export interface CliLeaf {
-	/** Stable leaf id; also the parse/dispatch key. */
+	/** Stable leaf id; also the dispatch key. */
 	readonly id: string;
-	/** Command vocabulary words, e.g. ["send"] or ["crew", "init"]. Empty for the no-argument home state. */
+	/** Command vocabulary words, e.g. ["crew", "init"]. */
 	readonly names: readonly string[];
-	/** Commander schema metadata for this leaf (tokenization + generated help). */
+	/** Commander schema: the sole source of names, arguments, options, and descriptions. */
 	readonly build: () => Command;
-	/** Deterministic, zero-IO help text. */
-	readonly help: () => string;
-	/** Leaf-owned tokenization + semantic validation; receives tokens after `names`. */
-	readonly parse: (tokens: readonly string[], cwd: string) => unknown;
-	/** Commander-owned reader for migrated leaves; legacy parse remains a compatibility facade. */
-	readonly read?: (parsed: Command, cwd: string) => unknown;
-	/** Handler adapter — owns this command’s business logic. */
+	/** Reads validated options from the Commander-parsed command (semantic validation only). */
+	readonly read: (command: Command, cwd: string) => unknown;
+	/** Handler adapter — owns this command's business logic. */
 	readonly run: (options: unknown, context: CliContext) => Promise<CliOutcome>;
-	/**
-	 * Hidden synthetic leaves (e.g. TASK-0204 legacy-path rejection) participate in
-	 * parse dispatch and the root tree but never appear in the public vocabulary,
-	 * home listing, or `valid commands` enumeration.
-	 */
-	readonly hiddenFromVocabulary?: true;
-}
-
-export interface ParsedCommand {
-	readonly id: string;
-	readonly options: unknown;
 }
 
 export interface CliCommandHooks {
-	readonly onGroup?: (command: Command, names: readonly string[]) => void;
+	/** Runs after root creation and before leaves attach, so descendants inherit stream configuration. */
+	readonly onRoot?: (command: Command) => void;
 	readonly onLeaf?: (command: Command, leaf: CliLeaf) => void;
 }
 
 export interface CliRegistry {
 	/** Ordered leaf composition — the only place command wiring grows. */
 	readonly leaves: readonly CliLeaf[];
-	/** Public command vocabulary in registry order (for help/home/usage errors). */
-	readonly vocabulary: () => readonly string[];
-	/**
-	 * Registry-driven parse: longest leaf-name-prefix match, then leaf.parse.
-	 * Returns the leaf's raw parsed options (the leaf id equals `.command`).
-	 */
-	readonly parseCliCommand: (args: readonly string[], cwd?: string) => unknown;
 	readonly leafById: (id: string) => CliLeaf;
 	/** Command tree derived from the ordered leaves (groups + leaves). */
 	readonly root: () => Command;
-}
-
-function findOrCreate(parent: Command, name: string, description: string | undefined): Command {
-	const existing = parent.commands.find((candidate) => candidate.name() === name);
-	if (existing) return existing;
-	const child = new Command(name);
-	if (description !== undefined) child.description(description);
-	parent.addCommand(child);
-	return child;
 }
 
 const GROUP_DESCRIPTIONS: Record<string, string> = {
@@ -229,26 +150,28 @@ const GROUP_DESCRIPTIONS: Record<string, string> = {
 	session: "Session commands",
 };
 
+function findOrCreate(parent: Command, name: string, description: string | undefined): Command {
+	const existing = parent.commands.find((candidate) => candidate.name() === name);
+	if (existing) return existing;
+	const child = new Command(name);
+	if (description !== undefined) child.description(description);
+	// Commands attached via addCommand do not inherit parent settings automatically
+	// (unlike the .command() factory); copy them so stream capture, exitOverride
+	// behavior, help-after-error, and suggestions apply at every tree level.
+	child.copyInheritedSettings(parent);
+	parent.addCommand(child);
+	return child;
+}
+
 /** Builds the declarative root tree from the ordered leaves (no hardcoded vocabulary). */
 export function buildRootCommand(leaves: readonly CliLeaf[], hooks: CliCommandHooks = {}): Command {
 	const root = new Command("pi-bebop").description("Pi Bebop crew coordination CLI");
+	hooks.onRoot?.(root);
 	for (const leaf of leaves) {
-		if (leaf.names.length === 0) continue; // home has no command word
-		if (leaf.names.length === 1) {
-			const command = leaf.build();
-			hooks.onLeaf?.(command, leaf);
-			root.addCommand(command);
-			continue;
-		}
 		let parent = root;
-		const groupNames: string[] = [];
-		for (const word of leaf.names.slice(0, -1)) {
-			groupNames.push(word);
-			const existing = parent.commands.find((candidate) => candidate.name() === word);
-			parent = findOrCreate(parent, word, GROUP_DESCRIPTIONS[word]);
-			if (!existing) hooks.onGroup?.(parent, [...groupNames]);
-		}
+		for (const word of leaf.names.slice(0, -1)) parent = findOrCreate(parent, word, GROUP_DESCRIPTIONS[word]);
 		const command = leaf.build();
+		command.copyInheritedSettings(parent);
 		hooks.onLeaf?.(command, leaf);
 		parent.addCommand(command);
 	}
@@ -256,87 +179,27 @@ export function buildRootCommand(leaves: readonly CliLeaf[], hooks: CliCommandHo
 }
 
 /**
- * Composes a full registry from an ordered leaf list. Pure and stateless:
- * every call builds fresh lookups, so composing the same leaves twice yields
- * independent, equivalent registries. The home leaf's run is wired to the
- * computed vocabulary so home output derives from the same registry order.
+ * Composes a registry from an ordered leaf list. Pure and stateless: every
+ * call builds fresh lookups, so composing the same leaves twice yields
+ * independent, equivalent registries.
  */
 export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
-	const vocabulary = leaves
-		.filter((leaf) => leaf.names.length > 0 && leaf.hiddenFromVocabulary !== true)
-		.map((leaf) => leaf.names.join(" "));
-	const effectiveLeaves = leaves.map((leaf) =>
-		leaf.id === "home"
-			? {
-					...leaf,
-					run: (_options: unknown, context: CliContext) =>
-						runHomeCommand(context.cwd, vocabulary, process.env, process.argv[1]),
-				}
-			: leaf,
-	);
-	const byId = new Map(effectiveLeaves.map((leaf) => [leaf.id, leaf] as const));
+	const byId = new Map(leaves.map((leaf) => [leaf.id, leaf] as const));
 	return {
-		leaves: effectiveLeaves,
-		vocabulary: () => vocabulary,
+		leaves,
 		leafById: (id) => {
 			const leaf = byId.get(id);
-			if (leaf === undefined) throw new UsageError(`Unknown command '${id}'`);
+			if (leaf === undefined) throw new Error(`Unknown command '${id}'`);
 			return leaf;
 		},
-		parseCliCommand: (args, cwd = process.cwd()) => {
-			if (args.length === 0) {
-				const home = byId.get("home");
-				if (home === undefined) throw new UsageError("No command provided");
-				return home.parse([], cwd);
-			}
-			let best: { leaf: CliLeaf; tokens: string[] } | undefined;
-			for (const leaf of effectiveLeaves) {
-				if (leaf.names.length === 0 || leaf.names.length > args.length) continue;
-				let matches = true;
-				for (let index = 0; index < leaf.names.length; index += 1) {
-					if (leaf.names[index] !== args[index]) {
-						matches = false;
-						break;
-					}
-				}
-				if (matches && (best === undefined || leaf.names.length > best.leaf.names.length)) {
-					best = { leaf, tokens: args.slice(leaf.names.length) };
-				}
-			}
-			if (best === undefined)
-				throw new UsageError(`Invalid command '${args[0] ?? ""}'; valid commands: ${vocabulary.join(", ")}`);
-			return best.leaf.parse(best.tokens, cwd);
-		},
-		root: () => buildRootCommand(effectiveLeaves),
+		root: () => buildRootCommand(leaves),
 	};
 }
-
-const homeLeaf: CliLeaf = {
-	id: "home",
-	names: [],
-	build: () => new Command("home"), // never added to the root tree (no command word)
-	help: () => "",
-	parse: () => ({ command: "home" }),
-	// Vocabulary is wired by composeRegistry; this base body is never used.
-	run: (_options, context) => runHomeCommand(context.cwd, [], process.env, process.argv[1]),
-};
-
-const sendLeaf: CliLeaf = {
-	id: "send",
-	names: ["send"],
-	build: () => buildSendCommand(),
-	help: () => sendHelp(),
-	parse: (tokens, cwd) => parseSendCommand([...tokens], cwd),
-	read: (command, cwd) => readSendCommand(command, cwd),
-	run: (options, context) => runSendCommand(options as SendCliOptions, context),
-};
 
 const crewInitLeaf: CliLeaf = {
 	id: "crew-init",
 	names: ["crew", "init"],
 	build: () => buildCrewInitCommand(),
-	help: () => crewInitHelp(),
-	parse: (tokens, cwd) => parseCrewInitCommand([...tokens], cwd),
 	read: (command, cwd) => {
 		const options = readCrewInitCommand(command);
 		return {
@@ -348,13 +211,170 @@ const crewInitLeaf: CliLeaf = {
 	run: (options, context) => runCrewInitCommand(options as CrewInitCliOptions, context.cwd),
 };
 
-/** TASK-0161: `guest join` / `guest leave` wire leaves — one registry contribution each. */
+const crewListLeaf: CliLeaf = {
+	id: "crew-list",
+	names: ["crew", "list"],
+	build: () => buildCrewListCommand(),
+	read: (command) => readCrewListCommand(command),
+	run: (options, context) => runCrewListCommand(options as CrewListCliOptions, context),
+};
+
+/** Crew Session capture/add/list/show/resolve leaves under `session ...`. */
+const sessionCaptureLeaf: CliLeaf = {
+	id: "session-capture",
+	names: ["session", "capture"],
+	build: () => buildCrewSessionCaptureCommand(),
+	read: (command) => readCrewSessionCaptureCommand(command),
+	run: (options, context) => runCrewSessionCaptureCommand(options as CrewSessionCaptureCliOptions, context),
+};
+const sessionAddLeaf: CliLeaf = {
+	id: "session-add",
+	names: ["session", "add"],
+	build: () => buildCrewSessionAddCommand(),
+	read: (command) => readCrewSessionAddCommand(command),
+	run: (options, context) => runCrewSessionAddCommand(options as CrewSessionAddCliOptions, context),
+};
+const sessionListLeaf: CliLeaf = {
+	id: "session-list",
+	names: ["session", "list"],
+	build: () => buildCrewSessionListCommand(),
+	read: (command) => readCrewSessionListCommand(command),
+	run: (options, context) => runCrewSessionListCommand(options as CrewSessionListCliOptions, context),
+};
+const sessionShowLeaf: CliLeaf = {
+	id: "session-show",
+	names: ["session", "show"],
+	build: () => buildCrewSessionShowCommand(),
+	read: (command) => readCrewSessionShowCommand(command),
+	run: (options, context) => runCrewSessionShowCommand(options as CrewSessionShowCliOptions, context),
+};
+const sessionResolveLeaf: CliLeaf = {
+	id: "session-resolve",
+	names: ["session", "resolve"],
+	build: () => buildCrewSessionResolveCommand(),
+	read: (command) => readCrewSessionResolveCommand(command),
+	run: (options, context) => runCrewSessionResolveCommand(options as CrewSessionResolveCliOptions, context),
+};
+
+/** Current-Crew role-scoped Pi Session picker. */
+const sessionResumeLeaf: CliLeaf = {
+	id: "session-resume",
+	names: ["session", "resume"],
+	build: () => buildRoleSessionResumeCommand(),
+	read: (command) => readRoleSessionResumeCommand(command),
+	run: (options, context) => runRoleSessionResumeCommand(options as RoleSessionResumeCliOptions, context),
+};
+
+const crewRolesLeaf: CliLeaf = {
+	id: "crew-roles",
+	names: ["crew", "roles"],
+	build: () => buildCrewRolesCommand(),
+	read: (command) => readCrewRolesCommand(command),
+	run: (options, context) => runCrewRolesCommand(options as CrewRolesCliOptions, context),
+};
+
+/** Correlated Member Request lifecycle leaves. */
+const memberRequestSendLeaf: CliLeaf = {
+	id: "member-request-send",
+	names: ["member", "request", "send"],
+	build: () => buildMemberRequestSendCommand(),
+	read: (command) => readMemberRequestSendCommand(command),
+	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
+};
+const memberRequestListLeaf: CliLeaf = {
+	id: "member-request-list",
+	names: ["member", "request", "list"],
+	build: () => buildMemberRequestListCommand(),
+	read: (command) => readMemberRequestListCommand(command),
+	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
+};
+const memberRequestWaitLeaf: CliLeaf = {
+	id: "member-request-wait",
+	names: ["member", "request", "wait"],
+	build: () => buildMemberRequestWaitCommand(),
+	read: (command) => readMemberRequestWaitCommand(command),
+	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
+};
+const memberRequestRespondLeaf: CliLeaf = {
+	id: "member-request-respond",
+	names: ["member", "request", "respond"],
+	build: () => buildMemberRequestRespondCommand(),
+	read: (command) => readMemberRequestRespondCommand(command),
+	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
+};
+
+const memberStatusLeaf: CliLeaf = {
+	id: "member-status",
+	names: ["member", "status"],
+	build: () => buildMemberStatusCommand(),
+	read: (command) => readMemberStatusCommand(command),
+	run: (options, context) => runMemberStatusCommand(options as MemberStatusCliOptions, context),
+};
+
+const memberIdleWaitLeaf: CliLeaf = {
+	id: "member-idle-wait",
+	names: ["member", "wait-idle"],
+	build: () => buildMemberIdleWaitCommand(),
+	read: (command) => readMemberIdleWaitCommand(command),
+	run: (options, context) => runMemberIdleWaitCommand(options as MemberIdleWaitCliOptions, context),
+};
+
+/** Live Pi Session discovery. */
+const sessionLiveLeaf: CliLeaf = {
+	id: "session-live",
+	names: ["session", "live"],
+	build: () => buildSessionListCommand(),
+	read: (command) => readSessionListCommand(command),
+	run: (options, context) => runSessionListCommand(options as SessionListCliOptions, context),
+};
+
+const memberFollowUpLeaf: CliLeaf = {
+	id: "member-follow-up",
+	names: ["member", "follow-up"],
+	build: () => buildMemberMessageCommand("follow_up"),
+	read: (command) => readMemberMessageCommand(command, "follow_up"),
+	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
+};
+
+const memberRedirectLeaf: CliLeaf = {
+	id: "member-redirect",
+	names: ["member", "redirect"],
+	build: () => buildMemberMessageCommand("redirect"),
+	read: (command) => readMemberMessageCommand(command, "redirect"),
+	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
+};
+
+/** Durable Inbox leaf. */
+const memberInboxSendLeaf: CliLeaf = {
+	id: "member-inbox-send",
+	names: ["member", "inbox", "send"],
+	build: () => buildDurableMessageCommand("inbox"),
+	read: (command) => readDurableMessageCommand(command, "inbox"),
+	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
+};
+
+/** Hard recovery interrupt leaf. */
+const memberInterruptLeaf: CliLeaf = {
+	id: "member-interrupt",
+	names: ["member", "interrupt"],
+	build: () => buildMemberInterruptCommand(),
+	read: (command) => readMemberInterruptCommand(command),
+	run: (options, context) => runMemberInterruptCommand(options as MemberInterruptCliOptions, context),
+};
+
+/** Durable fan-out leaf. */
+const crewBroadcastLeaf: CliLeaf = {
+	id: "crew-broadcast",
+	names: ["crew", "broadcast"],
+	build: () => buildDurableMessageCommand("broadcast"),
+	read: (command) => readDurableMessageCommand(command, "broadcast"),
+	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
+};
+
 const guestJoinLeaf: CliLeaf = {
 	id: "guest-join",
 	names: ["guest", "join"],
 	build: () => buildGuestJoinCommand(),
-	help: () => guestJoinHelp(),
-	parse: (tokens) => parseGuestJoinCommand(tokens),
 	read: (command) => readGuestJoinCommand(command),
 	run: (options, context) => runGuestJoinCommand(options as GuestJoinCliOptions, context),
 };
@@ -363,313 +383,28 @@ const guestLeaveLeaf: CliLeaf = {
 	id: "guest-leave",
 	names: ["guest", "leave"],
 	build: () => buildGuestLeaveCommand(),
-	help: () => guestLeaveHelp(),
-	parse: (tokens) => parseGuestLeaveCommand(tokens),
 	read: (command) => readGuestLeaveCommand(command),
 	run: (options, context) => runGuestLeaveCommand(options as GuestLeaveCliOptions, context),
 };
 
-/** TASK-0162: Guest direct and Broadcast messaging leaves. */
 const guestSendLeaf: CliLeaf = {
 	id: "guest-send",
 	names: ["guest", "send"],
 	build: () => buildGuestMessageCommand("send"),
-	help: () => guestMessageHelp("send"),
-	parse: (tokens) => parseGuestMessageCommand(tokens, "send"),
 	read: (command) => readGuestMessageCommand(command, "send"),
-	run: (options, context) =>
-		runGuestMessageCommand(options as import("./commands/guest.ts").GuestMessageCliOptions, context),
+	run: (options, context) => runGuestMessageCommand(options as GuestMessageCliOptions, context),
 };
 
 const guestBroadcastLeaf: CliLeaf = {
 	id: "guest-broadcast",
 	names: ["guest", "broadcast"],
 	build: () => buildGuestMessageCommand("broadcast"),
-	help: () => guestMessageHelp("broadcast"),
-	parse: (tokens) => parseGuestMessageCommand(tokens, "broadcast"),
 	read: (command) => readGuestMessageCommand(command, "broadcast"),
-	run: (options, context) =>
-		runGuestMessageCommand(options as import("./commands/guest.ts").GuestMessageCliOptions, context),
-};
-
-/** TASK-0172: `crew list` product discovery leaf — one registry contribution. */
-const crewListLeaf: CliLeaf = {
-	id: "crew-list",
-	names: ["crew", "list"],
-	build: () => buildCrewListCommand(),
-	help: () => crewListHelp(),
-	parse: (tokens, cwd) => parseCrewListCommand([...tokens], cwd),
-	read: (command) => readCrewListCommand(command),
-	run: (options, context) => runCrewListCommand(options as CrewListCliOptions, context),
-};
-
-/** TASK-0201 + TASK-0204: Crew Session capture/add/list/show/resolve leaves renamed under `session ...`. */
-const sessionCaptureLeaf: CliLeaf = {
-	id: "session-capture",
-	names: ["session", "capture"],
-	build: () => buildCrewSessionCaptureCommand(),
-	help: () => crewSessionCaptureHelp(),
-	parse: (tokens, cwd) => parseCrewSessionCaptureCommand([...tokens], cwd),
-	read: (command) => {
-		const opts = command.opts<{ format?: string; crew?: string }>();
-		return parseCrewSessionCaptureCommand([
-			command.args[0]!,
-			...(opts.crew === undefined ? [] : ["--crew", opts.crew]),
-			...(opts.format === undefined ? [] : ["--format", opts.format]),
-		]);
-	},
-	run: (options, context) => runCrewSessionCaptureCommand(options as CrewSessionCaptureCliOptions, context),
-};
-const sessionAddLeaf: CliLeaf = {
-	id: "session-add",
-	names: ["session", "add"],
-	build: () => buildCrewSessionAddCommand(),
-	help: () => crewSessionAddHelp(),
-	parse: (tokens, cwd) => parseCrewSessionAddCommand([...tokens], cwd),
-	read: (command) => {
-		const opts = command.opts<{ format?: string }>();
-		return parseCrewSessionAddCommand([
-			command.args[0]!,
-			command.args[1]!,
-			...(opts.format === undefined ? [] : ["--format", opts.format]),
-		]);
-	},
-	run: (options, context) => runCrewSessionAddCommand(options as CrewSessionAddCliOptions, context),
-};
-const sessionListLeaf: CliLeaf = {
-	id: "session-list",
-	names: ["session", "list"],
-	build: () => buildCrewSessionListCommand(),
-	help: () => crewSessionListHelp(),
-	parse: (tokens, cwd) => parseCrewSessionListCommand([...tokens], cwd),
-	read: (command) => {
-		const opts = command.opts<{ format?: string; crew?: string; limit?: string; offset?: string }>();
-		return parseCrewSessionListCommand([
-			...(opts.crew === undefined ? [] : ["--crew", opts.crew]),
-			...(opts.limit === undefined ? [] : ["--limit", opts.limit]),
-			...(opts.offset === undefined ? [] : ["--offset", opts.offset]),
-			...(opts.format === undefined ? [] : ["--format", opts.format]),
-		]);
-	},
-	run: (options, context) => runCrewSessionListCommand(options as CrewSessionListCliOptions, context),
-};
-const sessionShowLeaf: CliLeaf = {
-	id: "session-show",
-	names: ["session", "show"],
-	build: () => buildCrewSessionShowCommand(),
-	help: () => crewSessionShowHelp(),
-	parse: (tokens, cwd) => parseCrewSessionShowCommand([...tokens], cwd),
-	read: (command) => {
-		const opts = command.opts<{ format?: string }>();
-		return parseCrewSessionShowCommand([
-			command.args[0]!,
-			...(opts.format === undefined ? [] : ["--format", opts.format]),
-		]);
-	},
-	run: (options, context) => runCrewSessionShowCommand(options as CrewSessionShowCliOptions, context),
-};
-const sessionResolveLeaf: CliLeaf = {
-	id: "session-resolve",
-	names: ["session", "resolve"],
-	build: () => buildCrewSessionResolveCommand(),
-	help: () => crewSessionResolveHelp(),
-	parse: (tokens, cwd) => parseCrewSessionResolveCommand([...tokens], cwd),
-	read: (command) => {
-		const opts = command.opts<{ format?: string }>();
-		return parseCrewSessionResolveCommand([
-			command.args[0]!,
-			command.args[1]!,
-			...(opts.format === undefined ? [] : ["--format", opts.format]),
-		]);
-	},
-	run: (options, context) => runCrewSessionResolveCommand(options as CrewSessionResolveCliOptions, context),
-};
-
-/**
- * TASK-0204: legacy `pi-bebop crew session ...` rejection leaf. Registered with
- * `names: ["crew", "session"]` so the longest-prefix matcher in the registry
- * captures every `crew session <sub>` and the bare `crew session` invocation
- * before any IO. The leaf never reaches transport; it throws a deterministic
- * UsageError with the exact replacement command.
- */
-const CREW_SESSION_REJECTED_HINT =
-	"'pi-bebop crew session ...' is no longer supported; use 'pi-bebop session <capture|add|list|show|resolve>'";
-const crewSessionRejectedLeaf: CliLeaf = {
-	id: "crew-session-rejected",
-	names: ["crew", "session"],
-	hiddenFromVocabulary: true,
-	build: () =>
-		new Command("session")
-			.description(CREW_SESSION_REJECTED_HINT)
-			.allowExcessArguments(true)
-			.allowUnknownOption(true),
-	help: () => CREW_SESSION_REJECTED_HINT,
-	parse: () => {
-		throw new UsageError(CREW_SESSION_REJECTED_HINT);
-	},
-	run: () => {
-		throw new UsageError(CREW_SESSION_REJECTED_HINT);
-	},
-};
-
-/** TASK-0206: current-Crew role-scoped Pi Session picker. */
-const sessionResumeLeaf: CliLeaf = {
-	id: "session-resume",
-	names: ["session", "resume"],
-	build: () => buildRoleSessionResumeCommand(),
-	help: () => roleSessionResumeHelp(),
-	parse: (tokens, cwd) => parseRoleSessionResumeCommand(tokens, cwd),
-	read: (command) => {
-		const options = command.opts<{ role?: string; format?: string }>();
-		return parseRoleSessionResumeCommand([
-			...(options.role === undefined ? [] : ["--role", options.role]),
-			...(options.format === undefined ? [] : ["--format", options.format]),
-		]);
-	},
-	run: (options, context) => runRoleSessionResumeCommand(options as RoleSessionResumeCliOptions, context),
-};
-
-/** TASK-0082: `crew roles` discovery leaf — one registry contribution. */
-const crewRolesLeaf: CliLeaf = {
-	id: "crew-roles",
-	names: ["crew", "roles"],
-	build: () => buildCrewRolesCommand(),
-	help: () => crewRolesHelp(),
-	parse: (tokens, cwd) => parseCrewRolesCommand([...tokens], cwd),
-	read: (command) => readCrewRolesCommand(command),
-	run: (options, context) => runCrewRolesCommand(options as CrewRolesCliOptions, context),
-};
-
-/** TASK-0163: correlated Member Request lifecycle leaves. */
-const memberRequestSendLeaf: CliLeaf = {
-	id: "member-request-send",
-	names: ["member", "request", "send"],
-	build: () => buildMemberRequestSendCommand(),
-	help: () => memberRequestHelp("send"),
-	parse: (tokens) => parseMemberRequestSendCommand(tokens),
-	read: (command) => readMemberRequestSendCommand(command),
-	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
-};
-const memberRequestListLeaf: CliLeaf = {
-	id: "member-request-list",
-	names: ["member", "request", "list"],
-	build: () => buildMemberRequestListCommand(),
-	help: () => memberRequestHelp("list"),
-	parse: (tokens) => parseMemberRequestListCommand(tokens),
-	read: (command) => readMemberRequestListCommand(command),
-	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
-};
-const memberRequestWaitLeaf: CliLeaf = {
-	id: "member-request-wait",
-	names: ["member", "request", "wait"],
-	build: () => buildMemberRequestWaitCommand(),
-	help: () => memberRequestHelp("wait"),
-	parse: (tokens) => parseMemberRequestWaitCommand(tokens),
-	read: (command) => readMemberRequestWaitCommand(command),
-	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
-};
-const memberRequestRespondLeaf: CliLeaf = {
-	id: "member-request-respond",
-	names: ["member", "request", "respond"],
-	build: () => buildMemberRequestRespondCommand(),
-	help: () => memberRequestHelp("respond"),
-	parse: (tokens) => parseMemberRequestRespondCommand(tokens),
-	read: (command) => readMemberRequestRespondCommand(command),
-	run: (options, context) => runMemberRequestCommand(options as MemberRequestCliOptions, context),
-};
-
-/** TASK-0061: `member status <member>` leaf — one registry contribution. */
-const memberStatusLeaf: CliLeaf = {
-	id: "member-status",
-	names: ["member", "status"],
-	build: () => buildMemberStatusCommand(),
-	help: () => memberStatusHelp(),
-	parse: (tokens, cwd) => parseMemberStatusCommand([...tokens], cwd),
-	read: (command) => readMemberStatusCommand(command),
-	run: (options, context) => runMemberStatusCommand(options as MemberStatusCliOptions, context),
-};
-
-/** TASK-0067: `member wait-idle` leaf — one registry contribution. */
-const memberIdleWaitLeaf: CliLeaf = {
-	id: "member-idle-wait",
-	names: ["member", "wait-idle"],
-	build: () => buildMemberIdleWaitCommand(),
-	help: () => memberIdleWaitHelp(),
-	parse: (tokens, cwd) => parseMemberIdleWaitCommand([...tokens], cwd),
-	read: (command) => readMemberIdleWaitCommand(command),
-	run: (options, context) => runMemberIdleWaitCommand(options as MemberIdleWaitCliOptions, context),
-};
-
-/** TASK-0061 + TASK-0204: live Pi Session discovery renamed to `pi-bebop session live`. */
-const sessionLiveLeaf: CliLeaf = {
-	id: "session-live",
-	names: ["session", "live"],
-	build: () => buildSessionListCommand(),
-	help: () => sessionListHelp(),
-	parse: (tokens, cwd) => parseSessionListCommand([...tokens], cwd),
-	read: (command) => readSessionListCommand(command),
-	run: (options, context) => runSessionListCommand(options as SessionListCliOptions, context),
-};
-
-/** TASK-0062: `member follow-up` leaf — one registry contribution. */
-const memberFollowUpLeaf: CliLeaf = {
-	id: "member-follow-up",
-	names: ["member", "follow-up"],
-	build: () => buildMemberMessageCommand("follow_up"),
-	help: () => memberMessageHelp("follow_up"),
-	parse: (tokens, cwd) => parseMemberMessageCommand([...tokens], "follow_up", cwd),
-	read: (command) => readMemberMessageCommand(command, "follow_up"),
-	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
-};
-
-/** TASK-0062: `member redirect` leaf — one registry contribution. */
-const memberRedirectLeaf: CliLeaf = {
-	id: "member-redirect",
-	names: ["member", "redirect"],
-	build: () => buildMemberMessageCommand("redirect"),
-	help: () => memberMessageHelp("redirect"),
-	parse: (tokens, cwd) => parseMemberMessageCommand([...tokens], "redirect", cwd),
-	read: (command) => readMemberMessageCommand(command, "redirect"),
-	run: (options, context) => runMemberMessageCommand(options as MemberMessageCliOptions, context),
-};
-
-/** TASK-0064: `member inbox send` durable Inbox leaf. */
-const memberInboxSendLeaf: CliLeaf = {
-	id: "member-inbox-send",
-	names: ["member", "inbox", "send"],
-	build: () => buildDurableMessageCommand("inbox"),
-	help: () => durableMessageHelp("inbox"),
-	parse: (tokens, cwd) => parseDurableMessageCommand([...tokens], "inbox", cwd),
-	read: (command) => readDurableMessageCommand(command, "inbox"),
-	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
-};
-
-/** TASK-0065: hard recovery interrupt leaf. */
-const memberInterruptLeaf: CliLeaf = {
-	id: "member-interrupt",
-	names: ["member", "interrupt"],
-	build: () => buildMemberInterruptCommand(),
-	help: () => memberInterruptHelp(),
-	parse: (tokens, cwd) => parseMemberInterruptCommand([...tokens], cwd),
-	read: (command) => readMemberInterruptCommand(command),
-	run: (options, context) => runMemberInterruptCommand(options as MemberInterruptCliOptions, context),
-};
-
-/** TASK-0064: `crew broadcast` durable fan-out leaf. */
-const crewBroadcastLeaf: CliLeaf = {
-	id: "crew-broadcast",
-	names: ["crew", "broadcast"],
-	build: () => buildDurableMessageCommand("broadcast"),
-	help: () => durableMessageHelp("broadcast"),
-	parse: (tokens, cwd) => parseDurableMessageCommand([...tokens], "broadcast", cwd),
-	read: (command) => readDurableMessageCommand(command, "broadcast"),
-	run: (options, context) => runDurableMessageCommand(options as DurableMessageCliOptions, context),
+	run: (options, context) => runGuestMessageCommand(options as GuestMessageCliOptions, context),
 };
 
 export function createCliRegistry(): CliRegistry {
 	return composeRegistry([
-		homeLeaf,
-		sendLeaf,
 		crewInitLeaf,
 		crewListLeaf,
 		sessionCaptureLeaf,
@@ -678,7 +413,6 @@ export function createCliRegistry(): CliRegistry {
 		sessionShowLeaf,
 		sessionResolveLeaf,
 		sessionResumeLeaf,
-		crewSessionRejectedLeaf,
 		crewRolesLeaf,
 		memberStatusLeaf,
 		memberIdleWaitLeaf,
@@ -697,9 +431,4 @@ export function createCliRegistry(): CliRegistry {
 		guestSendLeaf,
 		guestBroadcastLeaf,
 	]);
-}
-
-/** Convenience: parse against the built-in registry (registry-driven vocabulary). */
-export function parseCliCommand(args: readonly string[], cwd = process.cwd()): unknown {
-	return createCliRegistry().parseCliCommand(args, cwd);
 }

@@ -149,8 +149,7 @@ Accepted delivery doesn't mean the member read the message or finished the work.
 A response doesn't prove the result is correct either.
 
 From the CLI, use `pi-bebop member request send` followed by `pi-bebop member request wait`, or `pi-bebop ask <crew[/member]>`, when you need a response tied to a request.
-`pi-bebop send --socket` only confirms accepted delivery by default.
-Its old `--wait turn_end` mode is rejected because Pi's turn completion event can't be tied to that message.
+Member delivery commands (`member follow-up`, `member redirect`, `member inbox send`, `crew broadcast`) confirm accepted or persisted delivery — never completion.
 
 ### Waiting isn't proof of progress
 
@@ -173,6 +172,7 @@ See [Member requests](docs/MEMBER-REQUEST-WORKFLOW.md) for the full flow.
 ## What's new in 0.2.0
 
 - **Sessions:** bookmark Member sessions and use a separate picker to resume a session by role.
+- **Commander-native CLI:** running `pi-bebop` (or `--help`) prints the root command tree; each group and leaf has its own generated help. Syntax errors go to stderr with exit 2 and local usage, operational failures to stderr with exit 1, and successful results keep `--format text|toon|json`.
 - **Session CLI:** `session` replaces the former `crew session` command family.
 - **Guests:** admit and revoke trusted guests, send direct messages, and broadcast in a defined order.
 - **Waits and requests:** tie responses to requests, wake waits for incoming messages, and report timeouts and failures explicitly.

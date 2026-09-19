@@ -7,9 +7,7 @@ import { renderCliResult, writeOutcome, type CliOutcome } from "../support/outpu
 import { UsageError } from "../support/arguments.ts";
 import {
 	buildCrewListCommand,
-	crewListHelp,
 	defaultCrewListDependencies,
-	parseCrewListCommand,
 	runCrewListCommand,
 	type CrewListDependencies,
 } from "./crew-list.ts";
@@ -59,25 +57,6 @@ function result(outcome: CliOutcome) {
 	if (outcome.kind !== "result") throw new Error("expected result");
 	return outcome.result;
 }
-
-test("crew list parser and builder expose deterministic product vocabulary", () => {
-	assert.deepEqual(parseCrewListCommand([]), { command: "crew-list", format: "toon", full: false });
-	assert.deepEqual(parseCrewListCommand(["--format=json", "--full"]), {
-		command: "crew-list",
-		format: "json",
-		full: true,
-	});
-	assert.equal(parseCrewListCommand(["--help"]).help, true);
-	assert.throws(() => parseCrewListCommand(["--format", "toon", "--format", "json"]), /Duplicate flag/);
-	assert.throws(() => parseCrewListCommand(["--bogus"]), UsageError);
-	assert.deepEqual(
-		buildCrewListCommand().options.map((option) => option.flags),
-		["--format <format>", "--full"],
-	);
-	assert.match(crewListHelp(), /stable selector/);
-	assert.match(crewListHelp(), /never scans arbitrary/);
-	assert.match(crewListHelp(), /pi-bebop crew list --format text/);
-});
 
 test("default manifest existence fails closed before untrusted filesystem access", async () => {
 	assert.equal(await defaultCrewListDependencies.manifestExists("/tmp/crew.json", "/project"), false);
@@ -327,6 +306,6 @@ test("empty discovery is successful and gives a bounded next step", async () => 
 	let text = "";
 	output.setEncoding("utf8");
 	output.on("data", (chunk) => (text += chunk));
-	assert.equal(writeOutcome(output, outcome), 0);
+	assert.equal(writeOutcome(output, new PassThrough(), outcome), 0);
 	assert.match(text, /No Crews found/);
 });

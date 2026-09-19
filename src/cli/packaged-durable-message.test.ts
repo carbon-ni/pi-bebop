@@ -201,7 +201,8 @@ test("packaged CLI rejects live broadcast when runtime trust is false", async (t
 		"json",
 	]);
 	assert.equal(outcome.code, 1, `${outcome.stdout}${outcome.stderr}`);
-	assert.match(outcome.stdout, /untrusted-project/);
+	assert.equal(outcome.stdout, "");
+	assert.match(outcome.stderr, /untrusted-project/);
 	assert.equal(await fixture.stores.mary.count(), 0);
 	assert.equal(fixture.targetMessages.length, 0);
 });

@@ -1,6 +1,6 @@
 # CLI audience and compatibility contract
 
-Status: normative migration contract for TASK-0165. It defines behavior for TASK-0166–0170; it does not change runtime or wire semantics.
+Status: normative v0 contract (TASK-0209). Commander owns discovery, help, and syntax errors; this document pins the audience matrix, stream placement, and exit classes.
 
 ## Principle
 
@@ -17,8 +17,7 @@ Every result-producing leaf supports `--format text|toon|json`. Help and version
 
 | Command | Primary audience | Default | Overrides | Next decision |
 | --- | --- | --- | --- | --- |
-| no arguments (home) | agent | TOON | text, JSON | choose one available command from current state |
-| `send` | automation/diagnostic | TOON | text, JSON | confirm Accepted delivery or correct target/options |
+| no arguments | human guidance | text only | none | Commander root help: pick the next command |
 | `crew init` | human | text | TOON, JSON | inspect files and start/join a Member |
 | `crew roles` | agent | TOON | text, JSON | select exact configured role/Member |
 | `crew broadcast` | agent | TOON | text, JSON | inspect per-recipient Accepted/failure outcome |
@@ -55,7 +54,6 @@ Future name-first `crew list`, `crew status`, `ask`, and Crew history are agent-
 
 ```text
 pi-bebop
-├── send                         # low-level explicit direct session delivery
 ├── crew
 │   ├── init
 │   ├── roles
@@ -80,7 +78,7 @@ pi-bebop
     └── live                   # live Pi Session discovery (TASK-0061, renamed from `session list`)
 ```
 
-`pi-bebop crew session ...` is no longer supported; the rejection leaf returns `UsageError` with the replacement `pi-bebop session <capture|add|list|show|resolve>` (TASK-0204). New product workflows belong under `crew`, `member`, `guest`, or the `session` group above. Top-level `send` remains a compatibility surface.
+Top-level `send` and the `crew session ...` rejection path are removed (v0); Commander treats them as any other unknown command.
 
 ## Terms at point of use
 
@@ -116,21 +114,21 @@ Application/domain code owns:
 - path/trust/session resolution and all IO;
 - protocol payloads, cancellation, ordering, and result data.
 
-One central application-owned Commander option policy rejects repeated scalar flags before any dependency call. `--instruction` remains ordered, repeatable, and bounded. Per-command argv scanners must not return under another name.
+Commander owns duplicate-option behavior (last value wins). `--instruction` remains ordered, repeatable, and bounded. There is no application-owned argv pre-scanner.
 
 ## Intentional grammar compatibility
 
 | Surface | Contract |
 | --- | --- |
 | Successful command semantics | Preserve protocol payloads, ordering, cancellation, authorization, and domain outcomes. |
-| Scalar duplicates | Continue to fail with exit 2; Commander last-value-wins is not accepted. |
+| Scalar duplicates | Commander last-value-wins is accepted (no application pre-scanner). |
 | Repeatable instructions | Preserve source order and existing bound. |
-| Help | Standard `-h`/`--help` at root, group, and leaf; exit 0; exact legacy bytes are not preserved. |
-| Option sentinel | Standard `--` ends option parsing. A flag-looking value uses `--flag=--value`. Legacy `--flag -- --value` is retired with a targeted migration hint or leaf help note. |
-| Error wording | Domain error codes and meaning stay stable; exact Commander usage prose may change. |
+| Help | Commander-generated `-h`/`--help`/`help [command]` at root, group, and leaf; stdout, exit 0; exact bytes are not a contract. |
+| Option sentinel | Standard `--` ends option parsing; a flag-looking value uses `--flag=--value`. |
+| Error wording | Commander's usage prose is presented verbatim; only stream placement and exit class are the contract. |
 | Exit codes | 0 success/help/idempotent no-op; 1 operational failure; 2 usage failure; 130 caller SIGINT where a blocking command defines it. |
-| No arguments | Render compact live home state, not full help. |
-| Version | One text line; no structured wrapper. |
+| No arguments | Commander root help on stdout, exit 0 (the implicit live home result is retired). |
+| Version | Commander `.version()`: one text line on stdout, exit 0. |
 
 Unknown/missing input names the offending value and valid local alternatives. Renamed/retired syntax gives the exact replacement. Validation happens before network, filesystem, socket, or subprocess work.
 
@@ -143,12 +141,12 @@ A canonical result is format-independent domain/application data. A command pres
 - Session IDs, socket paths, capabilities, raw Request IDs, stack traces, dependency payloads, and message content are excluded unless the command contract explicitly makes a safe subset public.
 - TOON and JSON encode the same normalized value. TOON uses `@toon-format/toon`; no handwritten encoder/parser.
 - Text conveys the same outcome in a concise human view, but is not required to round-trip. Bounded canonical presenters select only decision-relevant fields; they never dump a raw result object. Session lists show identity, aliases, membership, totals, and omissions; crew init shows state, target, paths, and the next command; communication receipts show only delivery/request facts.
-- Structured errors go to stdout in the selected/default format. Debug/progress diagnostics go to stderr.
+- Successful results go to stdout in the selected format (`text|toon|json`). Usage failures and operational failures are concise plain text on stderr (exit 2 and 1 respectively) and are never wrapped in TOON/JSON envelopes; `--format` never affects failure output.
 - Empty results state query scope and zero count.
 - Lists state total separately from shown count and remain deterministic.
 - Truncated fields include `truncated`, original size, shown size, and a runnable `--full` hint only when truncation occurred.
 
-A parse failure uses the addressed leaf's default format when that leaf is known. Root dispatch failures use the home/default TOON envelope. Help always remains text.
+A syntax failure shows the addressed command's local usage plus Commander's suggestion when available. Help always remains text on stdout with exit 0.
 
 ## Pre-migration representative baseline
 

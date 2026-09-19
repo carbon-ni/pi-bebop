@@ -27,7 +27,6 @@ export interface GuestJoinCliOptions {
 	readonly guestName: string;
 	readonly callback: string;
 	readonly format: CliFormat;
-	readonly help?: boolean;
 }
 
 export interface GuestLeaveCliOptions {
@@ -37,7 +36,6 @@ export interface GuestLeaveCliOptions {
 	readonly guestIdentity: string;
 	readonly callback: string;
 	readonly format: CliFormat;
-	readonly help?: boolean;
 }
 
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
@@ -53,7 +51,6 @@ export interface GuestMessageCliOptions {
 	readonly message: string;
 	readonly instructions: string[];
 	readonly format: CliFormat;
-	readonly help?: boolean;
 }
 
 function collect(value: string, previous: string[]): string[] {
@@ -73,32 +70,11 @@ function requireValue(value: string | undefined, flag: string): string {
 	return value;
 }
 
-function normalizeFormat(value: string | undefined, flag = "--format"): CliFormat {
+function normalizeFormat(value: string | undefined): CliFormat {
 	const format = value ?? defaultFormatForCommand("guest");
-	if (!isCliFormat(format)) throw new UsageError(`Invalid ${flag} '${format}'; valid alternatives: toon, json, text`);
+	if (!isCliFormat(format))
+		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return format;
-}
-
-function tokenize(args: readonly string[]): { tokens: string[]; format: string | undefined; help: boolean } {
-	const tokens: string[] = [];
-	let format: string | undefined;
-	let help = false;
-	for (let index = 0; index < args.length; index += 1) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--format") {
-			if (format !== undefined) throw new UsageError("Duplicate flag: --format");
-			format = equals > 0 ? raw.slice(equals + 1) : args[++index];
-			continue;
-		}
-		if (flag === "--help") {
-			help = true;
-			continue;
-		}
-		tokens.push(raw);
-	}
-	return { tokens, format, help };
 }
 
 export function buildGuestJoinCommand(): Command {
@@ -113,8 +89,17 @@ export function buildGuestJoinCommand(): Command {
 			"Output format: toon (default), json, or text",
 			defaultFormatForCommand("guest-join"),
 		)
-		.showHelpAfterError(false)
-		.helpOption(false);
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Request Guest admission from one live Member. The response stays `pending`",
+				"until an exact configured approver accepts; repeating the identical request",
+				"is idempotent. Never exposes capabilities or manifest internals.",
+				"",
+				"Use `/guest crews` inside the session to list pending and approved crews.",
+			].join("\n"),
+		);
 }
 
 export function buildGuestMessageCommand(kind: "send" | "broadcast"): Command {
@@ -127,13 +112,18 @@ export function buildGuestMessageCommand(kind: "send" | "broadcast"): Command {
 		.requiredOption("--capability <capability>", "Member-issued Guest capability")
 		.requiredOption("--message <text>", "Message text")
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
-		.option(
-			"--format <format>",
-			"Output format: toon (default), json, or text",
-			defaultFormatForCommand("guest-leave"),
-		)
-		.showHelpAfterError(false)
-		.helpOption(false);
+		.option("--format <format>", "Output format: toon (default), json, or text", defaultFormatForCommand("guest"))
+		.addHelpText(
+			"after",
+			[
+				"",
+				kind === "send"
+					? "Send one direct Guest Follow-up to an exact Member in the selected Crew."
+					: "Send one transient Guest Broadcast directly to every other approved Crew participant.",
+				"Every call requires an exact crew selector. Credentials are used only for the wire",
+				"command and never rendered.",
+			].join("\n"),
+		);
 	if (kind === "send") command.requiredOption("--target <member>", "Exact Member name or unique role");
 	return command;
 }
@@ -145,79 +135,27 @@ export function buildGuestLeaveCommand(): Command {
 		.requiredOption("--crew <crew-id>", "Crew id to leave")
 		.requiredOption("--identity <guest-identity>", "This session's Guest identity")
 		.requiredOption("--callback <socket>", "The callback socket path used at join time")
-		.option(
-			"--format <format>",
-			"Output format: toon (default), json, or text",
-			defaultFormatForCommand("guest-send"),
-		)
-		.showHelpAfterError(false)
-		.helpOption(false);
-}
-
-function parseCommand(
-	command: Command,
-	args: readonly string[],
-): { options: Record<string, unknown>; target?: string } {
-	const program = command.exitOverride().configureOutput({
-		writeOut: () => {},
-		writeErr: () => {},
-		outputError: () => {},
-	});
-	try {
-		program.parse([...args], { from: "user" });
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError") {
-			const match = /--[a-z-]+/.exec(error.message);
-			const flag = match?.[0] ?? "--as";
-			throw new UsageError(
-				(error as Error & { code?: string }).code === "commander.optionMissingArgument"
-					? `Missing value for ${flag}`
-					: error.message,
-			);
-		}
-		throw error;
-	}
-	return { options: program.opts(), target: program.args[0] };
-}
-
-function parseWith(
-	command: Command,
-	args: readonly string[],
-	parse: (options: Record<string, unknown>, target: string) => Record<string, unknown>,
-): Record<string, unknown> {
-	const parsed = parseCommand(command, args);
-	if (!validValue(parsed.target)) throw new UsageError("Guest commands require one live Member socket target.");
-	return parse(parsed.options, parsed.target);
-}
-
-function parseWithoutTarget(
-	command: Command,
-	args: readonly string[],
-	parse: (options: Record<string, unknown>, target: string) => Record<string, unknown>,
-): Record<string, unknown> {
-	const parsed = parseCommand(command, args);
-	return parse(parsed.options, parsed.target ?? "");
+		.option("--format <format>", "Output format: toon (default), json, or text", defaultFormatForCommand("guest"))
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Revoke one Crew membership at its Member socket. The Member validates the",
+				"guest identity, crew id, and callback endpoint before revoking.",
+			].join("\n"),
+		);
 }
 
 export function readGuestJoinCommand(command: Command): GuestJoinCliOptions {
-	const options = command.opts<{
-		identity?: string;
-		as?: string;
-		callback?: string;
-		format?: string;
-		help?: boolean;
-	}>();
-	const help = options.help === true;
+	const options = command.opts<{ identity?: string; as?: string; callback?: string; format?: string }>();
+	if (!validValue(command.args[0])) throw new UsageError("Guest commands require one live Member socket target.");
 	return {
 		command: "guest-join",
-		target: String(command.args[0] ?? ""),
-		guestIdentity: help
-			? String(options.identity ?? "")
-			: requireValue(options.identity, "--identity <guest-identity>"),
-		guestName: help ? String(options.as ?? "") : requireValue(options.as, "--as <guest-name>"),
-		callback: help ? String(options.callback ?? "") : requireValue(options.callback, "--callback <socket>"),
+		target: String(command.args[0]),
+		guestIdentity: requireValue(options.identity, "--identity <guest-identity>"),
+		guestName: requireValue(options.as, "--as <guest-name>"),
+		callback: requireValue(options.callback, "--callback <socket>"),
 		format: normalizeFormat(options.format),
-		...(help ? { help: true } : {}),
 	};
 }
 
@@ -232,177 +170,32 @@ export function readGuestMessageCommand(command: Command, kind: "send" | "broadc
 		message?: string;
 		instruction?: string[];
 		format?: string;
-		help?: boolean;
 	}>();
-	const help = options.help === true;
 	return {
 		command: kind === "send" ? "guest-send" : "guest-broadcast",
-		crew: help ? String(options.crew ?? "") : requireValue(options.crew, "--crew <crew-id>"),
-		target: kind === "send" && !help ? requireValue(options.target, "--target <member>") : options.target,
-		guestIdentity: help
-			? String(options.identity ?? "")
-			: requireValue(options.identity, "--identity <guest-identity>"),
-		guestName: help ? String(options.as ?? "") : requireValue(options.as, "--as <guest-name>"),
-		callback: help ? String(options.callback ?? "") : requireValue(options.callback, "--callback <socket>"),
-		capability: help
-			? String(options.capability ?? "")
-			: requireValue(options.capability, "--capability <capability>"),
-		message: help ? String(options.message ?? "") : requireValue(options.message, "--message <text>"),
+		crew: requireValue(options.crew, "--crew <crew-id>"),
+		target: kind === "send" ? requireValue(options.target, "--target <member>") : options.target,
+		guestIdentity: requireValue(options.identity, "--identity <guest-identity>"),
+		guestName: requireValue(options.as, "--as <guest-name>"),
+		callback: requireValue(options.callback, "--callback <socket>"),
+		capability: requireValue(options.capability, "--capability <capability>"),
+		message: requireValue(options.message, "--message <text>"),
 		instructions: options.instruction ?? [],
 		format: normalizeFormat(options.format),
-		...(help ? { help: true } : {}),
 	};
 }
 
 export function readGuestLeaveCommand(command: Command): GuestLeaveCliOptions {
-	const options = command.opts<{
-		crew?: string;
-		identity?: string;
-		callback?: string;
-		format?: string;
-		help?: boolean;
-	}>();
-	const help = options.help === true;
+	const options = command.opts<{ crew?: string; identity?: string; callback?: string; format?: string }>();
+	if (!validValue(command.args[0])) throw new UsageError("Guest commands require one live Member socket target.");
 	return {
 		command: "guest-leave",
-		target: String(command.args[0] ?? ""),
-		crewId: help ? String(options.crew ?? "") : requireValue(options.crew, "--crew <crew-id>"),
-		guestIdentity: help
-			? String(options.identity ?? "")
-			: requireValue(options.identity, "--identity <guest-identity>"),
-		callback: help ? String(options.callback ?? "") : requireValue(options.callback, "--callback <socket>"),
+		target: String(command.args[0]),
+		crewId: requireValue(options.crew, "--crew <crew-id>"),
+		guestIdentity: requireValue(options.identity, "--identity <guest-identity>"),
+		callback: requireValue(options.callback, "--callback <socket>"),
 		format: normalizeFormat(options.format),
-		...(help ? { help: true } : {}),
 	};
-}
-
-export function parseGuestJoinCommand(args: readonly string[]): GuestJoinCliOptions {
-	const { tokens, format, help } = tokenize(args);
-	if (help)
-		return {
-			command: "guest-join",
-			target: "",
-			guestIdentity: "",
-			guestName: "",
-			callback: "",
-			format: normalizeFormat(format),
-			help: true,
-		};
-	const options = parseWith(buildGuestJoinCommand(), tokens, (opts, target) => {
-		if (opts.as !== undefined && !validValue(String(opts.as)))
-			throw new UsageError("Guest --as requires a non-empty value.");
-		return { ...opts, target };
-	});
-	return {
-		command: "guest-join",
-		target: String(options.target),
-		guestIdentity: requireValue(String(options.identity ?? ""), "--identity <guest-identity>"),
-		guestName: requireValue(String(options.as ?? ""), "--as <guest-name>"),
-		callback: requireValue(String(options.callback ?? ""), "--callback <socket>"),
-		format: normalizeFormat(format),
-	};
-}
-
-export function parseGuestMessageCommand(args: readonly string[], kind: "send" | "broadcast"): GuestMessageCliOptions {
-	const { tokens, format, help } = tokenize(args);
-	if (help)
-		return {
-			command: kind === "send" ? "guest-send" : "guest-broadcast",
-			crew: "",
-			target: undefined,
-			guestIdentity: "",
-			guestName: "",
-			callback: "",
-			capability: "",
-			message: "",
-			instructions: [],
-			format: normalizeFormat(format),
-			help: true,
-		};
-	const options = parseWithoutTarget(buildGuestMessageCommand(kind), tokens, (opts) => opts);
-	return {
-		command: kind === "send" ? "guest-send" : "guest-broadcast",
-		crew: requireValue(String(options.crew ?? ""), "--crew <crew-id>"),
-		target: kind === "send" ? requireValue(String(options.target ?? ""), "--target <member>") : undefined,
-		guestIdentity: requireValue(String(options.identity ?? ""), "--identity <guest-identity>"),
-		guestName: requireValue(String(options.as ?? ""), "--as <guest-name>"),
-		callback: requireValue(String(options.callback ?? ""), "--callback <socket>"),
-		capability: requireValue(String(options.capability ?? ""), "--capability <capability>"),
-		message: requireValue(String(options.message ?? ""), "--message <text>"),
-		instructions: (options.instruction as string[] | undefined) ?? [],
-		format: normalizeFormat(format),
-	};
-}
-
-export function parseGuestLeaveCommand(args: readonly string[]): GuestLeaveCliOptions {
-	const { tokens, format, help } = tokenize(args);
-	if (help)
-		return {
-			command: "guest-leave",
-			target: "",
-			crewId: "",
-			guestIdentity: "",
-			callback: "",
-			format: normalizeFormat(format),
-			help: true,
-		};
-	const options = parseWith(buildGuestLeaveCommand(), tokens, (opts, target) => ({ ...opts, target }));
-	return {
-		command: "guest-leave",
-		target: String(options.target),
-		crewId: requireValue(String(options.crew ?? ""), "--crew <crew-id>"),
-		guestIdentity: requireValue(String(options.identity ?? ""), "--identity <guest-identity>"),
-		callback: requireValue(String(options.callback ?? ""), "--callback <socket>"),
-		format: normalizeFormat(format),
-	};
-}
-
-export function guestJoinHelp(): string {
-	return [
-		"pi-bebop guest join <member-socket> --identity <guest-identity> --as <guest-name> --callback <socket> [--format toon|json|text]",
-		"",
-		"Request Guest admission from one live Member. The response stays `pending`",
-		"until an exact configured approver accepts; repeating the identical request",
-		"is idempotent. Never exposes capabilities or manifest internals.",
-		"",
-		"Options:",
-		"  --identity <guest-identity> Stable Guest identity (required; keep it stable)",
-		"  --as <guest-name>           Guest display name (required)",
-		"  --callback <socket>    This session's callback socket path (required)",
-		"  --format <format>      toon (default), json, or text",
-		"",
-		"Use `/guest crews` inside the session to list pending and approved crews.",
-		"",
-	].join("\n");
-}
-
-export function guestMessageHelp(kind: "send" | "broadcast"): string {
-	const target = kind === "send" ? " --target <member>" : "";
-	return [
-		`pi-bebop guest ${kind}${target} --crew <crew-id> --identity <guest-identity> --as <guest-name> --callback <socket> --capability <capability> --message <text> [--format toon|json|text]`,
-		"",
-		kind === "send"
-			? "Send one direct Guest Follow-up to an exact Member in the selected Crew."
-			: "Send one transient Guest Broadcast directly to every other approved Crew participant.",
-		"Every call requires an exact crew selector. Credentials are used only for the wire command and never rendered.",
-		"",
-	].join("\\n");
-}
-
-export function guestLeaveHelp(): string {
-	return [
-		"pi-bebop guest leave <member-socket> --crew <crew-id> --identity <guest-identity> --callback <socket> [--format toon|json|text]",
-		"",
-		"Revoke one Crew membership at its Member socket. The Member validates the",
-		"guest identity, crew id, and callback endpoint before revoking.",
-		"",
-		"Options:",
-		"  --crew <crew-id>            Crew id to leave (required)",
-		"  --identity <guest-identity> Guest identity used at join time (required)",
-		"  --callback <socket>         Callback socket path used at join time (required)",
-		"  --format <format>           toon (default), json, or text",
-		"",
-	].join("\n");
 }
 
 export interface GuestCliDependencies {
@@ -470,8 +263,6 @@ export async function runGuestMessageCommand(
 	context: CliContext,
 	deps: GuestCliDependencies = defaultGuestCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help)
-		return { kind: "help", text: guestMessageHelp(options.command === "guest-send" ? "send" : "broadcast") };
 	try {
 		const manifest = await loadGuestManifest(context.cwd, options.crew);
 		const runtime = guestRuntime(options);
@@ -547,7 +338,6 @@ export async function runGuestJoinCommand(
 	_context: CliContext,
 	deps: GuestCliDependencies = defaultGuestCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: guestJoinHelp() };
 	try {
 		const { response } = await deps.sendCommand(
 			options.target,
@@ -606,7 +396,6 @@ export async function runGuestLeaveCommand(
 	_context: CliContext,
 	deps: GuestCliDependencies = defaultGuestCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: guestLeaveHelp() };
 	try {
 		const { response } = await deps.sendCommand(
 			options.target,

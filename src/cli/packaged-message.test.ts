@@ -155,19 +155,27 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 	};
 }
 
-async function packagedMessage(envHome: string, args: string[]): Promise<{ code: number; stdout: string }> {
+async function packagedMessage(
+	envHome: string,
+	args: string[],
+): Promise<{ code: number; stdout: string; stderr: string }> {
 	const artifact = path.resolve("dist/cli/main.js");
 	const child = spawn(process.execPath, [artifact, ...args], {
 		env: { ...process.env, HOME: envHome },
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let stdout = "";
+	let stderr = "";
 	child.stdout.setEncoding("utf8");
 	child.stdout.on("data", (chunk) => {
 		stdout += chunk;
 	});
+	child.stderr.setEncoding("utf8");
+	child.stderr.on("data", (chunk) => {
+		stderr += chunk;
+	});
 	const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
-	return { code, stdout };
+	return { code, stdout, stderr };
 }
 
 test("request transport rejects forged origin before inbound state or Pi visibility", async (t) => {
@@ -344,6 +352,7 @@ test("packaged CLI rejects a wait flag with accepted-only recovery and no delive
 		"json",
 	]);
 	assert.equal(outcome.code, 2, outcome.stdout);
-	assert.match(outcome.stdout, /accepted-delivery only/);
+	assert.equal(outcome.stdout, "");
+	assert.match(outcome.stderr, /unknown option '--wait'/);
 	assert.equal(sessions.targetMessages.length, 0);
 });

@@ -8,9 +8,7 @@ import path from "node:path";
 import {
 	defaultMemberStatusCliDependencies,
 	mapTransportError,
-	parseMemberStatusCommand,
 	runMemberStatusCommand,
-	memberStatusHelp,
 	type MemberStatusCliDependencies,
 } from "./member-status.ts";
 import { UsageError } from "../support/arguments.ts";
@@ -58,64 +56,11 @@ function render(outcome: CliOutcome): { exit: number; text: string } {
 	output.on("data", (chunk) => {
 		text += chunk;
 	});
-	const exit = writeOutcome(output, outcome);
+	const exit = writeOutcome(output, new PassThrough(), outcome);
 	return { exit, text };
 }
 
 // --- parse ---
-
-test("member status parse: member positional, format default toon, optional --session", () => {
-	const options = parseMemberStatusCommand(["Kelly"]);
-	assert.equal(options.command, "member-status");
-	assert.equal(options.member, "Kelly");
-	assert.equal(options.format, "toon");
-	assert.equal(options.session, undefined);
-
-	const withSession = parseMemberStatusCommand(["Kelly", "--session", "s-9"]);
-	assert.equal(withSession.session, "s-9");
-
-	const equals = parseMemberStatusCommand(["--session=s-9", "Kelly", "--format", "json"]);
-	assert.equal(equals.session, "s-9");
-	assert.equal(equals.format, "json");
-
-	const sentinel = parseMemberStatusCommand(["Kelly", "--session", "--", "-x"]);
-	assert.equal(sentinel.session, "-x");
-});
-
-test("member status parse: trims member and rejects oversized targets", () => {
-	assert.throws(() => parseMemberStatusCommand(["  Kelly  "]), /trimmed/);
-	const oversized = "k".repeat(257);
-	assert.throws(() => parseMemberStatusCommand([oversized]), /at most 256/);
-});
-
-test("member status parse: missing member, duplicate flags, unknown flags, bad format", () => {
-	assert.throws(() => parseMemberStatusCommand([]), UsageError);
-	assert.throws(
-		() => parseMemberStatusCommand(["--session", "s-1", "--session", "s-2", "Kelly"]),
-		/Duplicate flag: --session/,
-	);
-	assert.throws(
-		() => parseMemberStatusCommand(["Kelly", "--format", "toon", "--format", "json"]),
-		/Duplicate flag: --format/,
-	);
-	assert.throws(() => parseMemberStatusCommand(["Kelly", "--bogus"]), /Unknown flag/);
-	assert.throws(() => parseMemberStatusCommand(["Kelly", "--format", "xml"]), /Invalid --format/);
-});
-
-test("member status help points to runnable CLI request commands", () => {
-	const help = memberStatusHelp();
-	assert.match(help, /pi-bebop member request send/);
-	assert.doesNotMatch(help, /send_member_request/);
-});
-
-test("member status parse: --help short-circuits requirements but validates provided values", () => {
-	const options = parseMemberStatusCommand(["--help"]);
-	assert.equal(options.help, true);
-	assert.equal(options.member, "");
-	// Help with provided member still parses.
-	assert.equal(parseMemberStatusCommand(["Kelly", "--help"]).member, "Kelly");
-	assert.throws(() => parseMemberStatusCommand(["--help", "--format", "xml"]), /Invalid --format/);
-});
 
 test("member status default transport maps unavailable endpoints", async () => {
 	const result = await defaultMemberStatusCliDependencies.sendStatus(
@@ -233,26 +178,30 @@ test("status transport mapper covers abort, socket, timeout, and fallback errors
 
 // --- run: source selection ---
 
-test("member status run: session-required is usage-class exit 2 with stable code", async () => {
+test("member status run: session-required is a usage-class failure", async () => {
 	const dependencies = deps({ resolveSource: () => ({ ok: false, code: "session-required", message: "no source" }) });
-	const outcome = await runMemberStatusCommand(
-		{ command: "member-status", member: "Kelly", format: "json" },
-		context(),
-		dependencies,
+	await assert.rejects(
+		() =>
+			runMemberStatusCommand(
+				{ command: "member-status", member: "Kelly", format: "json" },
+				context(),
+				dependencies,
+			),
+		(error: unknown) => error instanceof UsageError && error.message === "no source",
 	);
-	const { exit, text } = render(outcome);
-	assert.equal(exit, 2);
-	assert.match(text, /session-required/);
 });
 
-test("member status run: invalid-session is usage-class exit 2 with stable code", async () => {
+test("member status run: invalid-session is a usage-class failure", async () => {
 	const dependencies = deps({ resolveSource: () => ({ ok: false, code: "invalid-session", message: "bad" }) });
-	const outcome = await runMemberStatusCommand(
-		{ command: "member-status", member: "Kelly", format: "json" },
-		context(),
-		dependencies,
+	await assert.rejects(
+		() =>
+			runMemberStatusCommand(
+				{ command: "member-status", member: "Kelly", format: "json" },
+				context(),
+				dependencies,
+			),
+		UsageError,
 	);
-	assert.equal(render(outcome).exit, 2);
 });
 
 test("member status run: environment fallback feeds resolution when --session absent", async () => {
@@ -362,16 +311,4 @@ test("member status run: operational failures exit 1 with stable codes", async (
 		assert.equal(outcome.result.error?.code, code, code);
 		assert.equal(outcome.result.status, "error", code);
 	}
-});
-
-test("member status run: --help returns deterministic help text", async () => {
-	const outcome = await runMemberStatusCommand(
-		{ command: "member-status", member: "", format: "toon", help: true },
-		context(),
-		deps(),
-	);
-	assert.equal(outcome.kind, "help");
-	if (outcome.kind !== "help") return;
-	assert.equal(outcome.text, memberStatusHelp());
-	assert.equal(render(outcome).exit, 0);
 });

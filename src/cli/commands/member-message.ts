@@ -4,8 +4,7 @@ import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberMessageResult, MAX_MESSAGE_INSTRUCTIONS, type MemberMessageResult } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
-import { scanCliFlags } from "../support/flag-scanner.ts";
-import { errorResult, usageResult } from "../support/errors.ts";
+import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
@@ -35,7 +34,6 @@ export interface MemberMessageCliOptions {
 	readonly instructions: string[];
 	readonly stdin: boolean;
 	readonly format: CliFormat;
-	readonly help?: boolean;
 }
 
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
@@ -53,7 +51,6 @@ function intentWord(intent: MemberMessageIntent): "follow-up" | "redirect" {
 
 export function buildMemberMessageCommand(intent: MemberMessageIntent): Command {
 	const word = intentWord(intent);
-	const label = intent === "follow_up" ? "Follow-up" : "Redirect";
 	const description =
 		intent === "follow_up"
 			? "Send a normal follow-up to a joined crew member (accepted-delivery only)"
@@ -70,62 +67,28 @@ export function buildMemberMessageCommand(intent: MemberMessageIntent): Command 
 			defaultFormatForCommand("member-follow-up"),
 		)
 		.argument("[<member>]", "Crew member name or unique role")
-		.showHelpAfterError(false)
-		.helpOption(false);
+		.addHelpText(
+			"after",
+			[
+				"",
+				`Send a member ${label(intent)} through one already-joined Pi session, which derives`,
+				"membership and trust authoritatively. The CLI never loads a crew manifest.",
+				"",
+				`Delivery: online normal ${label(intent)}; ${intent === "follow_up" ? "waits behind the target's active work" : "enters before the target's next model step"}. Accepted means the message was`,
+				"accepted for delivery — it NEVER means replied, delivered work, or completed.",
+				"There is no wait_for flag: Pi cannot prove delivery-level response correlation.",
+				"",
+				`Discover sessions with: ${SESSION_LIST_HINT}`,
+			].join("\n"),
+		);
 }
 
 function collect(value: string, previous: string[]): string[] {
 	return previous.concat([value]);
 }
 
-export function memberMessageHelp(intent: MemberMessageIntent): string {
-	const word = intentWord(intent);
-	const delivery =
-		intent === "follow_up" ? "waits behind the target's active work" : "enters before the target's next model step";
-	return [
-		`pi-bebop member ${word} <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]`,
-		"",
-		`Send a member ${label(intent)} through one already-joined Pi session, which derives`,
-		"membership and trust authoritatively. The CLI never loads a crew manifest.",
-		"",
-		`Delivery: online normal ${label(intent)}; ${delivery}. Accepted means the message was`,
-		"accepted for delivery — it NEVER means replied, delivered work, or completed.",
-		"There is no wait_for flag: Pi cannot prove delivery-level response correlation.",
-		"",
-		"Options:",
-		"  --session <id|alias>    Source joined Pi session id or alias (default: PI_SESSION_ID)",
-		"  --message <text>        Message text (exactly one of --message or --stdin)",
-		"  --stdin                 Read the message from stdin",
-		"  --instruction <text>    Ordered instruction (repeatable, at most 32)",
-		"  --format <format>       toon (default), json, or text",
-		"",
-		`Discover sessions with: ${SESSION_LIST_HINT}`,
-		"",
-	].join("\n");
-}
-
 function label(intent: MemberMessageIntent): string {
 	return intent === "follow_up" ? "Follow-up" : "Redirect";
-}
-
-const VALID_FLAGS =
-	"--session <id|alias>, --message <text>, --stdin, --instruction <text>, --format toon|json|text, --help";
-
-function mapCommanderError(error: Error & { code?: string }): UsageError {
-	const match = /--[a-z-]+/.exec(error.message);
-	const flag = match?.[0] ?? "--format";
-	if (error.code === "commander.optionMissingArgument") return new UsageError(`Missing value for ${flag}`);
-	if (error.code === "commander.unknownOption") {
-		const unknown = /unknown option '(--?[^']+)'/.exec(error.message)?.[1] ?? "";
-		if (unknown.startsWith("--wait"))
-			return new UsageError(
-				`Unknown flag '${unknown}'; this command is accepted-delivery only and never waits for a reply`,
-			);
-		return new UsageError(`Unknown flag '${unknown}'; valid flags: ${VALID_FLAGS}`);
-	}
-	if (error.code === "commander.excessArguments")
-		return new UsageError(`Too many arguments; valid flags: ${VALID_FLAGS}`);
-	return new UsageError(error.message);
 }
 
 function validateMessageContent(message: string, source: "message" | "stdin"): void {
@@ -148,40 +111,20 @@ function validateInstructions(instructions: readonly string[]): void {
 	}
 }
 
-/** App-owned parse facade: pre-pass (help/duplicates/sentinel), Commander tokenization, then validation. */
-function scanMemberMessageFlags(args: readonly string[]) {
-	return scanCliFlags(args, [
-		{ name: "--session", kind: "value", allowSentinelValue: true },
-		{ name: "--message", kind: "value", allowSentinelValue: true },
-		{ name: "--format", kind: "value", allowSentinelValue: true },
-		{ name: "--stdin", kind: "boolean" },
-		{
-			name: "--instruction",
-			kind: "repeatable",
-			allowSentinelValue: true,
-			missingValueMessage: "Missing value for --instruction",
-		},
-	]);
-}
-
-function validateMemberMessageSource(
-	help: boolean,
-	opts: { message?: string; stdin?: boolean },
-): { hasMessage: boolean; hasStdin: boolean } {
+function validateMemberMessageSource(opts: { message?: string; stdin?: boolean }): {
+	hasMessage: boolean;
+	hasStdin: boolean;
+} {
 	const hasMessage = opts.message !== undefined;
 	const hasStdin = opts.stdin === true;
-	if (!help) {
-		if (hasMessage && hasStdin)
-			throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
-		if (!hasMessage && !hasStdin) throw new UsageError("Missing message source; use --message <text> or --stdin");
-		if (hasMessage && opts.message!.trim().length === 0) throw new UsageError("--message must not be empty");
-		if (hasMessage) validateMessageContent(opts.message!, "message");
-	}
+	if (hasMessage && hasStdin) throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
+	if (!hasMessage && !hasStdin) throw new UsageError("Missing message source; use --message <text> or --stdin");
+	if (hasMessage && opts.message!.trim().length === 0) throw new UsageError("--message must not be empty");
+	if (hasMessage) validateMessageContent(opts.message!, "message");
 	return { hasMessage, hasStdin };
 }
 
 function validateMemberMessageOptions(
-	help: boolean,
 	member: string,
 	opts: { message?: string; stdin?: boolean; format?: string },
 	instructions: string[],
@@ -190,11 +133,10 @@ function validateMemberMessageOptions(
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	validateInstructions(instructions);
-	if (!help && member.trim().length === 0)
-		throw new UsageError("Missing <member>; provide a crew member name or unique role");
-	if (!help && (member !== member.trim() || Buffer.byteLength(member, "utf8") > MAX_TARGET_BYTES))
+	if (member.trim().length === 0) throw new UsageError("Missing <member>; provide a crew member name or unique role");
+	if (member !== member.trim() || Buffer.byteLength(member, "utf8") > MAX_TARGET_BYTES)
 		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
-	const { hasMessage, hasStdin } = validateMemberMessageSource(help, opts);
+	const { hasMessage, hasStdin } = validateMemberMessageSource(opts);
 	return { format, hasMessage, hasStdin };
 }
 
@@ -205,12 +147,10 @@ export function readMemberMessageCommand(command: Command, intent: MemberMessage
 		stdin?: boolean;
 		instruction?: string[];
 		format?: string;
-		help?: boolean;
 	}>();
 	const member = command.args[0] ?? "";
 	const instructions = opts.instruction ?? [];
-	const help = opts.help === true;
-	const { format, hasMessage, hasStdin } = validateMemberMessageOptions(help, member, opts, instructions);
+	const { format, hasMessage, hasStdin } = validateMemberMessageOptions(member, opts, instructions);
 	return {
 		command: intent === "follow_up" ? "member-follow-up" : "member-redirect",
 		intent,
@@ -220,44 +160,6 @@ export function readMemberMessageCommand(command: Command, intent: MemberMessage
 		instructions,
 		stdin: hasStdin,
 		format: format as CliFormat,
-		...(help ? { help: true } : {}),
-	};
-}
-
-export function parseMemberMessageCommand(
-	args: string[],
-	intent: MemberMessageIntent,
-	_cwd = process.cwd(),
-): MemberMessageCliOptions {
-	const scanned = scanMemberMessageFlags(args);
-	const { tokens, help } = scanned;
-	const instructionValues = [...(scanned.repeatedValues["--instruction"] ?? [])];
-
-	const program = buildMemberMessageCommand(intent)
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { session?: string; message?: string; stdin?: boolean; format?: string };
-	try {
-		program.parse(tokens, { from: "user" });
-		opts = program.opts();
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError")
-			throw mapCommanderError(error as Error & { code?: string });
-		throw error;
-	}
-	const member = program.args[0] ?? "";
-	const { format, hasMessage, hasStdin } = validateMemberMessageOptions(help, member, opts, instructionValues);
-
-	return {
-		command: intent === "follow_up" ? "member-follow-up" : "member-redirect",
-		intent,
-		member: member.trim(),
-		...(opts.session === undefined ? {} : { session: opts.session }),
-		...(hasMessage ? { message: opts.message } : {}),
-		instructions: instructionValues,
-		stdin: hasStdin,
-		format: format as CliFormat,
-		...(help ? { help: true } : {}),
 	};
 }
 
@@ -346,7 +248,6 @@ export async function runMemberMessageCommand(
 	context: CliContext,
 	deps: MemberMessageCliDependencies = defaultMemberMessageCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: memberMessageHelp(options.intent) };
 	const target = options.member;
 	const source = deps.resolveSource({
 		explicitSession: options.session,
@@ -408,13 +309,8 @@ export async function runMemberMessageCommand(
 			full: false,
 		};
 	}
-	// Source-selection input errors are usage-class (exit 2) with their stable code.
-	return {
-		kind: "result",
-		result: usageResult(source.message, source.code),
-		format: options.format,
-		full: false,
-	};
+	// Source-selection input errors are usage-class (exit 2).
+	throw new UsageError(source.message);
 }
 
 /** strict:false project — explicit guard instead of discriminant narrowing. */

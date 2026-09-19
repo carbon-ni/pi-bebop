@@ -86,7 +86,7 @@ test("member status CLI round-trips over a real socket and falls back from missi
 	assert.equal(status.observedAt, "2026-08-23T12:03:00.000Z");
 
 	const output = new PassThrough();
-	const exit = writeOutcome(output, outcome);
+	const exit = writeOutcome(output, new PassThrough(), outcome);
 	assert.equal(exit, 0);
 });
 
@@ -125,7 +125,7 @@ test("member status CLI maps a remote rejection over the real wire to exit 1 wit
 	if (outcome.kind !== "result") throw new Error("expected result");
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.error?.code, "unknown-member");
-	assert.equal(writeOutcome(new PassThrough(), outcome), 1);
+	assert.equal(writeOutcome(new PassThrough(), new PassThrough(), outcome), 1);
 });
 
 test("member status CLI renders an offline presence result over the real wire as success", async (t) => {
@@ -165,5 +165,5 @@ test("member status CLI renders an offline presence result over the real wire as
 	assert.equal(outcome.result.ok, true);
 	const status = (outcome.result.data as { status: MemberStatus }).status;
 	assert.equal(status.presence, "offline");
-	assert.equal(writeOutcome(new PassThrough(), outcome), 0);
+	assert.equal(writeOutcome(new PassThrough(), new PassThrough(), outcome), 0);
 });

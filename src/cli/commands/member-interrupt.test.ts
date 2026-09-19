@@ -8,8 +8,6 @@ import {
 	buildMemberInterruptCommand,
 	defaultMemberInterruptCliDependencies,
 	mapInterruptTransportError,
-	memberInterruptHelp,
-	parseMemberInterruptCommand,
 	runMemberInterruptCommand,
 	type MemberInterruptCliDependencies,
 } from "./member-interrupt.ts";
@@ -52,23 +50,6 @@ test("interrupt transport mapper covers protocol and socket errors", () => {
 		);
 	assert.equal(mapInterruptTransportError(new RpcProtocolError("outcome-unknown", "lost")).code, "outcome-unknown");
 	assert.equal(mapInterruptTransportError(new RpcProtocolError("remote-error", "rejected")).code, "rejected");
-});
-
-test("interrupt parser enforces message source, preserves instructions, and supports source selection", () => {
-	const parsed = parseMemberInterruptCommand(
-		["Kelly", "--session", "source-1", "--message", "stop", "--instruction", "first", "--instruction", "second"],
-		"/project",
-	);
-	assert.deepEqual(parsed, {
-		command: "member-interrupt",
-		member: "Kelly",
-		session: "source-1",
-		message: "stop",
-		instructions: ["first", "second"],
-		stdin: false,
-		format: "toon",
-	});
-	assert.throws(() => parseMemberInterruptCommand(["Kelly", "--message", "x", "--stdin"], "/project"), /exactly one/);
 });
 
 test("interrupt default transport maps accepted, rejected, and malformed acknowledgements", async () => {
@@ -177,13 +158,6 @@ test("interrupt default transport maps an unavailable endpoint", async () => {
 	);
 	assert.equal(outcome.ok, false);
 	if (!outcome.ok) assert.equal(outcome.code, "unknown-session");
-});
-
-test("interrupt help states hard-recovery best-effort and no-rollback semantics", () => {
-	assert.match(memberInterruptHelp(), /stuck, harmful/i);
-	assert.match(memberInterruptHelp(), /best-effort/i);
-	assert.match(memberInterruptHelp(), /cannot roll back/i);
-	assert.equal(buildMemberInterruptCommand().name(), "interrupt");
 });
 
 test("interrupt CLI returns disposition without completion claims and preserves stable errors", async () => {

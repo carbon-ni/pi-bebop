@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
-import {
-	parseSessionListCommand,
-	runSessionListCommand,
-	sessionListHelp,
-	type SessionListDependencies,
-	type SessionListEntry,
-} from "./session-list.ts";
+import { runSessionListCommand, type SessionListDependencies, type SessionListEntry } from "./session-list.ts";
 import { UsageError } from "../support/arguments.ts";
 import { writeOutcome, type CliOutcome } from "../support/output.ts";
 import type { CliContext } from "../support/context.ts";
@@ -40,7 +34,7 @@ function render(outcome: CliOutcome): { exit: number; text: string } {
 	output.on("data", (chunk) => {
 		text += chunk;
 	});
-	const exit = writeOutcome(output, outcome);
+	const exit = writeOutcome(output, new PassThrough(), outcome);
 	return { exit, text };
 }
 
@@ -55,18 +49,6 @@ const LIVE: FakeStore = {
 };
 
 // --- parse ---
-
-test("session live parse: default toon, optional --format, --help short-circuit", () => {
-	assert.deepEqual(parseSessionListCommand([]), { command: "session-live", format: "toon" });
-	assert.deepEqual(parseSessionListCommand(["--format", "json"]), { command: "session-live", format: "json" });
-	assert.equal(parseSessionListCommand(["--help"]).help, true);
-	assert.throws(() => parseSessionListCommand(["--format", "toon", "--format", "json"]), /Duplicate flag: --format/);
-	assert.throws(() => parseSessionListCommand(["--help", "--help"]), /Duplicate flag: --help/);
-	assert.throws(() => parseSessionListCommand(["--format"]), /Missing value for --format/);
-	assert.deepEqual(parseSessionListCommand(["--format=json"]), { command: "session-live", format: "json" });
-	assert.throws(() => parseSessionListCommand(["--bogus"]), UsageError);
-	assert.throws(() => parseSessionListCommand(["--format", "xml"]), /Invalid --format/);
-});
 
 // --- run ---
 
@@ -181,16 +163,4 @@ test("session live run: output never leaks socket paths, focus, or messages", as
 	const outcome = await runSessionListCommand({ command: "session-live", format: "toon" }, context(), deps(LIVE));
 	const text = render(outcome).text;
 	assert.doesNotMatch(text, /\.sock|\.alias|focus|Focus|message|instructions/i);
-});
-
-test("session live run: --help returns deterministic help text", async () => {
-	const outcome = await runSessionListCommand(
-		{ command: "session-live", format: "toon", help: true },
-		context(),
-		deps(LIVE),
-	);
-	assert.equal(outcome.kind, "help");
-	if (outcome.kind !== "help") return;
-	assert.equal(outcome.text, sessionListHelp());
-	assert.equal(render(outcome).exit, 0);
 });

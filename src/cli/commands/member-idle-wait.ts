@@ -5,8 +5,7 @@ import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { parsePositiveDurationMs } from "../support/duration.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
-import { scanCliFlags } from "../support/flag-scanner.ts";
-import { errorResult, usageResult } from "../support/errors.ts";
+import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
@@ -17,25 +16,9 @@ export interface MemberIdleWaitCliOptions {
 	readonly session?: string;
 	readonly timeoutSeconds: number;
 	readonly format: CliFormat;
-	readonly help?: boolean;
 }
 
 const MAX_TARGET_BYTES = 256;
-const VALID_FLAGS = "--session <id|alias>, --timeout <duration>, --format toon|json|text, --help";
-
-function mapCommanderError(error: Error & { code?: string }): UsageError {
-	const match = /--[a-z-]+/.exec(error.message);
-	const flag = match?.[0] ?? "--timeout";
-	if (error.code === "commander.optionMissingArgument") return new UsageError(`Missing value for ${flag}`);
-	if (error.code === "commander.unknownOption") {
-		const unknown = /unknown option '(--?[^']+)'/.exec(error.message)?.[1] ?? "";
-		return new UsageError(`Unknown flag '${unknown}'; valid flags: ${VALID_FLAGS}`);
-	}
-	if (error.code === "commander.excessArguments")
-		return new UsageError(`Too many arguments; valid flags: ${VALID_FLAGS}`);
-	return new UsageError(error.message);
-}
-
 function parseTimeout(value: string): number {
 	let milliseconds: number;
 	try {
@@ -59,26 +42,17 @@ export function buildMemberIdleWaitCommand(): Command {
 			defaultFormatForCommand("member-idle-wait"),
 		)
 		.argument("[<member>]", "Crew member name or unique role")
-		.showHelpAfterError(false)
-		.helpOption(false);
-}
-
-export function memberIdleWaitHelp(): string {
-	return [
-		"pi-bebop member wait-idle <member> [--session <id|alias>] [--timeout <duration>] [--format toon|json|text]",
-		"",
-		"Wait once for a configured crew member to become idle, go offline, or reach the timeout.",
-		"This is event-driven: it never polls, sends a message, or claims task completion.",
-		"Already-idle, became-idle, offline, timeout, and aborted outcomes are distinct.",
-		"",
-		"Options:",
-		"  --session <id|alias>   Source joined Pi session id or alias (default: PI_SESSION_ID)",
-		"  --timeout <duration>   Whole seconds from 1s through 10m (default: 5m)",
-		"  --format <format>      toon (default), json, or text",
-		"",
-		`Discover sessions with: ${SESSION_LIST_HINT}`,
-		"",
-	].join("\n");
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Wait once for a configured crew member to become idle, go offline, or reach the timeout.",
+				"This is event-driven: it never polls, sends a message, or claims task completion.",
+				"Already-idle, became-idle, offline, timeout, and aborted outcomes are distinct.",
+				"",
+				`Discover sessions with: ${SESSION_LIST_HINT}`,
+			].join("\n"),
+		);
 }
 
 export function readMemberIdleWaitCommand(parsed: Command): MemberIdleWaitCliOptions {
@@ -96,42 +70,6 @@ export function readMemberIdleWaitCommand(parsed: Command): MemberIdleWaitCliOpt
 		...(opts.session === undefined ? {} : { session: opts.session }),
 		timeoutSeconds: parseTimeout(opts.timeout ?? "5m"),
 		format: format as CliFormat,
-	};
-}
-
-export function parseMemberIdleWaitCommand(args: string[], _cwd = process.cwd()): MemberIdleWaitCliOptions {
-	const { tokens, help } = scanCliFlags(args, [
-		{ name: "--session", kind: "value" },
-		{ name: "--timeout", kind: "value" },
-		{ name: "--format", kind: "value" },
-	]);
-	const program = buildMemberIdleWaitCommand()
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { session?: string; timeout?: string; format?: string };
-	try {
-		program.parse(tokens, { from: "user" });
-		opts = program.opts();
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError")
-			throw mapCommanderError(error as Error & { code?: string });
-		throw error;
-	}
-	const format = opts.format ?? defaultFormatForCommand("member-idle-wait");
-	if (!(["toon", "json", "text"] as string[]).includes(format))
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	const member = program.args[0] ?? "";
-	if (!help && member.trim().length === 0)
-		throw new UsageError("Missing <member>; provide a crew member name or unique role");
-	if (!help && (member !== member.trim() || Buffer.byteLength(member, "utf8") > MAX_TARGET_BYTES))
-		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
-	return {
-		command: "member-idle-wait",
-		member: member.trim(),
-		...(opts.session === undefined ? {} : { session: opts.session }),
-		timeoutSeconds: parseTimeout(opts.timeout ?? "5m"),
-		format: format as CliFormat,
-		...(help ? { help: true } : {}),
 	};
 }
 
@@ -203,21 +141,11 @@ export async function runMemberIdleWaitCommand(
 	context: CliContext,
 	deps: MemberIdleWaitCliDependencies = defaultMemberIdleWaitCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: memberIdleWaitHelp() };
 	const source = deps.resolveSource({
 		explicitSession: options.session,
 		environmentSession: deps.environmentSession(context.environment),
 	});
-	if (!source.ok)
-		return {
-			kind: "result",
-			result: usageResult(
-				"message" in source ? source.message : "Unable to resolve source session",
-				"code" in source ? source.code : "invalid-session",
-			),
-			format: options.format,
-			full: false,
-		};
+	if (!source.ok) throw new UsageError("message" in source ? source.message : "Unable to resolve source session");
 	let outcome: MemberIdleWaitCliOutcome;
 	try {
 		outcome = await deps.sendWait(source, options.member, options.timeoutSeconds, context.signal);

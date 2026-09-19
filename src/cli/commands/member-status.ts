@@ -4,8 +4,7 @@ import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberStatusResult, formatMemberStatus, type MemberStatus } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
-import { scanCliFlags } from "../support/flag-scanner.ts";
-import { errorResult, usageResult } from "../support/errors.ts";
+import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
@@ -24,7 +23,6 @@ export interface MemberStatusCliOptions {
 	/** Raw leaf-command-local `--session` value (session id or alias). */
 	readonly session?: string;
 	readonly format: CliFormat;
-	readonly help?: boolean;
 }
 
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
@@ -44,46 +42,23 @@ export function buildMemberStatusCommand(): Command {
 			defaultFormatForCommand("member-status"),
 		)
 		.argument("[<member>]", "Crew member name or unique role")
-		.showHelpAfterError(false)
-		.helpOption(false);
-}
-
-export function memberStatusHelp(): string {
-	return [
-		"pi-bebop member status <member> [--session <id|alias>] [--format toon|json|text]",
-		"",
-		"Show one crew member's mechanical Pi runtime state (online/offline, idle/busy/compacting,",
-		"pending-message signal) and the observation time. Read-only: never",
-		"starts, steers, or interrupts the target turn. Activity is mechanical and",
-		"never verified task progress. For intent, progress, a report, or a verdict,",
-		"ask explicitly with `pi-bebop member request send`, then `pi-bebop member request wait`.",
-		"",
-		"Options:",
-		"  --session <id|alias>   Source joined Pi session id or alias (default: PI_SESSION_ID)",
-		"  --format <format>      toon (default), json, or text",
-		"",
-		"Source: the query runs through one already-joined Pi session, which derives",
-		"membership and trust authoritatively. The CLI never loads a crew manifest.",
-		"A configured target that is offline is a successful offline result, not an error.",
-		"",
-		`Discover sessions with: ${SESSION_LIST_HINT}`,
-		"",
-	].join("\n");
-}
-
-const VALID_FLAGS = "--session <id|alias>, --format toon|json|text, --help";
-
-function mapCommanderError(error: Error & { code?: string }): UsageError {
-	const match = /--[a-z-]+/.exec(error.message);
-	const flag = match?.[0] ?? "--format";
-	if (error.code === "commander.optionMissingArgument") return new UsageError(`Missing value for ${flag}`);
-	if (error.code === "commander.unknownOption") {
-		const unknown = /unknown option '(--?[^']+)'/.exec(error.message)?.[1] ?? "";
-		return new UsageError(`Unknown flag '${unknown}'; valid flags: ${VALID_FLAGS}`);
-	}
-	if (error.code === "commander.excessArguments")
-		return new UsageError(`Too many arguments; valid flags: ${VALID_FLAGS}`);
-	return new UsageError(error.message);
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Show one crew member's mechanical Pi runtime state (online/offline, idle/busy/compacting,",
+				"pending-message signal) and the observation time. Read-only: never",
+				"starts, steers, or interrupts the target turn. Activity is mechanical and",
+				"never verified task progress. For intent, progress, a report, or a verdict,",
+				"ask explicitly with `pi-bebop member request send`, then `pi-bebop member request wait`.",
+				"",
+				"Source: the query runs through one already-joined Pi session, which derives",
+				"membership and trust authoritatively. The CLI never loads a crew manifest.",
+				"A configured target that is offline is a successful offline result, not an error.",
+				"",
+				`Discover sessions with: ${SESSION_LIST_HINT}`,
+			].join("\n"),
+		);
 }
 
 export function readMemberStatusCommand(parsed: Command): MemberStatusCliOptions {
@@ -100,44 +75,6 @@ export function readMemberStatusCommand(parsed: Command): MemberStatusCliOptions
 		member: member.trim(),
 		...(opts.session === undefined ? {} : { session: opts.session }),
 		format,
-	};
-}
-
-/** Compatibility parser facade retained until all direct parser callers migrate. */
-export function parseMemberStatusCommand(args: string[], _cwd = process.cwd()): MemberStatusCliOptions {
-	const { tokens, help } = scanCliFlags(args, [
-		{ name: "--session", kind: "value", allowSentinelValue: true },
-		{ name: "--format", kind: "value", allowSentinelValue: true },
-	]);
-
-	const program = buildMemberStatusCommand()
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { session?: string; format?: string };
-	try {
-		program.parse(tokens, { from: "user" });
-		opts = program.opts();
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError")
-			throw mapCommanderError(error as Error & { code?: string });
-		throw error;
-	}
-	const format = (opts.format ?? defaultFormatForCommand("member-status")) as string;
-	if (!isCliFormat(format))
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-
-	const member = program.args[0] ?? "";
-	if (!help && member.trim().length === 0)
-		throw new UsageError("Missing <member>; provide a crew member name or unique role");
-	if (!help && (member !== member.trim() || Buffer.byteLength(member, "utf8") > MAX_TARGET_BYTES))
-		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
-
-	return {
-		command: "member-status",
-		member: member.trim(),
-		...(opts.session === undefined ? {} : { session: opts.session }),
-		format: format as CliFormat,
-		...(help ? { help: true } : {}),
 	};
 }
 
@@ -219,20 +156,14 @@ export async function runMemberStatusCommand(
 	context: CliContext,
 	deps: MemberStatusCliDependencies = defaultMemberStatusCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: memberStatusHelp() };
 	const target = options.member;
 	const source = deps.resolveSource({
 		explicitSession: options.session,
 		environmentSession: deps.environmentSession(context.environment),
 	});
 	if (isSourceFailure(source)) {
-		// Source-selection input errors are usage-class (exit 2) with their stable code.
-		return {
-			kind: "result",
-			result: usageResult(source.message, source.code),
-			format: options.format,
-			full: false,
-		};
+		// Source-selection input errors are usage-class (exit 2) with their stable message.
+		throw new UsageError(source.message);
 	}
 	const outcome = await deps.sendStatus(source, target, context.signal);
 	if (isStatusFailure(outcome)) {

@@ -26,6 +26,12 @@ import { defaultFormatForCommand } from "../audience-policy.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome, CliResult } from "../support/output.ts";
 
+/**
+ * TASK-0209: Crew Session command modules. The Commander builders own the
+ * grammar and generated help (guidance in after-help text); the readers own
+ * semantic validation only.
+ */
+
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
 
 function isCliFormat(value: string): value is CliFormat {
@@ -38,7 +44,6 @@ export interface CrewSessionCaptureCliOptions {
 	readonly crew?: string;
 	readonly format: CliFormat;
 	readonly full: boolean;
-	readonly help?: boolean;
 }
 
 export interface CrewSessionAddCliOptions {
@@ -47,7 +52,6 @@ export interface CrewSessionAddCliOptions {
 	readonly member: string;
 	readonly format: CliFormat;
 	readonly full: boolean;
-	readonly help?: boolean;
 }
 
 export interface CrewSessionListCliOptions {
@@ -57,7 +61,6 @@ export interface CrewSessionListCliOptions {
 	readonly offset: number;
 	readonly format: CliFormat;
 	readonly full: boolean;
-	readonly help?: boolean;
 }
 
 export interface CrewSessionShowCliOptions {
@@ -65,7 +68,6 @@ export interface CrewSessionShowCliOptions {
 	readonly id: string;
 	readonly format: CliFormat;
 	readonly full: boolean;
-	readonly help?: boolean;
 }
 
 export interface CrewSessionResolveCliOptions {
@@ -74,215 +76,133 @@ export interface CrewSessionResolveCliOptions {
 	readonly member: string;
 	readonly format: CliFormat;
 	readonly full: boolean;
-	readonly help?: boolean;
 }
 
-function buildFormatOption(command: string): Command {
-	return new Command(command)
-		.option("--format <format>", "Output format: toon (default), json, or text", defaultFormatForCommand(command))
-		.showHelpAfterError(false)
-		.helpOption(false);
+function formatOption(command: string): Command {
+	return new Command(command).option(
+		"--format <format>",
+		"Output format: toon (default), json, or text",
+		defaultFormatForCommand(command),
+	);
 }
 
 export function buildCrewSessionCaptureCommand(): Command {
-	return buildFormatOption("capture")
+	return formatOption("capture")
 		.description("Capture exact online Member Pi Sessions into a local Crew Session")
 		.argument("<name>", "non-empty Crew Session name")
-		.option("--crew <locator>", "explicit trusted current-project Crew Locator");
+		.option("--crew <locator>", "explicit trusted current-project Crew Locator")
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Explicitly snapshot currently joined online Members into a durable local Crew Session.",
+				"Capture before closing the intended Pi sessions. It never guesses recent sessions,",
+				"reads conversation content, launches Pi, or starts the whole Crew.",
+				"",
+				"An explicit --crew Locator must be trusted current-project configuration. Without it,",
+				"the canonical current-project crew manifest is selected. A complete or partial capture",
+				"exits 0 when at least one Member is valid; capture-empty exits 1 and writes no record.",
+				"",
+				"Examples:",
+				'  pi-bebop session capture "auth regression"',
+				'  pi-bebop session capture "release review" --crew .pi/bebop/crew.json --format text',
+			].join("\n"),
+		);
 }
 
 export function buildCrewSessionAddCommand(): Command {
-	return buildFormatOption("add")
+	return formatOption("add")
 		.description("Capture one missing Member into an existing Crew Session")
 		.argument("<id>", "exact Crew Session ID")
-		.argument("<member>", "exact configured Member name");
+		.argument("<member>", "exact configured Member name")
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Capture one exact currently joined Member into a partial Crew Session.",
+				"Existing links are never replaced or rewritten. Resolution and process launch",
+				"remain separate explicit operations.",
+				"",
+				"Example:",
+				"  pi-bebop session add cs_0123456789abcdef Alice --format text",
+			].join("\n"),
+		);
 }
 
 export function buildCrewSessionListCommand(): Command {
-	return buildFormatOption("list")
+	return formatOption("list")
 		.description("List durable Crew Sessions without exposing session-private references")
 		.option("--crew <locator>", "filter by one trusted current-project Crew Locator")
 		.option("--limit <count>", "maximum results (default: 25)", "25")
-		.option("--offset <count>", "number of results to skip", "0");
+		.option("--offset <count>", "number of results to skip", "0")
+		.addHelpText(
+			"after",
+			[
+				"",
+				"List durable Crew Sessions in stable ID order. Default output redacts Pi Session IDs,",
+				"files, cwd, and roots. The command is read-only and never launches Pi, opens a",
+				"terminal, or repairs records.",
+			].join("\n"),
+		);
 }
 
 export function buildCrewSessionShowCommand(): Command {
-	return buildFormatOption("show")
+	return formatOption("show")
 		.description("Inspect one exact Crew Session and its Member observations")
-		.argument("<id>", "exact Crew Session ID");
+		.argument("<id>", "exact Crew Session ID")
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Inspect one exact Crew Session in manifest order, including explicit stored session",
+				"references. The command is read-only and never launches Pi or modifies session files.",
+			].join("\n"),
+		);
 }
 
 export function buildCrewSessionResolveCommand(): Command {
-	return buildFormatOption("resolve")
+	return formatOption("resolve")
 		.description("Resolve one exact Member to a manual Pi startup specification")
 		.argument("<id>", "exact Crew Session ID")
-		.argument("<member>", "exact case-sensitive configured Member name");
+		.argument("<member>", "exact case-sensitive configured Member name")
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Validate one exact stored Member Session and print a manual Pi startup specification.",
+				"The command never launches Pi, opens a terminal, repairs records, or resumes a Crew.",
+				"Run the returned command only after reviewing its exact cwd and session file.",
+			].join("\n"),
+		);
 }
 
-export function crewSessionListHelp(): string {
-	return [
-		"pi-bebop session list [--crew <locator>] [--limit <count>] [--offset <count>] [--format toon|json|text]",
-		"",
-		"List durable Crew Sessions in stable ID order. Default output redacts Pi Session IDs, files, cwd, and roots.",
-		"The command is read-only and never launches Pi, opens a terminal, or repairs records.",
-		"",
-		"Options:",
-		"  --crew <locator>     trusted current-project Crew Locator filter",
-		"  --limit <count>      maximum results (default: 25)",
-		"  --offset <count>     results to skip (default: 0)",
-		"  --format <format>    toon (default), json, or text",
-		"",
-	].join("\\n");
-}
-
-export function crewSessionShowHelp(): string {
-	return [
-		"pi-bebop session show <crew-session-id> [--format toon|json|text]",
-		"",
-		"Inspect one exact Crew Session in manifest order, including explicit stored session references.",
-		"The command is read-only and never launches Pi or modifies session files.",
-		"",
-	].join("\\n");
-}
-
-export function crewSessionResolveHelp(): string {
-	return [
-		"pi-bebop session resolve <crew-session-id> <member> [--format toon|json|text]",
-		"",
-		"Validate one exact stored Member Session and print a manual Pi startup specification.",
-		"The command never launches Pi, opens a terminal, repairs records, or resumes a Crew.",
-		"Run the returned command only after reviewing its exact cwd and session file.",
-		"",
-	].join("\\n");
-}
-
-export function crewSessionCaptureHelp(): string {
-	return [
-		"pi-bebop session capture <name> [--crew <locator>] [--format toon|json|text]",
-		"",
-		"Explicitly snapshot currently joined online Members into a durable local Crew Session.",
-		"Capture before closing the intended Pi sessions. It never guesses recent sessions,",
-		"reads conversation content, launches Pi, or starts the whole Crew.",
-		"",
-		"An explicit --crew Locator must be trusted current-project configuration. Without it,",
-		"the canonical current-project crew manifest is selected. A complete or partial capture",
-		"exits 0 when at least one Member is valid; capture-empty exits 1 and writes no record.",
-		"",
-		"Options:",
-		"  --crew <locator>     trusted current-project Crew Locator",
-		"  --format <format>   toon (default), json, or text",
-		"",
-		"Examples:",
-		'  pi-bebop session capture "auth regression"',
-		'  pi-bebop session capture "release review" --crew .pi/bebop/crew.json --format text',
-		"",
-	].join("\n");
-}
-
-export function crewSessionAddHelp(): string {
-	return [
-		"pi-bebop session add <crew-session-id> <member> [--format toon|json|text]",
-		"",
-		"Capture one exact currently joined Member into a partial Crew Session.",
-		"Existing links are never replaced or rewritten. Resolution and process launch",
-		"remain separate explicit operations.",
-		"",
-		"Options:",
-		"  --format <format>   toon (default), json, or text",
-		"",
-		"Example:",
-		"  pi-bebop session add cs_0123456789abcdef Alice --format text",
-		"",
-	].join("\n");
-}
-
-function parseWithCommander(
-	args: string[],
-	program: Command,
-): { opts: { format?: string; crew?: string; limit?: string; offset?: string }; args: string[]; help: boolean } {
-	const tokens: string[] = [];
-	let help = false;
-	let seenFormat = false;
-	let seenCrew = false;
-	for (const raw of args) {
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--format") {
-			if (seenFormat) throw new UsageError("Duplicate flag: --format");
-			seenFormat = true;
-			tokens.push(raw);
-			continue;
-		}
-		if (flag === "--crew") {
-			if (seenCrew) throw new UsageError("Duplicate flag: --crew");
-			seenCrew = true;
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
-	try {
-		program.parse(tokens, { from: "user" });
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError") {
-			const match = /--[a-z-]+/.exec(error.message);
-			const flag = match?.[0] ?? "argument";
-			throw new UsageError(
-				(error as Error & { code?: string }).code === "commander.optionMissingArgument"
-					? `Missing value for ${flag}`
-					: error.message,
-			);
-		}
-		throw error;
-	}
-	return { opts: program.opts(), args: program.args, help };
-}
-
-function readFormat(opts: { format?: string }): CliFormat {
-	const format = (opts.format ?? defaultFormatForCommand("capture")) as string;
+function readFormat(command: Command): CliFormat {
+	const format = (command.opts<{ format?: string }>().format ?? defaultFormatForCommand("capture")) as string;
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return format;
 }
 
-export function parseCrewSessionCaptureCommand(args: string[], _cwd = process.cwd()): CrewSessionCaptureCliOptions {
-	const parsed = parseWithCommander(
-		args,
-		buildCrewSessionCaptureCommand()
-			.exitOverride()
-			.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} }),
-	);
-	if (parsed.args.length !== 1) throw new UsageError("Expected exactly one Crew Session name");
+export function readCrewSessionCaptureCommand(parsed: Command): CrewSessionCaptureCliOptions {
+	const name = parsed.args[0] ?? "";
+	if (name.trim().length === 0) throw new UsageError("Expected a non-empty Crew Session name");
+	const { crew } = parsed.opts<{ crew?: string }>();
 	return {
 		command: "session-capture",
-		name: parsed.args[0]!,
-		...(parsed.opts.crew === undefined ? {} : { crew: parsed.opts.crew }),
-		format: readFormat(parsed.opts),
+		name,
+		...(crew === undefined ? {} : { crew }),
+		format: readFormat(parsed),
 		full: false,
-		...(parsed.help ? { help: true } : {}),
 	};
 }
 
-export function parseCrewSessionAddCommand(args: string[], _cwd = process.cwd()): CrewSessionAddCliOptions {
-	const parsed = parseWithCommander(
-		args,
-		buildCrewSessionAddCommand()
-			.exitOverride()
-			.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} }),
-	);
-	if (parsed.args.length !== 2) throw new UsageError("Expected exact Crew Session ID and Member name");
+export function readCrewSessionAddCommand(parsed: Command): CrewSessionAddCliOptions {
 	return {
 		command: "session-add",
 		id: parsed.args[0]!,
 		member: parsed.args[1]!,
-		format: readFormat(parsed.opts),
+		format: readFormat(parsed),
 		full: false,
-		...(parsed.help ? { help: true } : {}),
 	};
 }
 
@@ -292,57 +212,35 @@ function readCount(value: string | undefined, label: string, fallback: number): 
 	return Number(value);
 }
 
-export function parseCrewSessionListCommand(args: string[], _cwd = process.cwd()): CrewSessionListCliOptions {
-	const parsed = parseWithCommander(
-		args,
-		buildCrewSessionListCommand()
-			.exitOverride()
-			.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} }),
-	);
-	if (parsed.args.length !== 0) throw new UsageError("Crew Session list does not accept positional arguments");
+export function readCrewSessionListCommand(parsed: Command): CrewSessionListCliOptions {
+	const opts = parsed.opts<{ crew?: string; limit?: string; offset?: string }>();
+	if (parsed.args.length > 0) throw new UsageError("Crew Session list does not accept positional arguments");
 	return {
 		command: "session-list",
-		...(parsed.opts.crew === undefined ? {} : { crew: parsed.opts.crew }),
-		limit: readCount(parsed.opts.limit, "limit", 25),
-		offset: readCount(parsed.opts.offset, "offset", 0),
-		format: readFormat(parsed.opts),
+		...(opts.crew === undefined ? {} : { crew: opts.crew }),
+		limit: readCount(opts.limit, "limit", 25),
+		offset: readCount(opts.offset, "offset", 0),
+		format: readFormat(parsed),
 		full: false,
-		...(parsed.help ? { help: true } : {}),
 	};
 }
 
-export function parseCrewSessionShowCommand(args: string[], _cwd = process.cwd()): CrewSessionShowCliOptions {
-	const parsed = parseWithCommander(
-		args,
-		buildCrewSessionShowCommand()
-			.exitOverride()
-			.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} }),
-	);
-	if (parsed.args.length !== 1) throw new UsageError("Expected exactly one Crew Session ID");
+export function readCrewSessionShowCommand(parsed: Command): CrewSessionShowCliOptions {
 	return {
 		command: "session-show",
 		id: parsed.args[0]!,
-		format: readFormat(parsed.opts),
+		format: readFormat(parsed),
 		full: false,
-		...(parsed.help ? { help: true } : {}),
 	};
 }
 
-export function parseCrewSessionResolveCommand(args: string[], _cwd = process.cwd()): CrewSessionResolveCliOptions {
-	const parsed = parseWithCommander(
-		args,
-		buildCrewSessionResolveCommand()
-			.exitOverride()
-			.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} }),
-	);
-	if (parsed.args.length !== 2) throw new UsageError("Expected exact Crew Session ID and Member name");
+export function readCrewSessionResolveCommand(parsed: Command): CrewSessionResolveCliOptions {
 	return {
 		command: "session-resolve",
 		id: parsed.args[0]!,
 		member: parsed.args[1]!,
-		format: readFormat(parsed.opts),
+		format: readFormat(parsed),
 		full: false,
-		...(parsed.help ? { help: true } : {}),
 	};
 }
 
@@ -421,7 +319,6 @@ export async function runCrewSessionCaptureCommand(
 	context: CliContext,
 	dependencies: CrewSessionCliDependencies = defaultCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: crewSessionCaptureHelp() };
 	try {
 		const projectRoot = path.resolve(context.cwd);
 		const manifestPath = await resolveManifestPath(projectRoot, options.crew);
@@ -517,7 +414,6 @@ export async function runCrewSessionListCommand(
 	options: CrewSessionListCliOptions,
 	context: CliContext,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: crewSessionListHelp() };
 	try {
 		const result = await listCrewSessions({
 			projectRoot: path.resolve(context.cwd),
@@ -563,7 +459,6 @@ export async function runCrewSessionResolveCommand(
 	context: CliContext,
 	dependencies: CrewSessionResolveCliDependencies = defaultResolveCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: crewSessionResolveHelp() };
 	try {
 		const result = await dependencies.resolve({
 			projectRoot: path.resolve(context.cwd),
@@ -593,7 +488,6 @@ export async function runCrewSessionShowCommand(
 	options: CrewSessionShowCliOptions,
 	context: CliContext,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: crewSessionShowHelp() };
 	try {
 		const result = await showCrewSession(options.id, { projectRoot: path.resolve(context.cwd) });
 		return { kind: "result", result: showResult(result), format: options.format, full: options.full };
@@ -620,7 +514,6 @@ export async function runCrewSessionAddCommand(
 	context: CliContext,
 	dependencies: CrewSessionCliDependencies = defaultCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: crewSessionAddHelp() };
 	try {
 		const projectRoot = path.resolve(context.cwd);
 		const manifestPath = await resolveManifestPath(projectRoot);

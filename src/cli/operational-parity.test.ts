@@ -101,17 +101,17 @@ function baseRequest(overrides: Partial<MemberRequestCliOptions> = {}): MemberRe
 const FORMATS = ["toon", "json", "text"] as const;
 
 test("member message: operational failures keep format parity across toon/json/text", async () => {
+	// Source-selection input failures are usage-class and throw regardless of format.
 	for (const format of FORMATS) {
-		const outcome = await runMemberMessageCommand(baseMessage({ format }), context(), {
-			resolveSource: () => failSource,
-			readStdin: async () => "",
-			environmentSession: () => undefined,
-		} as never);
-		assert.equal(outcome.kind, "result");
-		if (outcome.kind !== "result") continue;
-		assert.equal(outcome.result.ok, false);
-		assert.match(outcome.result.error?.message ?? "", /Invalid --session 'bad'/);
-		assert.equal(outcome.format, format);
+		await assert.rejects(
+			() =>
+				runMemberMessageCommand(baseMessage({ format }), context(), {
+					resolveSource: () => failSource,
+					readStdin: async () => "",
+					environmentSession: () => undefined,
+				} as never),
+			(error: unknown) => error instanceof Error && error.message === "Invalid --session 'bad'",
+		);
 	}
 	const deliveryCodes: readonly string[] = ["unknown-member", "offline-session", "transport-error"];
 	for (const code of deliveryCodes) {
@@ -151,17 +151,17 @@ test("member interrupt: delivery failure codes keep format parity", async () => 
 	}
 });
 
-test("durable message (crew broadcast/intake): operational failures keep format parity", async () => {
+test("durable message (crew broadcast/intake): source failures are usage-class", async () => {
 	for (const format of FORMATS) {
-		const outcome = await runDurableMessageCommand(baseDurable({ format }), context(), {
-			resolveSource: () => failSource,
-			readStdin: async () => "",
-			environmentSession: () => undefined,
-		} as never);
-		assert.equal(outcome.kind, "result");
-		if (outcome.kind !== "result") continue;
-		assert.equal(outcome.result.ok, false);
-		assert.equal(outcome.format, format);
+		await assert.rejects(
+			() =>
+				runDurableMessageCommand(baseDurable({ format }), context(), {
+					resolveSource: () => failSource,
+					readStdin: async () => "",
+					environmentSession: () => undefined,
+				} as never),
+			(error: unknown) => error instanceof Error && error.message === "Invalid --session 'bad'",
+		);
 	}
 });
 

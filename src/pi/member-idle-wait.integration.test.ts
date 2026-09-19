@@ -1,4 +1,15 @@
 import test from "node:test";
+
+import { Command } from "commander";
+
+function parseInto(build: () => Command, tokens: readonly string[]): Command {
+	const command = build()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse([...tokens], { from: "user" });
+	return command;
+}
+
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
@@ -7,7 +18,11 @@ import * as net from "node:net";
 
 import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-server.ts";
 import { sendMemberIdleWait } from "../infra/rpc-client.ts";
-import { parseMemberIdleWaitCommand, runMemberIdleWaitCommand } from "../cli/commands/member-idle-wait.ts";
+import {
+	buildMemberIdleWaitCommand,
+	readMemberIdleWaitCommand,
+	runMemberIdleWaitCommand,
+} from "../cli/commands/member-idle-wait.ts";
 import { createSocketState, emitIdleSettled, handleCommand, type SocketState } from "../pi/control-runtime.ts";
 
 /**
@@ -202,7 +217,9 @@ test("CLI/RPC wait for Mary never returns the source member Dave", async (t) => 
 	});
 
 	const outcome = await runMemberIdleWaitCommand(
-		parseMemberIdleWaitCommand(["Mary", "--timeout", "1s", "--format", "json"]),
+		readMemberIdleWaitCommand(
+			parseInto(buildMemberIdleWaitCommand, ["Mary", "--timeout", "1s", "--format", "json"]),
+		),
 		{ cwd: root, input: process.stdin, signal: new AbortController().signal },
 		{
 			resolveSource: () => ({

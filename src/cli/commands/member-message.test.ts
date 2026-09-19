@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
 import {
-	parseMemberMessageCommand,
 	runMemberMessageCommand,
-	memberMessageHelp,
 	type MemberMessageCliDependencies,
 	type MemberMessageIntent,
 } from "./member-message.ts";
@@ -44,7 +42,7 @@ function render(outcome: CliOutcome): { exit: number; text: string } {
 	output.on("data", (chunk) => {
 		text += chunk;
 	});
-	const exit = writeOutcome(output, outcome);
+	const exit = writeOutcome(output, new PassThrough(), outcome);
 	return { exit, text };
 }
 
@@ -63,116 +61,15 @@ function options(intent: MemberMessageIntent, overrides: Record<string, unknown>
 
 // --- parse: both intents ---
 
-test("member follow-up parse: member, message, session, instructions, format", () => {
-	const parsed = parseMemberMessageCommand(
-		["Kelly", "--message", "wrap up", "--instruction", "a", "--instruction", "b"],
-		"follow_up",
-	);
-	assert.equal(parsed.command, "member-follow-up");
-	assert.equal(parsed.member, "Kelly");
-	assert.equal(parsed.message, "wrap up");
-	assert.deepEqual(parsed.instructions, ["a", "b"]);
-	assert.equal(parsed.stdin, false);
-	assert.equal(parsed.format, "toon");
-
-	const withSession = parseMemberMessageCommand(["--session", "s-9", "Kelly", "--message", "x"], "redirect");
-	assert.equal(withSession.session, "s-9");
-	assert.equal(withSession.command, "member-redirect");
-});
-
-test("member message parse: --stdin and sentinel values", () => {
-	const stdin = parseMemberMessageCommand(["Kelly", "--stdin"], "follow_up");
-	assert.equal(stdin.stdin, true);
-	const sentinel = parseMemberMessageCommand(["Kelly", "--message", "--", "-x"], "follow_up");
-	assert.equal(sentinel.message, "-x");
-	const equals = parseMemberMessageCommand(["Kelly", "--session=s-7", "--message=y"], "redirect");
-	assert.equal(equals.session, "s-7");
-	assert.equal(equals.message, "y");
-});
-
-test("member message parse: exactly one message source, non-empty, NUL-free, bounded", () => {
-	assert.throws(() => parseMemberMessageCommand(["Kelly"], "follow_up"), /Missing message source/);
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "x", "--stdin"], "follow_up"),
-		/Choose exactly one message source/,
-	);
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "  "], "follow_up"),
-		/--message must not be empty/,
-	);
-	assert.throws(() => parseMemberMessageCommand(["Kelly", "--message", "a\0b"], "follow_up"), /NUL/);
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "x".repeat(1_000_001)], "follow_up"),
-		/message limit/,
-	);
-});
-
-test("member message parse: instruction limits, trimming, NUL, order preserved", () => {
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "x", "--instruction", " "], "follow_up"),
-		/trimmed/,
-	);
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "x", "--instruction", "a\0b"], "follow_up"),
-		/NUL/,
-	);
-	assert.throws(
-		() =>
-			parseMemberMessageCommand(
-				[
-					"Kelly",
-					"--message",
-					"x",
-					...Array.from({ length: 33 }, (_, index) => ["--instruction", `i${index}`]).flat(),
-				],
-				"follow_up",
-			),
-		/maximum is 32/,
-	);
-});
-
-test("member message parse: no wait flag is accepted; unknown-flag recovery names accepted-only", () => {
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "x", "--wait", "response"], "follow_up"),
-		/accepted-delivery only/,
-	);
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "x", "--wait_for", "accepted"], "redirect"),
-		/accepted-delivery only/,
-	);
-	assert.throws(() => parseMemberMessageCommand(["Kelly", "--message", "x", "--bogus"], "follow_up"), /Unknown flag/);
-});
-
-test("member message parse: duplicate flags, missing member, bad format, trimmed target", () => {
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "x", "--message", "y"], "follow_up"),
-		/Duplicate flag: --message/,
-	);
-	assert.throws(() => parseMemberMessageCommand(["--message", "x"], "follow_up"), /Missing <member>/);
-	assert.throws(
-		() => parseMemberMessageCommand(["Kelly", "--message", "x", "--format", "xml"], "follow_up"),
-		/Invalid --format/,
-	);
-	assert.throws(() => parseMemberMessageCommand(["  Kelly  ", "--message", "x"], "follow_up"), /trimmed/);
-});
-
-test("member message parse: --help short-circuits requirements but validates provided values", () => {
-	assert.equal(parseMemberMessageCommand(["--help"], "follow_up").help, true);
-	assert.equal(parseMemberMessageCommand(["Kelly", "--help"], "redirect").member, "Kelly");
-	assert.throws(() => parseMemberMessageCommand(["--help", "--format", "xml"], "follow_up"), /Invalid --format/);
-});
-
 // --- run: source selection + delivery outcomes ---
 
-test("member message run: session-required and invalid-session are usage-class exit 2", async () => {
+test("member message run: session-required and invalid-session are usage-class failures", async () => {
 	for (const code of ["session-required", "invalid-session"] as const) {
 		const dependencies = deps({ resolveSource: () => ({ ok: false, code, message: "boom" }) });
-		const outcome = await runMemberMessageCommand(
-			options("follow_up", { format: "json" }),
-			context(),
-			dependencies,
+		await assert.rejects(
+			() => runMemberMessageCommand(options("follow_up", { format: "json" }), context(), dependencies),
+			(error: unknown) => error instanceof UsageError && error.message === "boom",
 		);
-		assert.equal(render(outcome).exit, 2, code);
 	}
 });
 
@@ -273,16 +170,4 @@ test("member message run: toon and text formats render accepted delivery", async
 	assert.match(render(textOutcome).text, /Kelly \(qa\)/);
 	assert.match(render(textOutcome).text, /queued/);
 	assert.match(render(textOutcome).text, /delivery-1/);
-});
-
-test("member message run: --help returns deterministic help text naming accepted-only", async () => {
-	for (const intent of ["follow_up", "redirect"] as const) {
-		const outcome = await runMemberMessageCommand(options(intent, { help: true }), context(), deps());
-		assert.equal(outcome.kind, "help");
-		if (outcome.kind !== "help") return;
-		assert.equal(outcome.text, memberMessageHelp(intent));
-		assert.match(outcome.text, /NEVER means replied/);
-		assert.match(outcome.text, /no wait_for flag/);
-		assert.equal(render(outcome).exit, 0);
-	}
 });

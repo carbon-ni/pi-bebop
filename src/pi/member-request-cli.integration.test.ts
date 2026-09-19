@@ -8,11 +8,25 @@ import { sendMemberRequest, sendRpcCommand } from "../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, handleCommand } from "./control-runtime.ts";
+import { Command } from "commander";
+
+function parseInto(build: () => Command, tokens: readonly string[]): Command {
+	const command = build()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse([...tokens], { from: "user" });
+	return command;
+}
+
 import {
-	parseMemberRequestSendCommand,
-	parseMemberRequestListCommand,
-	parseMemberRequestWaitCommand,
-	parseMemberRequestRespondCommand,
+	buildMemberRequestSendCommand,
+	buildMemberRequestListCommand,
+	buildMemberRequestWaitCommand,
+	buildMemberRequestRespondCommand,
+	readMemberRequestSendCommand,
+	readMemberRequestListCommand,
+	readMemberRequestWaitCommand,
+	readMemberRequestRespondCommand,
 	runMemberRequestCommand,
 } from "../cli/commands/member-request.ts";
 
@@ -117,7 +131,7 @@ test("CLI send/list/respond/wait uses one exact Request ID across two real runti
 	});
 	const depsToSource = sourceDeps(sourcePath);
 	const send = await runMemberRequestCommand(
-		parseMemberRequestSendCommand(["Blake", "--message", "Need evidence"]),
+		readMemberRequestSendCommand(parseInto(buildMemberRequestSendCommand, ["Blake", "--message", "Need evidence"])),
 		context(),
 		depsToSource,
 	);
@@ -125,22 +139,38 @@ test("CLI send/list/respond/wait uses one exact Request ID across two real runti
 	const requestId = (send as any).result.data.requestId;
 	assert.equal(requestId, "cli-request-1");
 	const listed = await runMemberRequestCommand(
-		parseMemberRequestListCommand(["--direction", "outbound"]),
+		readMemberRequestListCommand(parseInto(buildMemberRequestListCommand, ["--direction", "outbound"])),
 		context(),
 		depsToSource,
 	);
 	assert.equal((listed as any).result.data.requests[0].requestId, requestId);
 	const respond = await runMemberRequestCommand(
-		parseMemberRequestRespondCommand([requestId, "--message", "Evidence attached", "--instruction", "review it"]),
+		readMemberRequestRespondCommand(
+			parseInto(buildMemberRequestRespondCommand, [
+				requestId,
+				"--message",
+				"Evidence attached",
+				"--instruction",
+				"review it",
+			]),
+		),
 		context(),
 		sourceDeps(targetPath),
 	);
 	assert.equal((respond as any).result.status, "response-accepted");
-	const waited = await runMemberRequestCommand(parseMemberRequestWaitCommand([requestId]), context(), depsToSource);
+	const waited = await runMemberRequestCommand(
+		readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, [requestId])),
+		context(),
+		depsToSource,
+	);
 	assert.equal((waited as any).result.status, "response");
 	assert.equal((waited as any).result.data.message, "Evidence attached");
 	assert.deepEqual((waited as any).result.data.instructions, ["review it"]);
-	const consumed = await runMemberRequestCommand(parseMemberRequestWaitCommand([requestId]), context(), depsToSource);
+	const consumed = await runMemberRequestCommand(
+		readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, [requestId])),
+		context(),
+		depsToSource,
+	);
 	assert.equal((consumed as any).result.error.code, "outcome-consumed");
 });
 
@@ -187,7 +217,9 @@ test("CLI exact wait covers idle timeout, offline outcome, and cancellation with
 
 	const deps = sourceDeps(pair.sourcePath);
 	const idleSend = await runMemberRequestCommand(
-		parseMemberRequestSendCommand(["Blake", "--message", "idle", "--response-grace", "1s"]),
+		readMemberRequestSendCommand(
+			parseInto(buildMemberRequestSendCommand, ["Blake", "--message", "idle", "--response-grace", "1s"]),
+		),
 		context(),
 		deps,
 	);
@@ -198,29 +230,37 @@ test("CLI exact wait covers idle timeout, offline outcome, and cancellation with
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.equal(scheduled.length, 2, "accepted request has hard and post-idle timers");
 	scheduled[1]!();
-	const idleWait = await runMemberRequestCommand(parseMemberRequestWaitCommand(["cli-idle"]), context(), deps);
+	const idleWait = await runMemberRequestCommand(
+		readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, ["cli-idle"])),
+		context(),
+		deps,
+	);
 	assert.equal((idleWait as any).result.status, "timeout");
 	assert.equal((idleWait as any).result.data.reason, "response-after-idle");
 
 	const offlineSend = await runMemberRequestCommand(
-		parseMemberRequestSendCommand(["Blake", "--message", "offline"]),
+		readMemberRequestSendCommand(parseInto(buildMemberRequestSendCommand, ["Blake", "--message", "offline"])),
 		context(),
 		deps,
 	);
 	assert.equal(offlineSend.kind, "result");
 	sourceFlow.cancelRequest("cli-offline");
-	const offlineWait = await runMemberRequestCommand(parseMemberRequestWaitCommand(["cli-offline"]), context(), deps);
+	const offlineWait = await runMemberRequestCommand(
+		readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, ["cli-offline"])),
+		context(),
+		deps,
+	);
 	assert.equal((offlineWait as any).result.status, "offline");
 
 	const cancelSend = await runMemberRequestCommand(
-		parseMemberRequestSendCommand(["Blake", "--message", "cancel"]),
+		readMemberRequestSendCommand(parseInto(buildMemberRequestSendCommand, ["Blake", "--message", "cancel"])),
 		context(),
 		deps,
 	);
 	assert.equal(cancelSend.kind, "result");
 	const controller = new AbortController();
 	const canceledPromise = runMemberRequestCommand(
-		parseMemberRequestWaitCommand(["cli-cancel"]),
+		readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, ["cli-cancel"])),
 		context(controller.signal),
 		deps,
 	);
@@ -230,6 +270,10 @@ test("CLI exact wait covers idle timeout, offline outcome, and cancellation with
 	assert.equal((canceled as any).result.error.code, "aborted");
 	assert.equal(sourceFlow.registry.outboundCount(), 1, "cancelling CLI wait preserves accepted Request");
 	sourceFlow.cancelRequest("cli-cancel");
-	const laterWait = await runMemberRequestCommand(parseMemberRequestWaitCommand(["cli-cancel"]), context(), deps);
+	const laterWait = await runMemberRequestCommand(
+		readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, ["cli-cancel"])),
+		context(),
+		deps,
+	);
 	assert.equal((laterWait as any).result.status, "offline");
 });

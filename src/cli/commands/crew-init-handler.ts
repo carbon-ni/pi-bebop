@@ -1,17 +1,14 @@
 import { createCrewInitFlow } from "../../application/crew-init-flow.ts";
 import { createNodeCrewInitFsAdapter } from "../../infra/crew-init-fs.ts";
-import { crewInitHelp } from "../../domain/index.ts";
 import { errorResult } from "../support/errors.ts";
 import type { CrewInitCliOptions } from "../support/arguments.ts";
 import type { CliOutcome } from "../support/output.ts";
 
 /**
- * TASK-0063: `crew init` handler — owns the scaffold flow result mapping and
- * the deterministic local help path. No process streams or signals here; the
- * runner installs cancellation.
+ * TASK-0063: `crew init` handler — owns the scaffold flow result mapping.
+ * No process streams or signals here; the runner installs cancellation.
  */
 export async function runCrewInitCommand(options: CrewInitCliOptions, cwd: string): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: crewInitHelp() };
 	const project = options.project ?? cwd;
 	try {
 		const result = await createCrewInitFlow(createNodeCrewInitFsAdapter()).run(project);

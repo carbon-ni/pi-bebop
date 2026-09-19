@@ -1,7 +1,7 @@
 ---
 id: TASK-0209
 title: Make CLI discovery and errors Commander-native
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [cli, commander, discoverability, breaking-change, cleanup]

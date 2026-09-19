@@ -3,11 +3,7 @@ import test from "node:test";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { PassThrough } from "node:stream";
-import {
-	roleSessionResumeHelp,
-	parseRoleSessionResumeCommand,
-	runRoleSessionResumeCommand,
-} from "./role-session-resume.ts";
+import { runRoleSessionResumeCommand } from "./role-session-resume.ts";
 import type { RoleSessionCandidate } from "../../application/role-session-resume.ts";
 import type { CliContext } from "../support/context.ts";
 import { runCli } from "../run.ts";
@@ -33,37 +29,7 @@ function context(): CliContext {
 	};
 }
 
-test("parses exact role and exposes a separate session resume leaf", () => {
-	assert.deepEqual(parseRoleSessionResumeCommand(["--role", "developer"]), {
-		command: "session-resume",
-		role: "developer",
-		format: "toon",
-		full: false,
-	});
-	assert.throws(() => parseRoleSessionResumeCommand([]), /required option/);
-	assert.throws(() => parseRoleSessionResumeCommand(["--role", "developer", "--role", "qa"]), /Duplicate flag/);
-	assert.equal(parseRoleSessionResumeCommand(["--role=developer", "--format=json"]).format, "json");
-	assert.throws(() => parseRoleSessionResumeCommand(["--role", "developer", "--format", "yaml"]), /Invalid --format/);
-	assert.throws(() => parseRoleSessionResumeCommand(["--role", "developer", "--unknown"]), /unknown option/);
-	assert.throws(() => parseRoleSessionResumeCommand(["--role", "developer", "--format"]), /Missing value/);
-	assert.deepEqual(parseRoleSessionResumeCommand(["--role", "developer", "-h"]).help, true);
-	assert.deepEqual(parseRoleSessionResumeCommand(["--help"]), {
-		command: "session-resume",
-		role: "",
-		format: "toon",
-		full: false,
-		help: true,
-	});
-	assert.throws(() => parseRoleSessionResumeCommand(["--role", "developer", "--help", "--help"]), /Duplicate flag/);
-	assert.match(roleSessionResumeHelp(), /unattributed/i);
-});
-
-test("help and bounded failures never launch", async () => {
-	const help = await runRoleSessionResumeCommand(
-		{ command: "session-resume", role: "developer", format: "toon", full: false, help: true },
-		context(),
-	);
-	assert.equal(help.kind, "help");
+test("bounded failures never launch", async () => {
 	const failure = await runRoleSessionResumeCommand(
 		{ command: "session-resume", role: "developer", format: "toon", full: false },
 		context(),
@@ -244,30 +210,54 @@ test("plain Pi -r remains Pi's native resume picker surface", async () => {
 	assert.doesNotMatch(stdout, /role-attributed|session resume --role/i);
 });
 
-test("the real CLI keeps resume help and syntax errors inside the output boundary", async () => {
+test("the real CLI keeps resume help, syntax errors, and failures inside the stream contract", async () => {
 	const helpOutput = new PassThrough();
+	const helpErr = new PassThrough();
 	let helpText = "";
+	let helpErrText = "";
 	helpOutput.on("data", (chunk) => {
 		helpText += chunk;
 	});
-	assert.equal(await runCli(["session", "resume", "--help"], "/project", process.stdin, helpOutput), 0);
-	assert.match(helpText, /session resume --role/);
+	helpErr.on("data", (chunk) => {
+		helpErrText += chunk;
+	});
+	assert.equal(await runCli(["session", "resume", "--help"], "/project", process.stdin, helpOutput, helpErr), 0);
+	assert.match(helpText, /Usage: pi-bebop session resume/);
+	assert.match(helpText, /--role <exact-role>/);
+	assert.equal(helpErrText, "");
 
 	const errorOutput = new PassThrough();
+	const errorErr = new PassThrough();
 	let errorText = "";
+	let errorErrText = "";
 	errorOutput.on("data", (chunk) => {
 		errorText += chunk;
 	});
+	errorErr.on("data", (chunk) => {
+		errorErrText += chunk;
+	});
 	assert.equal(
-		await runCli(["session", "resume", "--role", "developer", "--unknown"], "/project", process.stdin, errorOutput),
+		await runCli(
+			["session", "resume", "--role", "developer", "--unknown"],
+			"/project",
+			process.stdin,
+			errorOutput,
+			errorErr,
+		),
 		2,
 	);
-	assert.match(errorText, /unknown option|unknown flag/i);
+	assert.equal(errorText, "");
+	assert.match(errorErrText, /unknown option '--unknown'/i);
 
 	const operationalOutput = new PassThrough();
+	const operationalErr = new PassThrough();
 	let operationalText = "";
+	let operationalErrText = "";
 	operationalOutput.on("data", (chunk) => {
 		operationalText += chunk;
+	});
+	operationalErr.on("data", (chunk) => {
+		operationalErrText += chunk;
 	});
 	assert.equal(
 		await runCli(
@@ -275,10 +265,12 @@ test("the real CLI keeps resume help and syntax errors inside the output boundar
 			"/project",
 			process.stdin,
 			operationalOutput,
+			operationalErr,
 		),
 		1,
 	);
-	assert.match(operationalText, /no supported Crew manifest/i);
+	assert.equal(operationalText, "");
+	assert.match(operationalErrText, /no supported Crew manifest/i);
 });
 
 test("empty and cancelled selections never launch or fall back", async () => {

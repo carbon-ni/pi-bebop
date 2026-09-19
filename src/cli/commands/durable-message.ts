@@ -9,8 +9,7 @@ import {
 } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
-import { scanCliFlags } from "../support/flag-scanner.ts";
-import { errorResult, usageResult } from "../support/errors.ts";
+import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
@@ -26,7 +25,6 @@ export interface DurableMessageCliOptions {
 	readonly instructions: string[];
 	readonly stdin: boolean;
 	readonly format: CliFormat;
-	readonly help?: boolean;
 }
 
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
@@ -62,23 +60,14 @@ export function buildDurableMessageCommand(intent: DurableMessageIntent): Comman
 			"Output format: toon (default), json, or text",
 			defaultFormatForCommand("member-inbox-send"),
 		);
-	if (intent === "inbox") program = program.argument("[<member>]");
-	return program.showHelpAfterError(false).helpOption(false);
-}
-function collect(value: string, previous: string[]): string[] {
-	return previous.concat([value]);
-}
-
-export function durableMessageHelp(intent: DurableMessageIntent): string {
-	const command = intent === "inbox" ? "member inbox send <member>" : "crew broadcast";
-	const target = intent === "inbox" ? "one configured member" : "every other configured member in manifest order";
-	return (
+	if (intent === "inbox") program = program.argument("[<member>]", "Crew member name or unique role");
+	return program.addHelpText(
+		"after",
 		[
-			`pi-bebop ${command} [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]`,
 			"",
 			intent === "inbox"
-				? `${label(intent)} persists durable Inbox data for ${target}.`
-				: `${label(intent)} sends one transient Follow-up to ${target}; each recipient is attempted independently.`,
+				? `${label(intent)} persists durable Inbox data for one configured member.`
+				: `${label(intent)} sends one transient Follow-up to every other configured member in manifest order; each recipient is attempted independently.`,
 			intent === "inbox"
 				? "The selected joined source derives membership, trust, origin, manifest, and storage paths."
 				: "The selected joined source derives membership, origin, and manifest; the sender is excluded.",
@@ -92,35 +81,16 @@ export function durableMessageHelp(intent: DurableMessageIntent): string {
 				? "Broadcast never writes or falls back to Inbox, redirects, interrupts, or expects a Response."
 				: "",
 			"",
-			"Options:",
-			"  --session <id|alias>    Source joined Pi session id or alias (default: PI_SESSION_ID)",
-			"  --message <text>        Message text (exactly one of --message or --stdin)",
-			"  --stdin                 Read the message from stdin",
-			"  --instruction <text>    Ordered instruction (repeatable, at most 32)",
-			"  --format <format>       toon (default), json, or text",
-			"",
 			`Discover sessions with: ${SESSION_LIST_HINT}`,
-			"",
 		]
 			.filter((line) => line !== "")
-			.join("\n") + "\n"
+			.join("\n"),
 	);
 }
-
-const VALID_FLAGS =
-	"--session <id|alias>, --message <text>, --stdin, --instruction <text>, --format toon|json|text, --help";
-function mapCommanderError(error: Error & { code?: string }): UsageError {
-	if (error.code === "commander.optionMissingArgument") return new UsageError("Missing option value");
-	if (error.code === "commander.unknownOption") {
-		const unknown = /unknown option '([^']+)'/.exec(error.message)?.[1] ?? "";
-		if (unknown.startsWith("--wait"))
-			return new UsageError(`Unknown flag '${unknown}'; this command never waits for delivery`);
-		return new UsageError(`Unknown flag '${unknown}'; valid flags: ${VALID_FLAGS}`);
-	}
-	if (error.code === "commander.excessArguments")
-		return new UsageError(`Too many arguments; valid flags: ${VALID_FLAGS}`);
-	return new UsageError(error.message);
+function collect(value: string, previous: string[]): string[] {
+	return previous.concat([value]);
 }
+
 function validateContent(message: string, source: string): void {
 	if (message.length === 0 || message.trim().length === 0) throw new UsageError(`--${source} received empty content`);
 	if (message.includes("\0")) throw new UsageError(`--${source} must not contain NUL bytes`);
@@ -138,19 +108,8 @@ function validateInstructions(instructions: readonly string[]): void {
 	}
 }
 
-function scanDurableMessageFlags(args: readonly string[]) {
-	return scanCliFlags(args, [
-		{ name: "--session", kind: "value" },
-		{ name: "--message", kind: "value" },
-		{ name: "--stdin", kind: "boolean" },
-		{ name: "--format", kind: "value" },
-		{ name: "--instruction", kind: "repeatable", missingValueMessage: "Missing value for --instruction" },
-	]);
-}
-
 function validateDurableOptions(
 	intent: DurableMessageIntent,
-	help: boolean,
 	member: string | undefined,
 	opts: { session?: string; message?: string; stdin?: boolean; format?: string },
 	instructions: string[],
@@ -161,19 +120,11 @@ function validateDurableOptions(
 	validateInstructions(instructions);
 	const hasMessage = opts.message !== undefined;
 	const hasStdin = opts.stdin === true;
-	if (!help && intent === "inbox" && (!member || member.trim().length === 0))
-		throw new UsageError("Missing <member>");
-	if (
-		!help &&
-		intent === "inbox" &&
-		(member !== member!.trim() || Buffer.byteLength(member!, "utf8") > MAX_TARGET_BYTES)
-	)
+	if (intent === "inbox" && (!member || member.trim().length === 0)) throw new UsageError("Missing <member>");
+	if (intent === "inbox" && (member !== member!.trim() || Buffer.byteLength(member!, "utf8") > MAX_TARGET_BYTES))
 		throw new UsageError(`<member> must be trimmed and at most ${MAX_TARGET_BYTES} UTF-8 bytes`);
-	if (!help) {
-		if (hasMessage === hasStdin)
-			throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
-		if (hasMessage) validateContent(opts.message!, "message");
-	}
+	if (hasMessage === hasStdin) throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
+	if (hasMessage) validateContent(opts.message!, "message");
 	return { format, hasMessage, hasStdin };
 }
 
@@ -184,12 +135,10 @@ export function readDurableMessageCommand(command: Command, intent: DurableMessa
 		stdin?: boolean;
 		instruction?: string[];
 		format?: string;
-		help?: boolean;
 	}>();
-	const help = opts.help === true;
 	const member = intent === "inbox" ? (command.args[0] ?? "") : undefined;
 	const instructions = opts.instruction ?? [];
-	const { format, hasMessage, hasStdin } = validateDurableOptions(intent, help, member, opts, instructions);
+	const { format, hasMessage, hasStdin } = validateDurableOptions(intent, member, opts, instructions);
 	return {
 		command: intent === "inbox" ? "member-inbox-send" : "crew-broadcast",
 		intent,
@@ -199,42 +148,6 @@ export function readDurableMessageCommand(command: Command, intent: DurableMessa
 		instructions,
 		stdin: hasStdin,
 		format: format as CliFormat,
-		...(help ? { help: true } : {}),
-	};
-}
-
-export function parseDurableMessageCommand(
-	args: string[],
-	intent: DurableMessageIntent,
-	cwd = process.cwd(),
-): DurableMessageCliOptions {
-	const scanned = scanDurableMessageFlags(args);
-	const { tokens, help } = scanned;
-	const instructions = [...(scanned.repeatedValues["--instruction"] ?? [])];
-	const program = buildDurableMessageCommand(intent)
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { session?: string; message?: string; stdin?: boolean; format?: string };
-	try {
-		program.parse(tokens, { from: "user" });
-		opts = program.opts();
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError")
-			throw mapCommanderError(error as Error & { code?: string });
-		throw error;
-	}
-	const member = intent === "inbox" ? (program.args[0] ?? "") : undefined;
-	const { format, hasMessage, hasStdin } = validateDurableOptions(intent, help, member, opts, instructions);
-	return {
-		command: intent === "inbox" ? "member-inbox-send" : "crew-broadcast",
-		intent,
-		...(member === undefined ? {} : { member: member.trim() }),
-		...(opts.session === undefined ? {} : { session: opts.session }),
-		...(hasMessage ? { message: opts.message } : {}),
-		instructions,
-		stdin: hasStdin,
-		format: format as CliFormat,
-		...(help ? { help: true } : {}),
 	};
 }
 
@@ -366,18 +279,11 @@ export async function runDurableMessageCommand(
 	context: CliContext,
 	deps = defaultDurableMessageCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: durableMessageHelp(options.intent) };
 	const source = deps.resolveSource({
 		explicitSession: options.session,
 		environmentSession: deps.environmentSession(context.environment),
 	});
-	if (source.ok === false)
-		return {
-			kind: "result",
-			result: usageResult(source.message, source.code),
-			format: options.format,
-			full: false,
-		};
+	if (source.ok === false) throw new UsageError(source.message);
 	let message = options.message;
 	if (options.stdin) {
 		try {

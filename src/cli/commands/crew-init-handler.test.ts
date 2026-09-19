@@ -6,13 +6,6 @@ import path from "node:path";
 import { runCrewInitCommand } from "./crew-init-handler.ts";
 import { crewInitHelp } from "../../domain/index.ts";
 
-test("crew init --help returns deterministic local help with zero IO", async () => {
-	const outcome = await runCrewInitCommand({ command: "crew-init", format: "toon", help: true }, "/project");
-	assert.equal(outcome.kind, "help");
-	if (outcome.kind !== "help") return;
-	assert.equal(outcome.text, crewInitHelp());
-});
-
 test("crew init creates a fresh canonical scaffold with created status", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-init-handler-"));
 	try {

@@ -1,12 +1,11 @@
-import type { CliFormat } from "./arguments.ts";
 import type { CliResult } from "./output.ts";
 import { ExternalIntakeError } from "../../application/external-intake.ts";
 import { DirectMessageError } from "../../application/direct-message.ts";
 
 /**
- * TASK-0063: shared CLI error mapping. Stable codes and exit-2 usage results
- * are produced here; rendering stays in the single output boundary
- * (writeOutcome in output.ts). Errors never leak stacks — only messages.
+ * Shared CLI error mapping. Operational failures carry stable codes and are
+ * presented as plain text on stderr (exit 1) by the single output boundary.
+ * Errors never leak stacks — only messages.
  */
 
 /**
@@ -25,36 +24,6 @@ export function errorCode(error: unknown): string {
 	if (systemCode === "ENOENT") return "offline";
 	if (error instanceof Error && /JSON|malformed|parse/i.test(error.message)) return "malformed-response";
 	return "offline";
-}
-
-/**
- * Usage errors must honor an explicitly requested output format even when
- * parsing fails (TASK-0056 contract edge: both --format json and
- * --format=json forms). Last occurrence wins, consistent with the parser.
- */
-export function requestedFormat(args: string[]): CliFormat {
-	let format: CliFormat = "toon";
-	for (let index = 0; index < args.length; index += 1) {
-		const arg = args[index]!;
-		if (arg === "--format") {
-			const value = args[index + 1];
-			if (value === "json" || value === "text") format = value;
-		} else if (arg.startsWith("--format=")) {
-			const value = arg.slice("--format=".length);
-			if (value === "json" || value === "text") format = value;
-		}
-	}
-	return format;
-}
-
-/** Exit-2 usage result shape (status: usage drives the exit code). */
-export function usageResult(message: string, code = "usage"): CliResult {
-	return {
-		ok: false,
-		target: "",
-		status: "usage",
-		error: { code, message },
-	};
 }
 
 /** Operational failure result with a stable code and a human message. */
