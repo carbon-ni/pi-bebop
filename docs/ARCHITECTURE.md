@@ -304,4 +304,4 @@ bundled CLI with no registry IO). `npm pack` produces the installable
 `pi-bebop-<version>.tgz`; the packaged `node_modules/.bin/bebop` runs the
 same `dist/cli/main.js` the test suite executes directly. Publication to npm is
 never assumed: a documented install must be verifiable locally, and `npm view
-bebop` must succeed for any claimed published version.
+@carbon-ni/pi-bebop` must succeed for any claimed published version.
