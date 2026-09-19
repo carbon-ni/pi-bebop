@@ -53,7 +53,7 @@ function baseCommand(name: string, description: string): Command {
 		.option("--session <id|alias>", "Source joined Pi session (default: PI_SESSION_ID)")
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("member-request-send"),
 		);
 }

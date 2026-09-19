@@ -40,7 +40,7 @@ test("role session reader preserves exact roles and defaults while rejecting mis
 	assert.deepEqual(readRoleSessionResumeCommand(command), {
 		command: "session-resume",
 		role: "developer",
-		format: "toon",
+		format: "text",
 		full: false,
 	});
 	const missing = buildRoleSessionResumeCommand().exitOverride();

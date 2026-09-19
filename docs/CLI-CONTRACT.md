@@ -4,12 +4,12 @@ Status: normative v0 contract (TASK-0209). Commander owns discovery, help, and s
 
 ## Principle
 
-Primary audience and its next decision determine a command's default view. Read-only versus mutating does not.
+The CLI is human-first: every result-producing command defaults to concise text. Read-only versus mutating does not change that rule.
 
-- Agent and automation workflows default to TOON because they need deterministic structured fields.
-- Human setup and diagnosis default to concise text.
+- Use `--format toon` for large or agent-oriented structured output.
+- Use `--format json` for interoperability.
 - Guidance surfaces remain text only.
-- JSON stays an explicit interoperability format.
+- Default format selection never changes automatically based on result size.
 
 ## Current and planned command matrix
 
@@ -19,36 +19,36 @@ Every result-producing leaf supports `--format text|toon|json`. Help and version
 | --- | --- | --- | --- | --- |
 | no arguments | human guidance | text only | none | Commander root help: pick the next command |
 | `crew init` | human | text | TOON, JSON | inspect files and start/join a Member |
-| `crew roles` | agent | TOON | text, JSON | select exact configured role/Member |
-| `crew broadcast` | agent | TOON | text, JSON | inspect per-recipient Accepted/failure outcome |
-| `member status` | agent | TOON | text, JSON | decide whether to message, wait, or reassign |
-| `member wait-idle` | agent | TOON | text, JSON | continue after exact mechanical outcome |
-| `member follow-up` | agent | TOON | text, JSON | confirm Direct/Queued delivery |
-| `member redirect` | agent | TOON | text, JSON | confirm active-work redirection |
-| `member interrupt` | agent | TOON | text, JSON | confirm recovery handoff or correct failure |
-| `member inbox send` | agent | TOON | text, JSON | retain item ID and Persisted state |
-| `member request send` | agent | TOON | text, JSON | wait for exactly this outbound request |
-| `member request list` | agent | TOON | text, JSON | choose oldest pending inbound/outbound request |
-| `member request wait` | agent | TOON | text, JSON | consume one terminal Request outcome |
-| `member request respond` | agent | TOON | text, JSON | confirm correlated Response submission |
-| `session capture` | agent | TOON | text, JSON | snapshot joined online Members into a durable Crew Session |
-| `session add` | agent | TOON | text, JSON | capture one missing Member into an existing Crew Session |
-| `session list` | agent | TOON | text, JSON | list durable Crew Sessions |
-| `session show` | agent | TOON | text, JSON | inspect one exact Crew Session and its Member observations |
-| `session resolve` | agent | TOON | text, JSON | resolve one exact Member to a manual Pi startup specification |
-| `session resume --role <exact-role>` | agent | TOON | text, JSON | pick one current-Crew role-attributed Pi Session |
-| `session live` | automation/diagnostic | TOON | text, JSON | list reachable Pi sessions |
-| `guest join` | agent | TOON | text, JSON | retain pending/approved Crew membership state |
-| `guest leave` | agent | TOON | text, JSON | confirm exact Crew membership removal/no-op |
-| `guest send` | agent | TOON | text, JSON | inspect authorized direct delivery outcome |
-| `guest broadcast` | agent | TOON | text, JSON | inspect authorized per-recipient outcomes |
+| `crew roles` | human/agent | text | TOON, JSON | select exact configured role/Member |
+| `crew broadcast` | human/agent | text | TOON, JSON | inspect per-recipient Accepted/failure outcome |
+| `member status` | human/agent | text | TOON, JSON | decide whether to message, wait, or reassign |
+| `member wait-idle` | human/agent | text | TOON, JSON | continue after exact mechanical outcome |
+| `member follow-up` | human/agent | text | TOON, JSON | confirm Direct/Queued delivery |
+| `member redirect` | human/agent | text | TOON, JSON | confirm active-work redirection |
+| `member interrupt` | human/agent | text | TOON, JSON | confirm recovery handoff or correct failure |
+| `member inbox send` | human/agent | text | TOON, JSON | retain item ID and Persisted state |
+| `member request send` | human/agent | text | TOON, JSON | wait for exactly this outbound request |
+| `member request list` | human/agent | text | TOON, JSON | choose oldest pending inbound/outbound request |
+| `member request wait` | human/agent | text | TOON, JSON | consume one terminal Request outcome |
+| `member request respond` | human/agent | text | TOON, JSON | confirm correlated Response submission |
+| `session capture` | human/agent | text | TOON, JSON | snapshot joined online Members into a durable Crew Session |
+| `session add` | human/agent | text | TOON, JSON | capture one missing Member into an existing Crew Session |
+| `session list` | human/agent | text | TOON, JSON | list durable Crew Sessions |
+| `session show` | human/agent | text | TOON, JSON | inspect one exact Crew Session and its Member observations |
+| `session resolve` | human/agent | text | TOON, JSON | resolve one exact Member to a manual Pi startup specification |
+| `session resume --role <exact-role>` | human/agent | text | TOON, JSON | pick one current-Crew role-attributed Pi Session |
+| `session live` | human/automation | text | TOON, JSON | list reachable Pi sessions |
+| `guest join` | human/agent | text | TOON, JSON | retain pending/approved Crew membership state |
+| `guest leave` | human/agent | text | TOON, JSON | confirm exact Crew membership removal/no-op |
+| `guest send` | human/agent | text | TOON, JSON | inspect authorized direct delivery outcome |
+| `guest broadcast` | human/agent | text | TOON, JSON | inspect authorized per-recipient outcomes |
 | root/group/leaf `--help` | human/agent guidance | text only | none | copy one valid example |
 | `--version` | human/tooling | text only | none | compare installed build/version |
 | future `doctor` | human operator | text | TOON, JSON | run one corrected recovery command |
 | future `help delivery` | guidance | text only | none | choose required guarantee |
 | future `quickstart` | guidance | text only | none | complete discover → Ask → verified Response |
 
-Future name-first `crew list`, `crew status`, `ask`, and Crew history are agent-first TOON with text/JSON overrides unless their own approved contract changes this matrix.
+Future name-first `crew list`, `crew status`, `ask`, and Crew history follow the same human-first text default with explicit TOON/JSON overrides unless their own approved contract changes this matrix.
 
 ## Command hierarchy
 

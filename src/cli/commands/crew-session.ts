@@ -81,7 +81,7 @@ export interface CrewSessionResolveCliOptions {
 function formatOption(command: string): Command {
 	return new Command(command).option(
 		"--format <format>",
-		"Output format: toon (default), json, or text",
+		"Output format: text (default), toon, or json",
 		defaultFormatForCommand(command),
 	);
 }

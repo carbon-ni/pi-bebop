@@ -38,7 +38,7 @@ export function buildMemberIdleWaitCommand(): Command {
 		.option("--timeout <duration>", "Whole-second wait duration from 1s through 10m", "5m")
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("member-idle-wait"),
 		)
 		.argument("[<member>]", "Crew member name or unique role")

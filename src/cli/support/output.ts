@@ -109,7 +109,10 @@ function renderCrewsText(data: ViewModel, crews: unknown[]): string {
 			`- ${selector}${displayName ? ` (${displayName})` : ""} — ${availability} — ${count} Members${locator ? ` — --crew ${locator}` : ""}`,
 		);
 	}
-	if (typeof data.omitted === "number" && data.omitted > 0) lines.push(`Omitted: ${data.omitted}`);
+	if (typeof data.omitted === "number" && data.omitted > 0) {
+		lines.push(`Omitted: ${data.omitted}`);
+		lines.push("Use --format toon for full structured output.");
+	}
 	if (data.partial === true) lines.push(`Discovery: ${stringValue(data.discovery) ?? "partial"}`);
 	return lines.join("\n");
 }
@@ -129,7 +132,10 @@ function renderSessionsText(data: ViewModel, sessions: unknown[]): string {
 		const membership = stringValue(session.membership) ?? "unknown";
 		lines.push(`- ${id}${aliases.length > 0 ? ` (${aliases.join(", ")})` : ""} — ${membership}`);
 	}
-	if (typeof data.omitted === "number" && data.omitted > 0) lines.push(`Omitted: ${data.omitted}`);
+	if (typeof data.omitted === "number" && data.omitted > 0) {
+		lines.push(`Omitted: ${data.omitted}`);
+		lines.push("Use --format toon for full structured output.");
+	}
 	return lines.join("\n");
 }
 

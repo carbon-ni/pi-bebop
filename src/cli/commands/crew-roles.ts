@@ -41,7 +41,7 @@ export function buildCrewRolesCommand(): Command {
 		.description("List configured crew roles (read-only discovery)")
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("crew-roles"),
 		)
 		.option("--full", "Full response without truncation")

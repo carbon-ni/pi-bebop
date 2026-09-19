@@ -120,7 +120,10 @@ test("text presents session rows, aliases, membership, totals, and omissions", (
 		"text",
 		false,
 	);
-	assert.equal(text, "Sessions (3):\n- s-1 (alpha, project) — joined\n- s-2 — unknown\nOmitted: 1");
+	assert.equal(
+		text,
+		"Sessions (3):\n- s-1 (alpha, project) — joined\n- s-2 — unknown\nOmitted: 1\nUse --format toon for full structured output.",
+	);
 	assert.match(
 		renderCliResult(
 			{ ok: true, target: "", status: "empty", data: { sessions: [], total: 0, next: "run session live" } },
