@@ -125,7 +125,7 @@ export function crewInitCommonInstructions(): string {
 /**
  * Deterministic role instruction templates (TASK-0053). Each defines mission,
  * expected inputs, expected outputs, escalation, and definition of done,
- * aligned with docs/SOFTWARE-CREW-WORKFLOW.md. They remain examples to review
+ * aligned with the active Crew Init guide. They remain examples to review
  * before starting member processes — never permissions.
  */
 export function crewInitInstructions(role: "lead" | "product" | "developer" | "quality"): string {

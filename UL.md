@@ -267,7 +267,6 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - Session day analyzed: `2026-08-23`
 - Relevant session: `01a02d42-d549-7397-b8eb-f9b04d77b1ee`
 - `README.md`
-- `docs/ARCHITECTURE.md`
 - `src/tools/member-tool-adapter.ts`
 - `src/tools/send-to-member.ts`
 - `plans/done/0031-split-crew-follow-up-and-immediate-messaging-tools.md`
@@ -280,4 +279,3 @@ Say: “Bob endpoint is online.” Presence proves reachability only, not availa
 - `plans/todo/0044-define-hard-member-interruption-semantics.md`
 - `plans/todo/0048-add-crew-visible-member-descriptions.md`
 - `plans/todo/0046-define-member-activity-and-public-focus-status.md`
-- `docs/MEMBER-STATUS.md`

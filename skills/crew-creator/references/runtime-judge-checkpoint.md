@@ -6,7 +6,7 @@ has exactly two Members, **Worker** and **Judge**. The external deterministic
 **Host** is software, not a Crew member, LLM authority, or hidden third role.
 
 Normative product boundaries come from
-[`docs/CREW-TEMPLATE-EVALUATION-CONTRACT.md`](../../../docs/CREW-TEMPLATE-EVALUATION-CONTRACT.md).
+[the local Crew Template contract](crew-template-contract.md).
 Comparative run evidence uses TASK-0197 artifacts and the
 [`runtime-checkpoint.schema.json`](../evals/schemas/runtime-checkpoint.schema.json)
 extension.

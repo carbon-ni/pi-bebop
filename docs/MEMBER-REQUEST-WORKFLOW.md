@@ -2,7 +2,6 @@
 
 Status: **available**.
 
-This workflow extends the optional [Software Crew Workflow](SOFTWARE-CREW-WORKFLOW.md).
 It coordinates a bounded Member request without treating mechanical idle as a
 Response or implying completion, correctness, authority, or progress.
 
