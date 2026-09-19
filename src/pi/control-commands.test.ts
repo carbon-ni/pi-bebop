@@ -68,6 +68,7 @@ test("/crew join and leave use membership runtime without stopping base server",
 	const activation: string[] = [];
 	let refreshes = 0;
 	let presenceRefreshes = 0;
+	const sessionNames: Array<string | null> = [];
 	let currentMembership: MembershipRuntime["getMembership"] extends () => infer T ? T : never = null;
 	const runtime = {
 		join: async (request: unknown) => {
@@ -104,6 +105,7 @@ test("/crew join and leave use membership runtime without stopping base server",
 			refreshStatus: () => {
 				refreshes += 1;
 			},
+			syncSessionName: (membership) => sessionNames.push(membership?.member.name ?? null),
 			refreshPresence: () => {
 				presenceRefreshes += 1;
 			},
@@ -136,6 +138,7 @@ test("/crew join and leave use membership runtime without stopping base server",
 	);
 	assert.equal(setupState.state.server !== null, true);
 	assert.deepEqual(persisted, [true, true, false]);
+	assert.deepEqual(sessionNames, ["dev", "dev", null]);
 	assert.equal(announcements.length, 3);
 	assert.deepEqual(activation, ["activate", "activate", "deactivate"]);
 	assert.equal(refreshes, 3);

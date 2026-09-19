@@ -92,6 +92,11 @@ pi --crew-role developer
 
 Then use `/crew members` inside Pi to see who's `current`, `online`, or `offline`.
 Bebop's agent tools are available only while the member is joined.
+
+When a joined Pi session has no display name, Bebop names it with the exact trusted
+manifest Member name. Existing names from `--name`, `/name`, RPC, or another
+extension are preserved. Renaming the session manually immediately takes ownership;
+Bebop will not overwrite or clear that name on later joins, switches, leaves, or shutdown.
 See [Crew setup](docs/CREW-INIT.md) for the manifest and instruction details.
 
 ## Resume a session by role
@@ -145,7 +150,7 @@ See [Crew Sessions](docs/CREW-SESSION.md) for identity checks, storage, privacy,
 | `redirect_member` | You need to change what a member does next | Delivers guidance before the next model step, without aborting the turn. |
 | `send_to_inbox` | The member may be offline | Saves the message for later delivery as a follow-up. |
 | `interrupt_member` | Work is stuck, harmful, or based on a wrong assumption | Tries to abort and deliver recovery guidance. It can't undo work already done. |
-| `broadcast_to_crew` | Everyone else needs the same information | Attempts delivery to each other member and reports each outcome. It doesn't save messages to an inbox. |
+| `broadcast_to_crew` | Everyone else needs the same information | Attempts delivery to each other member and reports each outcome. It doesn't save messages to an inbox.
 
 Accepted delivery doesn't mean the member read the message or finished the work.
 A response doesn't prove the result is correct either.

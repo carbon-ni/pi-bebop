@@ -35,6 +35,7 @@ import {
 	disableControlServer,
 	ensureControlServer,
 	refreshIntrayStatus,
+	refreshSessionAliases,
 } from "./pi/control-runtime.ts";
 import { createGuestComposition } from "./pi/guest-composition.ts";
 import {
@@ -51,6 +52,7 @@ import { createInboxBridgeController } from "./pi/inbox-bridge-runtime.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
+import { createSessionNameController } from "./pi/session-name.ts";
 
 /** Crew management with its own namespaced socket transport. */
 export default function (pi: ExtensionAPI) {
@@ -83,6 +85,15 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer("crew-inbox", renderCrewInboxEntry);
 
 	const state = createSocketState(Date.now);
+	state.sessionNameController = createSessionNameController({
+		setSessionName: (name) => pi.setSessionName(name),
+		getSessionName: () => pi.getSessionName(),
+		appendEntry: (customType, data) => pi.appendEntry(customType, data),
+	});
+	const syncSessionName = async (membership: import("./infra/membership-runtime.ts").Membership | null) => {
+		state.sessionNameController?.syncMembership(membership);
+		await refreshSessionAliases(state);
+	};
 	const guestComposition = createGuestComposition(pi, state);
 	wireMembershipRuntime(state);
 	const membershipRecording = createMembershipRecording(pi);
@@ -241,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 			activateMembershipTool: () => activateMembershipTool(pi),
 			deactivateMembershipTool: () => deactivateMembershipTool(pi),
 			refreshStatus: () => refreshIntrayStatus(state),
+			syncSessionName,
 			refreshGuestAdmission: guestComposition.refreshAdmission,
 			refreshPresence,
 			stopPresence,
@@ -256,5 +268,11 @@ export default function (pi: ExtensionAPI) {
 		recoverInterrupts,
 		refreshPresence,
 		stopPresence,
+		syncSessionName,
+	});
+
+	pi.on("session_info_changed", (event, ctx) => {
+		state.sessionNameController?.observeChange(event.name);
+		void refreshSessionAliases(state, ctx);
 	});
 }

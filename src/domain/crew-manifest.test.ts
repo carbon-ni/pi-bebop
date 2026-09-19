@@ -6,6 +6,7 @@ import {
 	CrewMemberLookupError,
 	lookupCrewMemberBySocketPath,
 	MAX_MEMBER_DESCRIPTION_BYTES,
+	isCrewDisplayName,
 	parseCrewManifest,
 	resolveCrewMemberSocketPath,
 	resolveCrewMemberBySocketPath,
@@ -36,6 +37,14 @@ describe("crew manifest", () => {
 			"/repo/.pi/intray/sockets/dev.sock",
 		);
 		assert.equal(DEFAULT_CREW_MANIFEST_FILE, "crew.json");
+	});
+
+	test("Member display names are exact bounded labels", () => {
+		assert.equal(isCrewDisplayName("Mary"), true);
+		assert.equal(isCrewDisplayName(" Mary"), false);
+		assert.equal(isCrewDisplayName("Mary\nInjected"), false);
+		assert.equal(isCrewDisplayName("x".repeat(257)), false);
+		assert.equal(isCrewDisplayName(`lone${String.fromCharCode(0xd800)}surrogate`), false);
 	});
 
 	test("schema rejects malformed structural shapes before normalization", () => {

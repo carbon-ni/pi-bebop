@@ -7,6 +7,7 @@ import type { MemberStatusTransport } from "../../infra/member-status-transport.
 import type { MemberMessageDependencies } from "../../application/member-message.ts";
 import type { MemberInboxMessageDependencies } from "../../application/member-inbox-message.ts";
 import type { MemberRequestFlow } from "../../application/member-request-flow.ts";
+import type { SessionNameController } from "../session-name.ts";
 import type { RpcServer, RpcSocket } from "../../infra/rpc-server.ts";
 import type { RpcInboundCommand, AcceptedLocalMessageWakeGate } from "../../domain/index.ts";
 import type { sendRpcCommand } from "../../infra/rpc-client.ts";
@@ -43,6 +44,7 @@ export interface SocketState {
 	memberInboxMessageDependencies?: MemberInboxMessageDependencies;
 	memberRequestFlow?: MemberRequestFlow;
 	now?: () => number;
+	sessionNameController?: SessionNameController;
 	memberInterruptSend?: typeof sendRpcCommand;
 	memberInterruptResolveEndpoint?: typeof resolveMemberEndpoint;
 }
