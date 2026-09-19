@@ -1,7 +1,7 @@
 ---
 id: TASK-0212
 title: Rename the CLI command to bebop
-status: todo
+status: done
 depends_on: [TASK-0209, TASK-0210]
 priority: high
 tags: [cli, naming, package, docs, breaking-change]
