@@ -120,5 +120,5 @@ test("exit codes: usage=2, help=0, success=0", async () => {
 	assert.equal(await runCli(["crew", "init", "--help"], cwd, process.stdin, second.output, second.stderr), 0);
 	const third = capture();
 	assert.equal(await runCli([], cwd, process.stdin, third.output, third.stderr), 0);
-	assert.match(third.text().stdout, /^Usage: pi-bebop/);
+	assert.match(third.text().stdout, /^Usage: bebop/);
 });

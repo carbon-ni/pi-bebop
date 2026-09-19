@@ -12,11 +12,11 @@ import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 
 /**
- * TASK-0061 + TASK-0204: `pi-bebop session live` discovery surface. Bounded,
+ * TASK-0061 + TASK-0204: `bebop session live` discovery surface. Bounded,
  * deterministic, and privacy-safe: reports reachable session id, safe aliases,
  * and joined state only. Never messages, prompts, model details, paths,
  * instructions, or tool history. Empty state is explicit with a copyable next
- * step. Renamed from `pi-bebop session list` (TASK-0061) to free the
+ * step. Renamed from `bebop session list` (TASK-0061) to free the
  * `session list` command word for the Crew Session list (TASK-0204).
  */
 
@@ -56,7 +56,7 @@ export function buildSessionListCommand(): Command {
 				"or tool history.",
 				"",
 				"Use the reported session id as --session <id> for member commands.",
-				"For Crew Session capture/list/show/add/resolve, see: pi-bebop session <sub>",
+				"For Crew Session capture/list/show/add/resolve, see: bebop session <sub>",
 			].join("\n"),
 		);
 }
@@ -143,7 +143,7 @@ export async function runSessionListCommand(
 					sessions: [],
 					total: 0,
 					omitted: 0,
-					next: "start and join a Pi session, then rerun pi-bebop session live",
+					next: "start and join a Pi session, then rerun bebop session live",
 				},
 			},
 			format: options.format,

@@ -1,6 +1,6 @@
 # Crew Init
 
-`pi-bebop crew init` is the deterministic, non-interactive scaffold that
+`bebop crew init` is the deterministic, non-interactive scaffold that
 creates a canonical software crew layout in a project. It is creation, not
 configuration migration: it never overwrites, merges, or forces.
 
@@ -12,7 +12,7 @@ configuration migration: it never overwrites, merges, or forces.
 ## Command
 
 ```text
-pi-bebop crew init [--project <directory>] [--format toon|json|text]
+bebop crew init [--project <directory>] [--format toon|json|text]
 ```
 
 Defaults:
@@ -138,7 +138,7 @@ Crew scaffold created: /project
 Manifest: /project/.pi/bebop/crew.json
 Created: 2 path(s)
 Verified: 1 path(s)
-Next: pi-bebop --crew-role lead
+Next: bebop --crew-role lead
 ```
 
 Use `--format toon` or `--format json` to retain the canonical structured result.

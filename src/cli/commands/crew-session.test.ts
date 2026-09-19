@@ -235,7 +235,7 @@ test("crew session list, show, resolve, and add expose stable empty and failure 
 	assert.equal(listed.kind, "result");
 	if (listed.kind === "result") {
 		assert.equal(listed.result.status, "empty");
-		assert.equal((listed.result.data as { next: string }).next, "pi-bebop session capture <name>");
+		assert.equal((listed.result.data as { next: string }).next, "bebop session capture <name>");
 	}
 	const shown = await runCrewSessionShowCommand(
 		{ command: "session-show", id: "missing", format: "toon", full: false },

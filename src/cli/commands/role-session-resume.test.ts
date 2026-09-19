@@ -281,7 +281,7 @@ test("the real CLI keeps resume help, syntax errors, and failures inside the str
 		helpErrText += chunk;
 	});
 	assert.equal(await runCli(["session", "resume", "--help"], "/project", process.stdin, helpOutput, helpErr), 0);
-	assert.match(helpText, /Usage: pi-bebop session resume/);
+	assert.match(helpText, /Usage: bebop session resume/);
 	assert.match(helpText, /--role <exact-role>/);
 	assert.equal(helpErrText, "");
 

@@ -10,7 +10,7 @@ const FULL_COMMIT_SHA = /^[0-9a-fA-F]{40}$/;
 export function formatCliVersion(packageVersion: string, buildCommit: string): string {
 	if (!FULL_COMMIT_SHA.test(buildCommit))
 		throw new Error("Build commit must be a full 40-character hexadecimal commit SHA");
-	return `pi-bebop ${packageVersion} (commit ${buildCommit.toLowerCase()})`;
+	return `bebop ${packageVersion} (commit ${buildCommit.toLowerCase()})`;
 }
 
 /** Build-time constants are replaced by esbuild; this module performs no IO. */

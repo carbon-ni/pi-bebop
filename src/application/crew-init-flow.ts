@@ -11,7 +11,7 @@ import {
 } from "../domain/index.ts";
 
 /**
- * Deterministic `pi-bebop crew init` application flow (TASK-0054).
+ * Deterministic `bebop crew init` application flow (TASK-0054).
  *
  * Implements the TASK-0053 contract with an injected filesystem adapter so the
  * whole flow is deterministic and testable without real IO:

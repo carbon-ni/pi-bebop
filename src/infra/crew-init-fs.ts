@@ -5,7 +5,7 @@ import { CREW_INIT_PROJECT_DIR } from "../domain/index.ts";
 import type { CrewInitFsAdapter, CrewInitPathKind } from "../application/crew-init-flow.ts";
 
 /**
- * Node filesystem adapter for `pi-bebop crew init` (TASK-0054).
+ * Node filesystem adapter for `bebop crew init` (TASK-0054).
  *
  * - Reads kinds via lstat so symlinks are detected and rejected, never followed.
  * - Staging is created under the target project's `.pi` directory so the final

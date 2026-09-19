@@ -57,7 +57,7 @@ pi install git:github.com/carbon-ni/pi-bebop
 
 ```bash
 npm install -g @carbon-ni/pi-bebop
-pi-bebop --help
+bebop --help
 ```
 
 Without a global install:
@@ -66,7 +66,7 @@ Without a global install:
 npx @carbon-ni/pi-bebop --help
 ```
 
-For command help, use `pi-bebop <command> --help`.
+For command help, use `bebop <command> --help`.
 Use `--help` or the standard `-h` flag for subcommands; both show Commander-generated help.
 
 CLI results are concise plain text by default. Use `--format toon` for structured agent output or large bounded results, and `--format json` for interoperability; format selection never changes automatically by result size.
@@ -74,8 +74,8 @@ CLI results are concise plain text by default. Use `--format toon` for structure
 ## Start a Crew
 
 ```bash
-pi-bebop crew init
-pi-bebop crew roles
+bebop crew init
+bebop crew roles
 ```
 
 `crew init` creates `.pi/bebop/crew.json`, shared and role instructions, and a `sockets/` directory.
@@ -104,7 +104,7 @@ See [Crew setup](docs/CREW-INIT.md) for the manifest and instruction details.
 To pick an earlier session for a role in the current Crew:
 
 ```bash
-pi-bebop session resume --role developer
+bebop session resume --role developer
 ```
 
 Choose a result and Bebop opens that exact Pi session in its original working directory.
@@ -124,10 +124,10 @@ It isn't a shared conversation or a way to launch everyone at once.
 Capture before closing the sessions you want to keep:
 
 ```bash
-pi-bebop session capture "auth regression"
-pi-bebop session list
-pi-bebop session show <crew-session-id>
-pi-bebop session resolve <crew-session-id> <member>
+bebop session capture "auth regression"
+bebop session list
+bebop session show <crew-session-id>
+bebop session resolve <crew-session-id> <member>
 ```
 
 Capture records missing Members with a reason instead of guessing their latest session.
@@ -155,7 +155,7 @@ See [Crew Sessions](docs/CREW-SESSION.md) for identity checks, storage, privacy,
 Accepted delivery doesn't mean the member read the message or finished the work.
 A response doesn't prove the result is correct either.
 
-From the CLI, use `pi-bebop member request send` followed by `pi-bebop member request wait`, or `pi-bebop ask <crew[/member]>`, when you need a response tied to a request.
+From the CLI, use `bebop member request send` followed by `bebop member request wait`, or `bebop ask <crew[/member]>`, when you need a response tied to a request.
 Member delivery commands (`member follow-up`, `member redirect`, `member inbox send`, `crew broadcast`) confirm accepted or persisted delivery — never completion.
 
 ### Waiting isn't proof of progress
@@ -179,7 +179,7 @@ See [Member requests](docs/MEMBER-REQUEST-WORKFLOW.md) for the full flow.
 ## What's new in 0.2.0
 
 - **Sessions:** bookmark Member sessions and use a separate picker to resume a session by role.
-- **Commander-native CLI:** running `pi-bebop` (or `--help`) prints the root command tree; each group and leaf has its own generated help. Syntax errors go to stderr with exit 2 and local usage, operational failures to stderr with exit 1, and successful results keep `--format text|toon|json`.
+- **Commander-native CLI:** running `bebop` (or `--help`) prints the root command tree; each group and leaf has its own generated help. Syntax errors go to stderr with exit 2 and local usage, operational failures to stderr with exit 1, and successful results keep `--format text|toon|json`.
 - **Session CLI:** `session` replaces the former `crew session` command family.
 - **Guests:** admit and revoke trusted guests, send direct messages, and broadcast in a defined order.
 - **Waits and requests:** tie responses to requests, wake waits for incoming messages, and report timeouts and failures explicitly.
@@ -196,14 +196,14 @@ To use the CLI from this checkout:
 
 ```bash
 npm link
-pi-bebop --help
+bebop --help
 ```
 
 Or install a packed release into a project:
 
 ```bash
 npm install ./carbon-ni-pi-bebop-0.2.0.tgz
-npx pi-bebop --help
+npx bebop --help
 ```
 
 `make all` runs the pre-push gate: format, package, lint, build, test, and security checks.

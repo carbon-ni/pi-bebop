@@ -224,7 +224,7 @@ test("output result uses project-relative managed paths and copyable next comman
 		manifestPath: ".pi/bebop/crew.json",
 		createdPaths: [".pi/bebop/crew.json", ".pi/bebop/sockets/"],
 		verifiedPaths: [],
-		nextCommands: ["pi-bebop crew join .pi/bebop/crew.json"],
+		nextCommands: ["bebop crew join .pi/bebop/crew.json"],
 	};
 	assert.ok(
 		result.createdPaths.every((path) => !path.startsWith("/")),

@@ -104,8 +104,8 @@ export function buildCrewSessionCaptureCommand(): Command {
 				"exits 0 when at least one Member is valid; capture-empty exits 1 and writes no record.",
 				"",
 				"Examples:",
-				'  pi-bebop session capture "auth regression"',
-				'  pi-bebop session capture "release review" --crew .pi/bebop/crew.json --format text',
+				'  bebop session capture "auth regression"',
+				'  bebop session capture "release review" --crew .pi/bebop/crew.json --format text',
 			].join("\n"),
 		);
 }
@@ -124,7 +124,7 @@ export function buildCrewSessionAddCommand(): Command {
 				"remain separate explicit operations.",
 				"",
 				"Example:",
-				"  pi-bebop session add cs_0123456789abcdef Alice --format text",
+				"  bebop session add cs_0123456789abcdef Alice --format text",
 			].join("\n"),
 		);
 }
@@ -365,7 +365,7 @@ function listResult(result: CrewSessionListResult, target: string): CliResult {
 			returned: result.returned,
 			omitted: result.omitted,
 			truncated: result.truncated,
-			...(result.sessions.length === 0 ? { next: "pi-bebop session capture <name>" } : {}),
+			...(result.sessions.length === 0 ? { next: "bebop session capture <name>" } : {}),
 		},
 	};
 }

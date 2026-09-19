@@ -75,7 +75,7 @@ export function createCliExecutionAdapter(registry: CliRegistry) {
 			helpOut = "";
 			capturedErr = "";
 			try {
-				await program.parseAsync(["node", "pi-bebop", ...request.args]);
+				await program.parseAsync(["node", "bebop", ...request.args]);
 			} catch (error) {
 				if (error instanceof CommanderError) {
 					// Explicit help (-h/--help) and version: Commander wrote the

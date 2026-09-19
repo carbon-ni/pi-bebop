@@ -7,10 +7,10 @@ Status: product contract for TASK-0171. Implementation is deferred to dependent 
 A caller addresses a Crew by its stable selector and a Member by its exact configured name. Pi Bebop resolves trusted local routing and correlation details. It never guesses identity, authority, or work progress.
 
 ```text
-pi-bebop crew list
-pi-bebop crew status funzzy
-pi-bebop ask funzzy "What are you working on?"
-pi-bebop ask funzzy/Mony "What is blocked?"
+bebop crew list
+bebop crew status funzzy
+bebop ask funzzy "What are you working on?"
+bebop ask funzzy/Mony "What is blocked?"
 ```
 
 These commands require an authorized route: the current joined Member or an approved Guest membership for that exact Crew. Automatic routing never borrows another Member identity. A standalone External actor may discover Crews or use one-way Crew Intake, but a Crew Locator alone does not authorize Ask, Member actions, or Guest actions.
@@ -94,8 +94,8 @@ A lower-level `timeout max-wait` Request outcome is presented by Ask as `timeout
 
 | State | Result | Required recovery or output |
 | --- | --- | --- |
-| Missing Crew Selector | Error before probing | `pi-bebop crew list` |
-| Unknown Crew Selector | Error | `pi-bebop crew list` and closest exact selectors only when deterministic |
+| Missing Crew Selector | Error before probing | `bebop crew list` |
+| Unknown Crew Selector | Error | `bebop crew list` and closest exact selectors only when deterministic |
 | Duplicate selector/worktree | `ambiguous-crew` | up to 20 runnable `--crew <locator>` commands plus total/shown/truncation |
 | Exact Locator outside allowed layout | Trust error before manifest IO | required canonical layout, no fallback |
 | Missing `crew.id` | Unaddressable error | add valid `crew.id`, or use Locator only for supported external Intake |
@@ -110,7 +110,7 @@ A lower-level `timeout max-wait` Request outcome is presented by Ask as `timeout
 | Stale route | one bounded re-resolution, then `route-lost` | rerun exact Ask; no hidden loop |
 | Discovery exceeds 2 s | `discovery-timeout` | safe retry; no delivery was attempted |
 | Partial Crew Status | success with `partial: true` | every unavailable Member has its own terminal reason |
-| Malformed Response | `malformed-response` | `pi-bebop doctor`; never render malformed content as valid |
+| Malformed Response | `malformed-response` | `bebop doctor`; never render malformed content as valid |
 | Total/grace timeout | `timeout-total` / `timeout-after-idle` | exact retry command with valid duration relation |
 | SIGINT during discovery/wait | `cancelled`, exit 130 | only local phase stopped; after Accepted target may continue |
 | SIGINT/timeout during delivery RPC | `cancelled` or `delivery-timeout-unknown` | `acceptance: unknown`, `safeRetry: false`; never imply safe deduplication |

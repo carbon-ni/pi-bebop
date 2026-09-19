@@ -15,7 +15,7 @@ const root = path.resolve(".");
 test("formats the CLI version with the package version and full build commit", () => {
 	assert.equal(
 		formatCliVersion("1.2.3", "ABCDEF0123456789ABCDEF0123456789ABCDEF01"),
-		"pi-bebop 1.2.3 (commit abcdef0123456789abcdef0123456789abcdef01)",
+		"bebop 1.2.3 (commit abcdef0123456789abcdef0123456789abcdef01)",
 	);
 });
 
@@ -36,7 +36,7 @@ test("root -v and --version return the same concise output without project IO", 
 	}
 	assert.equal(outputs[0], outputs[1]);
 	assert.equal(outputs[0], `${cliVersionOutput()}\n`);
-	assert.match(outputs[0], /^pi-bebop [^\n]+ \(commit [0-9a-f]{40}\)\n$/);
+	assert.match(outputs[0], /^bebop [^\n]+ \(commit [0-9a-f]{40}\)\n$/);
 });
 
 test("packed CLI preserves the built version and commit provenance", async () => {
@@ -46,7 +46,7 @@ test("packed CLI preserves the built version and commit provenance", async () =>
 	try {
 		const artifact = path.resolve("dist/cli/main.js");
 		const direct = await execFile(process.execPath, [artifact, "--version"], { cwd: root });
-		assert.match(direct.stdout, new RegExp(`^pi-bebop ${packageJson.version} \\(commit [0-9a-f]{40}\\)\\n$`));
+		assert.match(direct.stdout, new RegExp(`^bebop ${packageJson.version} \\(commit [0-9a-f]{40}\\)\\n$`));
 		const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root });
 		const archive = packed.stdout
 			.trim()
@@ -74,5 +74,5 @@ test("root version flags take precedence over trailing arguments", async () => {
 	output.setEncoding("utf8");
 	output.on("data", (chunk) => (text += chunk));
 	assert.equal(await runCli(["--version", "--help"], process.cwd(), process.stdin, output), 0);
-	assert.match(text, /^pi-bebop /);
+	assert.match(text, /^bebop /);
 });

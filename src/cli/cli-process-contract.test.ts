@@ -76,7 +76,7 @@ test("no arguments show Commander-owned root help on stdout with exit 0", async 
 	try {
 		const run = await cli([], project);
 		assert.equal(run.code, 0);
-		assert.match(run.stdout, /^Usage: pi-bebop/);
+		assert.match(run.stdout, /^Usage: bebop/);
 		assert.match(run.stdout, /Commands:/);
 		for (const group of ["crew", "member", "session", "guest"])
 			assert.match(run.stdout, new RegExp(`^  ${group}`, "m"));
@@ -90,7 +90,7 @@ test("root --help and -h are the same help, stdout, exit 0", async () => {
 	for (const flag of ["--help", "-h"]) {
 		const run = await cli([flag]);
 		assert.equal(run.code, 0, flag);
-		assert.match(run.stdout, /^Usage: pi-bebop/);
+		assert.match(run.stdout, /^Usage: bebop/);
 		assert.equal(run.stderr, "", flag);
 	}
 });
@@ -109,7 +109,7 @@ test("help performs no project IO", async () => {
 test("a bare group shows the group's local help on stdout with exit 0", async () => {
 	const run = await cli(["member"]);
 	assert.equal(run.code, 0);
-	assert.match(run.stdout, /^Usage: pi-bebop member/);
+	assert.match(run.stdout, /^Usage: bebop member/);
 	assert.match(run.stdout, /status/);
 	assert.equal(run.stderr, "");
 });
@@ -139,7 +139,7 @@ test("every leaf supports -h with generated usage and prose on stdout, exit 0", 
 		for (const flag of ["--help", "-h"]) {
 			const run = await cli([...leaf, flag]);
 			assert.equal(run.code, 0, [...leaf, flag].join(" "));
-			assert.match(run.stdout, new RegExp(`^Usage: pi-bebop ${leaf.join(" ")}`), leaf.join(" "));
+			assert.match(run.stdout, new RegExp(`^Usage: bebop ${leaf.join(" ")}`), leaf.join(" "));
 			assert.equal(run.stderr, "", [...leaf, flag].join(" "));
 		}
 	}
@@ -156,7 +156,7 @@ test("unknown group subcommand exits 2 with local usage, not the full leaf list"
 	const run = await cli(["crew", "nope"]);
 	assert.equal(run.code, 2);
 	assert.match(run.stderr, /error: unknown command 'nope'/);
-	assert.match(run.stderr, /Usage: pi-bebop crew/);
+	assert.match(run.stderr, /Usage: bebop crew/);
 	assert.equal(run.stdout, "");
 });
 
@@ -170,7 +170,7 @@ test("unknown option exits 2 showing the addressed command's local usage", async
 	const run = await cli(["member", "status", "--bogus", "x"]);
 	assert.equal(run.code, 2);
 	assert.match(run.stderr, /error: unknown option '--bogus'/);
-	assert.match(run.stderr, /Usage: pi-bebop member status/);
+	assert.match(run.stderr, /Usage: bebop member status/);
 	assert.equal(run.stdout, "");
 });
 
@@ -179,14 +179,14 @@ test("missing required argument exits 2 with local usage", async () => {
 	const run = await cli(["member", "request", "wait"]);
 	assert.equal(run.code, 2);
 	assert.match(run.stderr, /missing required argument/);
-	assert.match(run.stderr, /Usage: pi-bebop member request wait/);
+	assert.match(run.stderr, /Usage: bebop member request wait/);
 	assert.equal(run.stdout, "");
 });
 
 test("excess arguments exit 2 with local usage", async () => {
 	const run = await cli(["crew", "init", "extra", "args"]);
 	assert.equal(run.code, 2);
-	assert.match(run.stderr, /Usage: pi-bebop crew init/);
+	assert.match(run.stderr, /Usage: bebop crew init/);
 	assert.equal(run.stdout, "");
 });
 
@@ -206,7 +206,7 @@ test("the compatibility top-level send command is removed", async () => {
 test("-v prints the version on stdout with exit 0", async () => {
 	const run = await cli(["-v"]);
 	assert.equal(run.code, 0);
-	assert.match(run.stdout, /^pi-bebop \d+\.\d+\.\d+/);
+	assert.match(run.stdout, /^bebop \d+\.\d+\.\d+/);
 	assert.equal(run.stderr, "");
 });
 

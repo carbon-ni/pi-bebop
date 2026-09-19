@@ -46,7 +46,7 @@ export async function sendDirectMessage(
 	if (request.wait === "turn_end") {
 		throw new DirectMessageError(
 			"uncorrelated-response",
-			"turn_end is not delivery-correlated; use pi-bebop member request send and pi-bebop member request wait, or pi-bebop ask <crew[/member]> for a correlated response",
+			"turn_end is not delivery-correlated; use bebop member request send and bebop member request wait, or bebop ask <crew[/member]> for a correlated response",
 		);
 	}
 	const command: RpcSendCommand = {

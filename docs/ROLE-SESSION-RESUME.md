@@ -4,13 +4,13 @@ Status: proposed implementation contract for TASK-0205 through TASK-0207.
 
 ## Promise
 
-`pi-bebop session resume --role <exact-role>` is a separate Bebop picker for a
+`bebop session resume --role <exact-role>` is a separate Bebop picker for a
 current trusted Crew. It shows only prior Pi sessions that Bebop explicitly
 attributed to the exact current configured Member for that role. Selecting one
 launches that exact existing Pi session and its history.
 
 ```text
-pi-bebop session resume --role developer
+bebop session resume --role developer
 ```
 
 Plain `pi -r` remains unchanged and unfiltered.

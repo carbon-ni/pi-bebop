@@ -159,7 +159,7 @@ Crew:
 ### External actor to product
 
 ```bash
-pi-bebop send --crew .pi/bebop/crew.json \
+bebop send --crew .pi/bebop/crew.json \
   --message "Users need offline crew messages to survive restart" \
   --from "product-request"
 ```

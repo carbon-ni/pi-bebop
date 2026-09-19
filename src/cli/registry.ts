@@ -165,7 +165,7 @@ function findOrCreate(parent: Command, name: string, description: string | undef
 
 /** Builds the declarative root tree from the ordered leaves (no hardcoded vocabulary). */
 export function buildRootCommand(leaves: readonly CliLeaf[], hooks: CliCommandHooks = {}): Command {
-	const root = new Command("pi-bebop").description("Pi Bebop crew coordination CLI");
+	const root = new Command("bebop").description("Pi Bebop crew coordination CLI");
 	hooks.onRoot?.(root);
 	for (const leaf of leaves) {
 		let parent = root;
