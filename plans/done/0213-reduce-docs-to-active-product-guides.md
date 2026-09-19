@@ -1,7 +1,7 @@
 ---
 id: TASK-0213
 title: Reduce docs to active product guides
-status: todo
+status: done
 depends_on: [TASK-0212]
 priority: medium
 tags: [docs, cleanup, product, maintenance]
