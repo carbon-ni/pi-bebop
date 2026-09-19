@@ -1,7 +1,7 @@
 ---
 id: TASK-0211
 title: Port Current Member session naming to main
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [crew, membership, session-name, lifecycle, pi-api, tdd]
