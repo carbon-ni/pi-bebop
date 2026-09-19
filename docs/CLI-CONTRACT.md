@@ -1,6 +1,6 @@
-# CLI audience and compatibility contract
+# CLI audience and contract
 
-Status: normative migration contract for TASK-0165. It defines behavior for TASK-0166–0170; it does not change runtime or wire semantics.
+Status: normative v0 contract (TASK-0209). Commander owns discovery, help, and syntax errors; this document pins the audience matrix, stream placement, and exit classes.
 
 ## Principle
 
@@ -17,8 +17,7 @@ Every result-producing leaf supports `--format text|toon|json`. Help and version
 
 | Command | Primary audience | Default | Overrides | Next decision |
 | --- | --- | --- | --- | --- |
-| no arguments (home) | agent | TOON | text, JSON | choose one available command from current state |
-| `send` | automation/diagnostic | TOON | text, JSON | confirm Accepted delivery or correct target/options |
+| no arguments | human guidance | text only | none | Commander root help: pick the next command |
 | `crew init` | human | text | TOON, JSON | inspect files and start/join a Member |
 | `crew roles` | agent | TOON | text, JSON | select exact configured role/Member |
 | `crew broadcast` | agent | TOON | text, JSON | inspect per-recipient Accepted/failure outcome |
@@ -34,11 +33,11 @@ Every result-producing leaf supports `--format text|toon|json`. Help and version
 | `member request respond` | agent | TOON | text, JSON | confirm correlated Response submission |
 | `session capture` | agent | TOON | text, JSON | snapshot joined online Members into a durable Crew Session |
 | `session add` | agent | TOON | text, JSON | capture one missing Member into an existing Crew Session |
-| `session list` | agent | TOON | text, JSON | list durable Crew Sessions (TASK-0204; was `crew session list`) |
+| `session list` | agent | TOON | text, JSON | list durable Crew Sessions |
 | `session show` | agent | TOON | text, JSON | inspect one exact Crew Session and its Member observations |
 | `session resolve` | agent | TOON | text, JSON | resolve one exact Member to a manual Pi startup specification |
 | `session resume --role <exact-role>` | agent | TOON | text, JSON | pick one current-Crew role-attributed Pi Session |
-| `session live` | automation/diagnostic | TOON | text, JSON | list reachable Pi sessions (was `session list`; TASK-0204) |
+| `session live` | automation/diagnostic | TOON | text, JSON | list reachable Pi sessions |
 | `guest join` | agent | TOON | text, JSON | retain pending/approved Crew membership state |
 | `guest leave` | agent | TOON | text, JSON | confirm exact Crew membership removal/no-op |
 | `guest send` | agent | TOON | text, JSON | inspect authorized direct delivery outcome |
@@ -55,7 +54,6 @@ Future name-first `crew list`, `crew status`, `ask`, and Crew history are agent-
 
 ```text
 pi-bebop
-├── send                         # low-level explicit direct session delivery
 ├── crew
 │   ├── init
 │   ├── roles
@@ -80,18 +78,18 @@ pi-bebop
     └── live                   # live Pi Session discovery (TASK-0061, renamed from `session list`)
 ```
 
-`pi-bebop crew session ...` is no longer supported; the rejection leaf returns `UsageError` with the replacement `pi-bebop session <capture|add|list|show|resolve>` (TASK-0204). New product workflows belong under `crew`, `member`, `guest`, or the `session` group above. Top-level `send` remains a compatibility surface.
+Top-level `send` and the `crew session ...` rejection path are removed (v0); Commander treats them as any other unknown command.
 
 ## Terms at point of use
 
 Help must use these short definitions where a term first affects a decision. Long comparisons belong in the future `help delivery` guide.
 
 - **Joined Member**: current Pi session has claimed one exact manifest Member identity.
-- **Source session**: legacy live Pi runtime used to send a command (`pi-bebop session live` is the canonical live Pi Session discovery surface; TASK-0204). It is transport, not Crew/Member identity; normal name-first recovery must not ask users to choose one.
-- **Socket**: explicit local transport endpoint used only by low-level compatibility commands and diagnostics.
+- **Source session**: live Pi runtime used to send a command (`pi-bebop session live` discovers available sessions). It is transport, not Crew/Member identity; normal name-first recovery must not ask users to choose one.
+- **Socket**: explicit local transport endpoint used by low-level diagnostics.
 - **Crew Intake**: one-way external → configured Crew contact delivery. It is not Broadcast or Guest membership.
 - **Follow-up**: non-interrupting message; if recipient is busy it queues behind active work.
-- **Redirect**: message inserted into active work to change the next model step. Legacy `steer` is accepted only where compatibility requires it; product help says Redirect.
+- **Redirect**: message inserted into active work to change the next model step.
 - **Response grace**: bounded time after Responder first becomes mechanically idle to submit one correlated Response.
 - **Accepted**: live endpoint validated and delivery request acknowledged; not persisted, answered, or completed.
 - **Persisted**: durably stored Inbox item; not handed off, read, answered, or completed.
@@ -116,23 +114,23 @@ Application/domain code owns:
 - path/trust/session resolution and all IO;
 - protocol payloads, cancellation, ordering, and result data.
 
-One central application-owned Commander option policy rejects repeated scalar flags before any dependency call. `--instruction` remains ordered, repeatable, and bounded. Per-command argv scanners must not return under another name.
+Commander owns duplicate-option behavior (last value wins). `--instruction` remains ordered, repeatable, and bounded. There is no application-owned argv pre-scanner.
 
-## Intentional grammar compatibility
+## Stable CLI boundary
 
 | Surface | Contract |
 | --- | --- |
 | Successful command semantics | Preserve protocol payloads, ordering, cancellation, authorization, and domain outcomes. |
-| Scalar duplicates | Continue to fail with exit 2; Commander last-value-wins is not accepted. |
+| Scalar options | Commander owns duplicate handling; the last value wins. |
 | Repeatable instructions | Preserve source order and existing bound. |
-| Help | Standard `-h`/`--help` at root, group, and leaf; exit 0; exact legacy bytes are not preserved. |
-| Option sentinel | Standard `--` ends option parsing. A flag-looking value uses `--flag=--value`. Legacy `--flag -- --value` is retired with a targeted migration hint or leaf help note. |
-| Error wording | Domain error codes and meaning stay stable; exact Commander usage prose may change. |
+| Help | Commander-generated `-h`/`--help`/`help [command]` at root, group, and leaf; stdout, exit 0; exact bytes are not a contract. |
+| Option sentinel | Standard `--` ends option parsing; a flag-looking value uses `--flag=--value`. |
+| Error wording | Commander usage prose is presented verbatim; only stream placement and exit class are the contract. |
 | Exit codes | 0 success/help/idempotent no-op; 1 operational failure; 2 usage failure; 130 caller SIGINT where a blocking command defines it. |
-| No arguments | Render compact live home state, not full help. |
-| Version | One text line; no structured wrapper. |
+| No arguments | Commander root help on stdout, exit 0. |
+| Version | Commander `.version()`: one text line on stdout, exit 0. |
 
-Unknown/missing input names the offending value and valid local alternatives. Renamed/retired syntax gives the exact replacement. Validation happens before network, filesystem, socket, or subprocess work.
+Unknown or missing input names the offending value and valid local alternatives. Validation happens before network, filesystem, socket, or subprocess work.
 
 ## Result and rendering boundary
 
@@ -143,12 +141,12 @@ A canonical result is format-independent domain/application data. A command pres
 - Session IDs, socket paths, capabilities, raw Request IDs, stack traces, dependency payloads, and message content are excluded unless the command contract explicitly makes a safe subset public.
 - TOON and JSON encode the same normalized value. TOON uses `@toon-format/toon`; no handwritten encoder/parser.
 - Text conveys the same outcome in a concise human view, but is not required to round-trip. Bounded canonical presenters select only decision-relevant fields; they never dump a raw result object. Session lists show identity, aliases, membership, totals, and omissions; crew init shows state, target, paths, and the next command; communication receipts show only delivery/request facts.
-- Structured errors go to stdout in the selected/default format. Debug/progress diagnostics go to stderr.
+- Successful results go to stdout in the selected format (`text|toon|json`). Usage failures and operational failures are concise plain text on stderr (exit 2 and 1 respectively) and are never wrapped in TOON/JSON envelopes; `--format` never affects failure output.
 - Empty results state query scope and zero count.
 - Lists state total separately from shown count and remain deterministic.
 - Truncated fields include `truncated`, original size, shown size, and a runnable `--full` hint only when truncation occurred.
 
-A parse failure uses the addressed leaf's default format when that leaf is known. Root dispatch failures use the home/default TOON envelope. Help always remains text.
+A syntax failure shows the addressed command's local usage plus Commander's suggestion when available. Help always remains text on stdout with exit 0.
 
 ## Pre-migration representative baseline
 
@@ -160,7 +158,7 @@ These canonical samples were captured before Commander execution migration. Byte
 | queued Accepted Follow-up | 41 B | 123 B | 135 B | equal |
 | empty session list (Crew Sessions, TASK-0204) | 24 B | 79 B | 89 B | equal |
 
-Earlier current-output characterization also found `crew roles` at 296 B TOON versus 37 B text, `session list --format text` (Pi Sessions) losing rows and returning only `Message completed`, and home at 552 B structured output. These defects justify audience-specific presenters; they are not preserved behavior. The Pi Session `session list` was renamed to `session live` (TASK-0204) and `session list` is now the Crew Session list.
+Earlier current-output characterization also found `crew roles` at 296 B TOON versus 37 B text, `session list --format text` (Pi Sessions) losing rows and returning only `Message completed`, and home at 552 B structured output. These defects justify audience-specific presenters; they are not preserved behavior. `session live` lists reachable Pi sessions; `session list` lists durable Crew Sessions.
 
 Baseline path coverage required before migration tests:
 
@@ -172,14 +170,6 @@ Baseline path coverage required before migration tests:
 | Operational error | product error code/message, one safe recovery, exit 1, no raw dependency data |
 | Truncated | preview plus original/shown sizes and `--full` escape |
 
-## Known pre-migration implementation gaps
+## Change gate
 
-These observations are baseline defects, not claims that current code already satisfies the target contract:
-
-- `guest send` and `guest broadcast` currently reuse a parser helper that wrongly requires a positional Member socket although their Commander builders declare none. TASK-0168 must fix this while migrating Guest grammar and add executable happy-path coverage.
-- Leaf `-h`/`--help` is currently disabled or handled by local pre-scanners. TASK-0166–0168 must establish standard Commander help.
-- TASK-0170 closes the prior text presentation gap: `session live --format text` (Pi Sessions) renders bounded session rows and explicit empty/omitted state, while command-specific receipts remain available through the same text override. The Crew Session `session list` and the Pi Session `session live` follow the same audience-aware text override.
-
-## Review gate
-
-Parser implementation may start only after product and lead approve this target matrix and acknowledge the tracked baseline gaps. Any change to audience default, exit code, scalar duplicate policy, sentinel migration, or serialization boundary requires an explicit contract update rather than an incidental parser diff.
+Any change to audience defaults, exit classes, scalar-option policy, option sentinels, or serialization boundaries requires an explicit contract update rather than an incidental parser change.

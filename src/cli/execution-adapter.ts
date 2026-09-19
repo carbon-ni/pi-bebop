@@ -1,12 +1,12 @@
-import { Command } from "commander";
+import { CommanderError, type Command } from "commander";
 import type { Readable, Writable } from "node:stream";
-import { UsageError } from "./support/arguments.ts";
 import { buildRootCommand, type CliLeaf, type CliRegistry } from "./registry.ts";
 import type { CliContext } from "./support/context.ts";
 import type { CliOutcome } from "./support/output.ts";
-import { rootCliHelp } from "./root-help.ts";
+import { UsageError } from "./support/arguments.ts";
 import { cliVersionOutput } from "./version.ts";
-import { parseHomeFormat } from "./audience-policy.ts";
+
+export type CliExecutionResult = CliOutcome;
 
 export interface CliExecutionRequest {
 	readonly args: readonly string[];
@@ -18,214 +18,81 @@ export interface CliExecutionRequest {
 	readonly signal: AbortSignal;
 }
 
-export type CliExecutionResult = CliOutcome;
-
-interface Invocation {
-	readonly request: CliExecutionRequest;
-	readonly program: Command;
-}
-
-function longOptionNames(program: Command): Set<string> {
-	const names = new Set<string>();
-	const visit = (command: Command) => {
-		for (const option of command.options) if (option.long !== undefined) names.add(option.long);
-		for (const child of command.commands) visit(child);
-	};
-	visit(program);
-	return names;
-}
-
-function selectedCommand(args: readonly string[], program: Command): Command {
-	let selected = program;
-	for (const token of args) {
-		if (token === "--" || token.startsWith("-")) break;
-		const child = selected.commands.find((candidate) => candidate.name() === token);
-		if (child === undefined) break;
-		selected = child;
-	}
-	return selected;
-}
-
 /**
- * Commander retains the last scalar option. Keep the compatibility contract by
- * rejecting repeated scalar options once, before Commander or a leaf handler
- * can observe them. Repeatable instructions are the one intentional exception.
- */
-export function rejectDuplicateScalarOptions(args: readonly string[], program: Command): void {
-	const scalarOptions = longOptionNames(program);
-	const repeatableOptions = new Set(
-		selectedCommand(args, program)
-			.options.filter((option) => option.long !== undefined && option.long === "--instruction")
-			.map((option) => option.long!),
-	);
-	const seen = new Set<string>();
-	for (let index = 0; index < args.length; index += 1) {
-		const token = args[index]!;
-		if (token === "--") break;
-		if (!token.startsWith("--")) continue;
-		const name = token.slice(0, token.indexOf("=") === -1 ? token.length : token.indexOf("="));
-		if (repeatableOptions.has(name) || !scalarOptions.has(name)) continue;
-		if (seen.has(name)) throw new UsageError(`Duplicate flag: ${name}`);
-		seen.add(name);
-	}
-}
-
-function normalizeLeafHelp(tokens: readonly string[]): string[] {
-	let sentinel = false;
-	return tokens.map((token) => {
-		if (token === "--") sentinel = true;
-		return !sentinel && token === "-h" ? "--help" : token;
-	});
-}
-
-function mapCommanderError(
-	error: Error & { code?: string },
-	args: readonly string[],
-	vocabulary: readonly string[],
-): UsageError {
-	if (error.code === "commander.unknownCommand")
-		return new UsageError(`Invalid command '${args[0] ?? ""}'; valid commands: ${vocabulary.join(", ")}`);
-	if (error.code === "commander.optionMissingArgument") {
-		const match = /option '([^']+)' argument missing/.exec(error.message);
-		throw new UsageError(`Missing value for ${match?.[1] ?? "option"}`);
-	}
-	if (error.code === "commander.unknownOption") return new UsageError(error.message);
-	if (error.code === "commander.excessArguments") return new UsageError(error.message);
-	return new UsageError(error.message);
-}
-
-function addHelpOption(command: Command, deferLeafSyntax = false): void {
-	command
-		.helpOption(false)
-		.option("-h, --help", "Display help")
-		.exitOverride()
-		.configureOutput({
-			writeOut: () => {},
-			writeErr: () => {},
-			outputError: () => {},
-		});
-	if (deferLeafSyntax) command.allowUnknownOption(true).allowExcessArguments(true);
-}
-
-function actionCommand(args: readonly unknown[]): Command | undefined {
-	const candidate = args.at(-1);
-	return candidate instanceof Command ? candidate : undefined;
-}
-
-/**
- * The sole production Commander execution boundary. Leaf parsers remain
- * migration adapters for 0167/0168; Commander owns tree selection, syntax,
- * help/version options, and asynchronous leaf action dispatch here.
+ * TASK-0209: the sole production Commander execution boundary. Commander
+ * owns command discovery, help (`-h`/`--help`/`help [command]`), version,
+ * syntax validation, suggestions, and the error presentation; this adapter
+ * only wires leaf actions, captures Commander's stream writes into outcome
+ * values, and maps exit classes (help 0/stdout, usage 2/stderr).
  */
 export function createCliExecutionAdapter(registry: CliRegistry) {
-	let invocation: Invocation | undefined;
+	let invocation: { request: CliExecutionRequest } | undefined;
 	let dispatched: CliExecutionResult | undefined;
-	const leafHelp = new Map<Command, string>();
-	const program = buildRootCommand(registry.leaves, {
-		onGroup: (command) => {
-			addHelpOption(command);
-			command.action((...args: unknown[]) => {
-				const selected = actionCommand(args) ?? command;
-				dispatched = { kind: "help", text: selected.helpInformation() };
-			});
-		},
-		onLeaf: (command, leaf) => {
-			leafHelp.set(command, leaf.help());
-			// TASK-0167: a leaf with a Commander reader owns its full option and
-			// arity surface, so Commander enforces unknown options and excess
-			// arguments strictly before the reader or handler runs. Legacy
-			// parse-only leaves keep deferred syntax until their migration.
-			const migrated = leaf.read !== undefined;
-			addHelpOption(command, !migrated);
-			if (!migrated) command.allowUnknownOption(true).allowExcessArguments(true);
-			command.action(async () => {
-				if (invocation === undefined) throw new UsageError("CLI execution was not initialized");
-				const { request } = invocation;
-				const prefixLength = leaf.names.length;
-				const tokens = normalizeLeafHelp(request.args.slice(prefixLength));
-				const options = leaf.read ? leaf.read(command, request.cwd) : leaf.parse(tokens, request.cwd);
-				const context: CliContext = {
-					cwd: request.cwd,
-					input: request.input,
-					signal: request.signal,
-					environment: request.environment,
-					output: request.output,
-				};
-				dispatched = await leaf.run(options, context);
-			});
-		},
-	});
-	addHelpOption(program);
-	program.option("-v, --version", "Display version");
-	program.exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	let helpOut = "";
+	let capturedErr = "";
 
-	return {
-		async execute(request: CliExecutionRequest): Promise<CliExecutionResult> {
-			invocation = { request, program };
-			dispatched = undefined;
+	const attachLeafAction = (command: Command, leaf: CliLeaf) => {
+		command.action(async () => {
+			if (invocation === undefined) throw new UsageError("CLI execution was not initialized");
+			const { request } = invocation;
+			const options = leaf.read(command, request.cwd);
 			const context: CliContext = {
 				cwd: request.cwd,
 				input: request.input,
 				signal: request.signal,
 				environment: request.environment,
+				output: request.output,
 			};
-			if (
-				request.args.length === 0 ||
-				request.args[0] === "--format" ||
-				request.args[0]?.startsWith("--format=")
-			) {
-				const home = registry.leafById("home");
-				const outcome = await home.run(home.parse([], request.cwd), context);
-				return outcome.kind === "result" ? { ...outcome, format: parseHomeFormat(request.args) } : outcome;
-			}
-			if (request.args[0] === "-h" || request.args[0] === "--help")
-				return { kind: "help", text: rootCliHelp(registry.vocabulary()) };
-			if (request.args[0] === "-v" || request.args[0] === "--version") {
-				return {
-					kind: "result",
-					result: { ok: true, target: "", status: "version", response: cliVersionOutput() },
-					format: "text",
-					full: false,
-				};
-			}
+			dispatched = await leaf.run(options, context);
+		});
+	};
+
+	// The root is configured before leaves attach: Commander descendants
+	// inherit the output configuration at creation time, so capture must be
+	// installed first or help/errors would reach the process streams directly.
+	const program = buildRootCommand(registry.leaves, {
+		onRoot: (root) => {
+			root.version(cliVersionOutput(), "-v, --version", "Display version");
+			root.showHelpAfterError(true); // syntax failures show the addressed command's local usage
+			root.exitOverride().configureOutput({
+				writeOut: (text) => {
+					helpOut += text;
+				},
+				writeErr: (text) => {
+					capturedErr += text;
+				},
+				getOutHasColors: () => false,
+				getErrHasColors: () => false,
+			});
+		},
+		onLeaf: attachLeafAction,
+	});
+
+	return {
+		async execute(request: CliExecutionRequest): Promise<CliExecutionResult> {
+			invocation = { request };
+			dispatched = undefined;
+			helpOut = "";
+			capturedErr = "";
 			try {
-				const helpIndex = request.args.findIndex((token) => token === "--help" || token === "-h");
-				if (helpIndex >= 0 && !request.args.slice(0, helpIndex).includes("--")) {
-					let selected = program;
-					for (const token of request.args.slice(0, helpIndex)) {
-						const child = selected.commands.find((candidate) => candidate.name() === token);
-						if (child === undefined) break;
-						selected = child;
-					}
-					return { kind: "help", text: leafHelp.get(selected) ?? selected.helpInformation() };
-				}
-				rejectDuplicateScalarOptions(request.args, program);
 				await program.parseAsync(["node", "pi-bebop", ...request.args]);
 			} catch (error) {
-				if (error instanceof Error && error.name === "CommanderError") {
-					const code = (error as Error & { code?: string }).code;
-					if (error.message === "(outputHelp)") {
-						return { kind: "help", text: rootCliHelp(registry.vocabulary()) };
-					}
-					if (request.args[0]?.startsWith("-") && code === "commander.unknownOption")
-						throw new UsageError(
-							`Invalid command '${request.args[0]}'; valid commands: ${registry.vocabulary().join(", ")}`,
-						);
-					if (
-						code === "commander.unknownOption" &&
-						request.args.includes("member") &&
-						(request.args.includes("follow-up") || request.args.includes("redirect")) &&
-						request.args.some((token) => token === "--wait" || token.startsWith("--wait="))
-					)
-						throw new UsageError(
-							"Unknown flag '--wait'; this command is accepted-delivery only and never waits for a reply",
-						);
-					throw mapCommanderError(error as Error & { code?: string }, request.args, registry.vocabulary());
+				if (error instanceof CommanderError) {
+					// Explicit help (-h/--help) and version: Commander wrote the
+					// text to stdout before exiting.
+					if (error.code === "commander.helpDisplayed" || error.code === "commander.version")
+						return { kind: "help", text: helpOut };
+					// No arguments and bare groups: Commander writes the local help
+					// to stderr with exit 1; the contract promotes it to stdout/exit 0.
+					if (error.code === "commander.help")
+						return { kind: "help", text: helpOut.length > 0 ? helpOut : capturedErr };
+					// Syntax failures carry Commander's message plus the addressed
+					// command's local usage — presented verbatim as a usage failure.
+					throw new UsageError((capturedErr.length > 0 ? capturedErr : error.message).trimEnd());
 				}
 				throw error;
 			}
 			if (dispatched !== undefined) return dispatched;
-			if (program.opts().help === true) return { kind: "help", text: rootCliHelp(registry.vocabulary()) };
 			throw new UsageError("No command provided");
 		},
 	};

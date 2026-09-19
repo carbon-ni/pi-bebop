@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Command } from "commander";
 import { PassThrough } from "node:stream";
 import { composeRegistry, createCliRegistry, type CliLeaf } from "./registry.ts";
-import { createCliExecutionAdapter, rejectDuplicateScalarOptions } from "./execution-adapter.ts";
+import { createCliExecutionAdapter } from "./execution-adapter.ts";
 import { UsageError } from "./support/arguments.ts";
 import type { CliContext } from "./support/context.ts";
 
@@ -11,31 +11,15 @@ function context(): CliContext {
 	return { cwd: "/project", input: new PassThrough(), signal: new AbortController().signal };
 }
 
-function registry(run: CliLeaf["run"], parse: CliLeaf["parse"] = (tokens) => ({ command: "ping", tokens })) {
+function registry(run: CliLeaf["run"], read: CliLeaf["read"] = () => ({ command: "ping" })): CliRegistry {
 	const leaf: CliLeaf = {
 		id: "ping",
 		names: ["crew", "member", "ping"],
 		build: () => new Command("ping").argument("<target>").option("--format <format>"),
-		help: () => "ping help",
-		parse,
+		read,
 		run,
 	};
-	return composeRegistry([
-		{
-			id: "home",
-			names: [],
-			build: () => new Command("home"),
-			help: () => "",
-			parse: () => ({ command: "home" }),
-			run: async (_options, _context) => ({
-				kind: "result",
-				result: { ok: true, target: "", status: "home" },
-				format: "toon",
-				full: false,
-			}),
-		},
-		leaf,
-	]);
+	return composeRegistry([leaf]);
 }
 
 function request(args: string[]) {
@@ -45,7 +29,7 @@ function request(args: string[]) {
 test("Commander adapter dispatches three-level commands and awaits async handlers", async () => {
 	const seen: unknown[] = [];
 	const adapter = createCliExecutionAdapter(
-		registry(async (options, _context) => {
+		registry(async (options) => {
 			await Promise.resolve();
 			seen.push(options);
 			return { kind: "help", text: "async result" };
@@ -53,131 +37,57 @@ test("Commander adapter dispatches three-level commands and awaits async handler
 	);
 	const outcome = await adapter.execute(request(["crew", "member", "ping", "target"]));
 	assert.deepEqual(outcome, { kind: "help", text: "async result" });
-	assert.deepEqual(seen, [{ command: "ping", tokens: ["target"] }]);
-	await adapter.execute(request(["crew", "member", "ping", "target", "--", "-h"]));
-	assert.deepEqual(seen[1], { command: "ping", tokens: ["target", "--", "-h"] });
+	assert.deepEqual(seen, [{ command: "ping" }]);
 });
 
-test("duplicate scalar policy preserves repeatables and the option sentinel", () => {
-	const program = new Command("test").option("--format <format>").option("--instruction <value>");
-	// A selected command that declares --instruction keeps its repeatable contract.
-	rejectDuplicateScalarOptions(
-		["--format=toon", "--instruction", "one", "--instruction", "two", "--", "--format", "json"],
-		program,
-	);
-	// The option sentinel ends duplicate scanning: later tokens are positional.
-	const sentinel = new Command("sentinel").option("--format <format>");
-	rejectDuplicateScalarOptions(["--format", "json", "--", "--format", "toon"], sentinel);
-	// Scalar options still reject on the selected command.
-	const nonRepeatable = new Command("plain").option("--format <format>").option("--instruction <value>");
-	assert.throws(
-		() => rejectDuplicateScalarOptions(["--format", "json", "--format", "toon"], nonRepeatable),
-		/Duplicate flag: --format/,
-	);
-	// Repeatable status follows the SELECTED command, not the tree union:
-	// a root-level --instruction declaration does not exempt a selected
-	// subcommand that does not declare it.
-	const root = new Command("root").option("--instruction <value>");
-	const leaf = new Command("leaf").option("--format <format>");
-	root.addCommand(leaf);
-	assert.throws(
-		() => rejectDuplicateScalarOptions(["leaf", "--instruction", "one", "--instruction", "two"], root),
-		/Duplicate flag: --instruction/,
-	);
-});
-
-test("duplicate scalar policy rejects before parse or handler and permits repeated instructions by contract", async () => {
-	let parsed = 0;
-	const adapter = createCliExecutionAdapter(
-		registry(
-			async () => ({ kind: "help", text: "not reached" }),
-			(tokens) => {
-				parsed += 1;
-				return { command: "ping", tokens };
-			},
-		),
-	);
-	await assert.rejects(
-		() => adapter.execute(request(["crew", "member", "ping", "target", "--format", "toon", "--format", "json"])),
-		(error: unknown) => error instanceof UsageError && error.message === "Duplicate flag: --format",
-	);
-	assert.equal(parsed, 0);
-});
-
-test("root, group, leaf help and version stay inside the returned outcome boundary", async () => {
+test("root, group, and leaf help stay inside the returned outcome boundary", async () => {
 	const adapter = createCliExecutionAdapter(registry(async () => ({ kind: "help", text: "handler" })));
-	assert.equal((await adapter.execute(request(["--help"]))).kind, "help");
+	const root = await adapter.execute(request(["--help"]));
+	assert.equal(root.kind, "help");
 	assert.match(String((await adapter.execute(request(["crew", "--help"]))).text), /Usage:.*crew/s);
-	assert.match(String((await adapter.execute(request(["crew", "member", "ping", "-h"]))).text), /ping help/);
-	assert.equal((await adapter.execute(request(["--version"]))).kind, "result");
+	const bare = await adapter.execute(request(["crew"]));
+	assert.equal(bare.kind, "help");
+	assert.match(String(bare.text), /Usage: pi-bebop crew/);
+	// Leaf help is Commander-generated; the semantic reader never runs.
+	const leaf = await adapter.execute(request(["crew", "member", "ping", "-h"]));
+	assert.match(String(leaf.text), /Usage: pi-bebop crew member ping/);
+	const version = await adapter.execute(request(["-v"]));
+	assert.match(String(version.text), /^pi-bebop \d+\.\d+\.\d+/);
 });
 
-test("all communication leaves use Commander readers while retaining semantic parser facades", () => {
-	const communication = new Set([
-		"send",
-		"guest-join",
-		"guest-leave",
-		"guest-send",
-		"guest-broadcast",
-		"member-follow-up",
-		"member-redirect",
-		"member-request-send",
-		"member-request-list",
-		"member-request-wait",
-		"member-request-respond",
-		"member-inbox-send",
-		"member-interrupt",
-		"crew-broadcast",
-	]);
-	const leaves = createCliRegistry().leaves.filter((leaf) => communication.has(leaf.id));
-	assert.equal(leaves.length, communication.size);
-	assert.ok(leaves.every((leaf) => leaf.read !== undefined));
-	assert.ok(leaves.every((leaf) => leaf.parse !== undefined));
+test("every production leaf owns a Commander reader", () => {
+	const leaves = createCliRegistry().leaves;
+	assert.equal(leaves.length, 25);
+	assert.ok(leaves.every((leaf) => typeof leaf.read === "function"));
+	assert.ok(leaves.every((leaf) => leaf.names.length > 0));
 });
 
-test("migrated read leaves reject unknown options and excess arguments before handlers", async () => {
+test("Commander rejects unknown options and excess arguments before handlers run", async () => {
 	let ran = false;
 	const leaf: CliLeaf = {
 		id: "probe",
 		names: ["crew", "probe"],
 		build: () => new Command("probe").option("--format <format>"),
-		help: () => "probe help",
-		parse: (tokens) => ({ command: "probe", tokens }),
 		read: (command) => ({ command: "probe", format: command.opts<{ format?: string }>().format ?? "toon" }),
 		run: async () => {
 			ran = true;
 			return { kind: "result", result: { ok: true, target: "", status: "probe" }, format: "toon", full: false };
 		},
 	};
-	const adapter = createCliExecutionAdapter(
-		composeRegistry([
-			{
-				id: "home",
-				names: [],
-				build: () => new Command("home"),
-				help: () => "",
-				parse: () => ({ command: "home" }),
-				run: async () => ({
-					kind: "result",
-					result: { ok: true, target: "", status: "home" },
-					format: "toon",
-					full: false,
-				}),
-			},
-			leaf,
-		]),
-	);
+	const adapter = createCliExecutionAdapter(composeRegistry([leaf]));
 	await assert.rejects(
 		adapter.execute(request(["crew", "probe", "--bogus"])),
-		(error: unknown) => error instanceof UsageError && /unknown option/i.test(error.message) && ran === false,
+		(error: unknown) =>
+			error instanceof UsageError && /unknown option '--bogus'/i.test(error.message) && ran === false,
 	);
 	await assert.rejects(
 		adapter.execute(request(["crew", "probe", "stray"])),
-		(error: unknown) => error instanceof UsageError && /too many arguments/i.test(error.message) && ran === false,
+		(error: unknown) =>
+			error instanceof UsageError && /usage: pi-bebop crew probe/i.test(error.message) && ran === false,
 	);
 });
 
-test("unknown syntax is rejected before the async handler", async () => {
+test("unknown syntax is rejected before the async handler, with local usage and suggestions", async () => {
 	let called = false;
 	const adapter = createCliExecutionAdapter(
 		registry(async () => {
@@ -185,9 +95,19 @@ test("unknown syntax is rejected before the async handler", async () => {
 			return { kind: "help", text: "not reached" };
 		}),
 	);
-	await assert.rejects(() => adapter.execute(request(["crew", "member", "unknown"])), UsageError);
-	await assert.rejects(() => adapter.execute(request(["frobnicate"])), /Invalid command/);
-	await assert.rejects(() => adapter.execute(request(["crew", "--bogus"])), /unknown option/);
+	await assert.rejects(
+		() => adapter.execute(request(["crew", "member", "unknown"])),
+		(error: unknown) => error instanceof UsageError && /unknown command 'unknown'/.test(error.message),
+	);
+	await assert.rejects(
+		() => adapter.execute(request(["frobnicate"])),
+		(error: unknown) => error instanceof UsageError && /unknown command 'frobnicate'/.test(error.message),
+	);
+	await assert.rejects(
+		() => adapter.execute(request(["crew", "--bogus"])),
+		(error: unknown) => error instanceof UsageError && /unknown option '--bogus'/.test(error.message),
+	);
+	// The required <target> argument is missing: Commander rejects first.
 	await assert.rejects(() => adapter.execute(request(["crew", "member", "ping"])), UsageError);
 	assert.equal(called, false);
 });

@@ -82,32 +82,23 @@ export function buildCrewListCommand(): Command {
 			defaultFormatForCommand("crew-list"),
 		)
 		.option("--full", "Full response without response truncation")
-		.showHelpAfterError(false)
-		.helpOption(false);
-}
-
-export function crewListHelp(): string {
-	return [
-		"pi-bebop crew list [--format toon|json|text] [--full]",
-		"",
-		"List trusted locally known Crews by stable selector, display name,",
-		"availability, configured Member count, and freshness. Display names are",
-		"informative only; use the exact Crew selector for routing.",
-		"",
-		"Discovery is bounded to .pi/bebop/crew.json and the .pi/crew/crew.json",
-		"compatibility layout in the current project. It never scans arbitrary",
-		"projects or exposes session IDs, sockets, endpoints, capabilities, or",
-		"Request IDs. Duplicate selectors show only the Locator recovery values.",
-		"",
-		"Options:",
-		"  --format <format>   toon (default), json, or text",
-		"  --full              Full response without response truncation",
-		"",
-		"Examples:",
-		"  pi-bebop crew list --format text",
-		"  pi-bebop crew list --format json --full",
-		"",
-	].join("\n");
+		.addHelpText(
+			"after",
+			[
+				"List trusted locally known Crews by stable selector, display name,",
+				"availability, configured Member count, and freshness. Display names are",
+				"informative only; use the exact Crew selector for routing.",
+				"",
+				"Discovery is bounded to .pi/bebop/crew.json and the .pi/crew/crew.json",
+				"compatibility layout in the current project. It never scans arbitrary",
+				"projects or exposes session IDs, sockets, endpoints, capabilities, or",
+				"Request IDs. Duplicate selectors show only the Locator recovery values.",
+				"",
+				"Examples:",
+				"  pi-bebop crew list --format text",
+				"  pi-bebop crew list --format json --full",
+			].join("\n"),
+		);
 }
 
 export function readCrewListCommand(parsed: Command): CrewListCliOptions {
@@ -116,58 +107,6 @@ export function readCrewListCommand(parsed: Command): CrewListCliOptions {
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "crew-list", format, full: options.full === true };
-}
-
-export function parseCrewListCommand(args: string[], _cwd = process.cwd()): CrewListCliOptions {
-	const tokens: string[] = [];
-	let help = false;
-	let full = false;
-	let seenFormat = false;
-	for (const raw of args) {
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--full") {
-			if (full) throw new UsageError("Duplicate flag: --full");
-			full = true;
-			tokens.push(raw);
-			continue;
-		}
-		if (flag === "--format") {
-			if (seenFormat) throw new UsageError("Duplicate flag: --format");
-			seenFormat = true;
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
-	const program = buildCrewListCommand()
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let options: { format?: string };
-	try {
-		program.parse(tokens, { from: "user" });
-		options = program.opts();
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError") {
-			const match = /--[a-z-]+/.exec(error.message);
-			const flag = match?.[0] ?? "--format";
-			throw new UsageError(
-				(error as Error & { code?: string }).code === "commander.optionMissingArgument"
-					? `Missing value for ${flag}`
-					: error.message,
-			);
-		}
-		throw error;
-	}
-	const format = (options.format ?? defaultFormatForCommand("crew-list")) as string;
-	if (!isCliFormat(format))
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	return { command: "crew-list", format: format as CliFormat, full, ...(help ? { help: true } : {}) };
 }
 
 async function readDirectoryManifest(manifestPath: string, projectRoot: string): Promise<CrewManifest> {
@@ -383,7 +322,6 @@ async function executeCrewListCommand(
 	context: CliContext,
 	deps: CrewListDependencies = defaultCrewListDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: crewListHelp() };
 	const discovery = createDiscoveryWindow(context.signal);
 	try {
 		const projectRoot = path.resolve(context.cwd);

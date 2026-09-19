@@ -31,7 +31,6 @@ export type MemberRequestCliOptions = {
 	readonly maxWaitSeconds: number;
 	readonly direction: Direction;
 	readonly format: CliFormat;
-	readonly help?: boolean;
 };
 
 function collect(value: string, previous: string[]): string[] {
@@ -48,49 +47,6 @@ function parseDuration(value: string, label: string, min: number, max: number): 
 		throw new UsageError(`Invalid ${label} '${value}'; use a whole-second duration from ${min}s through ${max}s`);
 	return ms / 1000;
 }
-function parserFor(
-	command: Command,
-	args: readonly string[],
-): { options: Record<string, unknown>; positional: string[]; help: boolean; instructions: string[] } {
-	const tokens: string[] = [];
-	const instructions: string[] = [];
-	let help = false;
-	const seen = new Set<string>();
-	for (let index = 0; index < args.length; index++) {
-		const raw = args[index]!;
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--instruction") {
-			const value = equals > 0 ? raw.slice(equals + 1) : args[++index];
-			if (!value || value.startsWith("--")) throw new UsageError("Missing value for --instruction");
-			instructions.push(value);
-			continue;
-		}
-		if (["--session", "--message", "--response-grace", "--max-wait", "--direction", "--format"].includes(flag)) {
-			if (seen.has(flag)) throw new UsageError(`Duplicate flag: ${flag}`);
-			seen.add(flag);
-		}
-		tokens.push(raw);
-	}
-	const program = command
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	try {
-		program.parse(tokens, { from: "user" });
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError") {
-			if (help) return { options: program.opts(), positional: program.args, help, instructions };
-			throw new UsageError(error.message);
-		}
-		throw error;
-	}
-	return { options: program.opts(), positional: program.args, help, instructions };
-}
 function baseCommand(name: string, description: string): Command {
 	return new Command(name)
 		.description(description)
@@ -99,12 +55,18 @@ function baseCommand(name: string, description: string): Command {
 			"--format <format>",
 			"Output format: toon (default), json, or text",
 			defaultFormatForCommand("member-request-send"),
-		)
-		.showHelpAfterError(false)
-		.helpOption(false);
+		);
 }
 export function buildMemberRequestSendCommand(): Command {
 	return baseCommand("send", "Send one correlated Member Request")
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Request IDs are opaque. Send returns accepted; wait consumes exactly one terminal outcome;",
+				"respond requires the exact inbound ID.",
+			].join("\n"),
+		)
 		.argument("<member>", "Crew member name or unique role")
 		.option("--message <text>", "Request message")
 		.option("--stdin", "Read request message from stdin")
@@ -137,7 +99,7 @@ function format(value: unknown): CliFormat {
 		throw new UsageError(`Invalid --format '${String(value)}'; valid alternatives: toon, json, text`);
 	return value as CliFormat;
 }
-function messageOptions(parsed: ReturnType<typeof parserFor>, opts: Record<string, unknown>, requireMessage: boolean) {
+function messageOptions(instructions: string[], opts: Record<string, unknown>, requireMessage: boolean) {
 	const message = typeof opts.message === "string" ? opts.message : undefined;
 	const stdin = opts.stdin === true;
 	if (requireMessage && message === undefined && !stdin)
@@ -145,7 +107,7 @@ function messageOptions(parsed: ReturnType<typeof parserFor>, opts: Record<strin
 	if (message !== undefined && stdin)
 		throw new UsageError("Choose exactly one message source: --message <text> or --stdin");
 	if (message !== undefined && message.trim().length === 0) throw new UsageError("--message must not be empty");
-	return { message, stdin, instructions: parsed.instructions };
+	return { message, stdin, instructions };
 }
 function readMemberRequestCommand(
 	command: Command,
@@ -160,12 +122,10 @@ function readMemberRequestCommand(
 		maxWait?: string;
 		direction?: string;
 		format?: string;
-		help?: boolean;
 	}>();
 	const parsed = {
 		options: opts as Record<string, unknown>,
 		positional: command.args,
-		help: opts.help === true,
 		instructions: opts.instruction ?? [],
 	};
 	const base = {
@@ -176,14 +136,6 @@ function readMemberRequestCommand(
 		direction: "all" as Direction,
 		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
 	};
-	if (parsed.help)
-		return {
-			command: `member-request-${kind}`,
-			...base,
-			...(kind === "send" ? { member: "" } : {}),
-			...(kind === "wait" || kind === "respond" ? { requestId: "" } : {}),
-			help: true,
-		} as MemberRequestCliOptions;
 	if (kind === "list") {
 		const direction = String(opts.direction ?? "all");
 		if (!["inbound", "outbound", "all"].includes(direction))
@@ -200,7 +152,7 @@ function readMemberRequestCommand(
 		if (!requestId || requestId.trim() !== requestId) throw new UsageError("Missing exact <request-id>");
 		const msg =
 			kind === "respond"
-				? messageOptions(parsed, parsed.options, true)
+				? messageOptions(parsed.instructions, parsed.options, true)
 				: { message: undefined, stdin: false, instructions: parsed.instructions };
 		return {
 			command: `member-request-${kind}`,
@@ -213,7 +165,7 @@ function readMemberRequestCommand(
 	const member = command.args[0];
 	if (!member || member.trim() !== member)
 		throw new UsageError("Missing <member>; provide a crew member name or unique role");
-	const msg = messageOptions(parsed, parsed.options, true);
+	const msg = messageOptions(parsed.instructions, parsed.options, true);
 	const grace = parseDuration(
 		String(opts.responseGrace ?? "120s"),
 		"--response-grace",
@@ -250,125 +202,6 @@ export function readMemberRequestWaitCommand(command: Command): MemberRequestCli
 }
 export function readMemberRequestRespondCommand(command: Command): MemberRequestCliOptions {
 	return readMemberRequestCommand(command, "respond");
-}
-
-export function parseMemberRequestSendCommand(args: readonly string[]): MemberRequestCliOptions {
-	const parsed = parserFor(buildMemberRequestSendCommand(), args);
-	const opts = parsed.options;
-	if (parsed.help)
-		return {
-			command: "member-request-send",
-			member: "",
-			stdin: false,
-			instructions: [],
-			responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
-			maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
-			direction: "all",
-			format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
-			help: true,
-		};
-	const member = parsed.positional[0];
-	if (!member || member.trim() !== member)
-		throw new UsageError("Missing <member>; provide a crew member name or unique role");
-	const msg = messageOptions(parsed, opts, true);
-	const grace = parseDuration(
-		String(opts.responseGrace ?? "120s"),
-		"--response-grace",
-		1,
-		MAX_MEMBER_REQUEST_TIMEOUT_SECONDS,
-	);
-	const max = parseDuration(
-		String(opts.maxWait ?? "30m"),
-		"--max-wait",
-		MIN_MEMBER_REQUEST_MAX_WAIT_SECONDS,
-		MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS,
-	);
-	if (max <= grace) throw new UsageError("--max-wait must be strictly greater than --response-grace");
-	return {
-		command: "member-request-send",
-		member,
-		...(opts.session === undefined ? {} : { session: String(opts.session) }),
-		...msg,
-		responseGraceSeconds: grace,
-		maxWaitSeconds: max,
-		direction: "all",
-		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
-	};
-}
-export function parseMemberRequestListCommand(args: readonly string[]): MemberRequestCliOptions {
-	const parsed = parserFor(buildMemberRequestListCommand(), args);
-	const opts = parsed.options;
-	const direction = String(opts.direction ?? "all");
-	if (!["inbound", "outbound", "all"].includes(direction))
-		throw new UsageError("Invalid --direction; valid alternatives: inbound, outbound, all");
-	return {
-		command: "member-request-list",
-		...(opts.session === undefined ? {} : { session: String(opts.session) }),
-		stdin: false,
-		instructions: [],
-		responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
-		maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
-		direction: direction as Direction,
-		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
-		...(parsed.help ? { help: true } : {}),
-	};
-}
-function parseIdCommand(
-	args: readonly string[],
-	command: "member-request-wait" | "member-request-respond",
-): MemberRequestCliOptions {
-	const parsed = parserFor(
-		command === "member-request-wait" ? buildMemberRequestWaitCommand() : buildMemberRequestRespondCommand(),
-		args,
-	);
-	const opts = parsed.options;
-	const id = parsed.positional[0];
-	if (parsed.help)
-		return {
-			command,
-			requestId: "",
-			stdin: false,
-			instructions: [],
-			responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
-			maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
-			direction: "all",
-			format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
-			help: true,
-		};
-	if (!id || id.trim() !== id) throw new UsageError("Missing exact <request-id>");
-	const msg =
-		command === "member-request-respond"
-			? messageOptions(parsed, opts, true)
-			: { message: undefined, stdin: false, instructions: parsed.instructions };
-	return {
-		command,
-		requestId: id,
-		...(opts.session === undefined ? {} : { session: String(opts.session) }),
-		...msg,
-		responseGraceSeconds: DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS,
-		maxWaitSeconds: DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS,
-		direction: "all",
-		format: format(opts.format ?? defaultFormatForCommand("member-request-send")),
-	};
-}
-export function parseMemberRequestWaitCommand(args: readonly string[]) {
-	return parseIdCommand(args, "member-request-wait");
-}
-export function parseMemberRequestRespondCommand(args: readonly string[]) {
-	return parseIdCommand(args, "member-request-respond");
-}
-export function memberRequestHelp(kind: "send" | "list" | "wait" | "respond"): string {
-	const text: Record<typeof kind, string> = {
-		send: "pi-bebop member request send <member> (--message <text> | --stdin) [--response-grace <duration>] [--max-wait <duration>] [--instruction <text>...] [--session <id|alias>] [--format toon|json|text]",
-		list: "pi-bebop member request list [--session <id|alias>] [--direction inbound|outbound|all] [--format toon|json|text]",
-		wait: "pi-bebop member request wait <request-id> [--session <id|alias>] [--format toon|json|text]",
-		respond:
-			"pi-bebop member request respond <request-id> (--message <text> | --stdin) [--instruction <text>...] [--session <id|alias>] [--format toon|json|text]",
-	};
-	return (
-		text[kind] +
-		"\n\nRequest IDs are opaque. Send returns accepted; wait consumes exactly one terminal outcome; respond requires the exact inbound ID."
-	);
 }
 
 export interface MemberRequestCliDependencies {
@@ -497,13 +330,6 @@ export async function runMemberRequestCommand(
 	context: CliContext,
 	deps: MemberRequestCliDependencies = defaultMemberRequestCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help)
-		return {
-			kind: "help",
-			text: memberRequestHelp(
-				options.command.replace("member-request-", "") as "send" | "list" | "wait" | "respond",
-			),
-		};
 	if (options.command === "member-request-send") {
 		let message: string;
 		try {

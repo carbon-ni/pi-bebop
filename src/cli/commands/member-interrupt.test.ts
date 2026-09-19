@@ -8,8 +8,7 @@ import {
 	buildMemberInterruptCommand,
 	defaultMemberInterruptCliDependencies,
 	mapInterruptTransportError,
-	memberInterruptHelp,
-	parseMemberInterruptCommand,
+	readMemberInterruptCommand,
 	runMemberInterruptCommand,
 	type MemberInterruptCliDependencies,
 } from "./member-interrupt.ts";
@@ -37,6 +36,24 @@ function deps(overrides: Partial<MemberInterruptCliDependencies> = {}): MemberIn
 	};
 }
 
+test("interrupt reader preserves recovery guidance options", () => {
+	const command = buildMemberInterruptCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse(["node", "interrupt", "Kelly", "--message", "stop", "--instruction", "one", "--format", "text"], {
+		from: "node",
+	});
+	const options = readMemberInterruptCommand(command);
+	assert.deepEqual(options, {
+		command: "member-interrupt",
+		member: "Kelly",
+		message: "stop",
+		instructions: ["one"],
+		stdin: false,
+		format: "text",
+	});
+});
+
 test("interrupt transport mapper covers protocol and socket errors", () => {
 	assert.deepEqual(mapInterruptTransportError(new Error("other")), { ok: false, code: "transport-error" });
 	assert.deepEqual(mapInterruptTransportError("other"), { ok: false, code: "transport-error" });
@@ -52,23 +69,6 @@ test("interrupt transport mapper covers protocol and socket errors", () => {
 		);
 	assert.equal(mapInterruptTransportError(new RpcProtocolError("outcome-unknown", "lost")).code, "outcome-unknown");
 	assert.equal(mapInterruptTransportError(new RpcProtocolError("remote-error", "rejected")).code, "rejected");
-});
-
-test("interrupt parser enforces message source, preserves instructions, and supports source selection", () => {
-	const parsed = parseMemberInterruptCommand(
-		["Kelly", "--session", "source-1", "--message", "stop", "--instruction", "first", "--instruction", "second"],
-		"/project",
-	);
-	assert.deepEqual(parsed, {
-		command: "member-interrupt",
-		member: "Kelly",
-		session: "source-1",
-		message: "stop",
-		instructions: ["first", "second"],
-		stdin: false,
-		format: "toon",
-	});
-	assert.throws(() => parseMemberInterruptCommand(["Kelly", "--message", "x", "--stdin"], "/project"), /exactly one/);
 });
 
 test("interrupt default transport maps accepted, rejected, and malformed acknowledgements", async () => {
@@ -179,11 +179,69 @@ test("interrupt default transport maps an unavailable endpoint", async () => {
 	if (!outcome.ok) assert.equal(outcome.code, "unknown-session");
 });
 
-test("interrupt help states hard-recovery best-effort and no-rollback semantics", () => {
-	assert.match(memberInterruptHelp(), /stuck, harmful/i);
-	assert.match(memberInterruptHelp(), /best-effort/i);
-	assert.match(memberInterruptHelp(), /cannot roll back/i);
-	assert.equal(buildMemberInterruptCommand().name(), "interrupt");
+test("interrupt CLI passes ordered instructions and maps source failures", async () => {
+	let command: unknown;
+	const delivered = await runMemberInterruptCommand(
+		{
+			command: "member-interrupt",
+			member: "Kelly",
+			message: "stop",
+			instructions: ["one"],
+			stdin: false,
+			format: "json",
+		},
+		context(),
+		deps({
+			deliverInterrupt: async (_source, value) => {
+				command = value;
+				return {
+					ok: true,
+					result: { member: { name: "Kelly", role: "qa" }, interruptId: "i", disposition: "direct" },
+				};
+			},
+		}),
+	);
+	assert.equal(delivered.kind, "result");
+	assert.deepEqual((command as { instructions: string[] }).instructions, ["one"]);
+	await assert.rejects(
+		() =>
+			runMemberInterruptCommand(
+				{
+					command: "member-interrupt",
+					member: "Kelly",
+					message: "stop",
+					instructions: [],
+					stdin: false,
+					format: "json",
+				},
+				context(),
+				deps({ resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }) }),
+			),
+		/missing/,
+	);
+});
+
+test("interrupt CLI maps stdin failures and rejects empty stdin", async () => {
+	const failed = await runMemberInterruptCommand(
+		{ command: "member-interrupt", member: "Kelly", instructions: [], stdin: true, format: "json" },
+		context(),
+		deps({
+			readStdin: async () => {
+				throw new Error("stdin unavailable");
+			},
+		}),
+	);
+	assert.equal(failed.kind, "result");
+	if (failed.kind === "result") assert.equal(failed.result.error?.code, "stdin-error");
+	await assert.rejects(
+		() =>
+			runMemberInterruptCommand(
+				{ command: "member-interrupt", member: "Kelly", instructions: [], stdin: true, format: "json" },
+				context(),
+				deps({ readStdin: async () => "   " }),
+			),
+		/empty content/,
+	);
 });
 
 test("interrupt CLI returns disposition without completion claims and preserves stable errors", async () => {

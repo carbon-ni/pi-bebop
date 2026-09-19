@@ -1,7 +1,7 @@
 ---
 id: TASK-0194
 title: Migrate parser-test callers and remove quarantined CLI facades
-status: todo
+status: done
 depends_on: [TASK-0168, TASK-0169]
 priority: normal
 tags: [techdebt, cli, commander, compatibility, cleanup]
@@ -35,3 +35,7 @@ Start only when ALL of: (1) TASK-0169 output-defaults WIP has landed or been rev
 ## Out of scope
 
 New command behavior, output defaults (0169), presenters (0170), or grammar changes — pure compat-surface removal.
+
+## Closure
+
+Absorbed by TASK-0209 (19-09-26). The quarantined facades (`parseXxxCommand`, `parser.ts`, `flag-scanner.ts`, per-command `mapCommanderError`), the duplicate-scalar pre-scanner, `parseCliCommand`, and the top-level `send`/`crew session`/`home` compatibility surfaces were all deleted rather than migrated, because the product is v0 and backward compatibility is not a goal. Wording decision: Commander prose is the contract verbatim (no app-owned rewording); stream placement and exit class are the only guarantees.

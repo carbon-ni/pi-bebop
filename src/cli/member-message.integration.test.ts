@@ -167,7 +167,7 @@ test("member follow-up and redirect round-trip over real sockets with accepted d
 	assert.equal(followData.member.role, "qa");
 	assert.equal(followData.disposition, "queued"); // target busy → follow-up queues
 	assert.match(followData.deliveryId, /^delivery-/);
-	assert.equal(writeOutcome(new PassThrough(), followUp), 0);
+	assert.equal(writeOutcome(new PassThrough(), new PassThrough(), followUp), 0);
 
 	const redirect = await runMemberMessageCommand(
 		{
@@ -187,7 +187,7 @@ test("member follow-up and redirect round-trip over real sockets with accepted d
 	assert.equal(redirect.result.ok, true);
 	const redirectData = redirect.result.data as { deliveryId: string; disposition: string };
 	assert.equal(redirectData.disposition, "steered");
-	assert.equal(writeOutcome(new PassThrough(), redirect), 0);
+	assert.equal(writeOutcome(new PassThrough(), new PassThrough(), redirect), 0);
 
 	// The target session received exactly two structured messages, in order.
 	assert.equal(sessions.targetMessages.length, 2);
@@ -241,7 +241,7 @@ test("member follow-up maps target offline over the real wire to exit 1 code off
 	if (outcome.kind !== "result") throw new Error("expected result");
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.error?.code, "offline");
-	assert.equal(writeOutcome(new PassThrough(), outcome), 1);
+	assert.equal(writeOutcome(new PassThrough(), new PassThrough(), outcome), 1);
 });
 
 test("member follow-up aborts mid-delivery with code aborted when cancelled", async (t) => {
@@ -268,7 +268,7 @@ test("member follow-up aborts mid-delivery with code aborted when cancelled", as
 	if (outcome.kind !== "result") throw new Error("expected result");
 	assert.equal(outcome.result.ok, false);
 	assert.equal(outcome.result.error?.code, "aborted");
-	assert.equal(writeOutcome(new PassThrough(), outcome), 1);
+	assert.equal(writeOutcome(new PassThrough(), new PassThrough(), outcome), 1);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,16 +1,15 @@
 import { createCliRegistry } from "./registry.ts";
 import { createCliExecutionAdapter } from "./execution-adapter.ts";
 import { UsageError } from "./support/arguments.ts";
-import { usageResult } from "./support/errors.ts";
-import { cliFormatForArgs } from "./audience-policy.ts";
 import { writeOutcome } from "./support/output.ts";
 import type { Readable, Writable } from "node:stream";
 
 /**
- * TASK-0063/TASK-0166: the CLI runner owns injected streams and the single
- * render boundary. Commander tree construction, parsing, and leaf dispatch
- * live in execution-adapter.ts; leaf parsers remain migration adapters until
- * TASK-0167/0168.
+ * TASK-0209: the CLI runner owns injected streams, cancellation, and the
+ * single render boundary. Commander owns grammar, discovery, help, and
+ * syntax errors (see execution-adapter.ts). Stream/exit contract:
+ * help and successful results -> stdout; usage failures -> stderr, exit 2;
+ * operational failures -> plain message on stderr, exit 1.
  */
 export async function runCli(
 	args: string[],
@@ -36,17 +35,15 @@ export async function runCli(
 			environment,
 			signal: controller.signal,
 		});
-		return writeOutcome(output, outcome);
+		return writeOutcome(output, stderr, outcome);
 	} catch (error) {
 		if (error instanceof UsageError) {
-			return writeOutcome(output, {
-				kind: "result",
-				result: usageResult(error.message),
-				format: cliFormatForArgs(args),
-				full: false,
-			});
+			const text = error.message.endsWith("\n") ? error.message : `${error.message}\n`;
+			stderr.write(text);
+			return 2;
 		}
-		throw error;
+		stderr.write(`${error instanceof Error ? error.message : "CLI failure"}\n`);
+		return 1;
 	} finally {
 		process.removeListener("SIGINT", abort);
 	}

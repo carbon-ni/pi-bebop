@@ -214,30 +214,6 @@ test("data-only text success never falls through to Message completed", () => {
 	assert.doesNotMatch(text, /Message completed/);
 });
 
-test("text presents home state and next action without exposing internals", () => {
-	assert.equal(
-		renderCliResult(
-			{
-				ok: true,
-				target: "",
-				status: "home",
-				data: { project: "/project", scaffold: "missing", commands: ["send"], next: "pi-bebop crew init" },
-			},
-			"text",
-			false,
-		),
-		"Project: /project\nCrew scaffold: missing\nCommands: 1 available\nNext: pi-bebop crew init",
-	);
-	assert.equal(
-		renderCliResult(
-			{ ok: true, target: "", status: "home", data: { project: "", scaffold: "", commands: [], next: "" } },
-			"text",
-			false,
-		),
-		"Project: current project\nCrew scaffold: unknown",
-	);
-});
-
 test("text presents request lists, responses, and direct deliveries", () => {
 	assert.equal(
 		renderCliResult({ ok: true, target: "", status: "listed", data: { requests: [] } }, "text", false),

@@ -1,14 +1,27 @@
 import assert from "node:assert/strict";
 import * as net from "node:net";
 import test from "node:test";
+import { Command } from "commander";
+import { UsageError } from "../support/arguments.ts";
 import {
+	buildMemberIdleWaitCommand,
 	defaultMemberIdleWaitCliDependencies,
-	memberIdleWaitHelp,
 	mapIdleWaitTransportError,
 	normalizeIdleWaitTransportOutcome,
-	parseMemberIdleWaitCommand,
+	readMemberIdleWaitCommand,
 	runMemberIdleWaitCommand,
 } from "./member-idle-wait.ts";
+
+function parseInto(tokens: readonly string[]): Command {
+	const command = buildMemberIdleWaitCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse([...tokens], { from: "user" });
+	return command;
+}
+function waitOptions(tokens: readonly string[] = ["Bob"]) {
+	return readMemberIdleWaitCommand(parseInto(tokens));
+}
 
 const source = { ok: true as const, kind: "id" as const, idSocketPath: "/id.sock", aliasSocketPath: "/alias.sock" };
 const result = {
@@ -18,6 +31,31 @@ const result = {
 	observedAt: "2026-08-24T12:00:00.000Z",
 };
 const context = { cwd: process.cwd(), input: process.stdin, signal: new AbortController().signal };
+
+test("idle wait dependencies read explicit environment sessions and process fallback", () => {
+	assert.equal(defaultMemberIdleWaitCliDependencies.environmentSession({ PI_SESSION_ID: "env-1" }), "env-1");
+	const processSession = defaultMemberIdleWaitCliDependencies.environmentSession();
+	assert.ok(processSession === undefined || typeof processSession === "string");
+});
+
+test("idle wait reader validates member, format, and whole-second timeout", () => {
+	assert.deepEqual(waitOptions(["Bob", "--timeout", "10s", "--format", "text"]), {
+		command: "member-idle-wait",
+		member: "Bob",
+		timeoutSeconds: 10,
+		format: "text",
+	});
+	for (const tokens of [
+		["--format", "yaml", "Bob"],
+		["Bob", "--timeout", "0s"],
+		["Bob", "--timeout", "1500ms"],
+		["Bob", "--timeout", "11m"],
+		["Bob", "--timeout", "bad"],
+		[" Bob"],
+		[],
+	] as const)
+		assert.throws(() => waitOptions(tokens));
+});
 
 test("idle transport mappers cover every stable error and normalized transport code", () => {
 	assert.deepEqual(mapIdleWaitTransportError(Object.assign(new Error("abort"), { name: "AbortError" })), {
@@ -54,54 +92,6 @@ test("idle transport mappers cover every stable error and normalized transport c
 			transportCode: "OTHER",
 		},
 	);
-});
-
-test("member wait-idle parser accepts default and exact whole-second durations", () => {
-	assert.equal(parseMemberIdleWaitCommand(["Bob"]).timeoutSeconds, 300);
-	assert.equal(parseMemberIdleWaitCommand(["Bob", "--timeout", "1s"]).timeoutSeconds, 1);
-	assert.equal(parseMemberIdleWaitCommand(["Bob", "--timeout", "10m"]).timeoutSeconds, 600);
-	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--timeout", "500ms"]), /whole-second/);
-	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--timeout", "1500ms"]), /whole-second/);
-	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--timeout", "11m"]), /whole-second/);
-});
-
-test("member wait-idle parser covers help, duplicate, unknown, and target validation", () => {
-	assert.match(memberIdleWaitHelp(), /wait-idle/);
-	assert.equal(parseMemberIdleWaitCommand(["--help"]).help, true);
-	assert.throws(() => parseMemberIdleWaitCommand(["--help", "--help"]), /Duplicate flag/);
-	assert.throws(() => parseMemberIdleWaitCommand(["--bogus"]), /unknown option|Unknown flag/i);
-	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--timeout"]), /Missing value/);
-	assert.throws(() => parseMemberIdleWaitCommand([]), /Missing <member>/);
-	assert.throws(() => parseMemberIdleWaitCommand([" Bob"]), /trimmed/);
-	assert.throws(() => parseMemberIdleWaitCommand(["x", "--format", "xml"]), /Invalid --format/);
-	assert.throws(() => parseMemberIdleWaitCommand(["x", "--timeout", "0s"]), /Invalid --timeout/);
-	assert.throws(() => parseMemberIdleWaitCommand(["x", "--timeout", "1s", "--timeout", "2s"]), /Duplicate flag/);
-	assert.equal(parseMemberIdleWaitCommand(["Bob", "--session=s-1", "--timeout=1s", "--format=text"]).format, "text");
-	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--session", "a", "--session", "b"]), /Duplicate flag/);
-	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--format", "json", "--format", "text"]), /Duplicate flag/);
-	assert.throws(() => parseMemberIdleWaitCommand(["x".repeat(257)]), /at most 256/);
-});
-
-test("member wait-idle delegates source selection and renders terminal result", async () => {
-	let requested: { target: string; timeoutSeconds: number } | undefined;
-	const outcome = await runMemberIdleWaitCommand(
-		parseMemberIdleWaitCommand(["Bob", "--timeout", "30s", "--format", "json"]),
-		context,
-		{
-			resolveSource: () => source,
-			environmentSession: () => undefined,
-			sendWait: async (_source, target, timeoutSeconds) => {
-				requested = { target, timeoutSeconds };
-				return { ok: true, result };
-			},
-		},
-	);
-	assert.deepEqual(requested, { target: "Bob", timeoutSeconds: 30 });
-	assert.equal(outcome.kind, "result");
-	if (outcome.kind === "result") {
-		assert.equal(outcome.format, "json");
-		assert.deepEqual(outcome.result.data, { result });
-	}
 });
 
 test("default wait transport falls back from stale id socket to a valid alias", async () => {
@@ -149,6 +139,13 @@ test("default wait transport falls back from stale id socket to a valid alias", 
 		);
 		assert.equal(outcome.ok, true);
 		if (outcome.ok) assert.equal(outcome.result.outcome, "idle");
+		const primary = await defaultMemberIdleWaitCliDependencies.sendWait(
+			{ ...source, idSocketPath: aliasSocketPath, aliasSocketPath },
+			"Bob",
+			1,
+			new AbortController().signal,
+		);
+		assert.equal(primary.ok, true);
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}
@@ -170,7 +167,7 @@ test("default wait transport maps unavailable source errors without rejecting", 
 });
 
 test("member wait-idle maps rejected transport promises instead of rejecting", async () => {
-	const outcome = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
+	const outcome = await runMemberIdleWaitCommand(waitOptions(), context, {
 		resolveSource: () => source,
 		environmentSession: () => undefined,
 		sendWait: async () => {
@@ -181,14 +178,26 @@ test("member wait-idle maps rejected transport promises instead of rejecting", a
 	if (outcome.kind === "result") assert.equal(outcome.result.error?.code, "offline-session");
 });
 
-test("member wait-idle maps source and malformed outcomes", async () => {
-	const unresolved = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
-		resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }),
-		environmentSession: () => undefined,
-		sendWait: async () => ({ ok: true, result }),
-	});
-	assert.equal(unresolved.kind, "result");
-	const malformed = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
+test("member wait-idle source resolution failures are usage-class", async () => {
+	await assert.rejects(
+		() =>
+			runMemberIdleWaitCommand(waitOptions(), context, {
+				resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }),
+				environmentSession: () => undefined,
+				sendWait: async () => ({ ok: true, result }),
+			}),
+		(error: unknown) => error instanceof UsageError && error.message === "missing",
+	);
+	await assert.rejects(
+		() =>
+			runMemberIdleWaitCommand(waitOptions(), context, {
+				resolveSource: () => ({ ok: false, code: "missing-session" }),
+				environmentSession: () => undefined,
+				sendWait: async () => ({ ok: true, result }),
+			}),
+		(error: unknown) => error instanceof UsageError && /Unable to resolve/.test(error.message),
+	);
+	const malformed = await runMemberIdleWaitCommand(waitOptions(), context, {
 		resolveSource: () => source,
 		environmentSession: () => undefined,
 		sendWait: async () => ({ ok: true, result: { ...result, outcome: "not-an-outcome" } as never }),
@@ -204,7 +213,7 @@ test("member wait-idle maps thrown transport errors deterministically", async ()
 		[new Error("RPC request timeout"), "timeout"],
 		[Object.assign(new Error("abort"), { name: "AbortError" }), "aborted"],
 	] as const) {
-		const outcome = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
+		const outcome = await runMemberIdleWaitCommand(waitOptions(), context, {
 			resolveSource: () => source,
 			environmentSession: () => undefined,
 			sendWait: async () => {
@@ -217,7 +226,7 @@ test("member wait-idle maps thrown transport errors deterministically", async ()
 });
 
 test("member wait-idle preserves aborted outcome and does not reinterpret it", async () => {
-	const outcome = await runMemberIdleWaitCommand(parseMemberIdleWaitCommand(["Bob"]), context, {
+	const outcome = await runMemberIdleWaitCommand(waitOptions(), context, {
 		resolveSource: () => source,
 		environmentSession: () => undefined,
 		sendWait: async () => ({ ok: false, code: "aborted" }),

@@ -47,26 +47,18 @@ export function buildSessionListCommand(): Command {
 			"Output format: toon (default), json, or text",
 			defaultFormatForCommand("session-live"),
 		)
-		.showHelpAfterError(false)
-		.helpOption(false);
-}
-
-export function sessionListHelp(): string {
-	return [
-		"pi-bebop session live [--format toon|json|text]",
-		"",
-		"List reachable Pi sessions: session id, safe aliases, and joined state",
-		"(joined, unjoined, or unknown). Bounded discovery for shell callers;",
-		"never exposes socket paths, messages, prompts, model details, instructions,",
-		"or tool history.",
-		"",
-		"Options:",
-		"  --format <format>   toon (default), json, or text",
-		"",
-		"Use the reported session id as --session <id> for member commands.",
-		"For Crew Session capture/list/show/add/resolve, see: pi-bebop session <sub>",
-		"",
-	].join("\n");
+		.addHelpText(
+			"after",
+			[
+				"List reachable Pi sessions: session id, safe aliases, and joined state",
+				"(joined, unjoined, or unknown). Bounded discovery for shell callers;",
+				"never exposes socket paths, messages, prompts, model details, instructions,",
+				"or tool history.",
+				"",
+				"Use the reported session id as --session <id> for member commands.",
+				"For Crew Session capture/list/show/add/resolve, see: pi-bebop session <sub>",
+			].join("\n"),
+		);
 }
 
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
@@ -80,51 +72,6 @@ export function readSessionListCommand(parsed: Command): SessionListCliOptions {
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "session-live", format };
-}
-
-export function parseSessionListCommand(args: string[], _cwd = process.cwd()): SessionListCliOptions {
-	const tokens: string[] = [];
-	let help = false;
-	let seenFormat = false;
-	for (const raw of args) {
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--format") {
-			if (seenFormat) throw new UsageError("Duplicate flag: --format");
-			seenFormat = true;
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
-	const program = buildSessionListCommand()
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { format?: string };
-	try {
-		program.parse(tokens, { from: "user" });
-		opts = program.opts();
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError") {
-			const match = /--[a-z-]+/.exec(error.message);
-			const flag = match?.[0] ?? "--format";
-			throw new UsageError(
-				(error as Error & { code?: string }).code === "commander.optionMissingArgument"
-					? `Missing value for ${flag}`
-					: error.message,
-			);
-		}
-		throw error;
-	}
-	const format = (opts.format ?? defaultFormatForCommand("session-live")) as string;
-	if (!isCliFormat(format))
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	return { command: "session-live", format: format as CliFormat, ...(help ? { help: true } : {}) };
 }
 
 export interface SessionListDependencies {
@@ -163,7 +110,6 @@ export async function runSessionListCommand(
 	_context: CliContext,
 	deps: SessionListDependencies = defaultSessionListDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: sessionListHelp() };
 	const dir = deps.controlDir();
 	let entries: string[];
 	try {

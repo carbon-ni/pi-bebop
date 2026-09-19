@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
+import { UsageError } from "../support/arguments.ts";
 import {
-	durableMessageHelp,
-	parseDurableMessageCommand,
+	buildDurableMessageCommand,
+	defaultDurableMessageCliDependencies,
+	readDurableMessageCommand,
 	runDurableMessageCommand,
 	type DurableMessageCliDependencies,
 } from "./durable-message.ts";
 import type { CliContext } from "../support/context.ts";
 import { registerSendToInboxTool } from "../../tools/send-to-inbox.ts";
 import { registerBroadcastToCrewTool } from "../../tools/broadcast-to-crew.ts";
+import { Command } from "commander";
 
 const source = {
 	ok: true as const,
@@ -20,6 +23,14 @@ const source = {
 function context(): CliContext {
 	return { cwd: "/project", input: new PassThrough(), signal: new AbortController().signal };
 }
+function parseInto(intent: "inbox" | "broadcast", tokens: readonly string[]) {
+	const command = buildDurableMessageCommand(intent)
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse([...tokens], { from: "user" });
+	return readDurableMessageCommand(command, intent);
+}
+
 function deps(overrides: Partial<DurableMessageCliDependencies> = {}): DurableMessageCliDependencies {
 	return {
 		resolveSource: () => source,
@@ -49,116 +60,116 @@ function deps(overrides: Partial<DurableMessageCliDependencies> = {}): DurableMe
 	};
 }
 
-test("durable commands parse target/message sources and preserve instruction order", () => {
-	assert.deepEqual(
-		parseDurableMessageCommand(
-			["Kelly", "--message", "hello", "--instruction", "one", "--instruction", "two"],
-			"inbox",
-		),
+test("durable message default transport maps stale id and alias sockets", async () => {
+	const command = { type: "crew_broadcast" as const, message: "hello" };
+	const same = await defaultDurableMessageCliDependencies.deliver(
 		{
-			command: "member-inbox-send",
-			intent: "inbox",
-			member: "Kelly",
-			message: "hello",
-			instructions: ["one", "two"],
-			stdin: false,
-			format: "toon",
+			ok: true,
+			kind: "id",
+			idSocketPath: "/tmp/missing-durable.sock",
+			aliasSocketPath: "/tmp/missing-durable.sock",
 		},
+		command,
+		new AbortController().signal,
 	);
-	assert.deepEqual(parseDurableMessageCommand(["--stdin", "--format", "json"], "broadcast"), {
-		command: "crew-broadcast",
-		intent: "broadcast",
-		instructions: [],
-		stdin: true,
-		format: "json",
-	});
-	assert.throws(() => parseDurableMessageCommand(["Kelly", "--message", "x", "--stdin"], "inbox"), /exactly one/);
-	assert.throws(
-		() => parseDurableMessageCommand(["--wait", "response", "--message", "x"], "broadcast"),
-		/never waits for delivery/,
+	assert.deepEqual(same, { ok: false, code: "unknown-session" });
+	const fallback = await defaultDurableMessageCliDependencies.deliver(
+		{
+			ok: true,
+			kind: "id",
+			idSocketPath: "/tmp/missing-durable-id.sock",
+			aliasSocketPath: "/tmp/missing-durable-alias.sock",
+		},
+		command,
+		new AbortController().signal,
 	);
-	assert.throws(() => parseDurableMessageCommand(["--bogus", "x", "--message", "hello"], "broadcast"), /valid flags/);
-	assert.throws(() => parseDurableMessageCommand(["extra", "--message", "hello"], "broadcast"), /Too many arguments/);
+	assert.deepEqual(fallback, { ok: false, code: "unknown-session" });
 });
 
-test("durable parsers cover help, duplicate flags, instruction validation, and source errors", () => {
-	assert.equal(parseDurableMessageCommand(["--help"], "broadcast").help, true);
-	assert.deepEqual(parseDurableMessageCommand(["--help"], "inbox"), {
+test("durable message dependencies read explicit environment sessions and process fallback", () => {
+	assert.equal(defaultDurableMessageCliDependencies.environmentSession({ PI_SESSION_ID: "env-1" }), "env-1");
+	const processSession = defaultDurableMessageCliDependencies.environmentSession();
+	assert.ok(processSession === undefined || typeof processSession === "string");
+});
+
+test("durable message readers preserve inbox and broadcast grammar", () => {
+	const inbox = parseInto("inbox", ["Kelly", "--message", "hello", "--instruction", "one"]);
+	assert.deepEqual(inbox, {
 		command: "member-inbox-send",
 		intent: "inbox",
-		member: "",
-		instructions: [],
+		member: "Kelly",
+		message: "hello",
+		instructions: ["one"],
 		stdin: false,
 		format: "toon",
-		help: true,
 	});
-	assert.equal(
-		parseDurableMessageCommand(["Kelly", "--session", "alias", "--message", "x", "--format", "text"], "inbox")
-			.session,
-		"alias",
-	);
-	assert.throws(() => parseDurableMessageCommand(["--help", "--help"], "broadcast"), /Duplicate flag/);
-	assert.throws(() => parseDurableMessageCommand(["--instruction"], "broadcast"), /Missing value/);
-	assert.throws(
-		() => parseDurableMessageCommand(["--instruction", " bad", "--message", "x"], "broadcast"),
-		/trimmed/,
-	);
-	assert.throws(() => parseDurableMessageCommand(["--instruction", "a\u0000", "--message", "x"], "broadcast"), /NUL/);
-	assert.throws(
-		() => parseDurableMessageCommand(["--format", "xml", "--message", "x"], "broadcast"),
-		/Invalid --format/,
-	);
-	assert.throws(
-		() => parseDurableMessageCommand(["--message", "x", "--message", "y"], "broadcast"),
-		/Duplicate flag/,
-	);
-	assert.throws(() => parseDurableMessageCommand(["--message", "x"], "inbox"), /Missing <member>/);
-	assert.throws(() => parseDurableMessageCommand([" Bob", "--message", "x"], "inbox"), /trimmed/);
+	const broadcast = parseInto("broadcast", ["--stdin", "--format", "text", "--session", "source-1"]);
+	assert.equal(broadcast.command, "crew-broadcast");
+	assert.equal(broadcast.stdin, true);
+	assert.equal(broadcast.format, "text");
+	assert.equal(broadcast.session, "source-1");
+	assert.equal(parseInto("inbox", ["Kelly", "--message", "hello", "--session", "source-1"]).session, "source-1");
 });
 
-test("durable command help is local and IO-free", async () => {
-	const inbox = await runDurableMessageCommand(
-		{
-			command: "member-inbox-send",
-			intent: "inbox",
-			member: "Kelly",
-			instructions: [],
-			stdin: false,
-			format: "toon",
-			help: true,
-		},
-		context(),
-		deps(),
-	);
-	const broadcast = await runDurableMessageCommand(
-		{ command: "crew-broadcast", intent: "broadcast", instructions: [], stdin: false, format: "text", help: true },
-		context(),
-		deps(),
-	);
-	assert.equal(inbox.kind, "help");
-	assert.equal(broadcast.kind, "help");
+test("durable message readers reject invalid targets, content, and source selection", () => {
+	for (const tokens of [
+		["--message", "hello"],
+		[" Kelly", "--message", "hello"],
+		["Kelly", "--format", "yaml", "--message", "hello"],
+		["Kelly", "--message", "hello", "--stdin"],
+		["Kelly", "--message", ""],
+		["Kelly", "--message", "hello\0world"],
+	] as const)
+		assert.throws(() => parseInto("inbox", tokens));
+	for (const tokens of [
+		["--stdin", "--instruction", " padded "],
+		["--stdin", "--instruction", "bad\0value"],
+	] as const)
+		assert.throws(() => parseInto("broadcast", tokens));
+	assert.throws(() => parseInto("inbox", ["Kelly", "--message", "x".repeat(1_000_001)]), /message limit/);
+	assert.throws(() => parseInto("inbox", ["Kelly", "--stdin", "--instruction", "x".repeat(100_001)]), /100000-byte/);
+	const tooMany = ["--stdin"];
+	for (let i = 0; i < 33; i++) tooMany.push("--instruction", String(i));
+	assert.throws(() => parseInto("broadcast", tooMany), /maximum is 32/);
 });
 
-test("durable commands map source, stdin, and delivery failures", async () => {
-	const sourceFailure = await runDurableMessageCommand(
+test("durable commands map stdin read failures before delivery", async () => {
+	const outcome = await runDurableMessageCommand(
 		{
 			command: "crew-broadcast",
 			intent: "broadcast",
-			message: "x",
+			stdin: true,
 			instructions: [],
-			stdin: false,
 			format: "json",
 		},
 		context(),
-		deps({ resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }) }),
+		deps({
+			readStdin: async () => {
+				throw new Error("stdin unavailable");
+			},
+		}),
 	);
-	assert.equal(sourceFailure.kind, "result");
-	const stdin = await runDurableMessageCommand(
-		{ command: "crew-broadcast", intent: "broadcast", instructions: [], stdin: true, format: "json" },
-		context(),
-		deps(),
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") assert.equal(outcome.result.error?.code, "stdin-error");
+});
+
+test("durable commands map source, stdin, and delivery failures", async () => {
+	await assert.rejects(
+		() =>
+			runDurableMessageCommand(
+				{
+					command: "crew-broadcast",
+					intent: "broadcast",
+					message: "x",
+					instructions: [],
+					stdin: false,
+					format: "json",
+				},
+				context(),
+				deps({ resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }) }),
+			),
+		(error: unknown) => error instanceof UsageError && error.message === "missing",
 	);
-	assert.equal(stdin.kind, "result");
 	const failed = await runDurableMessageCommand(
 		{
 			command: "crew-broadcast",
@@ -172,6 +183,9 @@ test("durable commands map source, stdin, and delivery failures", async () => {
 		deps({ deliver: async () => ({ ok: false, code: "offline-session" }) }),
 	);
 	assert.equal(failed.kind, "result");
+	if (failed.kind !== "result") return;
+	assert.equal(failed.result.ok, false);
+	assert.equal(failed.result.error?.code, "offline-session");
 });
 
 test("Inbox remains durable while broadcast reports partial live delivery", async () => {
@@ -334,12 +348,4 @@ test("tool and CLI preserve separate Inbox and live Broadcast contracts", async 
 	);
 	assert.equal(broadcastCli.kind, "result");
 	if (broadcastCli.kind === "result") assert.equal(broadcastCli.result.status, "delivered");
-});
-
-test("help distinguishes durable Inbox from transient Broadcast", () => {
-	assert.match(durableMessageHelp("inbox"), /persisted.*never read, delivered/i);
-	assert.match(durableMessageHelp("inbox"), /no wait_for flag/i);
-	assert.match(durableMessageHelp("broadcast"), /transient Follow-up/i);
-	assert.match(durableMessageHelp("broadcast"), /never writes or falls back to Inbox/i);
-	assert.doesNotMatch(durableMessageHelp("broadcast"), /idempotency-conflict|retry.*duplicate/i);
 });

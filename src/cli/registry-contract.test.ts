@@ -3,8 +3,7 @@ import test from "node:test";
 import { Command } from "commander";
 import { PassThrough } from "node:stream";
 import { composeRegistry, createCliRegistry, type CliContext, type CliLeaf } from "./registry.ts";
-import { UsageError } from "./support/arguments.ts";
-import { writeOutcome, type CliOutcome } from "./support/output.ts";
+import { writeOutcome } from "./support/output.ts";
 
 function context(): CliContext {
 	return { cwd: "/project", input: new PassThrough(), signal: new AbortController().signal };
@@ -13,9 +12,8 @@ function context(): CliContext {
 const pingLeaf: CliLeaf = {
 	id: "ping",
 	names: ["ping"],
-	build: () => new Command("ping").description("Respond to pings"),
-	help: () => "pi-bebop ping <target> — pong",
-	parse: (tokens) => ({ command: "ping", target: tokens.join(" ") }),
+	build: () => new Command("ping").description("Respond to pings").argument("<target>"),
+	read: (command) => ({ command: "ping", target: command.args[0] }),
 	run: async (options) => ({
 		kind: "result",
 		result: {
@@ -32,44 +30,18 @@ const crewAuditLeaf: CliLeaf = {
 	id: "crew-audit",
 	names: ["crew", "audit"],
 	build: () => new Command("audit").description("Audit crew state"),
-	help: () => "pi-bebop crew audit — audit help",
-	parse: (tokens) => ({ command: "crew-audit", scope: tokens[0] ?? "" }),
+	read: () => ({ command: "crew-audit" }),
 	run: async () => ({ kind: "help", text: "crew audit ran" }),
 };
 
 /**
- * QA blocker integration test: adding a membership leaf is ONE registry
- * contribution — append the leaf module to the ordered list. Vocabulary
- * (parse), command-tree metadata (root), help, and dispatch all derive from
- * the registry; parser.ts and commands/root.ts are never edited.
+ * Adding a membership leaf is ONE registry contribution — append the leaf
+ * module to the ordered list. The command tree derives from the leaves;
+ * parser, root-tree, help, and dispatch are never edited per command.
  */
-test("synthetic nested/top-level leaves work through real parse/help/root/dispatch with one registry contribution each", async () => {
+test("synthetic nested/top-level leaves work through the real tree and dispatch with one registry contribution each", async () => {
 	const base = createCliRegistry();
 	const registry = composeRegistry([...base.leaves, pingLeaf, crewAuditLeaf]);
-
-	// Real registry-driven parse: longest-prefix matching for nested + top-level leaves.
-	const ping = registry.parseCliCommand(["ping", "socket-1"], "/p") as { command: string; target?: string };
-	assert.equal(ping.command, "ping");
-	assert.equal(ping.target, "socket-1");
-	const audit = registry.parseCliCommand(["crew", "audit"], "/p") as { command: string };
-	assert.equal(audit.command, "crew-audit");
-	assert.equal((registry.parseCliCommand(["crew", "audit", "x"], "/p") as { command: string }).command, "crew-audit");
-
-	// Existing real leaves still parse through the same registry (no regression).
-	assert.equal(
-		(registry.parseCliCommand(["send", "--socket", "/x", "--message", "m"], "/p") as { command: string }).command,
-		"send",
-	);
-	assert.equal(
-		(registry.parseCliCommand(["crew", "init", "--help"], "/p") as { command: string }).command,
-		"crew-init",
-	);
-
-	// Unknown commands list the full ordered vocabulary including the new leaves.
-	assert.throws(
-		() => registry.parseCliCommand(["nope"], "/p"),
-		/valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, session resume, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast, ping, crew audit/,
-	);
 
 	// Command-tree metadata derives from the registry: top-level leaf + nested leaf under the crew group.
 	const root = registry.root();
@@ -83,24 +55,20 @@ test("synthetic nested/top-level leaves work through real parse/help/root/dispat
 	assert.ok(crew!.commands.some((command) => command.name() === "roles"));
 	assert.ok(crew!.commands.some((command) => command.name() === "audit"));
 
-	// Help derives from the leaf modules through the registry.
-	assert.equal(registry.leafById("ping").help(), "pi-bebop ping <target> — pong");
-	assert.equal(registry.leafById("crew-audit").help(), "pi-bebop crew audit — audit help");
-
 	// Dispatch derives from the registry and renders through the single output boundary.
-	const outcome = await registry.leafById(ping.command).run(ping, context());
+	const outcome = await registry.leafById("ping").run({ command: "ping", target: "socket-1" }, context());
 	const output = new PassThrough();
 	let text = "";
 	output.setEncoding("utf8");
 	output.on("data", (chunk) => {
 		text += chunk;
 	});
-	assert.equal(writeOutcome(output, outcome), 0);
+	assert.equal(writeOutcome(output, new PassThrough(), outcome), 0);
 	assert.match(text, /status: pong/);
 	assert.match(text, /target: socket-1/);
 });
 
-test("composeRegistry yields deterministic ordered parse/help/dispatch without shared mutable state", async () => {
+test("composeRegistry yields deterministic ordered composition without shared mutable state", () => {
 	const base = createCliRegistry();
 	const first = composeRegistry([...base.leaves, pingLeaf, crewAuditLeaf]);
 	const second = composeRegistry([...base.leaves, pingLeaf, crewAuditLeaf]);
@@ -109,24 +77,15 @@ test("composeRegistry yields deterministic ordered parse/help/dispatch without s
 		first.leaves.map((leaf) => leaf.id),
 		second.leaves.map((leaf) => leaf.id),
 	);
-	assert.equal(
-		first.vocabulary().join(", "),
-		"send, crew init, crew list, session capture, session add, session list, session show, session resolve, session resume, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast, ping, crew audit",
-	);
-	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), second.parseCliCommand(["ping", "a"], "/p"));
-	assert.deepEqual(first.parseCliCommand(["ping", "a"], "/p"), first.parseCliCommand(["ping", "a"], "/p"));
-	assert.equal(first.leafById("ping").help(), second.leafById("ping").help());
-	assert.throws(() => first.leafById("gamma"), UsageError);
-	assert.throws(() => first.parseCliCommand(["gamma"], "/p"), UsageError);
+	// Independent registries expose equivalent leaves.
+	assert.equal(first.leafById("ping").id, second.leafById("ping").id);
 });
 
-test("createCliRegistry composes the ordered built-in leaves", async () => {
+test("createCliRegistry composes the ordered built-in leaves with no compatibility surfaces", () => {
 	const registry = createCliRegistry();
 	assert.deepEqual(
 		registry.leaves.map((leaf) => leaf.id),
 		[
-			"home",
-			"send",
 			"crew-init",
 			"crew-list",
 			"session-capture",
@@ -135,7 +94,6 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 			"session-show",
 			"session-resolve",
 			"session-resume",
-			"crew-session-rejected",
 			"crew-roles",
 			"member-status",
 			"member-idle-wait",
@@ -155,78 +113,13 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 			"guest-broadcast",
 		],
 	);
-	assert.equal(
-		registry.vocabulary().join(", "),
-		"send, crew init, crew list, session capture, session add, session list, session show, session resolve, session resume, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast, guest join, guest leave, guest send, guest broadcast",
-	);
-	assert.equal((registry.parseCliCommand([], "/p") as { command: string }).command, "home");
-	assert.equal(
-		(registry.parseCliCommand(["send", "--socket", "/x", "--message", "m"], "/p") as { command: string }).command,
-		"send",
-	);
-	assert.equal((registry.parseCliCommand(["crew", "init"], "/p") as { command: string }).command, "crew-init");
-	assert.equal((registry.parseCliCommand(["crew", "list"], "/p") as { command: string }).command, "crew-list");
-	assert.equal((registry.parseCliCommand(["crew", "roles"], "/p") as { command: string }).command, "crew-roles");
-	assert.equal(
-		(registry.parseCliCommand(["member", "status", "Kelly"], "/p") as { command: string }).command,
-		"member-status",
-	);
-	assert.equal((registry.parseCliCommand(["session", "live"], "/p") as { command: string }).command, "session-live");
-	assert.equal(
-		(registry.parseCliCommand(["session", "capture", "x"], "/p") as { command: string }).command,
-		"session-capture",
-	);
-	assert.equal(
-		(registry.parseCliCommand(["session", "add", "id", "Alice"], "/p") as { command: string }).command,
-		"session-add",
-	);
-	assert.equal((registry.parseCliCommand(["session", "list"], "/p") as { command: string }).command, "session-list");
-	assert.equal(
-		(registry.parseCliCommand(["session", "show", "id"], "/p") as { command: string }).command,
-		"session-show",
-	);
-	assert.equal(
-		(registry.parseCliCommand(["session", "resolve", "id", "Alice"], "/p") as { command: string }).command,
-		"session-resolve",
-	);
-	assert.equal(
-		(registry.parseCliCommand(["member", "follow-up", "Kelly", "--message", "x"], "/p") as { command: string })
-			.command,
-		"member-follow-up",
-	);
-	assert.equal(
-		(registry.parseCliCommand(["member", "redirect", "Kelly", "--message", "x"], "/p") as { command: string })
-			.command,
-		"member-redirect",
-	);
-	assert.equal(
-		(registry.parseCliCommand(["member", "interrupt", "Kelly", "--message", "x"], "/p") as { command: string })
-			.command,
-		"member-interrupt",
-	);
-	assert.equal(
-		(registry.parseCliCommand(["member", "inbox", "send", "Kelly", "--message", "x"], "/p") as { command: string })
-			.command,
-		"member-inbox-send",
-	);
-	assert.equal(
-		(registry.parseCliCommand(["crew", "broadcast", "--message", "x"], "/p") as { command: string }).command,
-		"crew-broadcast",
-	);
-	assert.throws(
-		() => registry.parseCliCommand(["bogus"], "/p"),
-		/valid commands: send, crew init, crew list, session capture, session add, session list, session show, session resolve, session resume, crew roles, member status, member wait-idle, session live, member follow-up, member redirect, member request send, member request list, member request wait, member request respond, member interrupt, member inbox send, crew broadcast/,
-	);
-	assert.throws(
-		() => registry.parseCliCommand(["crew", "session", "capture", "x"], "/p"),
-		/'pi-bebop crew session \.\.\.' is no longer supported/,
-	);
-	assert.throws(
-		() => registry.parseCliCommand(["crew", "session"], "/p"),
-		/'pi-bebop crew session \.\.\.' is no longer supported/,
-	);
+	// No home, no top-level send, no crew-session rejection shim.
+	const ids = new Set(registry.leaves.map((leaf) => leaf.id));
+	assert.equal(ids.has("home"), false);
+	assert.equal(ids.has("send"), false);
+	assert.equal(ids.has("crew-session-rejected"), false);
 
-	// Command-tree metadata derives from the registry: member + session groups exist.
+	// Command-tree metadata: every canonical group and leaf exists.
 	const root = registry.root();
 	const member = root.commands.find((command) => command.name() === "member");
 	assert.ok(member, "member group derived from registry");
@@ -241,91 +134,21 @@ test("createCliRegistry composes the ordered built-in leaves", async () => {
 	assert.ok(crew!.commands.some((command) => command.name() === "init"));
 	assert.ok(crew!.commands.some((command) => command.name() === "roles"));
 	assert.ok(crew!.commands.some((command) => command.name() === "broadcast"));
+	assert.ok(!crew!.commands.some((command) => command.name() === "session"));
 	const session = root.commands.find((command) => command.name() === "session");
 	assert.ok(session, "session group derived from registry");
-	assert.ok(session!.commands.some((command) => command.name() === "capture"));
-	assert.ok(session!.commands.some((command) => command.name() === "add"));
-	assert.ok(session!.commands.some((command) => command.name() === "list"));
-	assert.ok(session!.commands.some((command) => command.name() === "show"));
-	assert.ok(session!.commands.some((command) => command.name() === "resolve"));
-	assert.ok(session!.commands.some((command) => command.name() === "live"));
-	assert.ok(!session!.commands.some((command) => command.name() === "session"));
+	for (const name of ["capture", "add", "list", "show", "resolve", "resume", "live"]) {
+		assert.ok(
+			session!.commands.some((command) => command.name() === name),
+			name,
+		);
+	}
 	const guest = root.commands.find((command) => command.name() === "guest");
 	assert.ok(guest, "guest group derived from registry");
-	assert.ok(guest!.commands.some((command) => command.name() === "join"));
-	assert.ok(guest!.commands.some((command) => command.name() === "leave"));
-
-	// Home derives vocabulary from the registry order and is deterministic.
-	const first = await registry.leafById("home").run({ command: "home" }, context());
-	const second = await registry.leafById("home").run({ command: "home" }, context());
-	assert.deepEqual(first, second);
-	assert.equal(first.kind, "result");
-	if (first.kind !== "result") return;
-	assert.deepEqual((first.result.data as { commands: string[] }).commands, [
-		"send",
-		"crew init",
-		"crew list",
-		"session capture",
-		"session add",
-		"session list",
-		"session show",
-		"session resolve",
-		"session resume",
-		"crew roles",
-		"member status",
-		"member wait-idle",
-		"session live",
-		"member follow-up",
-		"member redirect",
-		"member request send",
-		"member request list",
-		"member request wait",
-		"member request respond",
-		"member interrupt",
-		"member inbox send",
-		"crew broadcast",
-		"guest join",
-		"guest leave",
-		"guest send",
-		"guest broadcast",
-	]);
-});
-
-test("registry leaf run adapters produce outcomes without shared state", async () => {
-	const registry = createCliRegistry();
-	const first = await registry.leafById("send").run(
-		{
-			command: "send",
-			socketPath: "/offline.sock",
-			message: "x",
-			instructions: [],
-			stdin: false,
-			mode: "steer",
-			wait: "accepted",
-			timeoutMs: 100,
-			format: "json",
-			full: false,
-		},
-		context(),
-	);
-	const second = await registry.leafById("send").run(
-		{
-			command: "send",
-			socketPath: "/offline.sock",
-			message: "x",
-			instructions: [],
-			stdin: false,
-			mode: "steer",
-			wait: "accepted",
-			timeoutMs: 100,
-			format: "json",
-			full: false,
-		},
-		context(),
-	);
-	assert.deepEqual(first, second);
-	assert.equal(first.kind, "result");
-	if (first.kind !== "result") return;
-	assert.equal(first.result.ok, false);
-	assert.equal(first.result.error?.code, "offline");
+	for (const name of ["join", "leave", "send", "broadcast"]) {
+		assert.ok(
+			guest!.commands.some((command) => command.name() === name),
+			name,
+		);
+	}
 });

@@ -1,14 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Command } from "commander";
-import { buildSendCommand, readSendLeafOptions, readSendCommand } from "./send.ts";
 import { buildMemberMessageCommand, readMemberMessageCommand } from "./member-message.ts";
-import {
-	buildMemberIdleWaitCommand,
-	readMemberIdleWaitCommand,
-	parseMemberIdleWaitCommand,
-} from "./member-idle-wait.ts";
-import { buildCrewInitCommand, readCrewInitCommand, readCrewInitLeafOptions } from "./crew-init.ts";
+import { buildMemberIdleWaitCommand, readMemberIdleWaitCommand } from "./member-idle-wait.ts";
+import { buildCrewInitCommand, readCrewInitCommand } from "./crew-init.ts";
 import { buildGuestMessageCommand, readGuestMessageCommand } from "./guest.ts";
 import {
 	buildMemberRequestSendCommand,
@@ -29,35 +24,6 @@ function parseCommand(build: () => Command, tokens: readonly string[]): Command 
 	command.parse([...tokens], { from: "user" });
 	return command;
 }
-
-test("send reader: defaults, repeatable instruction order, origin, and stdin", () => {
-	const defaults = readSendLeafOptions(parseCommand(buildSendCommand, []));
-	assert.equal(defaults.format, defaultFormatForCommand("send"));
-	assert.equal(defaults.instructions.length, 0);
-	assert.equal(defaults.stdin, false);
-
-	const parsed = readSendLeafOptions(
-		parseCommand(buildSendCommand, [
-			"--crew",
-			"/tmp/crew.json",
-			"--instruction",
-			"first",
-			"--instruction=second",
-			"--from",
-			"external:console",
-			"--stdin",
-			"--format",
-			"json",
-			"--full",
-		]),
-	);
-	assert.equal(parsed.crewPath, "/tmp/crew.json");
-	assert.deepEqual(parsed.instructions, ["first", "second"]);
-	assert.deepEqual(parsed.origin, { kind: "external", label: "external:console" });
-	assert.equal(parsed.stdin, true);
-	assert.equal(parsed.format, "json");
-	assert.equal(parsed.full, true);
-});
 
 test("member message reader: follow-up and redirect defaults and overrides", () => {
 	const defaults = readMemberMessageCommand(
@@ -90,7 +56,7 @@ test("crew init reader: human-first text default with explicit overrides", () =>
 	assert.equal(defaults.format, "text");
 	const toon = readCrewInitCommand(parseCommand(buildCrewInitCommand, ["--format", "toon"]));
 	assert.equal(toon.format, "toon");
-	const leaf = readCrewInitLeafOptions(parseCommand(buildCrewInitCommand, ["--format=json"]));
+	const leaf = readCrewInitCommand(parseCommand(buildCrewInitCommand, ["--format=json"]));
 	assert.equal(leaf.format, "json");
 });
 
@@ -148,44 +114,6 @@ test("unknown --format is rejected by readers, not silently defaulted", () => {
 		() => readCrewInitCommand(parseCommand(buildCrewInitCommand, ["--format", "yaml"])),
 		/Invalid --format 'yaml'/,
 	);
-});
-
-test("send reader: every branch is exercised including validation errors", () => {
-	const full = readSendLeafOptions(
-		parseCommand(
-			buildSendCommand,
-			[
-				"--socket",
-				"/tmp/member.sock",
-				"--message",
-				"hello",
-				"--instruction",
-				"only",
-				"--from",
-				"external:console",
-				"--format",
-				"toon",
-			].map(String),
-		),
-	);
-	assert.equal(full.socketPath, "/tmp/member.sock");
-	assert.equal(full.message, "hello");
-	assert.equal(full.origin?.kind, "external");
-	assert.equal(full.format, "toon");
-	assert.throws(
-		() => readSendCommand(parseCommand(buildSendCommand, ["--socket", "/tmp/s.sock", "--from", "   "]), "/project"),
-		/--from must be trimmed/,
-	);
-	assert.throws(
-		() =>
-			readSendCommand(
-				parseCommand(buildSendCommand, ["--socket", "/tmp/s.sock", "--message", "hello", "--format", "yaml"]),
-				"/project",
-			),
-		/Invalid --format 'yaml'/,
-	);
-	// The pure leaf read does not validate; the read+validate hook does both.
-	assert.equal(readSendLeafOptions(parseCommand(buildSendCommand, ["--format", "yaml"])).format, "yaml");
 });
 
 test("member idle wait reader: member target, session, timeout override", () => {
@@ -290,95 +218,4 @@ test("member request readers: wait and respond happy paths and request-id requir
 		() => readMemberRequestWaitCommand(parseCommand(buildMemberRequestWaitCommand, [])),
 		/missing required argument 'request-id'/,
 	);
-	// The builds declare helpOption(false): --help is consumed by the adapter's
-	// central help pre-scan before parsing, so the leaf reader rejects it here.
-	assert.throws(
-		() => readMemberRequestWaitCommand(parseCommand(buildMemberRequestWaitCommand, ["--help"])),
-		/unknown option '--help'/,
-	);
-});
-
-test("send reader: option-presence arms, origin validation, and semantic errors", () => {
-	// socket + message combination covers the presence arms not hit by the
-	// crew-only and defaults-only cases.
-	const both = readSendLeafOptions(parseCommand(buildSendCommand, ["--socket", "/tmp/s.sock", "--message", "hello"]));
-	assert.equal(both.socketPath, "/tmp/s.sock");
-	assert.equal(both.message, "hello");
-	assert.equal(both.instructions.length, 0);
-	assert.equal(both.origin, undefined);
-
-	// Valid origin labels pass; NUL/oversized/whitespace labels fail.
-	const validOrigin = readSendCommand(
-		parseCommand(buildSendCommand, ["--socket", "/tmp/s.sock", "--message", "m", "--from", "external:console"]),
-		"/project",
-	);
-	assert.equal(validOrigin.origin?.label, "external:console");
-	assert.throws(
-		() =>
-			readSendCommand(
-				parseCommand(buildSendCommand, ["--socket", "/tmp/s.sock", "--message", "m", "--from", "has\0nul"]),
-				"/project",
-			),
-		/--from must be trimmed/,
-	);
-	assert.throws(
-		() =>
-			readSendCommand(
-				parseCommand(buildSendCommand, [
-					"--socket",
-					"/tmp/s.sock",
-					"--message",
-					"m",
-					"--from",
-					"x".repeat(300),
-				]),
-				"/project",
-			),
-		/--from must be trimmed/,
-	);
-
-	// Semantic validation arms: mode/wait/format values, empty message, both sources.
-	assert.throws(
-		() =>
-			readSendCommand(
-				parseCommand(buildSendCommand, ["--socket", "/s", "--message", "m", "--mode", "yolo"]),
-				"/project",
-			),
-		/Invalid --mode 'yolo'/,
-	);
-	assert.throws(
-		() =>
-			readSendCommand(
-				parseCommand(buildSendCommand, ["--socket", "/s", "--message", "m", "--wait", "whenever"]),
-				"/project",
-			),
-		/Invalid --wait 'whenever'/,
-	);
-	assert.throws(
-		() => readSendCommand(parseCommand(buildSendCommand, ["--socket", "/s", "--message", ""]), "/project"),
-		/--message must not be empty/,
-	);
-	assert.throws(
-		() =>
-			readSendCommand(
-				parseCommand(buildSendCommand, ["--socket", "/s", "--message", "m", "--stdin"]),
-				"/project",
-			),
-		/Choose exactly one message source/,
-	);
-	assert.throws(
-		() => readSendCommand(parseCommand(buildSendCommand, ["--socket", "/s"]), "/project"),
-		/Missing message source/,
-	);
-});
-
-test("member idle wait facade: missing value, unknown option, duplicates, help", () => {
-	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--timeout"]), /Missing value for --timeout/);
-	assert.throws(() => parseMemberIdleWaitCommand(["Bob", "--bogus"]), /Unknown flag '--bogus'/);
-	assert.throws(
-		() => parseMemberIdleWaitCommand(["Bob", "--session", "a", "--session", "b"]),
-		/Duplicate flag: --session/,
-	);
-	const help = parseMemberIdleWaitCommand(["--help"]);
-	assert.equal(help.help, true);
 });

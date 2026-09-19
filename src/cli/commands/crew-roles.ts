@@ -45,29 +45,20 @@ export function buildCrewRolesCommand(): Command {
 			defaultFormatForCommand("crew-roles"),
 		)
 		.option("--full", "Full response without truncation")
-		.showHelpAfterError(false)
-		.helpOption(false); // --help handled by the app pre-pass; no short aliases
-}
-
-export function crewRolesHelp(): string {
-	return [
-		"pi-bebop crew roles [--format toon|json|text] [--full]",
-		"",
-		"List the configured crew roles in the project's crew manifest. Read-only",
-		"discovery for choosing --crew-role <role> at Pi startup: prints distinct",
-		"exact role values in first-manifest-appearance order plus manifest-level",
-		"counts. Never starts a server, never joins a member, never mutates files,",
-		"and never exposes member names, instructions, socket paths, or session",
-		"destinations.",
-		"",
-		"Options:",
-		"  --format <format>   toon (default), json, or text",
-		"  --full              Full response without truncation",
-		"",
-		"Manifest resolution: reads .pi/bebop/crew.json (or the .pi/crew",
-		"compatibility layout) rooted at the current working directory.",
-		"",
-	].join("\n");
+		.addHelpText(
+			"after",
+			[
+				"List the configured crew roles in the project's crew manifest. Read-only",
+				"discovery for choosing --crew-role <role> at Pi startup: prints distinct",
+				"exact role values in first-manifest-appearance order plus manifest-level",
+				"counts. Never starts a server, never joins a member, never mutates files,",
+				"and never exposes member names, instructions, socket paths, or session",
+				"destinations.",
+				"",
+				"Manifest resolution: reads .pi/bebop/crew.json (or the .pi/crew",
+				"compatibility layout) rooted at the current working directory.",
+			].join("\n"),
+		);
 }
 
 export function readCrewRolesCommand(parsed: Command): CrewRolesCliOptions {
@@ -76,63 +67,6 @@ export function readCrewRolesCommand(parsed: Command): CrewRolesCliOptions {
 	if (!isCliFormat(format))
 		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
 	return { command: "crew-roles", format, full: opts.full === true };
-}
-
-export function parseCrewRolesCommand(args: string[], _cwd = process.cwd()): CrewRolesCliOptions {
-	// App-owned pre-pass: help detection and duplicate rejection.
-	const tokens: string[] = [];
-	let help = false;
-	let full = false;
-	let seenFormat = false;
-	for (const raw of args) {
-		const equals = raw.indexOf("=");
-		const flag = equals > 0 ? raw.slice(0, equals) : raw;
-		if (flag === "--help") {
-			if (help) throw new UsageError("Duplicate flag: --help");
-			help = true;
-			continue;
-		}
-		if (flag === "--full") {
-			if (full) throw new UsageError("Duplicate flag: --full");
-			full = true;
-			tokens.push(raw);
-			continue;
-		}
-		if (flag === "--format") {
-			if (seenFormat) throw new UsageError("Duplicate flag: --format");
-			seenFormat = true;
-			tokens.push(raw);
-			continue;
-		}
-		tokens.push(raw);
-	}
-
-	// Commander tokenization with injected argv and no ambient IO.
-	const program = buildCrewRolesCommand()
-		.exitOverride()
-		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
-	let opts: { format?: string };
-	try {
-		program.parse(tokens, { from: "user" });
-		opts = program.opts();
-	} catch (error) {
-		if (error instanceof Error && error.name === "CommanderError") {
-			const match = /--[a-z-]+/.exec(error.message);
-			const flag = match?.[0] ?? "--format";
-			throw new UsageError(
-				(error as Error & { code?: string }).code === "commander.optionMissingArgument"
-					? `Missing value for ${flag}`
-					: error.message,
-			);
-		}
-		throw error;
-	}
-
-	// App-owned enum validation.
-	const format = (opts.format ?? defaultFormatForCommand("crew-roles")) as string;
-	if (!isCliFormat(format))
-		throw new UsageError(`Invalid --format '${format}'; valid alternatives: toon, json, text`);
-	return { command: "crew-roles", format: format as CliFormat, full, ...(help ? { help: true } : {}) };
 }
 
 /** Injected filesystem surface: deterministic, no raw IO, no Pi runtime. */
@@ -168,7 +102,6 @@ export async function runCrewRolesCommand(
 	context: CliContext,
 	deps: CrewRolesDependencies = defaultCrewRolesDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: crewRolesHelp() };
 	const projectRoot = path.resolve(context.cwd);
 	const manifestPaths = getTrustedCrewManifestPaths(projectRoot);
 	const existing = (

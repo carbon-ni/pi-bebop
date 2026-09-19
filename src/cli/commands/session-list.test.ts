@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
 import {
-	parseSessionListCommand,
+	buildSessionListCommand,
+	readSessionListCommand,
 	runSessionListCommand,
-	sessionListHelp,
 	type SessionListDependencies,
 	type SessionListEntry,
 } from "./session-list.ts";
@@ -40,7 +40,7 @@ function render(outcome: CliOutcome): { exit: number; text: string } {
 	output.on("data", (chunk) => {
 		text += chunk;
 	});
-	const exit = writeOutcome(output, outcome);
+	const exit = writeOutcome(output, new PassThrough(), outcome);
 	return { exit, text };
 }
 
@@ -56,16 +56,18 @@ const LIVE: FakeStore = {
 
 // --- parse ---
 
-test("session live parse: default toon, optional --format, --help short-circuit", () => {
-	assert.deepEqual(parseSessionListCommand([]), { command: "session-live", format: "toon" });
-	assert.deepEqual(parseSessionListCommand(["--format", "json"]), { command: "session-live", format: "json" });
-	assert.equal(parseSessionListCommand(["--help"]).help, true);
-	assert.throws(() => parseSessionListCommand(["--format", "toon", "--format", "json"]), /Duplicate flag: --format/);
-	assert.throws(() => parseSessionListCommand(["--help", "--help"]), /Duplicate flag: --help/);
-	assert.throws(() => parseSessionListCommand(["--format"]), /Missing value for --format/);
-	assert.deepEqual(parseSessionListCommand(["--format=json"]), { command: "session-live", format: "json" });
-	assert.throws(() => parseSessionListCommand(["--bogus"]), UsageError);
-	assert.throws(() => parseSessionListCommand(["--format", "xml"]), /Invalid --format/);
+test("session live reader preserves format and rejects invalid formats", () => {
+	const command = buildSessionListCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse(["node", "live", "--format", "text"], { from: "node" });
+	assert.deepEqual(readSessionListCommand(command), { command: "session-live", format: "text" });
+	const defaults = buildSessionListCommand().exitOverride();
+	defaults.parse(["node", "live"], { from: "node" });
+	assert.deepEqual(readSessionListCommand(defaults), { command: "session-live", format: "toon" });
+	const invalid = buildSessionListCommand().exitOverride();
+	invalid.parse(["node", "live", "--format", "yaml"], { from: "node" });
+	assert.throws(() => readSessionListCommand(invalid), UsageError);
 });
 
 // --- run ---
@@ -85,6 +87,19 @@ test("session live run: live joined/unjoined sessions with safe aliases, exit 0"
 	assert.equal(byId.get("a-2")?.membership, "unjoined");
 	assert.deepEqual(byId.get("a-2")?.aliases, []);
 	assert.equal(render(outcome).exit, 0);
+});
+
+test("session live run: safe aliases may target ids without a socket suffix", async () => {
+	const store: FakeStore = {
+		entries: ["plain-id.sock", "plain.alias"],
+		aliases: { "/bebop/plain.alias": "plain-id" },
+		probeAlive: (p) => p.endsWith("plain-id.sock"),
+		statusOf: () => "stopped",
+	};
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), deps(store));
+	if (outcome.kind !== "result") throw new Error("expected result");
+	const sessions = (outcome.result.data as { sessions: SessionListEntry[] }).sessions;
+	assert.deepEqual(sessions, [{ sessionId: "plain-id", aliases: ["plain"], membership: "unknown" }]);
 });
 
 test("session live run: ordering by primary alias then session id is deterministic", async () => {
@@ -181,16 +196,4 @@ test("session live run: output never leaks socket paths, focus, or messages", as
 	const outcome = await runSessionListCommand({ command: "session-live", format: "toon" }, context(), deps(LIVE));
 	const text = render(outcome).text;
 	assert.doesNotMatch(text, /\.sock|\.alias|focus|Focus|message|instructions/i);
-});
-
-test("session live run: --help returns deterministic help text", async () => {
-	const outcome = await runSessionListCommand(
-		{ command: "session-live", format: "toon", help: true },
-		context(),
-		deps(LIVE),
-	);
-	assert.equal(outcome.kind, "help");
-	if (outcome.kind !== "help") return;
-	assert.equal(outcome.text, sessionListHelp());
-	assert.equal(render(outcome).exit, 0);
 });

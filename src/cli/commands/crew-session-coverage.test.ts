@@ -31,34 +31,7 @@ const addOptions = {
 	full: false,
 };
 
-test("Crew Session command adapters preserve help, empty, invalid, and operational outcomes", async () => {
-	assert.equal(
-		(
-			await runCrewSessionListCommand(
-				{ command: "session-list", limit: 25, offset: 0, format: "toon", full: false, help: true },
-				context(),
-			)
-		).kind,
-		"help",
-	);
-	assert.equal(
-		(
-			await runCrewSessionShowCommand(
-				{ command: "session-show", id: "x", format: "toon", full: false, help: true },
-				context(),
-			)
-		).kind,
-		"help",
-	);
-	assert.equal(
-		(
-			await runCrewSessionResolveCommand(
-				{ command: "session-resolve", id: "x", member: "A", format: "toon", full: false, help: true },
-				context(),
-			)
-		).kind,
-		"help",
-	);
+test("Crew Session command adapters preserve empty, invalid, and operational outcomes", async () => {
 	const emptyList = await runCrewSessionListCommand(
 		{ command: "session-list", limit: 25, offset: 0, format: "toon", full: false },
 		context(),
@@ -80,11 +53,6 @@ test("Crew Session command adapters preserve help, empty, invalid, and operation
 	);
 	assert.equal(resolveFailure.kind, "result");
 	if (resolveFailure.kind === "result") assert.equal(resolveFailure.result.error?.code, "record-not-found");
-
-	const captureHelp = await runCrewSessionCaptureCommand({ ...captureOptions, help: true }, context());
-	assert.equal(captureHelp.kind, "help");
-	const addHelp = await runCrewSessionAddCommand({ ...addOptions, help: true }, context());
-	assert.equal(addHelp.kind, "help");
 
 	const resolveSuccess = await runCrewSessionResolveCommand(
 		{ command: "session-resolve", id: "cs_ok", member: "Alice", format: "json", full: true },

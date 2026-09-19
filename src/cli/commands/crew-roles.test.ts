@@ -7,9 +7,8 @@ import { UsageError } from "../support/arguments.ts";
 import type { CliContext } from "../support/context.ts";
 import {
 	buildCrewRolesCommand,
-	crewRolesHelp,
 	defaultCrewRolesDependencies,
-	parseCrewRolesCommand,
+	readCrewRolesCommand,
 	runCrewRolesCommand,
 	type CrewRolesDependencies,
 } from "./crew-roles.ts";
@@ -52,58 +51,27 @@ function deps(overrides: Partial<CrewRolesDependencies> = {}): CrewRolesDependen
 // Parser
 // ---------------------------------------------------------------------------
 
-test("crew roles parse defaults: format toon, full false, no help", () => {
-	assert.deepEqual(parseCrewRolesCommand([], "/project"), {
-		command: "crew-roles",
-		format: "toon",
-		full: false,
-	});
-});
+// ---------------------------------------------------------------------------
+// Reader
+// ---------------------------------------------------------------------------
 
-test("crew roles parse accepts --format json|text (space and equals forms) and --full", () => {
-	for (const args of [["--format", "json"], ["--format=json"]]) {
-		assert.equal(parseCrewRolesCommand(args, "/project").format, "json");
-	}
-	assert.equal(parseCrewRolesCommand(["--format", "text"], "/project").format, "text");
-	assert.equal(parseCrewRolesCommand(["--full"], "/project").full, true);
-	assert.equal(parseCrewRolesCommand(["--full", "--format", "json"], "/project").format, "json");
-});
-
-test("crew roles parse rejects duplicate and invalid flags", () => {
-	assert.throws(() => parseCrewRolesCommand(["--format", "toon", "--format", "json"], "/project"), UsageError);
-	assert.throws(() => parseCrewRolesCommand(["--full", "--full"], "/project"), /Duplicate flag: --full/);
-	assert.throws(() => parseCrewRolesCommand(["--help", "--help"], "/project"), /Duplicate flag: --help/);
-	assert.throws(
-		() => parseCrewRolesCommand(["--format", "yaml"], "/project"),
-		/Invalid --format 'yaml'; valid alternatives: toon, json, text/,
-	);
-	assert.throws(() => parseCrewRolesCommand(["--format"], "/project"), /Missing value for --format/);
-	assert.throws(() => parseCrewRolesCommand(["--bogus"], "/project"), /unknown option '--bogus'/);
-	assert.throws(() => parseCrewRolesCommand(["extra"], "/project"), UsageError);
-});
-
-test("crew roles parse --help returns help option while still validating format", () => {
-	assert.deepEqual(parseCrewRolesCommand(["--help"], "/project"), {
-		command: "crew-roles",
-		format: "toon",
-		full: false,
-		help: true,
-	});
-	assert.throws(() => parseCrewRolesCommand(["--help", "--format", "yaml"], "/project"), UsageError);
+test("crew roles reader preserves full and format options and rejects invalid format", () => {
+	const command = buildCrewRolesCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse(["node", "roles", "--full", "--format", "text"], { from: "node" });
+	assert.deepEqual(readCrewRolesCommand(command), { command: "crew-roles", format: "text", full: true });
+	const defaults = buildCrewRolesCommand().exitOverride();
+	defaults.parse(["node", "roles"], { from: "node" });
+	assert.deepEqual(readCrewRolesCommand(defaults), { command: "crew-roles", format: "toon", full: false });
+	const invalid = buildCrewRolesCommand().exitOverride();
+	invalid.parse(["node", "roles", "--format", "yaml"], { from: "node" });
+	assert.throws(() => readCrewRolesCommand(invalid), UsageError);
 });
 
 // ---------------------------------------------------------------------------
 // Help
 // ---------------------------------------------------------------------------
-
-test("crew roles help is deterministic and documents flags and manifest resolution", () => {
-	assert.equal(crewRolesHelp(), crewRolesHelp());
-	assert.match(crewRolesHelp(), /pi-bebop crew roles \[--format toon\|json\|text\] \[--full\]/);
-	assert.match(crewRolesHelp(), /--format <format>/);
-	assert.match(crewRolesHelp(), /--full/);
-	assert.match(crewRolesHelp(), /\.pi\/bebop\/crew\.json/);
-	assert.match(crewRolesHelp(), /never exposes member names/);
-});
 
 test("crew roles command builder exposes only format and full flags", () => {
 	const command = buildCrewRolesCommand();
@@ -236,28 +204,17 @@ test("crew roles handler maps manifest parse errors (unsupported version, empty 
 });
 
 test("crew roles handler maps unknown errors to operational", async () => {
-	const outcome = await runCrewRolesCommand(
-		{ command: "crew-roles", format: "json", full: false },
-		context(),
-		deps({ readManifest: async () => Promise.reject(new Error("boom")) }),
-	);
-	assert.equal(outcome.kind, "result");
-	if (outcome.kind !== "result") return;
-	assert.equal(outcome.result.ok, false);
-	assert.equal(outcome.result.error?.code, "operational");
-});
-
-test("crew roles handler --help returns deterministic local help with zero IO", async () => {
-	const outcome = await runCrewRolesCommand(
-		{ command: "crew-roles", format: "toon", full: false, help: true },
-		context(),
-		deps({
-			manifestExists: async () => {
-				throw new Error("must not be called for help");
-			},
-		}),
-	);
-	assert.deepEqual(outcome, { kind: "help", text: crewRolesHelp() });
+	for (const error of [new Error("boom"), "unexpected value"]) {
+		const outcome = await runCrewRolesCommand(
+			{ command: "crew-roles", format: "json", full: false },
+			context(),
+			deps({ readManifest: async () => Promise.reject(error) }),
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind !== "result") return;
+		assert.equal(outcome.result.ok, false);
+		assert.equal(outcome.result.error?.code, "operational");
+	}
 });
 
 test("default dependencies read through the trusted manifest loader with explicit consent", async () => {

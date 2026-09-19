@@ -12,26 +12,42 @@ export interface CliResult {
 }
 
 /**
- * TASK-0063: renderable outcome produced by every command handler. Help is
- * raw deterministic bytes (zero IO); results carry their own format/full
- * flags so the single renderer boundary never needs command knowledge.
+ * TASK-0209: renderable outcome produced by every command handler. Help text
+ * is Commander-generated (zero IO); successful results carry their own
+ * format/full flags so the single renderer boundary never needs command
+ * knowledge.
  */
 export type CliOutcome =
 	| { readonly kind: "result"; readonly result: CliResult; readonly format: CliFormat; readonly full: boolean }
 	| { readonly kind: "help"; readonly text: string };
 
+function withTrailingNewline(text: string): string {
+	return text.endsWith("\n") ? text : `${text}\n`;
+}
+
 /**
- * The single renderer boundary: one output write per invocation. Exit codes
- * are derived here: usage 2, help 0, success 0, operational failure 1.
+ * The single renderer boundary. Streams and exit classes (TASK-0209):
+ * help and successful results are written to stdout with exit 0; usage
+ * failures (status: usage) and operational failures are plain text on
+ * stderr with exit 2 and 1 respectively — never TOON/JSON envelopes.
+ * --format controls successful result data only.
  */
-export function writeOutcome(output: NodeJS.WritableStream, outcome: CliOutcome): number {
+export function writeOutcome(
+	output: NodeJS.WritableStream,
+	stderr: NodeJS.WritableStream,
+	outcome: CliOutcome,
+): number {
 	if (outcome.kind === "help") {
-		output.write(outcome.text);
+		output.write(withTrailingNewline(outcome.text));
 		return 0;
 	}
+	if (!outcome.result.ok) {
+		const message = outcome.result.error?.message ?? "Operation failed";
+		stderr.write(withTrailingNewline(message));
+		return outcome.result.status === "usage" ? 2 : 1;
+	}
 	output.write(`${renderCliResult(outcome.result, outcome.format, outcome.full)}\n`);
-	if (outcome.result.status === "usage") return 2;
-	return outcome.result.ok ? 0 : 1;
+	return 0;
 }
 
 const MAX_RESPONSE = 2000;
@@ -56,7 +72,6 @@ function renderTextResult(result: CliResult): string {
 	if (Array.isArray(crews)) return renderCrewsText(data, crews);
 	const sessions = data?.sessions;
 	if (Array.isArray(sessions)) return renderSessionsText(data, sessions);
-	if (Array.isArray(data?.commands) && data?.scaffold !== undefined) return renderHomeText(data);
 	const roles = data?.roles;
 	if (Array.isArray(roles)) return renderRolesText(data, roles);
 	const summary = asViewModel(data?.summary);
@@ -73,16 +88,6 @@ function renderTextResult(result: CliResult): string {
 	if (result.status === "empty") return `No ${result.target || "results"} found`;
 	if (result.status === "persisted") return result.response ?? "Message persisted";
 	return result.response ?? (result.status === "accepted" ? "Message accepted" : "Operation succeeded");
-}
-
-function renderHomeText(data: ViewModel): string {
-	const project = stringValue(data.project) ?? "current project";
-	const scaffold = stringValue(data.scaffold) ?? "unknown";
-	const lines = [`Project: ${project}`, `Crew scaffold: ${scaffold}`];
-	if (Array.isArray(data.commands) && data.commands.length > 0)
-		lines.push(`Commands: ${data.commands.length} available`);
-	if (stringValue(data.next)) lines.push(`Next: ${data.next}`);
-	return lines.join("\n");
 }
 
 function renderCrewsText(data: ViewModel, crews: unknown[]): string {

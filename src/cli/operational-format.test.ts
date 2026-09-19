@@ -19,19 +19,32 @@ const SESSION_ID = randomUUID();
 const SESSION_SOCKET = getSocketPath(SESSION_ID);
 let server: RpcServer;
 
-async function run(args: readonly string[]): Promise<{ code: number; text: string }> {
+interface RunResult {
+	readonly code: number;
+	readonly stdout: string;
+	readonly stderr: string;
+}
+
+async function run(args: readonly string[]): Promise<RunResult> {
 	let out = "";
-	const sink = new Writable({
+	let err = "";
+	const outSink = new Writable({
 		write(c: unknown, _e: unknown, cb: () => void) {
 			out += String(c);
 			cb();
 		},
 	});
-	const code = await runCli([...args], "/project", process.stdin, sink, process.stderr, {
+	const errSink = new Writable({
+		write(c: unknown, _e: unknown, cb: () => void) {
+			err += String(c);
+			cb();
+		},
+	});
+	const code = await runCli([...args], "/project", process.stdin, outSink, errSink, {
 		...process.env,
 		PI_SESSION_ID: SESSION_ID,
 	});
-	return { code, text: out };
+	return { code, stdout: out, stderr: err };
 }
 
 test.before(async () => {
@@ -64,36 +77,30 @@ const CASES: ReadonlyArray<{ name: string; args: readonly string[]; code: string
 	},
 ];
 
-test("operational failures render in the selected format with stable codes", async () => {
+test("operational failures are plain text on stderr with exit 1 and an empty stdout", async () => {
 	for (const scenario of CASES) {
-		for (const [format, probe] of [
-			["toon", /ok: false/],
-			["json", /\{"ok":false/],
-			["text", /failed: /],
-		] as const) {
-			const { code, text } = await run([...scenario.args, "--format", format]);
-			assert.equal(code, 1, `${scenario.name} --format ${format} :: ${text.slice(0, 60)}`);
-			assert.match(text, probe, `${scenario.name} --format ${format}`);
-		}
+		const { code, stdout, stderr } = await run(scenario.args);
+		assert.equal(code, 1, scenario.name);
+		assert.equal(stdout, "", scenario.name);
+		assert.match(stderr, new RegExp(scenario.code), scenario.name);
+		assert.doesNotMatch(stderr, /^[\[{]/, scenario.name);
 	}
 });
 
-test("operational failures keep semantic parity across formats", async () => {
+test("operational failures are identical regardless of --format", async () => {
 	for (const scenario of CASES) {
 		const toon = await run([...scenario.args, "--format", "toon"]);
 		const json = await run([...scenario.args, "--format", "json"]);
 		const text = await run([...scenario.args, "--format", "text"]);
-		assert.match(toon.text, new RegExp(`code: ["']?${scenario.code}`), scenario.name);
-		assert.match(json.text, new RegExp(`"code":"${scenario.code}"`), scenario.name);
-		assert.match(text.text, new RegExp(scenario.code), scenario.name);
+		assert.equal(toon.stderr, json.stderr, scenario.name);
+		assert.equal(json.stderr, text.stderr, scenario.name);
+		assert.match(text.stderr, new RegExp(scenario.code), scenario.name);
 	}
 });
 
-test("invalid --session degrades to the operational unknown-session outcome in every format", async () => {
-	for (const format of ["toon", "json", "text"]) {
-		const { code, text } = await run(["member", "status", "someone", "--session", "bad;id", "--format", format]);
-		assert.equal(code, 1, format);
-		assert.match(text, new RegExp(format === "json" ? '"code":"unknown-session"' : "unknown-session"));
-		if (format === "json") assert.match(text, /^\{/);
-	}
+test("an unresolvable source session degrades to the operational unknown-session outcome", async () => {
+	const { code, stdout, stderr } = await run(["member", "status", "someone", "--session", "does-not-exist"]);
+	assert.equal(code, 1);
+	assert.equal(stdout, "");
+	assert.match(stderr, /unknown-session/);
 });

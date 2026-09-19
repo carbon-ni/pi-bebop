@@ -4,12 +4,12 @@ import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { isMemberInterruptResult, type MemberInterruptResult } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
-import { errorResult, usageResult } from "../support/errors.ts";
+import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
 import { readStdinMessage } from "../support/message-input.ts";
-import { parseMemberMessageCommand, readMemberMessageCommand } from "./member-message.ts";
+import { readMemberMessageCommand } from "./member-message.ts";
 
 export interface MemberInterruptCliOptions {
 	readonly command: "member-interrupt";
@@ -19,7 +19,6 @@ export interface MemberInterruptCliOptions {
 	readonly instructions: string[];
 	readonly stdin: boolean;
 	readonly format: CliFormat;
-	readonly help?: boolean;
 }
 
 export function buildMemberInterruptCommand(): Command {
@@ -35,32 +34,21 @@ export function buildMemberInterruptCommand(): Command {
 			defaultFormatForCommand("member-interrupt"),
 		)
 		.argument("[<member>]", "Crew member name or unique role")
-		.showHelpAfterError(false)
-		.helpOption(false);
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Hard-interrupt a joined crew member only when work is stuck, harmful, or based on invalid assumptions.",
+				"The target owns recovery evidence ordering. Abort is best-effort: it cannot roll back completed effects,",
+				"non-cooperative work, filesystem changes, network effects, or claim target completion.",
+				"An accepted result means recovery was handed off with a disposition; it never means work was undone or done.",
+				"",
+				`Discover sessions with: ${SESSION_LIST_HINT}`,
+			].join("\n"),
+		);
 }
 function collect(value: string, previous: string[]): string[] {
 	return previous.concat([value]);
-}
-
-export function memberInterruptHelp(): string {
-	return [
-		"pi-bebop member interrupt <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]",
-		"",
-		"Hard-interrupt a joined crew member only when work is stuck, harmful, or based on invalid assumptions.",
-		"The target owns recovery evidence ordering. Abort is best-effort: it cannot roll back completed effects,",
-		"non-cooperative work, filesystem changes, network effects, or claim target completion.",
-		"An accepted result means recovery was handed off with a disposition; it never means work was undone or done.",
-		"",
-		"Options:",
-		"  --session <id|alias>    Source joined Pi session id or alias (default: PI_SESSION_ID)",
-		"  --message <text>        Recovery guidance (exactly one of --message or --stdin)",
-		"  --stdin                 Read recovery guidance from stdin",
-		"  --instruction <text>    Ordered instruction (repeatable, at most 32)",
-		"  --format <format>       toon (default), json, or text",
-		"",
-		`Discover sessions with: ${SESSION_LIST_HINT}`,
-		"",
-	].join("\n");
 }
 
 export function readMemberInterruptCommand(command: Command): MemberInterruptCliOptions {
@@ -73,21 +61,6 @@ export function readMemberInterruptCommand(command: Command): MemberInterruptCli
 		instructions: parsed.instructions,
 		stdin: parsed.stdin,
 		format: parsed.format,
-		...(parsed.help ? { help: true } : {}),
-	};
-}
-
-export function parseMemberInterruptCommand(args: string[], cwd = process.cwd()): MemberInterruptCliOptions {
-	const parsed = parseMemberMessageCommand(args, "follow_up", cwd);
-	return {
-		command: "member-interrupt",
-		member: parsed.member,
-		...(parsed.session === undefined ? {} : { session: parsed.session }),
-		...(parsed.message === undefined ? {} : { message: parsed.message }),
-		instructions: parsed.instructions,
-		stdin: parsed.stdin,
-		format: parsed.format,
-		...(parsed.help ? { help: true } : {}),
 	};
 }
 
@@ -150,18 +123,11 @@ export async function runMemberInterruptCommand(
 	context: CliContext,
 	deps: MemberInterruptCliDependencies = defaultMemberInterruptCliDependencies,
 ): Promise<CliOutcome> {
-	if (options.help) return { kind: "help", text: memberInterruptHelp() };
 	const source = deps.resolveSource({
 		explicitSession: options.session,
 		environmentSession: deps.environmentSession(context.environment),
 	});
-	if (source.ok === false)
-		return {
-			kind: "result",
-			result: usageResult(source.message, source.code),
-			format: options.format,
-			full: false,
-		};
+	if (source.ok === false) throw new UsageError(source.message);
 	let message = options.message;
 	if (options.stdin) {
 		try {
