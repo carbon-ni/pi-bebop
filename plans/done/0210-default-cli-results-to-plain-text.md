@@ -1,7 +1,7 @@
 ---
 id: TASK-0210
 title: Default CLI results to plain text
-status: todo
+status: done
 depends_on: [TASK-0209]
 priority: high
 tags: [cli, output, usability]
