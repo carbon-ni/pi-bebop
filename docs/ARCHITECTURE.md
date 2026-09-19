@@ -4,7 +4,7 @@
 
 Presence is identity-based: configured socket paths are canonical identities; names and roles are descriptive claims. `presence.hint` is a best-effort JSON-RPC trigger and never directly changes reducer state. The observer validates exact claims, probes peers with a 500ms bound, and emits reducer effects only from validated observations. `createPresenceLifecycleCoordinator` owns replacement and cleanup ordering; the adapter resolves configured peer targets and isolates individual wire failures. Lifecycle snapshots use ordered member/current metadata plus notifications in a deterministic fingerprint.
 
-`pi-bebop` is an independent Pi TypeScript extension for managing small,
+`bebop` is an independent Pi TypeScript CLI and Pi TypeScript extension for managing small,
 project-local agent crews. It does not depend on `pi-intray` at runtime or
 share its socket directory, flags, tools, or custom message type.
 
@@ -301,7 +301,7 @@ allowed types are `feat`, `fix`, `docs`, `test`, `chore`, and `refactor`.
 consumer dependency set and may require network or a warm npm cache, so it is
 deliberately separate from quick tests (which pack/extract locally and run the
 bundled CLI with no registry IO). `npm pack` produces the installable
-`pi-bebop-<version>.tgz`; the packaged `node_modules/.bin/pi-bebop` runs the
+`pi-bebop-<version>.tgz`; the packaged `node_modules/.bin/bebop` runs the
 same `dist/cli/main.js` the test suite executes directly. Publication to npm is
 never assumed: a documented install must be verifiable locally, and `npm view
-pi-bebop` must succeed for any claimed published version.
+@carbon-ni/pi-bebop` must succeed for any claimed published version.

@@ -12,7 +12,7 @@
 	"type": "module",
 	"main": "./dist/extension.js",
 	"bin": {
-		"pi-bebop": "./dist/cli/main.js"
+		"bebop": "./dist/cli/main.js"
 	},
 	"files": [
 		"index.ts",

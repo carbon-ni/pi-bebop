@@ -50,7 +50,7 @@ export function buildMemberStatusCommand(): Command {
 				"pending-message signal) and the observation time. Read-only: never",
 				"starts, steers, or interrupts the target turn. Activity is mechanical and",
 				"never verified task progress. For intent, progress, a report, or a verdict,",
-				"ask explicitly with `pi-bebop member request send`, then `pi-bebop member request wait`.",
+				"ask explicitly with `bebop member request send`, then `bebop member request wait`.",
 				"",
 				"Source: the query runs through one already-joined Pi session, which derives",
 				"membership and trust authoritatively. The CLI never loads a crew manifest.",

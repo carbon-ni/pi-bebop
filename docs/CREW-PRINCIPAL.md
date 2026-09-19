@@ -117,11 +117,11 @@ The route adapter must be idempotent by stable message identity. A retry of the 
 The future CLI uses product identities and local files, never transport identifiers. Each failure should print one corrected command without embedding message content or route material:
 
 ```text
-pi-bebop crew principal configure --identity <principal-id> --allow-sender <member-name>
-pi-bebop crew principal bind --identity <principal-id>
-pi-bebop crew principal send --identity <principal-id> --message-file ./update.md
-pi-bebop crew principal status --identity <principal-id>
-pi-bebop crew principal bind --identity <principal-id> --rebind
+bebop crew principal configure --identity <principal-id> --allow-sender <member-name>
+bebop crew principal bind --identity <principal-id>
+bebop crew principal send --identity <principal-id> --message-file ./update.md
+bebop crew principal status --identity <principal-id>
+bebop crew principal bind --identity <principal-id> --rebind
 ```
 
 Missing configuration points to `configure`; an unbound or stale destination points to `bind`; an offline Principal points to `status` and a safe retry of the same message file; invalid size/retention policy points to `configure` with bounded values; and a protocol/version mismatch points to `bind --rebind`. These are proposed product commands, not an implementation commitment. The command must never substitute a guessed identity, inline secret, socket, session alias, or message body.

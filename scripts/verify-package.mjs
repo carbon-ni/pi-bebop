@@ -63,6 +63,8 @@ try {
 	const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json")));
 	if (manifest.name !== packageName || manifest.version !== packageVersion)
 		throw new Error(`Installed package identity mismatch: ${manifest.name}@${manifest.version}`);
+	if (JSON.stringify(manifest.bin) !== JSON.stringify({ bebop: "./dist/cli/main.js" }))
+		throw new Error("Installed package must publish only the bebop executable");
 	if (manifest.publishConfig?.access !== "public")
 		throw new Error("Scoped package is not configured for public access");
 	if (manifest.main !== "./dist/extension.js") throw new Error("Installed extension entrypoint is not configured");
@@ -103,7 +105,7 @@ try {
 			env: environment,
 		});
 		if (
-			!/pi-bebop member status /.test(statusHelp.stdout) ||
+			!/bebop member status /.test(statusHelp.stdout) ||
 			!/--session <id\|alias>/.test(statusHelp.stdout) ||
 			!/--format <format>/.test(statusHelp.stdout)
 		)
@@ -111,7 +113,7 @@ try {
 
 		// No arguments show Commander-generated root help, not the retired home state.
 		const home = await execFile(process.execPath, [cli], { cwd: initDir, env: environment });
-		if (!/Usage: pi-bebop/.test(home.stdout) || !/Commands:/.test(home.stdout) || !/crew/.test(home.stdout))
+		if (!/Usage: bebop/.test(home.stdout) || !/Commands:/.test(home.stdout) || !/crew/.test(home.stdout))
 			throw new Error("Installed CLI no-argument invocation missing root help");
 
 		const created = await execFile(process.execPath, [cli, "crew", "init", "--format", "json"], {
@@ -134,11 +136,18 @@ try {
 		// release verification. The .bin entry mirrors npm's install layout.
 		const binDir = path.join(consumerDir, "node_modules", ".bin");
 		await mkdir(binDir, { recursive: true });
-		const bin = path.join(binDir, "pi-bebop");
+		const bin = path.join(binDir, "bebop");
+		const legacyBin = path.join(binDir, "pi-bebop");
 		await symlink(path.join("..", "@carbon-ni", "pi-bebop", "dist", "cli", "main.js"), bin);
+		try {
+			await readFile(legacyBin);
+			throw new Error("Installed package unexpectedly exposes the retired pi-bebop executable");
+		} catch (error) {
+			if (error instanceof Error && error.message.includes("unexpectedly exposes")) throw error;
+		}
 
 		const binHome = await execFile(process.execPath, [bin], { cwd: initDir, env: environment });
-		if (!/Usage: pi-bebop/.test(binHome.stdout) || !/Commands:/.test(binHome.stdout))
+		if (!/Usage: bebop/.test(binHome.stdout) || !/Commands:/.test(binHome.stdout))
 			throw new Error("Installed bin shim no-argument invocation did not render root help");
 
 		const binRootHelp = await execFile(process.execPath, [bin, "--help"], { cwd: initDir, env: environment });

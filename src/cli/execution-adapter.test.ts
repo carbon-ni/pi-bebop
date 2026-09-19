@@ -47,12 +47,12 @@ test("root, group, and leaf help stay inside the returned outcome boundary", asy
 	assert.match(String((await adapter.execute(request(["crew", "--help"]))).text), /Usage:.*crew/s);
 	const bare = await adapter.execute(request(["crew"]));
 	assert.equal(bare.kind, "help");
-	assert.match(String(bare.text), /Usage: pi-bebop crew/);
+	assert.match(String(bare.text), /Usage: bebop crew/);
 	// Leaf help is Commander-generated; the semantic reader never runs.
 	const leaf = await adapter.execute(request(["crew", "member", "ping", "-h"]));
-	assert.match(String(leaf.text), /Usage: pi-bebop crew member ping/);
+	assert.match(String(leaf.text), /Usage: bebop crew member ping/);
 	const version = await adapter.execute(request(["-v"]));
-	assert.match(String(version.text), /^pi-bebop \d+\.\d+\.\d+/);
+	assert.match(String(version.text), /^bebop \d+\.\d+\.\d+/);
 });
 
 test("every production leaf owns a Commander reader", () => {
@@ -83,7 +83,7 @@ test("Commander rejects unknown options and excess arguments before handlers run
 	await assert.rejects(
 		adapter.execute(request(["crew", "probe", "stray"])),
 		(error: unknown) =>
-			error instanceof UsageError && /usage: pi-bebop crew probe/i.test(error.message) && ran === false,
+			error instanceof UsageError && /usage: bebop crew probe/i.test(error.message) && ran === false,
 	);
 });
 

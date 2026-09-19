@@ -148,13 +148,13 @@ test("text presents crew-init state, safe paths, and next command", () => {
 					manifestPath: "/project/.pi/bebop/crew.json",
 					createdPaths: ["crew.json", "common.md"],
 					verifiedPaths: ["crew.json"],
-					nextCommands: ["pi-bebop --crew-role lead"],
+					nextCommands: ["bebop --crew-role lead"],
 				},
 			},
 			"text",
 			false,
 		),
-		"Crew scaffold created: /project\nManifest: /project/.pi/bebop/crew.json\nCreated: 2 path(s)\nVerified: 1 path(s)\nNext: pi-bebop --crew-role lead",
+		"Crew scaffold created: /project\nManifest: /project/.pi/bebop/crew.json\nCreated: 2 path(s)\nVerified: 1 path(s)\nNext: bebop --crew-role lead",
 	);
 });
 

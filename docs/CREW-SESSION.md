@@ -14,17 +14,17 @@ liveness claim.
 
 ```text
 # While the intended Members are online:
-pi-bebop session capture "auth regression"
+bebop session capture "auth regression"
 
 # Later, after processes or tabs close:
-pi-bebop session list
-pi-bebop session show <crew-session-id>
-pi-bebop session resolve <crew-session-id> <member>
+bebop session list
+bebop session show <crew-session-id>
+bebop session resolve <crew-session-id> <member>
 # The user runs the returned exact Pi command in a chosen terminal.
 ```
 
-`pi-bebop crew session ...` is no longer supported; it returns `UsageError` with
-the replacement hint `pi-bebop session <capture|add|list|show|resolve>` (TASK-0204).
+`bebop crew session ...` is no longer supported; it returns `UsageError` with
+the replacement hint `bebop session <capture|add|list|show|resolve>` (TASK-0204).
 
 Bebop never launches the whole Crew, opens a terminal, chooses a latest or
 most-recent session, or infers a relationship from timestamps, branches, roles,
@@ -194,7 +194,7 @@ manifest, or deleted because a process closed.
 ID order, with total/returned/truncation metadata. Its default fields are ID,
 name, Crew public identity, capture time, expected/captured counts, and one of
 `complete`, `partial`, `stale`, or `invalid`. An empty result includes the
-copyable next step `pi-bebop session capture <name>`.
+copyable next step `bebop session capture <name>`.
 
 `session show <crew-session-id>` requires the exact stable ID and returns
 manifest-order Member rows. It validates record schema and integrity without

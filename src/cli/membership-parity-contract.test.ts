@@ -517,7 +517,7 @@ test("session-live ordering and recovery next-step are explicit", () => {
 	assert.match(contract.sessionList.ordering, /lexical/);
 	assert.match(contract.sessionList.ordering, /session id/);
 	assert.match(String(contract.sessionList.empty.next), /start and join/);
-	assert.equal(contract.sourceSelection.recoveryHint, "pi-bebop session live");
+	assert.equal(contract.sourceSelection.recoveryHint, "bebop session live");
 });
 
 test("limits and defaults match the Message Payload and session-live contracts", () => {
@@ -662,7 +662,7 @@ test("source selection is leaf-local, explicit-first, bounded, discoverable, and
 	assert.match(contract.sourceSelection.environmentRule, /exact session id only, never an alias/);
 	assert.equal(contract.sourceSelection.environmentFallback, "PI_SESSION_ID");
 	assert.equal(contract.sourceSelection.maxUtf8Bytes, 256);
-	assert.equal(contract.sourceSelection.recoveryHint, "pi-bebop session live");
+	assert.equal(contract.sourceSelection.recoveryHint, "bebop session live");
 	assert.deepEqual(contract.sourceSelection.errors, [
 		"session-required",
 		"invalid-session",
@@ -676,7 +676,7 @@ test("source selection is leaf-local, explicit-first, bounded, discoverable, and
 		"transport-error",
 	]);
 
-	assert.equal(contract.sessionList.command, "pi-bebop session live [--format toon|json|text]");
+	assert.equal(contract.sessionList.command, "bebop session live [--format toon|json|text]");
 	assert.equal(contract.sessionList.requiresSourceSession, false);
 	assert.equal(contract.sessionList.mutates, false);
 	assert.deepEqual(contract.sessionList.fields, ["sessionId", "aliases", "membership"]);
@@ -745,8 +745,8 @@ test("formats and exits retain frozen Commander-era AXI boundary", () => {
 
 	for (const item of contract.tools) {
 		for (const command of item.commands) {
-			assert.match(command, /^pi-bebop (member|crew) /);
-			assert.ok(!command.startsWith("pi-bebop --session"), `${item.tool}: root-global session`);
+			assert.match(command, /^bebop (member|crew) /);
+			assert.ok(!command.startsWith("bebop --session"), `${item.tool}: root-global session`);
 		}
 	}
 });

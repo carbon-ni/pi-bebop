@@ -53,7 +53,7 @@ Future name-first `crew list`, `crew status`, `ask`, and Crew history follow the
 ## Command hierarchy
 
 ```text
-pi-bebop
+bebop
 ├── crew
 │   ├── init
 │   ├── roles
@@ -85,7 +85,7 @@ Top-level `send` and the `crew session ...` rejection path are removed (v0); Com
 Help must use these short definitions where a term first affects a decision. Long comparisons belong in the future `help delivery` guide.
 
 - **Joined Member**: current Pi session has claimed one exact manifest Member identity.
-- **Source session**: live Pi runtime used to send a command (`pi-bebop session live` discovers available sessions). It is transport, not Crew/Member identity; normal name-first recovery must not ask users to choose one.
+- **Source session**: live Pi runtime used to send a command (`bebop session live` discovers available sessions). It is transport, not Crew/Member identity; normal name-first recovery must not ask users to choose one.
 - **Socket**: explicit local transport endpoint used by low-level diagnostics.
 - **Crew Intake**: one-way external → configured Crew contact delivery. It is not Broadcast or Guest membership.
 - **Follow-up**: non-interrupting message; if recipient is busy it queues behind active work.
@@ -96,7 +96,7 @@ Help must use these short definitions where a term first affects a decision. Lon
 - **Completed**: command lifecycle ended successfully. It says nothing about task completion unless that exact domain operation defines it.
 - **Response**: assistant output correlated to exactly one Member Request; ordinary Follow-up or `turn_end` is not a Response.
 
-Help and errors reference runnable CLI commands such as `pi-bebop member request send` and `pi-bebop member request wait`. They never prescribe agent-only tool names such as `send_member_request`.
+Help and errors reference runnable CLI commands such as `bebop member request send` and `bebop member request wait`. They never prescribe agent-only tool names such as `send_member_request`.
 
 ## Commander ownership boundary
 

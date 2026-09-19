@@ -16,6 +16,12 @@ import { decode } from "@toon-format/toon";
 const execFile = promisify(execFileCallback);
 const root = path.resolve(".");
 
+test("package publishes only the canonical bebop executable", async () => {
+	const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+	assert.deepEqual(manifest.bin, { bebop: "./dist/cli/main.js" });
+	assert.equal(Object.hasOwn(manifest.bin, "pi-bebop"), false);
+});
+
 async function withEndpoint(
 	handler: (command: Record<string, unknown>, socket: net.Socket, messages: Record<string, unknown>[]) => void,
 	run: (socketPath: string, messages: Record<string, unknown>[]) => Promise<void>,
@@ -68,7 +74,7 @@ test("CLI entrypoint detection canonically matches the invoked executable to the
 		// guard must canonicalize it before comparing (TASK-0074 regression).
 		const binDir = path.join(dir, "node_modules", ".bin");
 		await mkdir(binDir, { recursive: true });
-		const bin = path.join(binDir, "pi-bebop");
+		const bin = path.join(binDir, "bebop");
 		await symlink(main, bin);
 		assert.equal(isCliEntrypoint(bin, mainUrl), true);
 
@@ -102,7 +108,7 @@ test("CLI entrypoint detection canonically matches the invoked executable to the
 	}
 });
 
-test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 regression)", async () => {
+test("installed node_modules/.bin bebop executes the packed CLI (TASK-0074 regression)", async () => {
 	const archiveDir = await mkdtemp(path.join(tmpdir(), "bebop-bin-archive-"));
 	const prefix = await mkdtemp(path.join(tmpdir(), "bebop-bin-prefix-"));
 	try {
@@ -111,15 +117,15 @@ test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 re
 			.trim()
 			.split("\n")
 			.find((line) => line.endsWith(".tgz"))!;
-		const packageRoot = path.join(prefix, "node_modules", "pi-bebop");
+		const packageRoot = path.join(prefix, "node_modules", "bebop");
 		await mkdir(packageRoot, { recursive: true });
 		await execFile("tar", ["-xzf", path.join(archiveDir, archive), "-C", packageRoot, "--strip-components=1"]);
 
 		// Mirror npm's install layout: the .bin entry is a symlink to the packed main.
 		const binDir = path.join(prefix, "node_modules", ".bin");
 		await mkdir(binDir, { recursive: true });
-		const bin = path.join(binDir, "pi-bebop");
-		await symlink(path.join("..", "pi-bebop", "dist", "cli", "main.js"), bin);
+		const bin = path.join(binDir, "bebop");
+		await symlink(path.join("..", "bebop", "dist", "cli", "main.js"), bin);
 		const environment = { ...process.env, NODE_PATH: "" };
 
 		// No-argument invocation through the real bin path: Commander root help, exit 0.
@@ -135,7 +141,7 @@ test("installed node_modules/.bin pi-bebop executes the packed CLI (TASK-0074 re
 		});
 		const homeCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
 		assert.equal(homeCode, 0, homeOut);
-		assert.match(homeOut, /^Usage: pi-bebop/);
+		assert.match(homeOut, /^Usage: bebop/);
 		assert.match(homeOut, /Commands:/);
 
 		// Real commands through the bin symlink match direct artifact semantics exactly.
@@ -179,7 +185,7 @@ test("root --help and -h return Commander-owned help with exit 0 and no IO", asy
 		assert.equal(first.code, 0, flag);
 		assert.equal(first.stdout, second.stdout, flag);
 		assert.equal(first.stderr, "", flag);
-		assert.match(first.stdout, /^Usage: pi-bebop/);
+		assert.match(first.stdout, /^Usage: bebop/);
 		assert.match(first.stdout, /Commands:/);
 	}
 	// Root help performs no filesystem/project/session IO: a deleted cwd is fine.
@@ -187,11 +193,11 @@ test("root --help and -h return Commander-owned help with exit 0 and no IO", asy
 	await rm(nowhere, { recursive: true, force: true });
 	const nowhereRun = await capture(["--help"]);
 	assert.equal(nowhereRun.code, 0);
-	assert.match(nowhereRun.stdout, /^Usage: pi-bebop/);
+	assert.match(nowhereRun.stdout, /^Usage: bebop/);
 	// No arguments render the same root help and exit 0.
 	const noArgs = await capture([]);
 	assert.equal(noArgs.code, 0);
-	assert.match(noArgs.stdout, /^Usage: pi-bebop/);
+	assert.match(noArgs.stdout, /^Usage: bebop/);
 });
 
 test("unknown root options are usage failures: plain stderr, exit 2, empty stdout", async () => {
@@ -276,7 +282,7 @@ test("packaged artifact exposes the member status, session live, and crew roles 
 		});
 		const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
 		assert.equal(code, 0, args.join(" "));
-		assert.match(stdout, /pi-bebop member status|pi-bebop session live|pi-bebop crew roles/);
+		assert.match(stdout, /bebop member status|bebop session live|bebop crew roles/);
 	}
 });
 
@@ -571,7 +577,7 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 				cwd: extract,
 				env: { ...process.env, HOME: home, NODE_PATH: "" },
 			});
-			assert.match(result.stdout, /Options:|Usage:|pi-bebop/);
+			assert.match(result.stdout, /Options:|Usage:|bebop/);
 		}
 
 		const socketDir = path.join(home, ".pi", "bebop");
@@ -694,7 +700,7 @@ test("unknown command exits 2 with local usage before any IO", async () => {
 	assert.equal(code, 2);
 	assert.equal(text, "");
 	assert.match(errText, /error: unknown command 'frobnicate'/);
-	assert.match(errText, /Usage: pi-bebop/);
+	assert.match(errText, /Usage: bebop/);
 	// No full flattened leaf vocabulary dump.
 	assert.equal(errText.includes("member request respond"), false);
 });

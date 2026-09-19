@@ -174,7 +174,7 @@ test("session live run: empty store returns empty state with copyable next step,
 	assert.equal(outcome.result.status, "empty");
 	const data = outcome.result.data as { status: string; next: string };
 	assert.equal(data.status, "empty");
-	assert.match(data.next, /pi-bebop session live/);
+	assert.match(data.next, /bebop session live/);
 	assert.equal(render(outcome).exit, 0);
 });
 

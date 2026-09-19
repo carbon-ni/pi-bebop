@@ -70,10 +70,10 @@
       "aborted",
       "transport-error"
     ],
-    "recoveryHint": "pi-bebop session live"
+    "recoveryHint": "bebop session live"
   },
   "sessionList": {
-    "command": "pi-bebop session live [--format toon|json|text]",
+    "command": "bebop session live [--format toon|json|text]",
     "requiresSourceSession": false,
     "mutates": false,
     "defaultFormat": "toon",
@@ -124,7 +124,7 @@
       "sessions": [],
       "total": 0,
       "omitted": 0,
-      "next": "start and join a Pi session, then rerun pi-bebop session live"
+      "next": "start and join a Pi session, then rerun bebop session live"
     },
     "successStatus": "listed",
     "operationalErrors": [
@@ -178,7 +178,7 @@
     {
       "tool": "send_follow_up",
       "commands": [
-        "pi-bebop member follow-up <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+        "bebop member follow-up <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
       ],
       "inputs": [
         "memberTarget",
@@ -222,7 +222,7 @@
     {
       "tool": "redirect_member",
       "commands": [
-        "pi-bebop member redirect <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+        "bebop member redirect <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
       ],
       "inputs": [
         "memberTarget",
@@ -266,7 +266,7 @@
     {
       "tool": "send_to_inbox",
       "commands": [
-        "pi-bebop member inbox send <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+        "bebop member inbox send <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
       ],
       "inputs": [
         "memberTarget",
@@ -312,7 +312,7 @@
     {
       "tool": "broadcast_to_crew",
       "commands": [
-        "pi-bebop crew broadcast [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+        "bebop crew broadcast [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
       ],
       "inputs": [
         "message",
@@ -374,7 +374,7 @@
     {
       "tool": "interrupt_member",
       "commands": [
-        "pi-bebop member interrupt <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
+        "bebop member interrupt <member> [--session <id|alias>] (--message <text> | --stdin) [--instruction <text>...] [--format toon|json|text]"
       ],
       "inputs": [
         "memberTarget",
@@ -421,7 +421,7 @@
     {
       "tool": "get_member_status",
       "commands": [
-        "pi-bebop member status <member> [--session <id|alias>] [--format toon|json|text]"
+        "bebop member status <member> [--session <id|alias>] [--format toon|json|text]"
       ],
       "inputs": [
         "memberTarget",
@@ -467,7 +467,7 @@
     {
       "tool": "wait_for_member_idle",
       "commands": [
-        "pi-bebop member wait-idle <member> [--session <id|alias>] [--timeout <duration>] [--format toon|json|text]"
+        "bebop member wait-idle <member> [--session <id|alias>] [--timeout <duration>] [--format toon|json|text]"
       ],
       "inputs": [
         "memberTarget",

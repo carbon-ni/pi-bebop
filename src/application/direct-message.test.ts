@@ -102,8 +102,8 @@ test("rejects uncorrelated turn_end before sending or reading peer output", asyn
 			error instanceof Error &&
 			error.name === "DirectMessageError" &&
 			(error as { code?: string }).code === "uncorrelated-response" &&
-			error.message.includes("pi-bebop member request send") &&
-			error.message.includes("pi-bebop member request wait") &&
+			error.message.includes("bebop member request send") &&
+			error.message.includes("bebop member request wait") &&
 			!error.message.includes("send_member_request"),
 	);
 	assert.equal(called, false);

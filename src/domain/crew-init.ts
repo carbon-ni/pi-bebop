@@ -1,5 +1,5 @@
 /**
- * Deterministic `pi-bebop crew init` scaffold contract (TASK-0053, define-only).
+ * Deterministic `bebop crew init` scaffold contract (TASK-0053, define-only).
  *
  * This file defines the non-interactive, idempotent scaffold contract WITHOUT
  * touching the filesystem: the canonical managed layout, the versioned
@@ -407,7 +407,7 @@ export function validateCrewInitUsage(
 /** Command-local `--help`: defaults, files, exit codes, and runnable examples. */
 export function crewInitHelp(): string {
 	return [
-		"pi-bebop crew init [--project <directory>] [--format toon|json|text]",
+		"bebop crew init [--project <directory>] [--format toon|json|text]",
 		"",
 		"Scaffold a canonical .pi/bebop software crew in a project. Non-interactive and idempotent;",
 		"never overwrites existing content and never requires --force.",
@@ -429,9 +429,9 @@ export function crewInitHelp(): string {
 		"  2  usage error",
 		"",
 		"Examples:",
-		"  pi-bebop crew init",
-		"  pi-bebop crew init --project /path/to/project",
-		"  pi-bebop crew init --format json",
+		"  bebop crew init",
+		"  bebop crew init --project /path/to/project",
+		"  bebop crew init --format json",
 		"",
 		"Review crew.json contact/names/common and role instructions before starting member processes.",
 		"",

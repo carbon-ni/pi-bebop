@@ -6,8 +6,8 @@ import { isSafeAlias, isSafeSessionId } from "../../domain/index.ts";
  * Deterministic and IO-free: explicit `--session <id|alias>` wins; an
  * unsafe/oversized explicit value never falls back; without the flag, a safe
  * exact `PI_SESSION_ID` is used (never an alias); without either,
- * `session-required` with the copyable `pi-bebop session live` hint (the live
- * Pi Session discovery surface; was `pi-bebop session list` before TASK-0204).
+ * `session-required` with the copyable `bebop session live` hint (the live
+ * Pi Session discovery surface; was `bebop session list` before TASK-0204).
  *
  * Id-versus-alias cannot be decided without IO, so the pure stage returns both
  * candidate paths: the session-id socket first, then the alias symlink. The
@@ -32,7 +32,7 @@ export type SourceResolution =
 	  }
 	| { readonly ok: false; readonly code: "session-required" | "invalid-session"; readonly message: string };
 
-export const SESSION_LIST_HINT = "pi-bebop session live";
+export const SESSION_LIST_HINT = "bebop session live";
 
 export function resolveSourceSession(input: SourceSessionInput): SourceResolution {
 	const explicit = input.explicitSession;

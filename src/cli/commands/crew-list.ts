@@ -95,8 +95,8 @@ export function buildCrewListCommand(): Command {
 				"Request IDs. Duplicate selectors show only the Locator recovery values.",
 				"",
 				"Examples:",
-				"  pi-bebop crew list --format text",
-				"  pi-bebop crew list --format json --full",
+				"  bebop crew list --format text",
+				"  bebop crew list --format json --full",
 			].join("\n"),
 		);
 }
@@ -448,7 +448,7 @@ async function executeCrewListCommand(
 			partial: invalidCandidates > 0 || omitted > 0 || termination !== undefined,
 			...(termination === undefined ? {} : { discovery: termination }),
 			...(invalidCandidates > 0 ? { invalidCandidates } : {}),
-			...(crews.length === 0 ? { next: "initialize or join a trusted Crew, then rerun pi-bebop crew list" } : {}),
+			...(crews.length === 0 ? { next: "initialize or join a trusted Crew, then rerun bebop crew list" } : {}),
 		};
 		const result: CliResult = {
 			ok: true,
