@@ -5,7 +5,11 @@ import { createProjectBranchAlias, createSequentialProjectBranchAlias, isSafeAli
 import type { SocketState } from "./types.ts";
 import { isStaleContextError } from "./utils.ts";
 
-export function getSessionAlias(ctx: ExtensionContext): string | null {
+export function getSessionAlias(
+	ctx: ExtensionContext,
+	state?: Pick<SocketState, "sessionNameController">,
+): string | null {
+	if (state?.sessionNameController?.isAutoOwned()) return null;
 	const sessionName = ctx.sessionManager.getSessionName();
 	const alias = sessionName ? sessionName.trim() : "";
 	if (!alias || !isSafeAlias(alias)) return null;
@@ -20,9 +24,13 @@ export async function getBranchAlias(currentAliases: string[]): Promise<string |
 	return createSequentialProjectBranchAlias(project, branch, await getAliasNames(), currentAlias);
 }
 
-export async function getSessionAliases(ctx: ExtensionContext, currentAliases: string[]): Promise<string[]> {
-	const aliases = [getSessionAlias(ctx), await getBranchAlias(currentAliases)].filter((alias): alias is string =>
-		Boolean(alias),
+export async function getSessionAliases(
+	ctx: ExtensionContext,
+	currentAliases: string[],
+	state?: Pick<SocketState, "sessionNameController">,
+): Promise<string[]> {
+	const aliases = [getSessionAlias(ctx, state), await getBranchAlias(currentAliases)].filter(
+		(alias): alias is string => Boolean(alias),
 	);
 	return Array.from(new Set(aliases));
 }
@@ -31,7 +39,7 @@ export async function syncAlias(state: SocketState, ctx: ExtensionContext): Prom
 	if (!state.server || !state.socketPath) return;
 
 	try {
-		const aliases = await getSessionAliases(ctx, state.aliases);
+		const aliases = await getSessionAliases(ctx, state.aliases, state);
 		if (aliases.length === state.aliases.length && aliases.every((alias, index) => alias === state.aliases[index]))
 			return;
 

@@ -48,6 +48,7 @@ export interface SessionLifecycleDeps {
 	readonly recoverInterrupts: () => Promise<void>;
 	readonly refreshPresence: () => Promise<void>;
 	readonly stopPresence: () => Promise<void>;
+	readonly syncSessionName: (membership: Membership | null) => void | Promise<void>;
 }
 
 /** Durable TUI-only membership entries and human-visible status lines. */
@@ -83,7 +84,7 @@ export function wireMembershipRuntime(state: SocketState): void {
  * only — every decision stays in the moved handler bodies, unchanged.
  */
 export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, deps: SessionLifecycleDeps): void {
-	const { inboxBridge, recoverInterrupts } = deps;
+	const { inboxBridge, recoverInterrupts, syncSessionName } = deps;
 	const { persistMembership, announceMembership } = createMembershipRecording(pi);
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
@@ -153,6 +154,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 			}
 		}
 		const branch = typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
+		state.sessionNameController?.restore(branch);
 		const persisted = getLatestMembershipState(branch);
 		const persistedGuests = getLatestGuestMembershipRecords(branch);
 		const crewRequested = pi.getFlag(CREW_FLAG) === true || process.argv.includes(`--${CREW_FLAG}`);
@@ -198,6 +200,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 					);
 			const membership = state.membershipRuntime.getMembership();
 			if (joined && membership) {
+				await syncSessionName(membership);
 				deps.refreshGuestAdmission();
 				activateMembershipTool(pi);
 				refreshIntrayStatus(state);
@@ -210,6 +213,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 				void inboxBridge.attemptOffer();
 				void recoverInterrupts();
 			} else {
+				await syncSessionName(null);
 				// Startup socket selected but join failed: stay unjoined, tools inactive.
 				reconcileMembershipTools(pi, false);
 			}
@@ -232,6 +236,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 				announceMembership(message);
 				const membership = state.membershipRuntime?.getMembership();
 				if (membership) {
+					await syncSessionName(membership);
 					inboxBridge.establish(ownershipFromMembership(membership));
 					void inboxBridge.attemptOffer();
 					void recoverInterrupts();
@@ -244,7 +249,10 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 		});
 		// Inactive resume/fork state, restore failure, or server-only startup: ensure
 		// membership tools are not active for the model.
-		if (!state.membershipRuntime?.getMembership()) reconcileMembershipTools(pi, false);
+		if (!state.membershipRuntime?.getMembership()) {
+			await syncSessionName(null);
+			reconcileMembershipTools(pi, false);
+		}
 	});
 
 	pi.on("before_agent_start", async (event) => {
@@ -266,6 +274,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 			},
 			cleanup: async () => {
 				await deps.stopPresence();
+				await syncSessionName(null);
 				deactivateMembershipTool(pi);
 				await disableControlServer(state, context, pi);
 			},

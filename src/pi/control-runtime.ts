@@ -10,6 +10,7 @@ import type { SocketState } from "./control-runtime/types.ts";
 import { contextIsCompacting, isStaleContextError } from "./control-runtime/utils.ts";
 import { deriveIntrayStatus, type IntrayStatus } from "./control-runtime/status.ts";
 import { syncAlias } from "./control-runtime/aliases.ts";
+export { getSessionAlias } from "./control-runtime/aliases.ts";
 import { handleCommand } from "./control-runtime/dispatch.ts";
 
 // Focused modules preserve the original control-runtime public surface.
@@ -112,6 +113,13 @@ export async function disableControlServer(
 
 export function refreshIntrayStatus(state: SocketState, ctx: ExtensionContext | null = state.context): void {
 	updateStatus(ctx, state);
+}
+
+export async function refreshSessionAliases(
+	state: SocketState,
+	ctx: ExtensionContext | null = state.context,
+): Promise<void> {
+	if (ctx) await syncAlias(state, ctx);
 }
 
 export function formatIntrayFooter(status: IntrayStatus, member?: Pick<Membership["member"], "name" | "role">): string {
