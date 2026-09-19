@@ -3,7 +3,12 @@ import test from "node:test";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { PassThrough } from "node:stream";
-import { runRoleSessionResumeCommand } from "./role-session-resume.ts";
+import {
+	buildRoleSessionResumeCommand,
+	readRoleSessionResumeCommand,
+	runRoleSessionResumeCommand,
+} from "./role-session-resume.ts";
+import { UsageError } from "../support/arguments.ts";
 import type { RoleSessionCandidate } from "../../application/role-session-resume.ts";
 import type { CliContext } from "../support/context.ts";
 import { runCli } from "../run.ts";
@@ -28,6 +33,23 @@ function context(): CliContext {
 		environment: { PI_SESSION_ID: "current" },
 	};
 }
+
+test("role session reader preserves exact roles and defaults while rejecting missing values", () => {
+	const command = buildRoleSessionResumeCommand().exitOverride();
+	command.parse(["node", "resume", "--role", "developer"], { from: "node" });
+	assert.deepEqual(readRoleSessionResumeCommand(command), {
+		command: "session-resume",
+		role: "developer",
+		format: "toon",
+		full: false,
+	});
+	const missing = buildRoleSessionResumeCommand().exitOverride();
+	missing.parse(["node", "resume", "--role", "   "], { from: "node" });
+	assert.throws(() => readRoleSessionResumeCommand(missing), UsageError);
+	const invalid = buildRoleSessionResumeCommand().exitOverride();
+	invalid.parse(["node", "resume", "--role", "developer", "--format", "yaml"], { from: "node" });
+	assert.throws(() => readRoleSessionResumeCommand(invalid), UsageError);
+});
 
 test("empty discovery and picker cancellation are successful bounded outcomes", async () => {
 	const empty = await runRoleSessionResumeCommand(

@@ -61,6 +61,9 @@ test("crew roles reader preserves full and format options and rejects invalid fo
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
 	command.parse(["node", "roles", "--full", "--format", "text"], { from: "node" });
 	assert.deepEqual(readCrewRolesCommand(command), { command: "crew-roles", format: "text", full: true });
+	const defaults = buildCrewRolesCommand().exitOverride();
+	defaults.parse(["node", "roles"], { from: "node" });
+	assert.deepEqual(readCrewRolesCommand(defaults), { command: "crew-roles", format: "toon", full: false });
 	const invalid = buildCrewRolesCommand().exitOverride();
 	invalid.parse(["node", "roles", "--format", "yaml"], { from: "node" });
 	assert.throws(() => readCrewRolesCommand(invalid), UsageError);
@@ -201,15 +204,17 @@ test("crew roles handler maps manifest parse errors (unsupported version, empty 
 });
 
 test("crew roles handler maps unknown errors to operational", async () => {
-	const outcome = await runCrewRolesCommand(
-		{ command: "crew-roles", format: "json", full: false },
-		context(),
-		deps({ readManifest: async () => Promise.reject(new Error("boom")) }),
-	);
-	assert.equal(outcome.kind, "result");
-	if (outcome.kind !== "result") return;
-	assert.equal(outcome.result.ok, false);
-	assert.equal(outcome.result.error?.code, "operational");
+	for (const error of [new Error("boom"), "unexpected value"]) {
+		const outcome = await runCrewRolesCommand(
+			{ command: "crew-roles", format: "json", full: false },
+			context(),
+			deps({ readManifest: async () => Promise.reject(error) }),
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind !== "result") return;
+		assert.equal(outcome.result.ok, false);
+		assert.equal(outcome.result.error?.code, "operational");
+	}
 });
 
 test("default dependencies read through the trusted manifest loader with explicit consent", async () => {

@@ -62,6 +62,9 @@ test("session live reader preserves format and rejects invalid formats", () => {
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
 	command.parse(["node", "live", "--format", "text"], { from: "node" });
 	assert.deepEqual(readSessionListCommand(command), { command: "session-live", format: "text" });
+	const defaults = buildSessionListCommand().exitOverride();
+	defaults.parse(["node", "live"], { from: "node" });
+	assert.deepEqual(readSessionListCommand(defaults), { command: "session-live", format: "toon" });
 	const invalid = buildSessionListCommand().exitOverride();
 	invalid.parse(["node", "live", "--format", "yaml"], { from: "node" });
 	assert.throws(() => readSessionListCommand(invalid), UsageError);
@@ -84,6 +87,19 @@ test("session live run: live joined/unjoined sessions with safe aliases, exit 0"
 	assert.equal(byId.get("a-2")?.membership, "unjoined");
 	assert.deepEqual(byId.get("a-2")?.aliases, []);
 	assert.equal(render(outcome).exit, 0);
+});
+
+test("session live run: safe aliases may target ids without a socket suffix", async () => {
+	const store: FakeStore = {
+		entries: ["plain-id.sock", "plain.alias"],
+		aliases: { "/bebop/plain.alias": "plain-id" },
+		probeAlive: (p) => p.endsWith("plain-id.sock"),
+		statusOf: () => "stopped",
+	};
+	const outcome = await runSessionListCommand({ command: "session-live", format: "json" }, context(), deps(store));
+	if (outcome.kind !== "result") throw new Error("expected result");
+	const sessions = (outcome.result.data as { sessions: SessionListEntry[] }).sessions;
+	assert.deepEqual(sessions, [{ sessionId: "plain-id", aliases: ["plain"], membership: "unknown" }]);
 });
 
 test("session live run: ordering by primary alias then session id is deterministic", async () => {

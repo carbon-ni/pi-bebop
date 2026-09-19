@@ -100,10 +100,16 @@ async function project(withBoth = false): Promise<string> {
 
 // Parser and help contracts.
 test("crew session readers preserve canonical arguments and reject semantic values", () => {
-	assert.equal(readCrewSessionCaptureCommand(parseInto(buildCrewSessionCaptureCommand, ["review"])).name, "review");
+	const capture = readCrewSessionCaptureCommand(
+		parseInto(buildCrewSessionCaptureCommand, ["review", "--crew", ".pi/bebop/crew.json"]),
+	);
+	assert.equal(capture.name, "review");
+	assert.equal(capture.crew, ".pi/bebop/crew.json");
 	assert.equal(readCrewSessionAddCommand(parseInto(buildCrewSessionAddCommand, ["cs_1", "Alice"])).member, "Alice");
 	assert.equal(
-		readCrewSessionListCommand(parseInto(buildCrewSessionListCommand, ["--limit", "2", "--offset", "1"])).limit,
+		readCrewSessionListCommand(
+			parseInto(buildCrewSessionListCommand, ["--crew", ".pi/bebop/crew.json", "--limit", "2", "--offset", "1"]),
+		).limit,
 		2,
 	);
 	assert.equal(readCrewSessionShowCommand(parseInto(buildCrewSessionShowCommand, ["cs_1"])).id, "cs_1");
@@ -208,6 +214,14 @@ test("capture handler maps outcome failures and store failures without losing th
 		});
 		assert.equal(stored.kind, "result");
 		if (stored.kind === "result") assert.equal(stored.result.error?.code, "storage-failed");
+		const unknown = await runCrewSessionCaptureCommand(options, context(root), {
+			capture: async () => {
+				throw "unexpected capture failure";
+			},
+			add: async () => success(),
+		});
+		assert.equal(unknown.kind, "result");
+		if (unknown.kind === "result") assert.equal(unknown.result.error?.message, "Crew Session capture failed");
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -258,6 +272,74 @@ test("crew session list, show, resolve, and add expose stable empty and failure 
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
+});
+
+test("session handlers preserve successful resolution and report deterministic operational failures", async () => {
+	const resolved = await runCrewSessionResolveCommand(
+		{ command: "session-resolve", id: "cs_1", member: "Alice", format: "json", full: true },
+		context("/project"),
+		{
+			resolve: async () => ({
+				ok: true,
+				crewSessionId: "cs_1",
+				member: { name: "Alice", role: "developer" },
+				startup: {
+					argv: ["pi", "--session", "/sessions/alice.jsonl"],
+					cwd: "/project",
+					sessionId: "session-alice",
+					sessionFile: "/sessions/alice.jsonl",
+					processState: "unreachable",
+					warning: "start manually",
+				},
+			}),
+		},
+	);
+	assert.equal(resolved.kind, "result");
+	if (resolved.kind === "result") {
+		assert.equal(resolved.result.status, "resolved");
+		assert.deepEqual(resolved.result.data, {
+			crewSessionId: "cs_1",
+			member: { name: "Alice", role: "developer" },
+			argv: ["pi", "--session", "/sessions/alice.jsonl"],
+			cwd: "/project",
+			sessionId: "session-alice",
+			sessionFile: "/sessions/alice.jsonl",
+			processState: "unreachable",
+			warning: "start manually",
+		});
+	}
+	const failed = await runCrewSessionResolveCommand(
+		{ command: "session-resolve", id: "cs_1", member: "Nobody", format: "toon", full: false },
+		context("/project"),
+		{
+			resolve: async () => ({
+				ok: false,
+				code: "member-not-captured",
+				message: "not captured",
+				recovery: "capture it",
+			}),
+		},
+	);
+	assert.equal(failed.kind, "result");
+	if (failed.kind === "result") assert.equal(failed.result.error?.code, "member-not-captured");
+	const thrown = await runCrewSessionResolveCommand(
+		{ command: "session-resolve", id: "cs_1", member: "Nobody", format: "toon", full: false },
+		context("/project"),
+		{
+			resolve: async () => {
+				throw "unexpected resolution failure";
+			},
+		},
+	);
+	assert.equal(thrown.kind, "result");
+	if (thrown.kind === "result") assert.equal(thrown.result.error?.message, "Crew Session resolution failed");
+
+	const listed = await runCrewSessionListCommand(
+		{ command: "session-list", crew: "/tmp/outside/crew.json", limit: 25, offset: 0, format: "toon", full: false },
+		context("/project"),
+	);
+	assert.equal(listed.kind, "result");
+	if (listed.kind === "result") assert.equal(listed.result.error?.code, "operational");
 });
 
 test("capture handler reports missing and ambiguous trusted layouts", async () => {

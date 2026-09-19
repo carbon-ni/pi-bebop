@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import * as path from "node:path";
 import { PassThrough } from "node:stream";
 import { CrewManifestError, type CrewManifest } from "../../domain/index.ts";
 import type { CliContext } from "../support/context.ts";
@@ -65,6 +67,9 @@ test("crew list reader preserves full and rejects invalid formats", () => {
 		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
 	command.parse(["node", "list", "--full", "--format", "text"], { from: "node" });
 	assert.deepEqual(readCrewListCommand(command), { command: "crew-list", format: "text", full: true });
+	const defaults = buildCrewListCommand().exitOverride();
+	defaults.parse(["node", "list"], { from: "node" });
+	assert.deepEqual(readCrewListCommand(defaults), { command: "crew-list", format: "toon", full: false });
 	const invalid = buildCrewListCommand().exitOverride();
 	invalid.parse(["node", "list", "--format", "yaml"], { from: "node" });
 	assert.throws(() => readCrewListCommand(invalid), UsageError);
@@ -72,6 +77,88 @@ test("crew list reader preserves full and rejects invalid formats", () => {
 
 test("default manifest existence fails closed before untrusted filesystem access", async () => {
 	assert.equal(await defaultCrewListDependencies.manifestExists("/tmp/crew.json", "/project"), false);
+	assert.equal(await defaultCrewListDependencies.manifestExists("/project/.pi/bebop/crew.json", "/project"), false);
+});
+
+test("default manifest reader enforces trust and maps filesystem and JSON failures", async () => {
+	await assert.rejects(
+		() => defaultCrewListDependencies.readManifest("/tmp/crew.json", "/project"),
+		(error: unknown) => error instanceof Error && error.message.includes("outside"),
+	);
+	const missingRoot = await mkdtemp(path.join("/tmp", "bebop-cli-list-missing-"));
+	try {
+		await assert.rejects(
+			() => defaultCrewListDependencies.readManifest(path.join(missingRoot, ".pi/bebop/crew.json"), missingRoot),
+			(error: unknown) => error instanceof Error && error.message.includes("could not be resolved"),
+		);
+	} finally {
+		await rm(missingRoot, { recursive: true, force: true });
+	}
+	const root = await mkdtemp(path.join("/tmp", "bebop-cli-list-reader-"));
+	const config = path.join(root, ".pi/bebop");
+	await mkdir(config, { recursive: true });
+	const manifestPath = path.join(config, "crew.json");
+	try {
+		await writeFile(manifestPath, "{not-json}\n");
+		await assert.rejects(
+			() => defaultCrewListDependencies.readManifest(manifestPath, root),
+			(error: unknown) => error instanceof Error && error.message.includes("invalid JSON"),
+		);
+		await writeFile(manifestPath, JSON.stringify({ version: 999, members: [] }));
+		await assert.rejects(
+			() => defaultCrewListDependencies.readManifest(manifestPath, root),
+			(error: unknown) => error instanceof Error && error.message.includes("unsupported manifest version"),
+		);
+		await writeFile(manifestPath, JSON.stringify(manifest("alpha", "Alpha Crew")));
+		const parsed = await defaultCrewListDependencies.readManifest(manifestPath, root);
+		assert.equal(parsed.crew?.id, "alpha");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("crew list maps probe failures to offline availability without leaking dependency errors", async () => {
+	const outcome = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		context(),
+		deps({ probeMember: async () => Promise.reject(new Error("socket failed")) }),
+	);
+	const data = result(outcome).data as { crews: Array<{ availability: string; onlineMembers: number }> };
+	assert.equal(data.crews[0]?.availability, "offline");
+	assert.equal(data.crews[0]?.onlineMembers, 0);
+});
+
+test("crew list includes a previously observed trusted runtime when no directory manifest exists", async () => {
+	const outcome = await runCrewListCommand(
+		{ command: "crew-list", format: "json", full: false },
+		context(),
+		deps({
+			manifestExists: async () => false,
+			readObservedLocators: async () => [
+				{
+					manifestPath: "/project/.pi/bebop/crew.json",
+					lastSeenAt: "2026-09-09T12:01:00.000Z",
+					availability: "offline",
+				},
+			],
+		}),
+	);
+	const data = result(outcome).data as { crews: Array<Record<string, unknown>> };
+	assert.deepEqual(data.crews[0], {
+		selector: "alpha",
+		displayName: "Alpha Crew",
+		availability: "offline",
+		memberCount: 2,
+		observedAt: "2026-09-09T12:01:00.000Z",
+		lastSeenAt: "2026-09-09T12:01:00.000Z",
+		addressable: true,
+	});
+});
+
+test("default live runtime discovery exits deterministically when already cancelled", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	assert.deepEqual(await defaultCrewListDependencies.readLiveRuntimes("/project", controller.signal), []);
 });
 
 test("crew list probes configured Members concurrently and exposes only product fields", async () => {
