@@ -157,6 +157,31 @@ function invalid(message: string, code: CrewManifestErrorCode = "invalid-manifes
 	throw new CrewManifestError(code, message);
 }
 
+export const MAX_CREW_NAME_BYTES = 256;
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/;
+
+function hasWellFormedUnicode(value: string): boolean {
+	for (let index = 0; index < value.length; index += 1) {
+		const codeUnit = value.charCodeAt(index);
+		if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+			const nextCodeUnit = value.charCodeAt(index + 1);
+			if (!(nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff)) return false;
+			index += 1;
+		} else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) return false;
+	}
+	return true;
+}
+
+export function isCrewDisplayName(value: string): boolean {
+	return (
+		value.length > 0 &&
+		value === value.trim() &&
+		!CONTROL_CHARACTER_PATTERN.test(value) &&
+		hasWellFormedUnicode(value) &&
+		new TextEncoder().encode(value).byteLength <= MAX_CREW_NAME_BYTES
+	);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -284,6 +309,16 @@ function requireText(value: unknown, field: string): string {
 		invalid(`${field} must be a non-empty string`, "invalid-member");
 	}
 	return value;
+}
+
+function requireMemberName(value: unknown, field: string): string {
+	const name = requireText(value, field);
+	if (!isCrewDisplayName(name))
+		invalid(
+			`${field} must be a non-empty trimmed label without control characters, at most ${MAX_CREW_NAME_BYTES} UTF-8 bytes`,
+			"invalid-member",
+		);
+	return name;
 }
 
 function requireDescription(value: unknown, field: string): string {
@@ -414,7 +449,7 @@ function normalizeInstructionSources(
 
 function normalizeMember(rawMember: unknown, index: number, manifestPath: string): CrewMember {
 	if (!isRecord(rawMember)) invalid(`members[${index}] must be an object`, "invalid-member");
-	const name = requireText(rawMember.name, `members[${index}].name`);
+	const name = requireMemberName(rawMember.name, `members[${index}].name`);
 	const role = requireText(rawMember.role, `members[${index}].role`);
 	const socket = requireText(rawMember.socket, `members[${index}].socket`);
 	const instructions = normalizeInstructionSources(rawMember, index, manifestPath);

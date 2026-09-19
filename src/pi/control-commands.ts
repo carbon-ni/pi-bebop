@@ -27,6 +27,7 @@ export type ControlCommandDeps = {
 	activateMembershipTool?: () => void;
 	deactivateMembershipTool?: () => void;
 	refreshStatus?: () => void;
+	syncSessionName?: (membership: Membership | null) => void | Promise<void>;
 	refreshPresence?: () => void | Promise<void>;
 	refreshGuestAdmission?: () => void;
 	stopPresence?: () => void | Promise<void>;
@@ -136,6 +137,7 @@ export function registerSessionControlCommand(
 					}
 					const joinedMessage = `Crew joined ${result.membership.member.name} (${result.membership.member.role}) at ${result.membership.socketPath}`;
 					deps.persistMembership?.(true, result.membership);
+					await deps.syncSessionName?.(result.membership);
 					deps.refreshGuestAdmission?.();
 					deps.activateMembershipTool?.();
 					deps.refreshStatus?.();
@@ -157,6 +159,7 @@ export function registerSessionControlCommand(
 					else {
 						if (result.left) {
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
+							await deps.syncSessionName?.(null);
 							deps.refreshGuestAdmission?.();
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
@@ -258,6 +261,7 @@ export function registerSessionControlCommand(
 						cleanup: () => deps.disableControlServer(state, ctx),
 						onReleased: async () => {
 							if (previousMembership) deps.persistMembership?.(false, previousMembership);
+							await deps.syncSessionName?.(null);
 							deps.deactivateMembershipTool?.();
 							deps.refreshStatus?.();
 							await deps.stopPresence?.();

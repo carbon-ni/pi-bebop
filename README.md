@@ -92,6 +92,11 @@ pi --crew-role developer
 
 Then use `/crew members` inside Pi to see who's `current`, `online`, or `offline`.
 Bebop's agent tools are available only while the member is joined.
+
+When a joined Pi session has no display name, Bebop names it with the exact trusted
+manifest Member name. Existing names from `--name`, `/name`, RPC, or another
+extension are preserved. Renaming the session manually immediately takes ownership;
+Bebop will not overwrite or clear that name on later joins, switches, leaves, or shutdown.
 See [Crew setup](docs/CREW-INIT.md) for the manifest and instruction details.
 
 ## Resume a session by role
