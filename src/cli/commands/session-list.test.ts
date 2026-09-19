@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
-import { runSessionListCommand, type SessionListDependencies, type SessionListEntry } from "./session-list.ts";
+import {
+	buildSessionListCommand,
+	readSessionListCommand,
+	runSessionListCommand,
+	type SessionListDependencies,
+	type SessionListEntry,
+} from "./session-list.ts";
 import { UsageError } from "../support/arguments.ts";
 import { writeOutcome, type CliOutcome } from "../support/output.ts";
 import type { CliContext } from "../support/context.ts";
@@ -49,6 +55,17 @@ const LIVE: FakeStore = {
 };
 
 // --- parse ---
+
+test("session live reader preserves format and rejects invalid formats", () => {
+	const command = buildSessionListCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse(["node", "live", "--format", "text"], { from: "node" });
+	assert.deepEqual(readSessionListCommand(command), { command: "session-live", format: "text" });
+	const invalid = buildSessionListCommand().exitOverride();
+	invalid.parse(["node", "live", "--format", "yaml"], { from: "node" });
+	assert.throws(() => readSessionListCommand(invalid), UsageError);
+});
 
 // --- run ---
 

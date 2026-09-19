@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
 import {
+	buildMemberMessageCommand,
+	defaultMemberMessageCliDependencies,
+	readMemberMessageCommand,
 	runMemberMessageCommand,
 	type MemberMessageCliDependencies,
 	type MemberMessageIntent,
@@ -46,6 +49,14 @@ function render(outcome: CliOutcome): { exit: number; text: string } {
 	return { exit, text };
 }
 
+function parseInto(intent: MemberMessageIntent, tokens: readonly string[]) {
+	const command = buildMemberMessageCommand(intent)
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse([...tokens], { from: "user" });
+	return readMemberMessageCommand(command, intent);
+}
+
 function options(intent: MemberMessageIntent, overrides: Record<string, unknown> = {}) {
 	return {
 		command: intent === "follow_up" ? "member-follow-up" : "member-redirect",
@@ -61,7 +72,96 @@ function options(intent: MemberMessageIntent, overrides: Record<string, unknown>
 
 // --- parse: both intents ---
 
+// --- read: canonical Commander grammar and semantic validation ---
+
+test("member message default transport maps stale id and alias sockets", async () => {
+	const command = { type: "member_follow_up" as const, target: "Kelly", message: "hello", instructions: [] };
+	const same = await defaultMemberMessageCliDependencies.deliverMessage(
+		{
+			ok: true,
+			kind: "id",
+			idSocketPath: "/tmp/missing-message.sock",
+			aliasSocketPath: "/tmp/missing-message.sock",
+		},
+		command,
+		new AbortController().signal,
+	);
+	assert.deepEqual(same, { ok: false, code: "unknown-session" });
+	const fallback = await defaultMemberMessageCliDependencies.deliverMessage(
+		{
+			ok: true,
+			kind: "id",
+			idSocketPath: "/tmp/missing-message-id.sock",
+			aliasSocketPath: "/tmp/missing-message-alias.sock",
+		},
+		command,
+		new AbortController().signal,
+	);
+	assert.deepEqual(fallback, { ok: false, code: "unknown-session" });
+});
+
+test("member message dependencies read explicit environment sessions and process fallback", () => {
+	assert.equal(defaultMemberMessageCliDependencies.environmentSession({ PI_SESSION_ID: "env-1" }), "env-1");
+	const processSession = defaultMemberMessageCliDependencies.environmentSession();
+	assert.ok(processSession === undefined || typeof processSession === "string");
+});
+
+test("member message readers preserve intent and source options", () => {
+	assert.deepEqual(parseInto("follow_up", ["Kelly", "--message", "wrap up", "--instruction", "one"]), {
+		command: "member-follow-up",
+		intent: "follow_up",
+		member: "Kelly",
+		message: "wrap up",
+		instructions: ["one"],
+		stdin: false,
+		format: "toon",
+	});
+	const redirect = parseInto("redirect", ["Kelly", "--stdin", "--format", "text", "--session", "source-1"]);
+	assert.equal(redirect.intent, "redirect");
+	assert.equal(redirect.session, "source-1");
+});
+
+test("member message readers reject invalid target, format, and message sources", () => {
+	for (const tokens of [
+		["--message", "hello"],
+		[" Kelly", "--message", "hello"],
+		["Kelly", "--format", "yaml", "--message", "hello"],
+		["Kelly"],
+		["Kelly", "--message", "hello", "--stdin"],
+		["Kelly", "--message", "   "],
+		["Kelly", "--message", "hello\0world"],
+	] as const)
+		assert.throws(() => parseInto("follow_up", tokens), UsageError);
+});
+
+test("member message readers reject malformed instructions and oversized content", () => {
+	assert.throws(() => parseInto("follow_up", ["Kelly", "--stdin", "--instruction", " padded "]), /trimmed/);
+	assert.throws(() => parseInto("follow_up", ["Kelly", "--stdin", "--instruction", "bad\0value"]), /NUL/);
+	assert.throws(
+		() => parseInto("follow_up", ["Kelly", "--stdin", "--instruction", "x".repeat(100_001)]),
+		/100000-byte/,
+	);
+	const tooMany = ["Kelly", "--stdin"];
+	for (let i = 0; i < 33; i++) tooMany.push("--instruction", String(i));
+	assert.throws(() => parseInto("follow_up", tooMany), /maximum is 32/);
+	assert.throws(() => parseInto("follow_up", ["Kelly", "--message", "x".repeat(1_000_001)]), /message limit/);
+});
+
 // --- run: source selection + delivery outcomes ---
+
+test("member message run: stdin read failures become stable operational results", async () => {
+	const outcome = await runMemberMessageCommand(
+		options("follow_up", { stdin: true }),
+		context(),
+		deps({
+			readStdin: async () => {
+				throw new Error("stdin unavailable");
+			},
+		}),
+	);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") assert.equal(outcome.result.error?.code, "stdin-error");
+});
 
 test("member message run: session-required and invalid-session are usage-class failures", async () => {
 	for (const code of ["session-required", "invalid-session"] as const) {

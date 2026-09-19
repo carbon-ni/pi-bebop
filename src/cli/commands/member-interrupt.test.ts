@@ -8,6 +8,7 @@ import {
 	buildMemberInterruptCommand,
 	defaultMemberInterruptCliDependencies,
 	mapInterruptTransportError,
+	readMemberInterruptCommand,
 	runMemberInterruptCommand,
 	type MemberInterruptCliDependencies,
 } from "./member-interrupt.ts";
@@ -34,6 +35,24 @@ function deps(overrides: Partial<MemberInterruptCliDependencies> = {}): MemberIn
 		...overrides,
 	};
 }
+
+test("interrupt reader preserves recovery guidance options", () => {
+	const command = buildMemberInterruptCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse(["node", "interrupt", "Kelly", "--message", "stop", "--instruction", "one", "--format", "text"], {
+		from: "node",
+	});
+	const options = readMemberInterruptCommand(command);
+	assert.deepEqual(options, {
+		command: "member-interrupt",
+		member: "Kelly",
+		message: "stop",
+		instructions: ["one"],
+		stdin: false,
+		format: "text",
+	});
+});
 
 test("interrupt transport mapper covers protocol and socket errors", () => {
 	assert.deepEqual(mapInterruptTransportError(new Error("other")), { ok: false, code: "transport-error" });
@@ -158,6 +177,71 @@ test("interrupt default transport maps an unavailable endpoint", async () => {
 	);
 	assert.equal(outcome.ok, false);
 	if (!outcome.ok) assert.equal(outcome.code, "unknown-session");
+});
+
+test("interrupt CLI passes ordered instructions and maps source failures", async () => {
+	let command: unknown;
+	const delivered = await runMemberInterruptCommand(
+		{
+			command: "member-interrupt",
+			member: "Kelly",
+			message: "stop",
+			instructions: ["one"],
+			stdin: false,
+			format: "json",
+		},
+		context(),
+		deps({
+			deliverInterrupt: async (_source, value) => {
+				command = value;
+				return {
+					ok: true,
+					result: { member: { name: "Kelly", role: "qa" }, interruptId: "i", disposition: "direct" },
+				};
+			},
+		}),
+	);
+	assert.equal(delivered.kind, "result");
+	assert.deepEqual((command as { instructions: string[] }).instructions, ["one"]);
+	await assert.rejects(
+		() =>
+			runMemberInterruptCommand(
+				{
+					command: "member-interrupt",
+					member: "Kelly",
+					message: "stop",
+					instructions: [],
+					stdin: false,
+					format: "json",
+				},
+				context(),
+				deps({ resolveSource: () => ({ ok: false, code: "missing-session", message: "missing" }) }),
+			),
+		/missing/,
+	);
+});
+
+test("interrupt CLI maps stdin failures and rejects empty stdin", async () => {
+	const failed = await runMemberInterruptCommand(
+		{ command: "member-interrupt", member: "Kelly", instructions: [], stdin: true, format: "json" },
+		context(),
+		deps({
+			readStdin: async () => {
+				throw new Error("stdin unavailable");
+			},
+		}),
+	);
+	assert.equal(failed.kind, "result");
+	if (failed.kind === "result") assert.equal(failed.result.error?.code, "stdin-error");
+	await assert.rejects(
+		() =>
+			runMemberInterruptCommand(
+				{ command: "member-interrupt", member: "Kelly", instructions: [], stdin: true, format: "json" },
+				context(),
+				deps({ readStdin: async () => "   " }),
+			),
+		/empty content/,
+	);
 });
 
 test("interrupt CLI returns disposition without completion claims and preserves stable errors", async () => {

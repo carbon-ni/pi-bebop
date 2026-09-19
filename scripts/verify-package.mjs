@@ -111,11 +111,7 @@ try {
 
 		// No arguments show Commander-generated root help, not the retired home state.
 		const home = await execFile(process.execPath, [cli], { cwd: initDir, env: environment });
-		if (
-			!/Usage: pi-bebop/.test(home.stdout) ||
-			!/Commands:/.test(home.stdout) ||
-			!/crew/.test(home.stdout)
-		)
+		if (!/Usage: pi-bebop/.test(home.stdout) || !/Commands:/.test(home.stdout) || !/crew/.test(home.stdout))
 			throw new Error("Installed CLI no-argument invocation missing root help");
 
 		const created = await execFile(process.execPath, [cli, "crew", "init", "--format", "json"], {

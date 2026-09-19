@@ -13,6 +13,7 @@ import {
 	readMemberRequestSendCommand,
 	readMemberRequestWaitCommand,
 	runMemberRequestCommand,
+	defaultMemberRequestCliDependencies,
 } from "./member-request.ts";
 
 function parseInto(build: () => Command, tokens: readonly string[]): Command {
@@ -22,6 +23,92 @@ function parseInto(build: () => Command, tokens: readonly string[]): Command {
 	command.parse([...tokens], { from: "user" });
 	return command;
 }
+
+test("Member Request dependencies read explicit environment sessions and process fallback", () => {
+	assert.equal(defaultMemberRequestCliDependencies.environmentSession({ PI_SESSION_ID: "env-1" }), "env-1");
+	const processSession = defaultMemberRequestCliDependencies.environmentSession();
+	assert.ok(processSession === undefined || typeof processSession === "string");
+});
+
+test("Member Request CLI readers cover list, wait, respond, and send validation", () => {
+	assert.equal(
+		readMemberRequestListCommand(
+			parseInto(buildMemberRequestListCommand, ["--direction", "inbound", "--session", "source-1"]),
+		).session,
+		"source-1",
+	);
+	assert.equal(
+		readMemberRequestListCommand(parseInto(buildMemberRequestListCommand, ["--direction", "inbound"])).direction,
+		"inbound",
+	);
+	assert.equal(
+		readMemberRequestRespondCommand(
+			parseInto(buildMemberRequestRespondCommand, [
+				"id",
+				"--stdin",
+				"--session",
+				"source-1",
+				"--instruction",
+				"one",
+			]),
+		).session,
+		"source-1",
+	);
+	assert.equal(
+		readMemberRequestRespondCommand(parseInto(buildMemberRequestRespondCommand, ["id", "--stdin"])).stdin,
+		true,
+	);
+	assert.equal(
+		readMemberRequestSendCommand(
+			parseInto(buildMemberRequestSendCommand, [
+				"Dev",
+				"--message",
+				"hello",
+				"--response-grace",
+				"1s",
+				"--max-wait",
+				"60s",
+			]),
+		).responseGraceSeconds,
+		1,
+	);
+	assert.equal(
+		readMemberRequestWaitCommand(
+			parseInto(buildMemberRequestWaitCommand, ["id", "--session", "source-1", "--format", "text"]),
+		).session,
+		"source-1",
+	);
+	assert.equal(
+		readMemberRequestSendCommand(
+			parseInto(buildMemberRequestSendCommand, [
+				"Dev",
+				"--message",
+				"hello",
+				"--session",
+				"source-1",
+				"--instruction",
+				"one",
+			]),
+		).session,
+		"source-1",
+	);
+	for (const tokens of [
+		["--direction", "sideways"],
+		["id with spaces"],
+		["id", "--format", "yaml", "--message", "hello"],
+		["Dev"],
+		["Dev", "--message", "hello", "--stdin"],
+		["Dev", "--message", "   "],
+		["Dev", "--message", "hello", "--response-grace", "bad"],
+		["Dev", "--message", "hello", "--response-grace", "120s", "--max-wait", "120s"],
+	] as const)
+		assert.throws(() => readMemberRequestSendCommand(parseInto(buildMemberRequestSendCommand, tokens)));
+	assert.throws(() => readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, [" id"])), /exact/);
+	assert.throws(
+		() => readMemberRequestRespondCommand(parseInto(buildMemberRequestRespondCommand, ["id"])),
+		/message/,
+	);
+});
 
 test("Member Request CLI maps transport, remote, timeout, and abort failures", async () => {
 	const options = readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, ["opaque-id"]));
@@ -92,6 +179,44 @@ test("Member Request CLI maps transport, remote, timeout, and abort failures", a
 	assert.equal((rejected as { result: { error: { code: string } } }).result.error.code, "offline");
 });
 
+test("Member Request CLI preserves failures without an opaque request ID", async () => {
+	const outcome = await runMemberRequestCommand(
+		readMemberRequestSendCommand(parseInto(buildMemberRequestSendCommand, ["Dev", "--message", "hello"])),
+		{ cwd: "/tmp", input: process.stdin, signal: new AbortController().signal },
+		{
+			resolveSource: () => ({ ok: true, kind: "id", idSocketPath: "/id.sock", aliasSocketPath: "/alias.sock" }),
+			send: async () => {
+				throw { reason: "unknown" };
+			},
+			readStdin: async () => "",
+			environmentSession: () => undefined,
+		},
+	);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") {
+		assert.equal(outcome.result.error?.code, "offline");
+		assert.equal("data" in outcome.result, false);
+	}
+});
+
+test("Member Request CLI source failures omit data when no request ID exists", async () => {
+	const outcome = await runMemberRequestCommand(
+		readMemberRequestSendCommand(parseInto(buildMemberRequestSendCommand, ["Dev", "--message", "hello"])),
+		{ cwd: "/tmp", input: process.stdin, signal: new AbortController().signal },
+		{
+			resolveSource: () => ({ ok: false, code: "source-not-found", message: "missing source" }),
+			send: async () => ({ response: { success: true } as never }),
+			readStdin: async () => "",
+			environmentSession: () => undefined,
+		},
+	);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") {
+		assert.equal(outcome.result.error?.code, "source-not-found");
+		assert.equal("data" in outcome.result, false);
+	}
+});
+
 test("Member Request CLI dispatches list, wait, and respond leaves", async () => {
 	const calls: any[] = [];
 	const timeouts: number[] = [];
@@ -136,7 +261,7 @@ test("Member Request CLI dispatches list, wait, and respond leaves", async () =>
 	);
 	const responded = await runMemberRequestCommand(
 		readMemberRequestRespondCommand(
-			parseInto(buildMemberRequestRespondCommand, ["inbound-id", "--message", "done"]),
+			parseInto(buildMemberRequestRespondCommand, ["inbound-id", "--message", "done", "--instruction", "one"]),
 		),
 		context,
 		deps,
@@ -191,7 +316,9 @@ test("Member Request CLI preserves exact IDs on source-resolution failures", asy
 test("Member Request CLI sends through the selected source and preserves opaque IDs", async () => {
 	const calls: any[] = [];
 	const outcome = await runMemberRequestCommand(
-		readMemberRequestSendCommand(parseInto(buildMemberRequestSendCommand, ["Dev", "--message", "status?"])),
+		readMemberRequestSendCommand(
+			parseInto(buildMemberRequestSendCommand, ["Dev", "--message", "status?", "--instruction", "one"]),
+		),
 		{ cwd: "/tmp", input: process.stdin, signal: new AbortController().signal },
 		{
 			resolveSource: () => ({ ok: true, kind: "id", idSocketPath: "/id.sock", aliasSocketPath: "/alias.sock" }),

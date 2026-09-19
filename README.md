@@ -67,7 +67,7 @@ npx @carbon-ni/pi-bebop --help
 ```
 
 For command help, use `pi-bebop <command> --help`.
-Use the full `--help` flag for subcommands; `-h` returns a usage error.
+Use `--help` or the standard `-h` flag for subcommands; both show Commander-generated help.
 
 ## Start a Crew
 

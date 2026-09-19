@@ -32,6 +32,31 @@ const result = {
 };
 const context = { cwd: process.cwd(), input: process.stdin, signal: new AbortController().signal };
 
+test("idle wait dependencies read explicit environment sessions and process fallback", () => {
+	assert.equal(defaultMemberIdleWaitCliDependencies.environmentSession({ PI_SESSION_ID: "env-1" }), "env-1");
+	const processSession = defaultMemberIdleWaitCliDependencies.environmentSession();
+	assert.ok(processSession === undefined || typeof processSession === "string");
+});
+
+test("idle wait reader validates member, format, and whole-second timeout", () => {
+	assert.deepEqual(waitOptions(["Bob", "--timeout", "10s", "--format", "text"]), {
+		command: "member-idle-wait",
+		member: "Bob",
+		timeoutSeconds: 10,
+		format: "text",
+	});
+	for (const tokens of [
+		["--format", "yaml", "Bob"],
+		["Bob", "--timeout", "0s"],
+		["Bob", "--timeout", "1500ms"],
+		["Bob", "--timeout", "11m"],
+		["Bob", "--timeout", "bad"],
+		[" Bob"],
+		[],
+	] as const)
+		assert.throws(() => waitOptions(tokens));
+});
+
 test("idle transport mappers cover every stable error and normalized transport code", () => {
 	assert.deepEqual(mapIdleWaitTransportError(Object.assign(new Error("abort"), { name: "AbortError" })), {
 		ok: false,
@@ -114,6 +139,13 @@ test("default wait transport falls back from stale id socket to a valid alias", 
 		);
 		assert.equal(outcome.ok, true);
 		if (outcome.ok) assert.equal(outcome.result.outcome, "idle");
+		const primary = await defaultMemberIdleWaitCliDependencies.sendWait(
+			{ ...source, idSocketPath: aliasSocketPath, aliasSocketPath },
+			"Bob",
+			1,
+			new AbortController().signal,
+		);
+		assert.equal(primary.ok, true);
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}
@@ -155,6 +187,15 @@ test("member wait-idle source resolution failures are usage-class", async () => 
 				sendWait: async () => ({ ok: true, result }),
 			}),
 		(error: unknown) => error instanceof UsageError && error.message === "missing",
+	);
+	await assert.rejects(
+		() =>
+			runMemberIdleWaitCommand(waitOptions(), context, {
+				resolveSource: () => ({ ok: false, code: "missing-session" }),
+				environmentSession: () => undefined,
+				sendWait: async () => ({ ok: true, result }),
+			}),
+		(error: unknown) => error instanceof UsageError && /Unable to resolve/.test(error.message),
 	);
 	const malformed = await runMemberIdleWaitCommand(waitOptions(), context, {
 		resolveSource: () => source,

@@ -8,6 +8,7 @@ import type { CliContext } from "../support/context.ts";
 import {
 	buildCrewRolesCommand,
 	defaultCrewRolesDependencies,
+	readCrewRolesCommand,
 	runCrewRolesCommand,
 	type CrewRolesDependencies,
 } from "./crew-roles.ts";
@@ -49,6 +50,21 @@ function deps(overrides: Partial<CrewRolesDependencies> = {}): CrewRolesDependen
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Reader
+// ---------------------------------------------------------------------------
+
+test("crew roles reader preserves full and format options and rejects invalid format", () => {
+	const command = buildCrewRolesCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse(["node", "roles", "--full", "--format", "text"], { from: "node" });
+	assert.deepEqual(readCrewRolesCommand(command), { command: "crew-roles", format: "text", full: true });
+	const invalid = buildCrewRolesCommand().exitOverride();
+	invalid.parse(["node", "roles", "--format", "yaml"], { from: "node" });
+	assert.throws(() => readCrewRolesCommand(invalid), UsageError);
+});
 
 // ---------------------------------------------------------------------------
 // Help

@@ -8,6 +8,14 @@ import type { CrewSessionCaptureOutcome, CrewSessionCliDependencies } from "./cr
 import {
 	buildCrewSessionAddCommand,
 	buildCrewSessionCaptureCommand,
+	buildCrewSessionListCommand,
+	buildCrewSessionResolveCommand,
+	buildCrewSessionShowCommand,
+	readCrewSessionAddCommand,
+	readCrewSessionCaptureCommand,
+	readCrewSessionListCommand,
+	readCrewSessionResolveCommand,
+	readCrewSessionShowCommand,
 	runCrewSessionAddCommand,
 	runCrewSessionCaptureCommand,
 	runCrewSessionListCommand,
@@ -16,6 +24,14 @@ import {
 } from "./crew-session.ts";
 import type { CliContext } from "../support/context.ts";
 import { UsageError } from "../support/arguments.ts";
+
+function parseInto(build: () => import("commander").Command, tokens: readonly string[]) {
+	const command = build()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse([...tokens], { from: "user" });
+	return command;
+}
 
 function context(cwd: string): CliContext {
 	return { cwd, input: new PassThrough(), signal: new AbortController().signal };
@@ -83,6 +99,29 @@ async function project(withBoth = false): Promise<string> {
 }
 
 // Parser and help contracts.
+test("crew session readers preserve canonical arguments and reject semantic values", () => {
+	assert.equal(readCrewSessionCaptureCommand(parseInto(buildCrewSessionCaptureCommand, ["review"])).name, "review");
+	assert.equal(readCrewSessionAddCommand(parseInto(buildCrewSessionAddCommand, ["cs_1", "Alice"])).member, "Alice");
+	assert.equal(
+		readCrewSessionListCommand(parseInto(buildCrewSessionListCommand, ["--limit", "2", "--offset", "1"])).limit,
+		2,
+	);
+	assert.equal(readCrewSessionShowCommand(parseInto(buildCrewSessionShowCommand, ["cs_1"])).id, "cs_1");
+	assert.equal(
+		readCrewSessionResolveCommand(parseInto(buildCrewSessionResolveCommand, ["cs_1", "Alice"])).member,
+		"Alice",
+	);
+	assert.throws(() => readCrewSessionCaptureCommand(parseInto(buildCrewSessionCaptureCommand, ["   "])), UsageError);
+	assert.throws(
+		() => readCrewSessionListCommand(parseInto(buildCrewSessionListCommand, ["--limit", "x"])),
+		UsageError,
+	);
+	assert.throws(
+		() => readCrewSessionListCommand(parseInto(buildCrewSessionListCommand, ["--offset", "-1"])),
+		UsageError,
+	);
+});
+
 // Handler and trusted-layout resolution contracts.
 test("capture handler resolves the canonical manifest and preserves structured success", async () => {
 	const root = await project();
@@ -134,6 +173,88 @@ test("capture handler rejects an untrusted explicit Locator", async () => {
 		);
 		assert.equal(outcome.kind, "result");
 		if (outcome.kind === "result") assert.match(outcome.result.error?.message ?? "", /outside trusted/);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("capture handler maps outcome failures and store failures without losing the target", async () => {
+	const root = await project();
+	try {
+		const options = {
+			command: "session-capture" as const,
+			name: "x",
+			crew: ".pi/bebop/crew.json",
+			format: "toon" as const,
+			full: false,
+		};
+		const collision = await runCrewSessionCaptureCommand(options, context(root), {
+			capture: async () => failure("name-collision"),
+			add: async () => success(),
+		});
+		assert.equal(collision.kind, "result");
+		if (collision.kind === "result") assert.match(collision.result.error?.message ?? "", /cs_0123456789abcdef/);
+		const empty = await runCrewSessionCaptureCommand(options, context(root), {
+			capture: async () => failure("capture-empty"),
+			add: async () => success(),
+		});
+		assert.equal(empty.kind, "result");
+		if (empty.kind === "result") assert.equal(empty.result.status, "capture-empty");
+		const stored = await runCrewSessionCaptureCommand(options, context(root), {
+			capture: async () => {
+				throw new CrewSessionStoreError("storage-failed", "disk unavailable");
+			},
+			add: async () => success(),
+		});
+		assert.equal(stored.kind, "result");
+		if (stored.kind === "result") assert.equal(stored.result.error?.code, "storage-failed");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("crew session list, show, resolve, and add expose stable empty and failure results", async () => {
+	const listed = await runCrewSessionListCommand(
+		{ command: "session-list", limit: 25, offset: 0, format: "toon", full: false },
+		context("/tmp/no-such-bebop-project"),
+	);
+	assert.equal(listed.kind, "result");
+	if (listed.kind === "result") {
+		assert.equal(listed.result.status, "empty");
+		assert.equal((listed.result.data as { next: string }).next, "pi-bebop session capture <name>");
+	}
+	const shown = await runCrewSessionShowCommand(
+		{ command: "session-show", id: "missing", format: "toon", full: false },
+		context("/tmp/no-such-bebop-project"),
+	);
+	assert.equal(shown.kind, "result");
+	if (shown.kind === "result") assert.equal(shown.result.error?.code, "record-not-found");
+	const resolved = await runCrewSessionResolveCommand(
+		{ command: "session-resolve", id: "missing", member: "Alice", format: "toon", full: false },
+		context("/tmp/no-such-bebop-project"),
+	);
+	assert.equal(resolved.kind, "result");
+	if (resolved.kind === "result") assert.equal(resolved.result.error?.code, "record-not-found");
+	const added = await runCrewSessionAddCommand(
+		{ command: "session-add", id: "missing", member: "Alice", format: "toon", full: false },
+		context("/tmp/no-such-bebop-project"),
+		{ capture: async () => success(), add: async () => success() },
+	);
+	assert.equal(added.kind, "result");
+	if (added.kind === "result") assert.equal(added.result.error?.code, "operational");
+	const root = await project();
+	try {
+		const addedSuccess = await runCrewSessionAddCommand(
+			{ command: "session-add", id: "cs_1", member: "Alice", format: "json", full: true },
+			context(root),
+			{ capture: async () => success(), add: async () => success("cs_1", null) },
+		);
+		assert.equal(addedSuccess.kind, "result");
+		if (addedSuccess.kind === "result") {
+			assert.equal(addedSuccess.result.ok, true);
+			assert.equal(addedSuccess.format, "json");
+			assert.equal(addedSuccess.full, true);
+		}
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

@@ -6,11 +6,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+	buildMemberStatusCommand,
 	defaultMemberStatusCliDependencies,
 	mapTransportError,
+	readMemberStatusCommand,
 	runMemberStatusCommand,
 	type MemberStatusCliDependencies,
 } from "./member-status.ts";
+import { Command } from "commander";
 import { UsageError } from "../support/arguments.ts";
 import { writeOutcome, type CliOutcome } from "../support/output.ts";
 import type { CliContext } from "../support/context.ts";
@@ -61,6 +64,23 @@ function render(outcome: CliOutcome): { exit: number; text: string } {
 }
 
 // --- parse ---
+
+function parseInto(tokens: readonly string[]) {
+	const command = buildMemberStatusCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse([...tokens], { from: "user" });
+	return readMemberStatusCommand(command);
+}
+
+test("member status reader validates target and format", () => {
+	assert.equal(parseInto(["Kelly", "--format", "text"]).format, "text");
+	for (const tokens of [["--format", "yaml", "Kelly"], [" Kelly"], [], ["Kelly", "--format", "json"]] as const) {
+		if (tokens.length === 2) assert.equal(parseInto(tokens).format, "json");
+		else if (tokens[0] !== "Kelly") assert.throws(() => parseInto(tokens), UsageError);
+	}
+	assert.throws(() => parseInto(["x".repeat(257)]), /at most 256/);
+});
 
 test("member status default transport maps unavailable endpoints", async () => {
 	const result = await defaultMemberStatusCliDependencies.sendStatus(

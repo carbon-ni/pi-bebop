@@ -8,6 +8,7 @@ import { UsageError } from "../support/arguments.ts";
 import {
 	buildCrewListCommand,
 	defaultCrewListDependencies,
+	readCrewListCommand,
 	runCrewListCommand,
 	type CrewListDependencies,
 } from "./crew-list.ts";
@@ -57,6 +58,17 @@ function result(outcome: CliOutcome) {
 	if (outcome.kind !== "result") throw new Error("expected result");
 	return outcome.result;
 }
+
+test("crew list reader preserves full and rejects invalid formats", () => {
+	const command = buildCrewListCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	command.parse(["node", "list", "--full", "--format", "text"], { from: "node" });
+	assert.deepEqual(readCrewListCommand(command), { command: "crew-list", format: "text", full: true });
+	const invalid = buildCrewListCommand().exitOverride();
+	invalid.parse(["node", "list", "--format", "yaml"], { from: "node" });
+	assert.throws(() => readCrewListCommand(invalid), UsageError);
+});
 
 test("default manifest existence fails closed before untrusted filesystem access", async () => {
 	assert.equal(await defaultCrewListDependencies.manifestExists("/tmp/crew.json", "/project"), false);

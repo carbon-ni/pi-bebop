@@ -29,6 +29,43 @@ function context(): CliContext {
 	};
 }
 
+test("empty discovery and picker cancellation are successful bounded outcomes", async () => {
+	const empty = await runRoleSessionResumeCommand(
+		{ command: "session-resume", role: "developer", format: "toon", full: false },
+		context(),
+		{
+			discover: async () => ({
+				ok: true as const,
+				member: { name: "Alice", role: "developer", socketPath: "/crew/alice.sock" },
+				candidates: [],
+				skipped: 2,
+			}),
+			resolve: async () => ({ ok: true as const, candidate }),
+			pick: async () => ({ kind: "selected" as const, candidate }),
+			launcher: { launch: async () => ({ ok: true as const, exitCode: 0 }) },
+		},
+	);
+	assert.equal(empty.kind, "result");
+	if (empty.kind === "result") assert.equal(empty.result.status, "empty");
+	const cancelled = await runRoleSessionResumeCommand(
+		{ command: "session-resume", role: "developer", format: "toon", full: false },
+		context(),
+		{
+			discover: async () => ({
+				ok: true as const,
+				member: { name: "Alice", role: "developer", socketPath: "/crew/alice.sock" },
+				candidates: [candidate],
+				skipped: 0,
+			}),
+			resolve: async () => ({ ok: true as const, candidate }),
+			pick: async () => ({ kind: "cancelled" as const }),
+			launcher: { launch: async () => ({ ok: true as const, exitCode: 0 }) },
+		},
+	);
+	assert.equal(cancelled.kind, "result");
+	if (cancelled.kind === "result") assert.equal(cancelled.result.status, "cancelled");
+});
+
 test("bounded failures never launch", async () => {
 	const failure = await runRoleSessionResumeCommand(
 		{ command: "session-resume", role: "developer", format: "toon", full: false },
