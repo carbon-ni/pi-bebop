@@ -57,7 +57,7 @@ export function buildDurableMessageCommand(intent: DurableMessageIntent): Comman
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("member-inbox-send"),
 		);
 	if (intent === "inbox") program = program.argument("[<member>]", "Crew member name or unique role");

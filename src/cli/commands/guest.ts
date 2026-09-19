@@ -86,7 +86,7 @@ export function buildGuestJoinCommand(): Command {
 		.requiredOption("--callback <socket>", "This session's callback socket path")
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("guest-join"),
 		)
 		.addHelpText(
@@ -112,7 +112,7 @@ export function buildGuestMessageCommand(kind: "send" | "broadcast"): Command {
 		.requiredOption("--capability <capability>", "Member-issued Guest capability")
 		.requiredOption("--message <text>", "Message text")
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
-		.option("--format <format>", "Output format: toon (default), json, or text", defaultFormatForCommand("guest"))
+		.option("--format <format>", "Output format: text (default), toon, or json", defaultFormatForCommand("guest"))
 		.addHelpText(
 			"after",
 			[
@@ -135,7 +135,7 @@ export function buildGuestLeaveCommand(): Command {
 		.requiredOption("--crew <crew-id>", "Crew id to leave")
 		.requiredOption("--identity <guest-identity>", "This session's Guest identity")
 		.requiredOption("--callback <socket>", "The callback socket path used at join time")
-		.option("--format <format>", "Output format: toon (default), json, or text", defaultFormatForCommand("guest"))
+		.option("--format <format>", "Output format: text (default), toon, or json", defaultFormatForCommand("guest"))
 		.addHelpText(
 			"after",
 			[

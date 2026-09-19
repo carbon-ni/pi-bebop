@@ -228,11 +228,11 @@ specification.
 
 ## CLI result contract
 
-The commands default to deterministic TOON. `--format json` and
-`--format text` are explicit alternatives with the same semantic states,
-reasons, counts, and truncation metadata. Text is concise and actionable;
-structured output keeps paths and IDs in explicit fields rather than an
-interpolated shell command.
+The commands default to concise, actionable text. Use `--format toon` for
+deterministic structured output or `--format json` for interoperability; all
+formats expose the same semantic states, reasons, counts, and truncation
+metadata. Structured output keeps paths and IDs in explicit fields rather than
+an interpolated shell command.
 
 | Situation | Exit | Required result |
 | --- | ---: | --- |

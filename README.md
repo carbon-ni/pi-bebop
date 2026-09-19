@@ -69,6 +69,8 @@ npx @carbon-ni/pi-bebop --help
 For command help, use `pi-bebop <command> --help`.
 Use `--help` or the standard `-h` flag for subcommands; both show Commander-generated help.
 
+CLI results are concise plain text by default. Use `--format toon` for structured agent output or large bounded results, and `--format json` for interoperability; format selection never changes automatically by result size.
+
 ## Start a Crew
 
 ```bash

@@ -390,12 +390,12 @@ test("crew session readers validate names, ids, formats, and counts", () => {
 // --- session live / crew roles / crew list readers ---
 
 test("session live, crew roles, and crew list readers validate format", () => {
-	assert.equal(readSessionListCommand(parseInto(buildSessionListCommand, [])).format, "toon");
+	assert.equal(readSessionListCommand(parseInto(buildSessionListCommand, [])).format, "text");
 	usage(
 		() => readSessionListCommand(parseInto(buildSessionListCommand, ["--format", "xml"])),
 		/Invalid --format 'xml'/,
 	);
-	assert.equal(readCrewRolesCommand(parseInto(buildCrewRolesCommand, [])).format, "toon");
+	assert.equal(readCrewRolesCommand(parseInto(buildCrewRolesCommand, [])).format, "text");
 	usage(() => readCrewRolesCommand(parseInto(buildCrewRolesCommand, ["--format", "xml"])), /Invalid --format 'xml'/);
 	assert.equal(readCrewListCommand(parseInto(buildCrewListCommand, ["--full"])).full, true);
 	usage(() => readCrewListCommand(parseInto(buildCrewListCommand, ["--format", "xml"])), /Invalid --format 'xml'/);

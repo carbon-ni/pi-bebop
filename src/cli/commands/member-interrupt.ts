@@ -30,7 +30,7 @@ export function buildMemberInterruptCommand(): Command {
 		.option("--instruction <value>", "Instruction (repeatable, ordered)", collect, [])
 		.option(
 			"--format <format>",
-			"Output format: toon (default), json, or text",
+			"Output format: text (default), toon, or json",
 			defaultFormatForCommand("member-interrupt"),
 		)
 		.argument("[<member>]", "Crew member name or unique role")

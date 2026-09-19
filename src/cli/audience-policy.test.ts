@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { defaultFormatForCommand } from "./audience-policy.ts";
 
-test("declared default format: human-first commands default to text, the rest to TOON", () => {
+test("every canonical command defaults to concise text", () => {
 	assert.equal(defaultFormatForCommand("crew-init"), "text");
 	for (const command of [
 		"crew-list",
@@ -25,10 +25,10 @@ test("declared default format: human-first commands default to text, the rest to
 		"guest-send",
 		"guest-broadcast",
 	]) {
-		assert.equal(defaultFormatForCommand(command), "toon", command);
+		assert.equal(defaultFormatForCommand(command), "text", command);
 	}
 });
 
-test("unknown commands default to TOON", () => {
-	assert.equal(defaultFormatForCommand("not-a-command"), "toon");
+test("unknown commands also default to concise text", () => {
+	assert.equal(defaultFormatForCommand("not-a-command"), "text");
 });
