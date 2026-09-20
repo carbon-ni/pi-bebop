@@ -7,10 +7,9 @@ priority: high
 tags: [cli, crew, session, rename, contract, tdd, docs, ul]
 ---
 
-## Status
+## Completion evidence
 
-Done. Commits `78b797c` (rename + tests) and `915f8ae` (prettier) on branch
-`task-0204-cli-rename-session`; PR `carbon-ni/pi-bebop#18` opened, awaiting QA.
+Shipped in merged PR [#18](https://github.com/carbon-ni/pi-bebop/pull/18) on September 10, 2026.
 
 
 # Rename `pi-bebop crew session ...` to `pi-bebop session ...`

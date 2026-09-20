@@ -1,13 +1,17 @@
 ---
 id: TASK-0181
 title: Add a task-oriented Crew quickstart
-status: todo
+status: done
 depends_on: [TASK-0174, TASK-0179, TASK-0180]
 priority: normal
 tags: [cli, quickstart, onboarding, crew, ask, docs, tdd]
 ---
 
 # Add a task-oriented Crew quickstart
+
+## Closure
+
+Closed without implementation. A dedicated `quickstart` command duplicates README and command help while depending on speculative command surfaces. Keep the shortest supported workflow in maintained documentation instead. The unchecked criteria are intentionally not claimed.
 
 ## Problem
 
