@@ -39,7 +39,8 @@ export interface OfferingStateStore {
 export interface InboxBridgeDependencies {
 	readonly openStore: (ownership: InboxBridgeOwnership) => Promise<MemberInboxStore>;
 	readonly listEvidence: () => readonly string[];
-	readonly offerItem: (item: InboxItem) => Promise<boolean>;
+	/** Hand off only while the captured ownership generation remains current. */
+	readonly offerItem: (item: InboxItem, isCurrent: () => boolean) => Promise<boolean>;
 	readonly offeringState: OfferingStateStore;
 }
 
@@ -71,47 +72,74 @@ export interface InboxBridgeController {
 
 export function createInboxBridge(dependencies: InboxBridgeDependencies): InboxBridgeController {
 	let ownership: InboxBridgeOwnership | null = null;
+	let ownershipGeneration = 0;
 	let outstanding: string | null = null;
 
 	const invalidate = (): void => {
+		ownershipGeneration += 1;
 		ownership = null;
 		outstanding = null;
 	};
 
 	const establish = (next: InboxBridgeOwnership | null): void => {
-		if (next === null) return invalidate();
-		if (ownership?.socketPath !== next.socketPath) outstanding = null;
+		ownershipGeneration += 1;
+		if (next === null) {
+			ownership = null;
+			outstanding = null;
+			return;
+		}
+		const sameOwner =
+			ownership !== null &&
+			ownership.memberName === next.memberName &&
+			ownership.memberRole === next.memberRole &&
+			ownership.socketPath === next.socketPath &&
+			ownership.manifestPath === next.manifestPath &&
+			ownership.projectRoot === next.projectRoot;
+		if (!sameOwner) outstanding = null;
 		ownership = next;
 	};
 
 	const attemptOfferUnlocked = async (): Promise<InboxOfferOutcome> => {
-		if (!ownership) return { offered: false, reason: "not-joined" };
+		const currentOwnership = ownership;
+		const generation = ownershipGeneration;
+		if (!currentOwnership) return { offered: false, reason: "not-joined" };
+		const isCurrent = (): boolean => ownershipGeneration === generation && ownership === currentOwnership;
+		const stale = (): InboxOfferOutcome =>
+			ownership === null ? { offered: false, reason: "not-joined" } : { offered: false, reason: "failed" };
 		let store: MemberInboxStore;
 		try {
-			store = await dependencies.openStore(ownership);
+			store = await dependencies.openStore(currentOwnership);
 		} catch {
-			return { offered: false, reason: "failed" };
+			return isCurrent() ? { offered: false, reason: "failed" } : stale();
 		}
+		if (!isCurrent()) return stale();
 		try {
 			const evidence = new Set(dependencies.listEvidence());
 			const summaries = await store.list();
+			if (!isCurrent()) return stale();
 			for (const summary of summaries) {
-				if (evidence.has(summary.id)) await store.remove(summary.id);
+				if (!evidence.has(summary.id)) continue;
+				if (!isCurrent()) return stale();
+				await store.remove(summary.id);
+				if (!isCurrent()) return stale();
 			}
 			if (outstanding) {
 				const stillPending = summaries.some((summary) => summary.id === outstanding);
 				if (!stillPending || evidence.has(outstanding)) outstanding = null;
 			}
 			if (dependencies.offeringState.read() === "paused") return { offered: false, reason: "paused" };
+			if (!isCurrent()) return stale();
 			if (outstanding) return { offered: false, reason: "outstanding" };
 			const oldest = await store.peekOldest();
+			if (!isCurrent()) return stale();
 			if (!oldest) return { offered: false, reason: "no-items" };
-			const accepted = await dependencies.offerItem(oldest).catch(() => false);
+			const accepted = await dependencies.offerItem(oldest, isCurrent).catch(() => false);
+			if (!isCurrent()) return stale();
 			if (!accepted) return { offered: false, reason: "failed" };
 			outstanding = oldest.id;
 			return { offered: true, itemId: oldest.id };
 		} catch {
-			return { offered: false, reason: "failed" };
+			return isCurrent() ? { offered: false, reason: "failed" } : stale();
 		}
 	};
 

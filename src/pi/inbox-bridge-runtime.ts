@@ -2,7 +2,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	renderMessagePayload,
-	renderModelMessageWithHeader,
+	renderInboxModelContent,
 	SESSION_MESSAGE_TYPE,
 	type InboxItem,
 	type InboxOffering,
@@ -104,11 +104,14 @@ export function createInboxBridgeController(
 				},
 			}),
 		listEvidence: () => collectInboxEvidence(entries()),
-		offerItem: async (entry: InboxItem) => {
+		offerItem: async (entry: InboxItem, isCurrent: () => boolean) => {
 			const context = state.context;
-			if (!context) return false;
+			if (!context || !isCurrent()) return false;
 			// TASK-0081: the inbox offer is a Bebop-owned model delivery; a local
 			// blocking idle wait wakes on it before the unchanged message submits.
+			// The ownership token is checked immediately before the side effect so a
+			// deferred offer cannot hand old-session content to a new membership.
+			if (!isCurrent()) return false;
 			notifyAcceptedMessage(state, `inbox-${entry.id}`);
 			const deliveredAt = now?.();
 			pi.sendMessage(
@@ -117,10 +120,10 @@ export function createInboxBridgeController(
 					content:
 						deliveredAt === undefined
 							? renderMessagePayload(entry.payload)
-							: renderModelMessageWithHeader(entry.payload, {
-									kind: entry.payload.kind ?? "inbox",
-									sentAt: entry.enqueuedAt,
+							: renderInboxModelContent(entry.payload, {
+									enqueuedAt: entry.enqueuedAt,
 									deliveredAt,
+									kind: entry.payload.kind ?? "inbox",
 								}),
 					display: true,
 					details: {

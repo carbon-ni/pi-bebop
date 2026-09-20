@@ -5,7 +5,6 @@ import {
 	MEMBER_IDLE_WAIT_TIMEOUT_SECONDS,
 	getFirstEntryId,
 	getLastAssistantMessage,
-	isInboxHint,
 	isInterruptResult,
 	isMessagePayload,
 	renderFollowUpModelContent,
@@ -339,6 +338,14 @@ export async function handleClear(
 	return;
 }
 
+export async function handleInboxHint(
+	context: CommandHandlerContext,
+	_command: Extract<RpcInboundCommand, { type: "inbox_hint" }>,
+): Promise<void> {
+	context.state.onInboxHint?.();
+	context.respond(true, "inbox_hint", {});
+}
+
 export async function handleSend(
 	context: CommandHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "send" }>,
@@ -349,7 +356,6 @@ export async function handleSend(
 		respond(false, "send", undefined, "Invalid structured message payload");
 		return;
 	}
-	if (isInboxHint(payload)) state.onInboxHint?.();
 	const deliveredAt = state.now?.();
 	const message = renderFollowUpModelContent(payload, deliveredAt);
 	const mode = command.delivery ?? "follow_up";

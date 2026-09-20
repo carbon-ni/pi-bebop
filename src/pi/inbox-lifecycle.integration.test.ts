@@ -192,6 +192,42 @@ test("offline enqueue reaches a later-joining peer as one follow-up, then the it
 	assert.equal(await (await storeFor(crew, "developer")).count(), 0);
 });
 
+test("online enqueue persists before typed wake and emits exactly one follow-up without a hint turn", async (t) => {
+	const crew = await makeCrew();
+	t.after(crew.cleanup);
+	const recipient = session(crew, "developer");
+	recipient.bridge.establish(ownershipFromMembership(recipient.membership));
+	let wakeCommand: unknown;
+	const outcome = await enqueueMemberInboxMessage(
+		{
+			membership: membershipFor(crew, "lead") as never,
+			member: "developer",
+			message: "online durable message",
+			now: 3_000,
+		},
+		{
+			isProjectTrusted: () => true,
+			openStore: async (options) => openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true }),
+			resolveEndpoint: async (socketPath) => socketPath,
+			hintTransport: {
+				sendHint: async (_endpoint, command) => {
+					wakeCommand = command;
+					const store = await storeFor(crew, "developer");
+					assert.equal(await store.count(), 1, "persistence must precede the wake");
+					await recipient.bridge.attemptOffer();
+				},
+			},
+		},
+	);
+	assert.equal(outcome.persisted, true);
+	assert.deepEqual(wakeCommand, { type: "inbox_hint" });
+	assert.equal(recipient.sent.length, 1, "the typed wake must not create a visible hint turn");
+	assert.deepEqual(recipient.sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
+	assert.ok(String(recipient.sent[0]!.message.content).includes("online durable message"));
+	assert.doesNotMatch(String(recipient.sent[0]!.message.content), /check your inbox|inbox_hint/i);
+	assert.equal(recipient.entries.filter((entry) => entry.type === "custom_message").length, 1);
+});
+
 test("hours-old Inbox retry keeps original enqueue age and exact header", async (t) => {
 	const crew = await makeCrew();
 	t.after(crew.cleanup);

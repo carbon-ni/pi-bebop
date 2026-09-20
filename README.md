@@ -143,14 +143,14 @@ See [Crew Sessions](docs/CREW-SESSION.md) for identity checks, storage, privacy,
 
 ## Choose how to communicate
 
-| Tool | Use it when | What it promises |
-| --- | --- | --- |
-| `send_member_request` | You need an answer, report, or verdict | Requests one response tied to your request. Use `wait_for_request_outcome` to wait for a response, offline result, or timeout. |
-| `send_follow_up` | You're sharing information | Accepted delivery, with no response expected. |
-| `redirect_member` | You need to change what a member does next | Delivers guidance before the next model step, without aborting the turn. |
-| `send_to_inbox` | The member may be offline | Saves the message for later delivery as a follow-up. |
-| `interrupt_member` | Work is stuck, harmful, or based on a wrong assumption | Tries to abort and deliver recovery guidance. It can't undo work already done. |
-| `broadcast_to_crew` | Everyone else needs the same information | Attempts delivery to each other member and reports each outcome. It doesn't save messages to an inbox. |
+| Tool                  | Use it when                                            | What it promises                                                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `send_member_request` | You need an answer, report, or verdict                 | Requests one response tied to your request. Use `wait_for_request_outcome` with the returned `request_id`; after `pending-after-idle`, wait again with the same ID.                                                                                                   |
+| `send_follow_up`      | You're sharing information                             | Accepted delivery, with no response expected.                                                                                                                                                                                                                         |
+| `redirect_member`     | You need to change what a member does next             | Delivers guidance before the next model step, without aborting the turn.                                                                                                                                                                                              |
+| `send_to_inbox`       | The member may be offline                              | Persists the message for later delivery as one ordinary Follow-up. Online recipients are offered it on the next FIFO continuation; offline delivery waits for join/restore/turn-end. Items 48 hours or older are labeled stale and must be revalidated before acting. |
+| `interrupt_member`    | Work is stuck, harmful, or based on a wrong assumption | Tries to abort and deliver recovery guidance. It can't undo work already done.                                                                                                                                                                                        |
+| `broadcast_to_crew`   | Everyone else needs the same information               | Attempts delivery to each other member and reports each outcome. It doesn't save messages to an inbox.                                                                                                                                                                |
 
 Accepted delivery doesn't mean the member read the message or finished the work.
 A response doesn't prove the result is correct either.
@@ -164,7 +164,7 @@ Member delivery commands (`member follow-up`, `member redirect`, `member inbox s
 An incoming Bebop message can also release the wait. That doesn't mean the member became idle or finished anything.
 Call this wait on its own, not in a parallel tool batch, so an incoming message can be consumed immediately.
 
-`wait_for_request_outcome` waits for a response or another terminal outcome, such as a timeout.
+`wait_for_request_outcome` requires the exact `request_id` returned by `send_member_request`. It waits for that Request's response, offline result, one nonterminal `pending-after-idle` notice, or terminal max-wait. If an accepted message wakes the wait, process it and call the tool again with the same ID; do not send a replacement solely because the wait ended.
 An incoming Bebop message can release this wait too, so it can be handled before waiting again.
 That doesn't settle the request or guarantee a response.
 See [Member requests](docs/MEMBER-REQUEST-WORKFLOW.md) for the full flow.

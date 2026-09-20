@@ -75,7 +75,11 @@ export const MemberRedirectCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-export const RequestOutcomeRequestIdSchema = Type.String({ minLength: 1, maxLength: 128 });
+export const RequestOutcomeRequestIdSchema = Type.String({
+	minLength: 1,
+	maxLength: 128,
+	pattern: "^\\S(?:[\\s\\S]*\\S)?$",
+});
 export const RequestOutcomeTimeoutSchema = Type.Integer({ minimum: 1, maximum: 600 });
 export const MemberRequestParamsSchema = Type.Object(
 	{

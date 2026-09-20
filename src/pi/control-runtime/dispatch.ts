@@ -23,6 +23,7 @@ import {
 import { handleSessionCapture } from "./session-handlers.ts";
 import {
 	handleMemberIdleWait,
+	handleInboxHint,
 	handleStatus,
 	handleAbort,
 	handleMemberInterrupt,
@@ -43,6 +44,7 @@ const COMMAND_HANDLERS: CommandHandlers = {
 	guest_leave: handleGuestLeave,
 	guest_send: handleGuestSend,
 	presence_hint: handlePresenceHint,
+	inbox_hint: handleInboxHint,
 	member_status: handleMemberStatus,
 	member_status_target: handleMemberStatusTarget,
 	member_follow_up: handleMemberFollowUp,

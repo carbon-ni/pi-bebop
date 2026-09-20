@@ -153,7 +153,7 @@ test("TASK-0080: idle before the wait is nonterminal; post-idle grace expiry is 
 	// It is NONTERMINAL: it only arms the post-idle grace.
 	emit({ kind: "idle", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
 	assert.equal(flow.registry.outboundCount(), 1, "idle must be nonterminal");
-	// Post-idle grace expires without a Response -> terminal, buffered.
+	// Post-idle grace expires without a Response -> pending, buffered.
 	const graceTimer = captured[captured.length - 1];
 	graceTimer();
 	const waited = flow.waitForRequestOutcome(() => {
@@ -163,17 +163,25 @@ test("TASK-0080: idle before the wait is nonterminal; post-idle grace expiry is 
 	if (waited.ok) {
 		assert.equal(waited.kind, "update");
 		assert.deepEqual(waited.update, {
-			kind: "timeout",
+			kind: "pending",
 			requestId: "request-1",
 			member: { name: "qa", role: "reviewer" },
-			reason: "response-after-idle",
+			reason: "pending-after-idle",
 		});
 	}
-	// Terminal exactly once: nothing is pending afterwards.
-	assert.deepEqual(
-		flow.waitForRequestOutcome(() => undefined),
-		{ ok: false, code: "no-pending-requests" },
-	);
+	// The exact Request remains active for a later wait, but repeated idle does
+	// not create another grace timer or another pending notice.
+	assert.equal(flow.registry.outboundCount(), 1);
+	emit({ kind: "idle", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
+	assert.equal(captured.length, 2, "hard timer only; grace must not re-arm after pending");
+	const rewait = flow.waitForRequestOutcomeById("request-1", () => undefined);
+	assert.equal(rewait.ok, true);
+	flow.registry.resolveResponse({
+		requestId: "request-1",
+		member: { name: "qa", role: "reviewer" },
+		message: "answer",
+		instructions: [],
+	});
 });
 
 test("TASK-0075: a broken inbound channel never leaves other settled requests stuck", async () => {

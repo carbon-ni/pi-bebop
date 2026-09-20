@@ -39,20 +39,35 @@ test("request outcome waiting is blocking and distinct from accepted-only follow
 	const { tools } = setup();
 	const wait = tools.get("wait_for_request_outcome")!;
 	assert.equal(wait.label, "Wait for Request Outcome");
-	assert.match(wait.description, /oldest terminal outbound Request outcome/i);
-	assert.match(wait.description, /block this tool call/i);
-	assert.match(wait.description, /bounded wait is cancellable/i);
+	assert.match(wait.description, /this exact Request ID/i);
+	assert.match(wait.description, /block until this exact Request ID/i);
+	assert.match(wait.description, /wait is cancellable/i);
 	assert.match(wait.description, /accepted inbound Bebop message releases/i);
 	assert.doesNotMatch(wait.description, /crew-wait-resume|yields the run/i);
 });
 
-test("TASK-0151: empty wait succeeds as all-settled without blocking", async () => {
+test("TASK-0215: missing Request ID is rejected instead of selecting the oldest request", async () => {
 	const { tools } = setup();
 	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	assert.equal(result.isError, undefined);
-	assert.equal(result.terminate, undefined);
-	assert.deepEqual(result.details, { pending_count: 0 });
-	assert.match(String(result.content[0]?.text ?? ""), /all.*settled/i);
+	assert.equal(result.isError, true);
+});
+
+test("TASK-0215: unknown Request ID is actionable and nonblocking", async () => {
+	const { tools } = setup();
+	const result = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "missing" }, new AbortController().signal);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "unknown-request");
+});
+
+test("TASK-0215: malformed Request ID is distinct from unknown", async () => {
+	const { tools } = setup();
+	const result = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: " malformed " }, new AbortController().signal);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "invalid-request-id");
 });
 
 test("TASK-0151: wait blocks the same tool call until a terminal Response arrives", async () => {
@@ -61,7 +76,7 @@ test("TASK-0151: wait blocks the same tool call until a terminal Response arrive
 	let settled = false;
 	const pending = tools
 		.get("wait_for_request_outcome")!
-		.execute("id", {}, new AbortController().signal)
+		.execute("id", { request_id: "active" }, new AbortController().signal)
 		.then((result) => {
 			settled = true;
 			return result;
@@ -88,7 +103,9 @@ test("TASK-0151: wait blocks the same tool call until a terminal Response arrive
 test("accepted inbound messages release the Request outcome wait without settling the outbound request", async () => {
 	const { tools, state } = setup();
 	const registry = registerAccepted(state);
-	const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	const pending = tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "active" }, new AbortController().signal);
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(state.wakeGate.armed, true, "the Request outcome wait arms the shared message wake gate");
 	assert.equal(state.wakeGate.notifyAccepted("delivery-1"), true);
@@ -96,7 +113,7 @@ test("accepted inbound messages release the Request outcome wait without settlin
 	const result = await pending;
 	assert.equal(result.isError, undefined);
 	assert.equal(result.terminate, true, "the message wake skips the content-free continuation");
-	assert.deepEqual(result.details, { outcome: "message-received" });
+	assert.deepEqual(result.details, { outcome: "message-received", request_id: "active" });
 	assert.equal(registry.outboundCount(), 1, "message wake does not settle the outbound request");
 	assert.equal(state.wakeGate.armed, false, "the consumed wake listener is cleaned up");
 
@@ -106,7 +123,9 @@ test("accepted inbound messages release the Request outcome wait without settlin
 		message: "The later response",
 		instructions: [],
 	});
-	const later = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	const later = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "active" }, new AbortController().signal);
 	assert.equal(later.details.result.message, "The later response");
 });
 
@@ -116,7 +135,9 @@ test("an existing blocking wait rejects a Request outcome waiter without leaving
 	const listener = () => undefined;
 	assert.deepEqual(state.wakeGate.arm(listener), { ok: true });
 
-	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	const result = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "active" }, new AbortController().signal);
 	assert.equal(result.isError, true);
 	assert.equal(result.details.error, "wait-in-progress");
 	assert.equal(registry.outboundCount(), 1);
@@ -132,12 +153,12 @@ test("TASK-0151: terminal outcomes resolve the blocked call with actionable reco
 			phrases: ["offline", "reassign", "send_to_inbox"],
 		},
 		{
-			requestId: "idle-timeout",
+			requestId: "idle-pending",
 			resolve: (registry: RequestOutcomeRegistry) => {
-				registry.armOutboundIdle("idle-timeout");
-				return registry.resolveTimeout("idle-timeout", "response-after-idle");
+				registry.armOutboundIdle("idle-pending");
+				return registry.resolvePendingAfterIdle("idle-pending");
 			},
-			phrases: ["settled without a Response", "send a new send_member_request"],
+			phrases: ["still pending", "wait again with the same request_id", "do not send a replacement"],
 		},
 		{
 			requestId: "hard-timeout",
@@ -148,7 +169,9 @@ test("TASK-0151: terminal outcomes resolve the blocked call with actionable reco
 	for (const scenario of cases) {
 		const { tools, state } = setup();
 		const registry = registerAccepted(state, scenario.requestId);
-		const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+		const pending = tools
+			.get("wait_for_request_outcome")!
+			.execute("id", { request_id: scenario.requestId }, new AbortController().signal);
 		await new Promise((resolve) => setImmediate(resolve));
 		scenario.resolve(registry);
 		const result = await pending;
@@ -165,8 +188,12 @@ test("TASK-0151: buffered terminal outcome resolves immediately in FIFO order", 
 	registerAccepted(state, "second");
 	registry.resolveOffline("first");
 	registry.resolveOffline("second");
-	const first = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
-	const second = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	const first = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "first" }, new AbortController().signal);
+	const second = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "second" }, new AbortController().signal);
 	assert.equal(first.details.result.requestId, "first");
 	assert.equal(second.details.result.requestId, "second");
 });
@@ -175,7 +202,7 @@ test("TASK-0151: abort releases the blocked waiter without changing request stat
 	const { tools, state } = setup();
 	const registry = registerAccepted(state);
 	const controller = new AbortController();
-	const pending = tools.get("wait_for_request_outcome")!.execute("id", {}, controller.signal);
+	const pending = tools.get("wait_for_request_outcome")!.execute("id", { request_id: "active" }, controller.signal);
 	await new Promise((resolve) => setImmediate(resolve));
 	controller.abort();
 	const result = await pending;
@@ -192,9 +219,13 @@ test("TASK-0151: abort releases the blocked waiter without changing request stat
 test("TASK-0151: only one blocked waiter is allowed", async () => {
 	const { tools, state } = setup();
 	const registry = registerAccepted(state);
-	const first = tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	const first = tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "active" }, new AbortController().signal);
 	await new Promise((resolve) => setImmediate(resolve));
-	const second = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	const second = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "active" }, new AbortController().signal);
 	assert.equal(second.isError, true);
 	assert.equal(second.details.error, "already-waiting");
 	registry.resolveOffline("active");
@@ -205,7 +236,9 @@ test("TASK-0151: only one blocked waiter is allowed", async () => {
 test("TASK-0151: missing flow is actionable and nonblocking", async () => {
 	const { tools, state } = setup();
 	state.memberRequestFlow = undefined;
-	const result = await tools.get("wait_for_request_outcome")!.execute("id", {}, new AbortController().signal);
+	const result = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: "active" }, new AbortController().signal);
 	assert.equal(result.isError, true);
 	assert.equal(result.details.error, "wait-failed");
 });

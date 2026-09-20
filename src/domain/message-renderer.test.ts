@@ -5,6 +5,7 @@ import {
 	renderMessagePayload,
 	renderMessagePayloadForDisplay,
 	renderMemberRequestModelContent,
+	renderInboxModelContent,
 	renderFollowUpModelContent,
 } from "./message-renderer.ts";
 
@@ -82,6 +83,16 @@ test("TASK-0152: model headers are exact, frozen, and do not duplicate semantic 
 	assert.match(rendered, /^\[member request\] from Tony \(lead\) · age at delivery 1m · request request-1\n/);
 	assert.equal((rendered.match(/\[member request\]/g) ?? []).length, 1);
 	assert.doesNotMatch(rendered, /sentAt|requester socket|sessionId/);
+});
+
+test("TASK-0214: stale Inbox warning is exact, while invalid timing stays unavailable", () => {
+	const payload = { content: "Review the report", origin: { kind: "crew" as const, name: "Tony", role: "lead" } };
+	const stale = renderInboxModelContent(payload, { enqueuedAt: 1_000, deliveredAt: 1_000 + 48 * 60 * 60 * 1_000 });
+	assert.match(stale, /^\[inbox\] from Tony \(lead\) · age at delivery 2d 0h\n/);
+	assert.match(stale, /stale inbox item.*verify relevance before acting/i);
+	const invalid = renderInboxModelContent(payload, { enqueuedAt: 2_000, deliveredAt: 1_000 });
+	assert.doesNotMatch(invalid, /stale inbox item/i);
+	assert.match(invalid, /age at delivery unavailable/);
 });
 
 test("TASK-0076: ordinary Follow-up model content is structurally no-correlated-Response", () => {

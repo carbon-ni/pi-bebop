@@ -6,6 +6,7 @@ import {
 	elapsedMessageMilliseconds,
 	formatMessageAge,
 	isMessagePayload,
+	isStaleInboxAge,
 	renderMessagePayloadForDisplay,
 	type MessagePayload,
 } from "../domain/index.ts";
@@ -112,6 +113,14 @@ export function getMessageDisplayModel(
 			? `request age ${formatMessageAge(ageMs ?? -1)}`
 			: `age at delivery ${formatMessageAge(ageMs ?? -1)}`
 		: null;
+	if (
+		payload &&
+		typedDetails?.kind === "inbox" &&
+		typedDetails.sentAt !== undefined &&
+		typedDetails.deliveredAt !== undefined &&
+		isStaleInboxAge(typedDetails.sentAt, typedDetails.deliveredAt)
+	)
+		text = `[stale inbox item] This item is at least 48 hours old; verify relevance before acting.\n\n${text}`;
 	if (!text) text = "(no content)";
 	if (!expanded) {
 		const lines = text.split("\n");

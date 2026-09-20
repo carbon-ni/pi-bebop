@@ -323,6 +323,41 @@ describe("ownership invalidation", () => {
 		const outcome = await harness.bridge.attemptOffer();
 		assert.deepEqual(outcome, { offered: true, itemId: "inbox-0-abc" });
 	});
+
+	test("role changes on the same endpoint clear stale outstanding state", async () => {
+		const harness = makeBridge();
+		harness.store.items.push(item(0));
+		harness.bridge.establish(ownership);
+		await harness.bridge.attemptOffer();
+		harness.bridge.establish({ ...ownership, memberRole: "qa" });
+		assert.deepEqual(await harness.bridge.attemptOffer(), { offered: true, itemId: "inbox-0-abc" });
+	});
+
+	test("deferred offers cannot hand an item after ownership invalidation", async () => {
+		const store = makeStore([item(0)]);
+		let releaseOffer!: () => void;
+		let offered = 0;
+		const bridge = createInboxBridge({
+			openStore: async () => store,
+			listEvidence: () => [],
+			offerItem: async (_entry, isCurrent) => {
+				await new Promise<void>((resolve) => {
+					releaseOffer = resolve;
+				});
+				if (!isCurrent()) return false;
+				offered += 1;
+				return true;
+			},
+			offeringState: memoryOffering(),
+		});
+		bridge.establish(ownership);
+		const attempt = bridge.attemptOffer();
+		await new Promise((resolve) => setImmediate(resolve));
+		bridge.invalidate();
+		releaseOffer();
+		assert.deepEqual(await attempt, { offered: false, reason: "not-joined" });
+		assert.equal(offered, 0);
+	});
 });
 
 describe("cancel", () => {

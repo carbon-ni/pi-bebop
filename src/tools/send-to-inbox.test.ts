@@ -76,12 +76,15 @@ describe("send_to_inbox tool", () => {
 		const tool = setup(membership, {
 			isProjectTrusted: () => true,
 			openStore: (async () => persistingStore()) as never,
-			hintTransport: null,
+			hintTransport: {
+				sendHint: async () => undefined,
+			},
 		});
 		const result = await tool.execute("c", { member: "Bob", message: "please review" });
 		assert.equal(result.isError, undefined);
-		assert.deepEqual(result.details, { itemId: "inbox-0-abc", persisted: true, target: "Bob", hint: "skipped" });
+		assert.deepEqual(result.details, { itemId: "inbox-0-abc", persisted: true, target: "Bob" });
 		assert.ok(result.content[0]!.text.includes("persisted"));
+		assert.ok(!result.content[0]!.text.includes("notified"));
 		assert.ok(!result.content[0]!.text.includes("delivered"));
 	});
 
@@ -158,6 +161,7 @@ describe("send_to_inbox tool", () => {
 		});
 		const result = await tool.execute("c", { member: "Bob", message: "x" });
 		assert.equal(result.isError, undefined);
-		assert.deepEqual(result.details, { itemId: "inbox-0-abc", persisted: true, target: "Bob", hint: "skipped" });
+		assert.deepEqual(result.details, { itemId: "inbox-0-abc", persisted: true, target: "Bob" });
+		assert.ok(!result.content[0]!.text.includes("notified"));
 	});
 });

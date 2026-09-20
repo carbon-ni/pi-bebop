@@ -5,6 +5,13 @@ export interface MessageClock {
 
 /** Model-visible fallback for missing, malformed, future, or overflowing timing. */
 export const UNAVAILABLE_MESSAGE_AGE = "unavailable";
+export const INBOX_STALE_AFTER_MS = 48 * 60 * 60 * 1_000;
+
+/** Staleness is classified only from persisted enqueue and recipient handoff instants. */
+export function isStaleInboxAge(enqueuedAt: number, deliveredAt: number): boolean {
+	const elapsed = elapsedMessageMilliseconds(enqueuedAt, deliveredAt);
+	return elapsed !== null && elapsed >= INBOX_STALE_AFTER_MS;
+}
 
 import type { MessageKind, MessageOrigin } from "./message-payload.ts";
 import { MESSAGE_KINDS } from "./message-payload.ts";

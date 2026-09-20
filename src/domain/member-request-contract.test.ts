@@ -83,7 +83,7 @@ test("TASK-0080 A5: idle is NONTERMINAL - it preserves the slot; response still 
 	assert.equal(registry.outboundCount(), 0);
 });
 
-test("TASK-0080 A6: timeout carries a reason; hard expiry from any state -> max-wait, grace expiry only after idle -> response-after-idle", () => {
+test("TASK-0215 A6: hard expiry is the only terminal timeout; idle grace is pending", () => {
 	const registry = new RequestOutcomeRegistry();
 	assert.equal(register(registry, "hard-before-idle").ok, true);
 	assert.equal(registry.acceptOutbound("hard-before-idle").ok, true);
@@ -93,18 +93,14 @@ test("TASK-0080 A6: timeout carries a reason; hard expiry from any state -> max-
 		assert.equal(hard.value.kind, "timeout");
 		assert.equal((hard.value as RequestOutcomeTimeout).reason, "max-wait");
 	}
-	// Grace expiry before idle arming is impossible (idleArmed gate) and never
-	// yields a response-after-idle outcome without a real idle first.
-	const gated = new RequestOutcomeRegistry();
-	assert.equal(register(gated, "grace-gated").ok, true);
-	assert.equal(gated.acceptOutbound("grace-gated").ok, true);
-	assert.equal(gated.armOutboundIdle("grace-gated").ok, true);
-	const grace = gated.resolveTimeout("grace-gated", "response-after-idle");
-	assert.equal(grace.ok, true);
-	if (grace.ok) {
-		assert.equal(grace.value.kind, "timeout");
-		assert.equal((grace.value as RequestOutcomeTimeout).reason, "response-after-idle");
-	}
+	const pending = new RequestOutcomeRegistry();
+	assert.equal(register(pending, "grace-pending").ok, true);
+	assert.equal(pending.acceptOutbound("grace-pending").ok, true);
+	assert.equal(pending.armOutboundIdle("grace-pending").ok, true);
+	const notice = pending.resolvePendingAfterIdle("grace-pending");
+	assert.equal(notice.ok, true);
+	if (notice.ok) assert.equal(notice.value.kind, "pending");
+	assert.equal(pending.outboundCount(), 1);
 });
 
 test("TASK-0080 A7: first terminal wins atomically; later transitions are rejected", () => {
