@@ -1,7 +1,7 @@
 ---
 id: TASK-0215
 title: Wait for an exact Member Request without duplicating it
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [crew, member-request, wait, correlation, lifecycle, tdd]

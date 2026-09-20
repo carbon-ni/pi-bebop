@@ -1,7 +1,7 @@
 ---
 id: TASK-0214
 title: Deliver online Inbox items as Follow-ups and warn when stale
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [crew, inbox, follow-up, lifecycle, freshness, tdd]
