@@ -1,13 +1,17 @@
 ---
 id: TASK-0200
 title: Define durable Crew Session links
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [product, crew, session, resume, identity, persistence, privacy, ubiquitous-language]
 ---
 
 # Define durable Crew Session links
+
+## Completion evidence
+
+Shipped in merged PR [#14](https://github.com/carbon-ni/pi-bebop/pull/14). This move corrects stale board placement; the historical acceptance checkboxes were not maintained in this card.
 
 ## Problem
 

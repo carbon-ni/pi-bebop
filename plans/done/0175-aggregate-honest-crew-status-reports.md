@@ -1,13 +1,17 @@
 ---
 id: TASK-0175
 title: Aggregate honest Crew status reports
-status: todo
+status: done
 depends_on: [TASK-0174]
 priority: high
 tags: [cli, crew, status, report, provenance, freshness, tdd]
 ---
 
 # Aggregate honest Crew status reports
+
+## Closure
+
+Closed without implementation. Active Crew-wide progress collection would pull Bebop toward orchestration and trigger Member turns to manufacture status. This does not fit the product boundary: Bebop transports explicit messages and reports mechanical presence; it does not own tasks, infer progress, or decide completion. The unchecked criteria are intentionally not claimed.
 
 ## Problem
 

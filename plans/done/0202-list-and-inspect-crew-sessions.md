@@ -1,13 +1,17 @@
 ---
 id: TASK-0202
 title: List and inspect Crew Sessions
-status: todo
+status: done
 depends_on: [TASK-0201]
 priority: high
 tags: [crew, session, discovery, cli, privacy, toon, text, tdd]
 ---
 
 # List and inspect Crew Sessions
+
+## Completion evidence
+
+Shipped in merged PR [#16](https://github.com/carbon-ni/pi-bebop/pull/16). This move corrects stale board placement; the historical acceptance checkboxes were not maintained in this card.
 
 ## Problem
 

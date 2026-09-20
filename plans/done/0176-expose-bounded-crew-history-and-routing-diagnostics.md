@@ -1,13 +1,17 @@
 ---
 id: TASK-0176
 title: Expose bounded Crew history and routing diagnostics
-status: todo
+status: done
 depends_on: [TASK-0175]
 priority: normal
 tags: [cli, crew, history, freshness, diagnostics, privacy, tdd]
 ---
 
 # Expose bounded Crew history and routing diagnostics
+
+## Closure
+
+Closed without implementation. Persisted Crew-report history depends on the declined TASK-0175 capability and is not core transport behavior. Minimal routing diagnostics belong in TASK-0173 or TASK-0179 rather than a report-history subsystem. The unchecked criteria are intentionally not claimed.
 
 ## Problem
 

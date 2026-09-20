@@ -1,13 +1,17 @@
 ---
 id: TASK-0203
 title: Resolve one Member Session for manual resume
-status: todo
+status: done
 depends_on: [TASK-0202]
 priority: high
 tags: [crew, session, resume, cli, pi, safety, integration, tdd]
 ---
 
 # Resolve one Member Session for manual resume
+
+## Completion evidence
+
+Shipped in merged PR [#17](https://github.com/carbon-ni/pi-bebop/pull/17). This move corrects stale board placement; the historical acceptance checkboxes were not maintained in this card.
 
 ## Problem
 

@@ -1,13 +1,17 @@
 ---
 id: TASK-0201
 title: Capture online Member Pi Sessions
-status: todo
+status: done
 depends_on: [TASK-0200]
 priority: high
 tags: [crew, session, capture, cli, rpc, persistence, security, tdd]
 ---
 
 # Capture online Member Pi Sessions
+
+## Completion evidence
+
+Shipped in merged PR [#15](https://github.com/carbon-ni/pi-bebop/pull/15). This move corrects stale board placement; the historical acceptance checkboxes were not maintained in this card.
 
 ## Problem
 
