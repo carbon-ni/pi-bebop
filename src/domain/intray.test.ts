@@ -70,6 +70,8 @@ import {
 	MemberInterruptCommandSchema,
 	isMemberInterruptResult,
 	MemberRequestRequestSchema,
+	MemberRequestWaitCommandSchema,
+	MemberRequestWaitParamsSchema,
 	MemberResponseRequestSchema,
 	MemberRequestListResultSchema,
 	MemberRequestWaitResultSchema,
@@ -101,6 +103,14 @@ test("protocol barrel does not expose split-module internals", () => {
 	assert.equal("MemberStatusTargetSchema" in domain, false);
 	assert.equal("RequestOutcomeRequestIdSchema" in domain, false);
 	assert.equal("invalidCommandParams" in domain, false);
+});
+
+test("member.request_wait rejects malformed exact IDs before registry lookup", () => {
+	for (const requestId of ["", " leading", "trailing ", "\tinternal-boundary"]) {
+		assert.equal(Value.Check(MemberRequestWaitParamsSchema, { requestId }), false);
+		assert.equal(Value.Check(MemberRequestWaitCommandSchema, { type: "member_request_wait", requestId }), false);
+	}
+	assert.equal(Value.Check(MemberRequestWaitParamsSchema, { requestId: "request-1" }), true);
 });
 
 test("member.idle_wait params are strict: one bounded member label plus optional bounded timeout", () => {

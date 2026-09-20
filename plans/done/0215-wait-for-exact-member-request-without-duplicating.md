@@ -33,41 +33,41 @@ An agent waits for one exact accepted Request by its Request ID. If the responde
 
 ### Exact correlation
 
-- [ ] `wait_for_request_outcome` exposes one required bounded `request_id` parameter matching the ID returned by `send_member_request`.
-- [ ] A buffered terminal outcome for that exact ID returns immediately, even when older or newer Requests also exist.
-- [ ] An active exact Request blocks the same tool call until its next reportable outcome.
-- [ ] Unknown, malformed, already-consumed, expired, and concurrently-waited IDs return distinct actionable results without selecting another Request.
-- [ ] Multiple outbound Requests cannot cause the wait to return an outcome for a different ID.
-- [ ] CLI and agent-tool terminology use the same exact-ID contract; no tool retains “oldest outcome” wording.
+- [x] `wait_for_request_outcome` exposes one required bounded `request_id` parameter matching the ID returned by `send_member_request`.
+- [x] A buffered terminal outcome for that exact ID returns immediately, even when older or newer Requests also exist.
+- [x] An active exact Request blocks the same tool call until its next reportable outcome.
+- [x] Unknown, malformed, already-consumed, expired, and concurrently-waited IDs return distinct actionable results without selecting another Request.
+- [x] Multiple outbound Requests cannot cause the wait to return an outcome for a different ID.
+- [x] CLI and agent-tool terminology use the same exact-ID contract; no tool retains “oldest outcome” wording.
 
 ### Re-waitable post-idle state
 
-- [ ] The responder's first valid post-context idle still arms one short grace and one reminder.
-- [ ] If the grace passes without a Response, the source receives `pending-after-idle` for the exact ID.
-- [ ] `pending-after-idle` is explicitly nonterminal: outbound/inbound registrations, capacity ownership, and the response channel remain active.
-- [ ] The `pending-after-idle` event is delivered at most once and cannot create an immediate-return loop on repeated exact waits.
-- [ ] A subsequent exact wait for the same ID can receive a later Response normally.
-- [ ] A Response racing the post-idle boundary wins over `pending-after-idle`; no pending notice may hide or replace a Response.
-- [ ] Offline and hard `max-wait` outcomes remain terminal, close resources exactly once, and are buffered for exact retrieval.
-- [ ] Hard expiry still bounds timers, channels, registrations, tombstones, and memory.
+- [x] The responder's first valid post-context idle still arms one short grace and one reminder.
+- [x] If the grace passes without a Response, the source receives `pending-after-idle` for the exact ID.
+- [x] `pending-after-idle` is explicitly nonterminal: outbound/inbound registrations, capacity ownership, and the response channel remain active.
+- [x] The `pending-after-idle` event is delivered at most once and cannot create an immediate-return loop on repeated exact waits.
+- [x] A subsequent exact wait for the same ID can receive a later Response normally.
+- [x] A Response racing the post-idle boundary wins over `pending-after-idle`; no pending notice may hide or replace a Response.
+- [x] Offline and hard `max-wait` outcomes remain terminal, close resources exactly once, and are buffered for exact retrieval.
+- [x] Hard expiry still bounds timers, channels, registrations, tombstones, and memory.
 
 ### Interrupted waits and duplicate avoidance
 
-- [ ] If an accepted Follow-up, Redirect, or Inbox delivery releases the wait, the result includes the exact Request ID and directs the agent to process the message, then wait again with that same ID.
-- [ ] Aborting or cancelling a wait removes only the waiter; it does not cancel, expire, or duplicate the Request.
-- [ ] Re-entering the wait after interruption attaches to the same active Request and cannot reopen a terminal one.
-- [ ] `send_member_request` success text teaches the copyable next action with its returned Request ID.
-- [ ] Pending, interrupted, and timeout messages explicitly say not to send a replacement solely because the wait ended.
-- [ ] No provider turn, polling loop, retry Request, or model-authored correlation guess is introduced by the runtime.
+- [x] If an accepted Follow-up, Redirect, or Inbox delivery releases the wait, the result includes the exact Request ID and directs the agent to process the message, then wait again with that same ID.
+- [x] Aborting or cancelling a wait removes only the waiter; it does not cancel, expire, or duplicate the Request.
+- [x] Re-entering the wait after interruption attaches to the same active Request and cannot reopen a terminal one.
+- [x] `send_member_request` success text teaches the copyable next action with its returned Request ID.
+- [x] Pending, interrupted, and timeout messages explicitly say not to send a replacement solely because the wait ended.
+- [x] No provider turn, polling loop, retry Request, or model-authored correlation guess is introduced by the runtime.
 
 ### Verification and guidance
 
-- [ ] Deterministic domain/application tests cover exact selection among multiple Requests, buffered exact outcomes, unknown/consumed IDs, one active waiter, cancellation, and wake/re-wait.
-- [ ] Fake-clock tests cover idle → grace → `pending-after-idle` → exact re-wait → Response, the Response/grace race, offline, hard expiry, and timer cleanup.
-- [ ] Real two-runtime integration proves the responder can answer the original ID after the requester receives `pending-after-idle` and re-waits.
-- [ ] Tool tests prove required `request_id`, actionable copy, and no oldest-request fallback.
-- [ ] Member Request documentation explains short nonterminal pending notice versus terminal hard expiry.
-- [ ] Focused tests, package verification, and final quality gate pass.
+- [x] Deterministic domain/application tests cover exact selection among multiple Requests, buffered exact outcomes, unknown/consumed IDs, one active waiter, cancellation, and wake/re-wait.
+- [x] Fake-clock tests cover idle → grace → `pending-after-idle` → exact re-wait → Response, the Response/grace race, offline, hard expiry, and timer cleanup.
+- [x] Real two-runtime integration proves the responder can answer the original ID after the requester receives `pending-after-idle` and re-waits.
+- [x] Tool tests prove required `request_id`, actionable copy, and no oldest-request fallback.
+- [x] Member Request documentation explains short nonterminal pending notice versus terminal hard expiry.
+- [x] Focused tests, package verification, and final quality gate pass.
 
 ## Constraints
 

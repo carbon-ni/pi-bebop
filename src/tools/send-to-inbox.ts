@@ -79,14 +79,13 @@ export function registerSendToInboxTool(
 					content: [
 						{
 							type: "text",
-							text: `[${outcome.target.name} (${outcome.target.role})] Inbox item persisted (${outcome.itemId})${outcome.hint === "sent" ? "; recipient notified" : ""}`,
+							text: `[${outcome.target.name} (${outcome.target.role})] Inbox item persisted (${outcome.itemId})`,
 						},
 					],
 					details: {
 						itemId: outcome.itemId,
 						persisted: true,
 						target: outcome.target.name,
-						hint: outcome.hint,
 					},
 				} satisfies ToolResult;
 			} catch (error) {

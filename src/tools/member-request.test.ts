@@ -61,6 +61,15 @@ test("TASK-0215: unknown Request ID is actionable and nonblocking", async () => 
 	assert.equal(result.details.error, "unknown-request");
 });
 
+test("TASK-0215: malformed Request ID is distinct from unknown", async () => {
+	const { tools } = setup();
+	const result = await tools
+		.get("wait_for_request_outcome")!
+		.execute("id", { request_id: " malformed " }, new AbortController().signal);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "invalid-request-id");
+});
+
 test("TASK-0151: wait blocks the same tool call until a terminal Response arrives", async () => {
 	const { tools, state } = setup();
 	const registry = registerAccepted(state);

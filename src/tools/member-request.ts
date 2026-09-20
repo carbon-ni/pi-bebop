@@ -10,6 +10,7 @@ import {
 import { MemberMessageError } from "../application/member-message.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
+import { RequestOutcomeRequestIdSchema } from "../domain/protocol/wire-members.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
 const requestParameters = Type.Object(
@@ -39,17 +40,13 @@ const responseParameters = Type.Object(
 	{
 		message: Type.String({ minLength: 1, description: "Response message" }),
 		instructions: MessagePayloadSchema.properties.instructions,
-		request_id: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+		request_id: Type.Optional(RequestOutcomeRequestIdSchema),
 	},
 	{ additionalProperties: false },
 );
 const waitParameters = Type.Object(
 	{
-		request_id: Type.String({
-			minLength: 1,
-			maxLength: 128,
-			description: "Exact opaque Request ID returned by send_member_request",
-		}),
+		request_id: RequestOutcomeRequestIdSchema,
 	},
 	{ additionalProperties: false },
 );
@@ -83,6 +80,7 @@ type RequestOutcomeWait =
 				| "no-pending-requests"
 				| "wait-in-progress"
 				| "unknown-request"
+				| "invalid-request-id"
 				| "outcome-consumed";
 	  };
 
@@ -228,6 +226,11 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 				if (waited.ok === false) {
 					if (waited.code === "no-pending-requests")
 						return failure("unknown-request", `Request ${params.request_id} is not active or retained`);
+					if (waited.code === "invalid-request-id")
+						return failure(
+							waited.code,
+							`Malformed Request ID ${params.request_id}; use the exact ID returned by send_member_request`,
+						);
 					if (waited.code === "unknown-request")
 						return failure(
 							waited.code,

@@ -116,7 +116,7 @@ export class MemberRequestFlow {
 				// Internal nonterminal idle: arm the post-idle grace ONCE. Never
 				// resolves, never finishes the request, never consumes a wait.
 				const armed = this.registry.armOutboundIdle(requestId, this.now());
-				if (armed.ok && !this.timers.has(`grace:${requestId}`)) {
+				if (armed.ok && !armed.value.pendingAfterIdlePublished && !this.timers.has(`grace:${requestId}`)) {
 					const graceTimer = this.setTimer(() => {
 						this.resolvePendingAfterIdle(requestId);
 					}, timeoutSeconds * 1000);

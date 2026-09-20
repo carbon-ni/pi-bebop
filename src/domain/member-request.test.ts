@@ -215,6 +215,59 @@ test("exact wait consumes only the requested terminal and competing waiters cann
 	);
 });
 
+test("exact wait rejects malformed IDs distinctly from unknown or consumed IDs", () => {
+	const registry = new RequestOutcomeRegistry();
+	assert.deepEqual(
+		registry.waitForRequest(" malformed ", () => undefined),
+		{
+			ok: false,
+			code: "invalid-request-id",
+		},
+	);
+	assert.deepEqual(
+		registry.waitForRequest("unknown", () => undefined),
+		{
+			ok: false,
+			code: "unknown-request",
+		},
+	);
+	request(registry, "consumed");
+	registry.resolveTimeout("consumed", "max-wait");
+	registry.waitForRequest("consumed", () => undefined);
+	assert.deepEqual(
+		registry.waitForRequest("consumed", () => undefined),
+		{
+			ok: false,
+			code: "outcome-consumed",
+		},
+	);
+});
+
+test("terminal Response wins over a buffered pending-after-idle notice for the same Request", () => {
+	const registry = new RequestOutcomeRegistry();
+	request(registry, "response-wins");
+	registry.acceptOutbound("response-wins");
+	registry.armOutboundIdle("response-wins");
+	assert.equal(registry.resolvePendingAfterIdle("response-wins").ok, true);
+	assert.equal(
+		registry.resolveResponse({ requestId: "response-wins", member, message: "answer", instructions: [] }).ok,
+		true,
+	);
+	const waited = registry.waitForRequest("response-wins", () => undefined);
+	assert.equal(waited.ok, true);
+	if (waited.ok) {
+		assert.equal(waited.kind, "update");
+		assert.equal(waited.update.kind, "response");
+	}
+	assert.deepEqual(
+		registry.waitForRequest("response-wins", () => undefined),
+		{
+			ok: false,
+			code: "outcome-consumed",
+		},
+	);
+});
+
 test("TASK-0215: pending-after-idle publishes once and preserves exact re-wait state", () => {
 	const registry = new RequestOutcomeRegistry();
 	request(registry, "pending-id");

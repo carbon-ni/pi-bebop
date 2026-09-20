@@ -169,8 +169,11 @@ test("TASK-0080: idle before the wait is nonterminal; post-idle grace expiry is 
 			reason: "pending-after-idle",
 		});
 	}
-	// The exact Request remains active for a later wait.
+	// The exact Request remains active for a later wait, but repeated idle does
+	// not create another grace timer or another pending notice.
 	assert.equal(flow.registry.outboundCount(), 1);
+	emit({ kind: "idle", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
+	assert.equal(captured.length, 2, "hard timer only; grace must not re-arm after pending");
 	const rewait = flow.waitForRequestOutcomeById("request-1", () => undefined);
 	assert.equal(rewait.ok, true);
 	flow.registry.resolveResponse({

@@ -139,7 +139,7 @@ export type RequestOutcomeOperation<T> = { ok: true; value: T } | { ok: false; c
 export type RequestOutcomeWaitResult =
 	| { ok: true; kind: "update"; update: RequestOutcome }
 	| { ok: true; kind: "waiting"; cancel: () => void }
-	| { ok: false; code: "already-waiting" | "no-pending-requests" };
+	| { ok: false; code: "already-waiting" | "no-pending-requests" | "invalid-request-id" };
 
 type TerminalState = { kind: RequestOutcome["kind"]; update?: RequestOutcome };
 
@@ -471,7 +471,8 @@ export class RequestOutcomeRegistry {
 	waitForRequest(
 		requestId: string,
 		onUpdate: (update: RequestOutcome) => void,
-	): RequestOutcomeWaitResult | { ok: false; code: "unknown-request" | "outcome-consumed" } {
+	): RequestOutcomeWaitResult | { ok: false; code: "unknown-request" | "outcome-consumed" | "invalid-request-id" } {
+		if (!validRequestId(requestId)) return { ok: false, code: "invalid-request-id" };
 		const bufferedIndex = this.buffered.findIndex((item) => item.update.requestId === requestId);
 		if (bufferedIndex >= 0) {
 			const [next] = this.buffered.splice(bufferedIndex, 1);
@@ -524,6 +525,11 @@ export class RequestOutcomeRegistry {
 	}
 
 	private publish(update: RequestOutcome): void {
+		if (update.kind !== "pending") {
+			for (let index = this.buffered.length - 1; index >= 0; index -= 1) {
+				if (this.buffered[index]?.update.requestId === update.requestId) this.buffered.splice(index, 1);
+			}
+		}
 		const exactWaiter = this.exactWaiters.get(update.requestId);
 		if (exactWaiter) {
 			exactWaiter(update);

@@ -104,11 +104,14 @@ export function createInboxBridgeController(
 				},
 			}),
 		listEvidence: () => collectInboxEvidence(entries()),
-		offerItem: async (entry: InboxItem) => {
+		offerItem: async (entry: InboxItem, isCurrent: () => boolean) => {
 			const context = state.context;
-			if (!context) return false;
+			if (!context || !isCurrent()) return false;
 			// TASK-0081: the inbox offer is a Bebop-owned model delivery; a local
 			// blocking idle wait wakes on it before the unchanged message submits.
+			// The ownership token is checked immediately before the side effect so a
+			// deferred offer cannot hand old-session content to a new membership.
+			if (!isCurrent()) return false;
 			notifyAcceptedMessage(state, `inbox-${entry.id}`);
 			const deliveredAt = now?.();
 			pi.sendMessage(

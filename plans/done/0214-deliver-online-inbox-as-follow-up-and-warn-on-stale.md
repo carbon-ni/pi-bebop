@@ -35,34 +35,34 @@ Inbox items aged 48 hours or more are still delivered, with an explicit stale wa
 
 ### Online handoff
 
-- [ ] Sending to an online, joined recipient persists exactly one Inbox item before any wake attempt.
-- [ ] With offering active and no older item, the actual persisted content is accepted into the recipient's next available model continuation as `followUp`.
-- [ ] The enqueue-time wake produces no separate Pi message, conversation entry, model context, provider turn, notification content, or assistant continuation.
-- [ ] If the recipient is busy, delivery waits non-interruptingly behind the current turn and previously accepted Follow-ups.
-- [ ] If the recipient is idle, the actual Inbox item can trigger the next continuation directly without a placeholder round.
-- [ ] Older pending Inbox items remain FIFO-ahead of the newly persisted item.
-- [ ] Repeated or concurrent wakes remain idempotent: at most one oldest item is outstanding and no duplicate content is handed to Pi.
-- [ ] Paused offering, stale ownership, leave, role switch, shutdown, and untrusted state do not hand content to the wrong session.
-- [ ] Offline, failed, timed-out, or malformed wake attempts do not roll back persistence; join, restore, resume, or `turn_end` can deliver later.
-- [ ] Sender output continues to claim only `persisted`; a successful wake acknowledgement does not claim read, delivered, started, answered, or completed.
+- [x] Sending to an online, joined recipient persists exactly one Inbox item before any wake attempt.
+- [x] With offering active and no older item, the actual persisted content is accepted into the recipient's next available model continuation as `followUp`.
+- [x] The enqueue-time wake produces no separate Pi message, conversation entry, model context, provider turn, notification content, or assistant continuation.
+- [x] If the recipient is busy, delivery waits non-interruptingly behind the current turn and previously accepted Follow-ups.
+- [x] If the recipient is idle, the actual Inbox item can trigger the next continuation directly without a placeholder round.
+- [x] Older pending Inbox items remain FIFO-ahead of the newly persisted item.
+- [x] Repeated or concurrent wakes remain idempotent: at most one oldest item is outstanding and no duplicate content is handed to Pi.
+- [x] Paused offering, stale ownership, leave, role switch, shutdown, and untrusted state do not hand content to the wrong session.
+- [x] Offline, failed, timed-out, or malformed wake attempts do not roll back persistence; join, restore, resume, or `turn_end` can deliver later.
+- [x] Sender output continues to claim only `persisted`; a successful wake acknowledgement does not claim read, delivered, started, answered, or completed.
 
 ### Stale warning
 
-- [ ] Items younger than 48 hours keep the normal exact age-at-delivery header without a stale warning.
-- [ ] At exactly 48 hours and later, model context and human-visible rendering clearly label the item stale and say to verify relevance before acting.
-- [ ] The stale calculation uses immutable `enqueuedAt` and recipient `deliveredAt`, not render time, sender clock, session start, or current wall-clock reads.
-- [ ] Retry, restart, and offline recovery preserve the original enqueue time and therefore the same deterministic freshness classification.
-- [ ] The warning does not rewrite, summarize, suppress, prioritize, or grant authority to message content or instructions.
-- [ ] Stale items are not automatically removed. They follow the existing evidence-gated removal or explicit cancellation path.
-- [ ] Invalid or reversed timestamps fail safely without inventing an age or stale classification.
+- [x] Items younger than 48 hours keep the normal exact age-at-delivery header without a stale warning.
+- [x] At exactly 48 hours and later, model context and human-visible rendering clearly label the item stale and say to verify relevance before acting.
+- [x] The stale calculation uses immutable `enqueuedAt` and recipient `deliveredAt`, not render time, sender clock, session start, or current wall-clock reads.
+- [x] Retry, restart, and offline recovery preserve the original enqueue time and therefore the same deterministic freshness classification.
+- [x] The warning does not rewrite, summarize, suppress, prioritize, or grant authority to message content or instructions.
+- [x] Stale items are not automatically removed. They follow the existing evidence-gated removal or explicit cancellation path.
+- [x] Invalid or reversed timestamps fail safely without inventing an age or stale classification.
 
 ### Verification and guidance
 
-- [ ] Deterministic tests cover online idle and busy recipients, no placeholder turn, FIFO with live Follow-ups and older Inbox items, duplicate wakes, pause/leave/switch, offline recovery, and wake failure.
-- [ ] Boundary tests cover 47h59m59s, exactly 48h, over 48h, restart/retry, and invalid/reversed timestamps.
-- [ ] End-to-end evidence proves one persisted item becomes one model-visible Inbox Follow-up, not a hint plus a second message.
-- [ ] README and tool/CLI wording explain online next-continuation behavior, offline durability, FIFO caveat, and the 48-hour stale warning without promising completion.
-- [ ] Focused tests, package verification, and final quality gate pass.
+- [x] Deterministic tests cover online idle and busy recipients, no placeholder turn, FIFO with live Follow-ups and older Inbox items, duplicate wakes, pause/leave/switch, offline recovery, and wake failure.
+- [x] Boundary tests cover 47h59m59s, exactly 48h, over 48h, restart/retry, and invalid/reversed timestamps.
+- [x] End-to-end evidence proves one persisted item becomes one model-visible Inbox Follow-up, not a hint plus a second message.
+- [x] README and tool/CLI wording explain online next-continuation behavior, offline durability, FIFO caveat, and the 48-hour stale warning without promising completion.
+- [x] Focused tests, package verification, and final quality gate pass.
 
 ## Constraints
 
