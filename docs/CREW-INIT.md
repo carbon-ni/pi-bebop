@@ -157,5 +157,5 @@ Exit codes:
   is not lead, manager, authority, default internal recipient, or permission.
 - Internal member communication still targets an exact member name or unique
   role through existing tools; init never auto-routes through the contact.
-- The scaffold reflects the maintained software crew workflow
-  (`docs/SOFTWARE-CREW-WORKFLOW.md`); templates are examples, not permissions.
+- The scaffold is a starting point for a software crew; templates are examples,
+  not permissions.
