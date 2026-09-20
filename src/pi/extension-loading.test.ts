@@ -119,7 +119,7 @@ test("TASK-0076: packaged tool descriptions present one non-contradictory reques
 	assert.match(send, /requester-side/i);
 	assert.match(send, /wait_for_request_outcome/i);
 	assert.match(wait, /requester-side/i);
-	assert.match(wait, /only after you sent a Member request/i);
+	assert.match(wait, /exact Request ID|same request_id/i);
 	assert.match(wait, /never handles inbound/i);
 	// Responder side: only inbound.
 	assert.match(respond, /responder-side/i);

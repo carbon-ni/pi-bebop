@@ -1,5 +1,5 @@
 import { isMessagePayload, type MessagePayload } from "./message-payload.ts";
-import { elapsedMessageMilliseconds, formatMessageHeader, type MessageKind } from "./message-age.ts";
+import { elapsedMessageMilliseconds, formatMessageHeader, isStaleInboxAge, type MessageKind } from "./message-age.ts";
 
 /** Canonical model input. JSON escaping makes every field boundary unambiguous. */
 export function renderMessagePayload(payload: MessagePayload): string {
@@ -69,6 +69,20 @@ export function renderModelMessageWithHeader(
 		elapsedMs,
 		requestId: input.requestId,
 	})}\n${renderMessagePayload(payload)}`;
+}
+
+export function renderInboxModelContent(
+	payload: MessagePayload,
+	input: { readonly enqueuedAt: number; readonly deliveredAt: number; readonly kind?: MessageKind },
+): string {
+	const rendered = renderModelMessageWithHeader(payload, {
+		kind: input.kind ?? "inbox",
+		sentAt: input.enqueuedAt,
+		deliveredAt: input.deliveredAt,
+	});
+	return isStaleInboxAge(input.enqueuedAt, input.deliveredAt)
+		? `${rendered.split("\n", 1)[0]}\n[stale inbox item] This item is at least 48 hours old; verify relevance before acting.\n${rendered.split("\n").slice(1).join("\n")}`
+		: rendered;
 }
 
 /**

@@ -2,7 +2,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	renderMessagePayload,
-	renderModelMessageWithHeader,
+	renderInboxModelContent,
 	SESSION_MESSAGE_TYPE,
 	type InboxItem,
 	type InboxOffering,
@@ -117,10 +117,10 @@ export function createInboxBridgeController(
 					content:
 						deliveredAt === undefined
 							? renderMessagePayload(entry.payload)
-							: renderModelMessageWithHeader(entry.payload, {
-									kind: entry.payload.kind ?? "inbox",
-									sentAt: entry.enqueuedAt,
+							: renderInboxModelContent(entry.payload, {
+									enqueuedAt: entry.enqueuedAt,
 									deliveredAt,
+									kind: entry.payload.kind ?? "inbox",
 								}),
 					display: true,
 					details: {

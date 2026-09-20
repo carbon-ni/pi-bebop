@@ -18,6 +18,7 @@ const {
 	MemberStatusParamsSchema,
 	MemberStatusResultSchema,
 	PresenceHintRequestSchema,
+	InboxHintRequestSchema,
 	MemberStatusRequestSchema,
 	MemberStatusTargetParamsSchema,
 	MemberStatusTargetRequestSchema,
@@ -54,6 +55,7 @@ const {
 	MemberMessageResultSchema,
 	MemberInboxSendResultSchema,
 	CrewBroadcastResultSchema,
+	EmptyParamsSchema,
 	MemberIdleWaitParamsSchema,
 	MemberIdleWaitSubscribeResultSchema,
 	MemberIdleWaitRequestSchema,
@@ -471,6 +473,16 @@ export const COMMAND_REGISTRY: Record<ProtocolTypes.RpcCommand["type"], CommandD
 		toParams: () => undefined,
 		fromParams: (params, id) =>
 			params === undefined ? { type: "abort", id } : invalidCommandParams("Invalid session.abort params"),
+	},
+	inbox_hint: {
+		method: "member.inbox_hint",
+		requestSchema: InboxHintRequestSchema,
+		resultSchema: EmptyResultSchema,
+		toParams: () => ({}),
+		fromParams: (params, id) =>
+			Value.Check(EmptyParamsSchema, params)
+				? { type: "inbox_hint", id }
+				: invalidCommandParams("Invalid member.inbox_hint params"),
 	},
 	presence_hint: {
 		method: "presence.hint",

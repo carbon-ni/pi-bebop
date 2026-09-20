@@ -107,6 +107,27 @@ test("typed external details and malformed details fail safely to legacy content
 	assert.equal(malformed.senderText, null);
 });
 
+test("TASK-0214: TUI labels stale Inbox items without changing the payload", () => {
+	const model = getMessageDisplayModel(
+		{
+			content: "ignored",
+			details: {
+				messagePayload: {
+					content: "old inbox item",
+					kind: "inbox",
+					origin: { kind: "crew", name: "Bob", role: "dev" },
+				},
+				sentAt: 1_000,
+				deliveredAt: 1_000 + 48 * 60 * 60 * 1_000,
+				inbox: { itemId: "inbox-0-abc" },
+			},
+		},
+		true,
+	);
+	assert.match(model.text, /stale inbox item.*verify relevance before acting/i);
+	assert.match(model.text, /old inbox item/);
+});
+
 test("TASK-0152: TUI preserves all canonical kinds, frozen timing, and privacy", () => {
 	const cases: Array<[MessagePayload["kind"], string, string]> = [
 		["follow-up", "[follow-up]", "age at delivery"],

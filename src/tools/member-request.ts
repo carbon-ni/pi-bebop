@@ -43,7 +43,16 @@ const responseParameters = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-const emptyParameters = Type.Object({}, { additionalProperties: false });
+const waitParameters = Type.Object(
+	{
+		request_id: Type.String({
+			minLength: 1,
+			maxLength: 128,
+			description: "Exact opaque Request ID returned by send_member_request",
+		}),
+	},
+	{ additionalProperties: false },
+);
 type ToolResult = {
 	content: Array<{ type: "text"; text: string }>;
 	isError?: boolean;
@@ -68,7 +77,13 @@ type RequestOutcomeWait =
 	| { readonly ok: true; readonly wake: "message-received" }
 	| {
 			readonly ok: false;
-			readonly code: "aborted" | "already-waiting" | "no-pending-requests" | "wait-in-progress";
+			readonly code:
+				| "aborted"
+				| "already-waiting"
+				| "no-pending-requests"
+				| "wait-in-progress"
+				| "unknown-request"
+				| "outcome-consumed";
 	  };
 
 /**
@@ -80,6 +95,7 @@ type RequestOutcomeWait =
 function waitForRequestOutcome(
 	flow: MemberRequestFlow,
 	wakeGate: AcceptedLocalMessageWakeGate,
+	requestId: string,
 	signal?: AbortSignal,
 ): Promise<RequestOutcomeWait> {
 	return new Promise((resolve) => {
@@ -98,7 +114,7 @@ function waitForRequestOutcome(
 		};
 		const onAbort = () => finish({ ok: false, code: "aborted" });
 		const onAcceptedMessage = () => finish({ ok: true, wake: "message-received" });
-		const waiting = flow.waitForRequestOutcome((outcome) => finish({ ok: true, outcome }));
+		const waiting = flow.waitForRequestOutcomeById(requestId, (outcome) => finish({ ok: true, outcome }));
 		if (waiting.ok === false) {
 			finish({ ok: false, code: waiting.code });
 			return;
@@ -142,13 +158,16 @@ export function registerSendMemberRequestTool(pi: ExtensionAPI, state: SocketSta
 					outcome.member.kind === "member"
 						? `${outcome.member.name} (${outcome.member.role})`
 						: `${outcome.member.guestName} (guest)`;
-				return success(`Request accepted: ${memberLabel}, request_id=${outcome.requestId}`, {
-					requestId: outcome.requestId,
-					member:
-						outcome.member.kind === "member"
-							? { name: outcome.member.name, role: outcome.member.role }
-							: { name: outcome.member.guestName, role: "guest" },
-				});
+				return success(
+					`Request accepted: ${memberLabel}, request_id=${outcome.requestId}. Next: call wait_for_request_outcome with request_id=${outcome.requestId}; do not send a replacement solely because a wait returns pending-after-idle.`,
+					{
+						requestId: outcome.requestId,
+						member:
+							outcome.member.kind === "member"
+								? { name: outcome.member.name, role: outcome.member.role }
+								: { name: outcome.member.guestName, role: "guest" },
+					},
+				);
 			} catch (error) {
 				if (error instanceof MemberMessageError) return failure(error.code, error.message);
 				if (error instanceof RpcProtocolError) return failure(error.code, error.message);
@@ -200,18 +219,27 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 		name: "wait_for_request_outcome",
 		label: "Wait for Request Outcome",
 		description:
-			"Requester-side: block this tool call until the oldest terminal outbound Request outcome arrives: Response, offline, timeout(response-after-idle), or timeout(max-wait). An accepted inbound Bebop message releases this wait so the message can be consumed before waiting again; it does not settle the outbound Request. The wait never handles inbound assignments or ordinary messages itself. Call only after you sent a Member request. The bounded wait is cancellable and does not poll, monitor, or claim completion, correctness, or availability.",
-		parameters: emptyParameters,
-		async execute(_id, _params, signal) {
+			"Requester-side: block until this exact Request ID reports a Response, offline, pending-after-idle, or max-wait. An accepted inbound Bebop message releases this wait; it does not settle the Request. After pending-after-idle or message wake, call this tool again with the same request_id. Never send a replacement solely because a wait ended. The wait never handles inbound assignments or ordinary messages itself. The wait is cancellable and does not poll, monitor, or claim completion, correctness, or availability.",
+		parameters: waitParameters,
+		async execute(_id, params, signal) {
 			try {
 				const flow = flowFor(state);
-				if (!flow.hasPendingRequestOutcome())
-					return success("All outbound Member Request outcomes are settled.", { pending_count: 0 });
-				const waited = await waitForRequestOutcome(flow, state.wakeGate, signal);
+				const waited = await waitForRequestOutcome(flow, state.wakeGate, params.request_id, signal);
 				if (waited.ok === false) {
 					if (waited.code === "no-pending-requests")
-						return success("All outbound Member Request outcomes are settled.", { pending_count: 0 });
-					if (waited.code === "aborted") return failure("aborted", "Request outcome wait aborted");
+						return failure("unknown-request", `Request ${params.request_id} is not active or retained`);
+					if (waited.code === "unknown-request")
+						return failure(
+							waited.code,
+							`Unknown Request ID ${params.request_id}; use the ID returned by send_member_request`,
+						);
+					if (waited.code === "outcome-consumed")
+						return failure(
+							waited.code,
+							`Outcome for Request ID ${params.request_id} was already consumed; do not send a replacement automatically`,
+						);
+					if (waited.code === "aborted")
+						return failure("aborted", `Request outcome wait aborted for ${params.request_id}`);
 					if (waited.code === "already-waiting")
 						return failure(waited.code, "Another Request outcome wait is already active");
 					if (waited.code === "wait-in-progress")
@@ -221,12 +249,15 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 				if ("wake" in waited)
 					return {
 						...success(
-							"Request outcome wait released because an accepted Bebop message is ready; process it before waiting again.",
-							{ outcome: waited.wake },
+							`Request ${params.request_id} outcome wait released because an accepted Bebop message is ready; process it before waiting again with the same request_id.`,
+							{ outcome: waited.wake, request_id: params.request_id },
 						),
 						terminate: true,
 					};
-				return success(formatRequestOutcomeWithHeader(waited.outcome), { result: waited.outcome });
+				return success(formatRequestOutcomeWithHeader(waited.outcome), {
+					result: waited.outcome,
+					request_id: params.request_id,
+				});
 			} catch {
 				return failure("wait-failed", "Could not wait for request outcome");
 			}

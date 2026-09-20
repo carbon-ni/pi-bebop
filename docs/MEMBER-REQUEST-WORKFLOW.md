@@ -18,9 +18,9 @@ Response or implying completion, correctness, authority, or progress.
   permission.
 - **Response** — assistant output correlated to one Member request. Ordinary
   Follow-up has no implicit Response expectation.
-- **Request outcome** — the oldest terminal outcome of one outbound Member
-  request: Response, offline, timeout after idle, or timeout max-wait. It is
-  not a progress stream, task state, or Crew activity. Idle itself is NOT an
+- **Request outcome** — the correlated outcome of one outbound Member Request:
+  Response, offline, one nonterminal pending-after-idle notice, or terminal
+  max-wait. It is not a progress stream, task state, or Crew activity. Idle itself is NOT an
   outcome: the responder gets a short bounded post-idle grace to report.
 - **Request ID** — an opaque bounded identifier correlating a Member request
   with its Response. It is not a Delivery ID, task ID, proof of identity, or
@@ -75,7 +75,8 @@ A QA request that needs a verdict is a Member request, not a Follow-up:
 # Requester (e.g. a developer):
 send_member_request({ member: "Kelly", message: "QA the TASK-0076 changes and report a verdict or blocker" })
 ... no immediate coordination action remains ...
-wait_for_request_outcome()   # requester-side; blocks until the terminal outcome
+wait_for_request_outcome({ request_id: "<exact-request-id>" })
+# requester-side; blocks until that Request reports an outcome
 
 # Responder (Kelly): the inbound message is visibly marked [member request]
 # with the opaque Request ID; she does the QA work, then:
@@ -102,25 +103,25 @@ route is never public input.
 ### Wait for Request Outcome
 
 ```text
-wait_for_request_outcome()
+wait_for_request_outcome({ request_id: "<exact-request-id>" })
 ```
 
-No arguments. It blocks this tool call until the oldest terminal outbound
-Request outcome arrives: Response, offline, or a bounded timeout. An accepted
-inbound Bebop message also releases the wait so the message can be consumed
-before waiting again; this does not settle the outbound Request. The wait is
-cancellable, has one local waiter, and does not poll or return Presence, Member
-Status, Broadcast, Inbox, or unrelated Crew activity. It is requester-side
-only: call it after you sent `send_member_request`. When no pending outbound
-Member request exists, it returns a normal `all-settled` success with
-`pending_count: 0`. Waiting is only appropriate when no immediate coordination
-action remains.
+The required opaque `request_id` is the exact ID returned by
+`send_member_request`; the tool never selects the oldest Request. It blocks
+until that Request reports Response, Offline, one nonterminal
+`pending-after-idle`, or terminal max-wait. An accepted inbound Bebop message
+also releases the wait so the message can be consumed before waiting again;
+this does not settle the Request. After a message wake or
+`pending-after-idle`, call the tool again with the same ID. Do not send a
+replacement solely because a wait ended. The wait is cancellable, has one
+local waiter, and does not poll or return Presence, Member Status, Broadcast,
+Inbox, or unrelated Crew activity.
 
 ## Request outcomes
 
-Terminal outcomes: **Response**, **Offline**, **Timeout after idle**, and
-**Timeout max-wait**. Mechanical idle itself is NOT an outcome; see
-_Awaiting Response_ below.
+Terminal outcomes: **Response**, **Offline**, and **Timeout max-wait**.
+`pending-after-idle` is a one-shot nonterminal observation; mechanical idle
+itself is not an outcome.
 
 ### Response
 
@@ -130,28 +131,26 @@ received—not completion, correctness, verification, ownership, or task success
 
 ### Awaiting Response (nonterminal, internal)
 
-The responder's first post-context idle is a nonterminal, internal signal, never
-an outcome. It arms the source's bounded Response grace, queues the responder's
-one-time reminder with the original Request ID, and preserves the parked
-outbound slot; the Request stays nonterminal until a terminal outcome arrives.
+The responder's first post-context idle is a nonterminal, internal signal. It
+arms the source's bounded Response grace, queues the responder's one-time
+reminder with the original Request ID, and preserves the parked outbound slot.
 A Response delivered before the grace, during the reminder, or during the grace
 window always wins. The reminder is queued before the idle notification so a
-broken channel never loses it, and is inert once the Request is terminal. A
-Response after the grace window is rejected as already-terminal.
+broken channel never loses it, and is inert once the Request is terminal.
+
+### Pending after idle
+
+When the short post-idle grace expires without a Response, the source receives
+one `pending-after-idle` observation. It is nonterminal: the Request, response
+channel, and hard `max_wait_seconds` deadline remain active. Call
+`wait_for_request_outcome` again with the same `request_id`; do not send a
+replacement solely because the short wait ended. The notice cannot repeat.
 
 ### Offline
 
 The request channel disconnected before a Response. Correlated requests are
 transient. Consider reassigning or using `send_to_inbox` for durable delivery.
 This does not prove the work failed or stopped.
-
-### Timeout after idle
-
-The post-idle Response grace expired without a Response (default 120s). The
-responder was idle-awaiting-response and the one-time reminder had already been
-queued. If an answer is still required, send a new `send_member_request`.
-Timeout never retracts accepted work and does not prove work stopped, failed,
-or completed.
 
 ### Timeout max-wait
 
@@ -166,18 +165,16 @@ not prove work stopped, failed, or completed.
 1. Send `send_member_request` for each independent request requiring a Response.
 2. Requests return after acceptance; one slow Member does not block delegation.
 3. When no immediate coordination action remains, call
-   `wait_for_request_outcome`.
+   `wait_for_request_outcome` with the exact `request_id`.
 4. Handle the returned Request outcome and assign newly ready work.
 5. Repeat until no ready work or pending Member requests remain.
 
 Outcomes may arrive out of assignment order; opaque Request IDs preserve
 correlation. In the same synchronous-handler boundary the priority is
-`response > offline > grace-expiry > hard-expiry > idle-signal`: a complete
-Response beats a subsequent socket close, and a Response arriving with the
-responder's first idle is simply accepted, because idle is nonterminal and
-never competes with a Response. The `response-after-idle` reason applies only
-to the exact tie where the grace-expiry and hard-expiry timers fire at the
-same instant — never to a Response/idle boundary.
+`response > offline > hard-expiry > pending-after-idle > idle-signal`: a
+complete Response beats a subsequent socket close, and a Response arriving
+with the responder's first idle is accepted. Pending-after-idle never competes
+with a Response and never closes the Request.
 
 ## Boundaries
 

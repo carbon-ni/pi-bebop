@@ -63,8 +63,8 @@ export function buildMemberRequestSendCommand(): Command {
 			"after",
 			[
 				"",
-				"Request IDs are opaque. Send returns accepted; wait consumes exactly one terminal outcome;",
-				"respond requires the exact inbound ID.",
+				"Request IDs are opaque. Send returns accepted; wait uses the exact ID and may report one pending-after-idle notice;",
+				"respond requires the exact inbound ID; re-wait after pending with the same ID.",
 			].join("\n"),
 		)
 		.argument("<member>", "Crew member name or unique role")

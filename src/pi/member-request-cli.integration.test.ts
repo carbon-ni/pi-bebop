@@ -235,8 +235,10 @@ test("CLI exact wait covers idle timeout, offline outcome, and cancellation with
 		context(),
 		deps,
 	);
-	assert.equal((idleWait as any).result.status, "timeout");
-	assert.equal((idleWait as any).result.data.reason, "response-after-idle");
+	assert.equal((idleWait as any).result.status, "pending");
+	assert.equal((idleWait as any).result.data.reason, "pending-after-idle");
+	// The Request remains alive after the one-shot pending notice.
+	sourceFlow.cancelRequest("cli-idle");
 
 	const offlineSend = await runMemberRequestCommand(
 		readMemberRequestSendCommand(parseInto(buildMemberRequestSendCommand, ["Blake", "--message", "offline"])),

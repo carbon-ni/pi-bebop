@@ -159,26 +159,35 @@ test("TASK-0080 C2: hard timer starts at accepted (acceptedAt + max_wait_seconds
 	assert.equal(h.clock.remaining(), 0);
 });
 
-test("TASK-0080 C3: grace starts ONCE at first post-context idle; later settles never extend it", async () => {
+test("TASK-0215: grace starts once, reports pending-after-idle, and preserves the Request for re-wait", async () => {
 	const h = setup({ timeoutSeconds: 120, maxWaitSeconds: 7200 });
 	await send(h, { timeoutSeconds: 120, maxWaitSeconds: 7200 });
 	const outcomes: string[] = [];
 	h.flow.waitForRequestOutcome((update) =>
-		outcomes.push(`${update.kind}:${update.kind === "timeout" ? update.reason : ""}`),
+		outcomes.push(
+			`${update.kind}:${update.kind === "timeout" ? update.reason : update.kind === "pending" ? update.reason : ""}`,
+		),
 	);
-	// First idle arms grace at t=+10s -> grace deadline t=+130s.
+	// First idle arms grace at t=+10s -> pending notice deadline t=+130s.
 	h.clock.advance(10_000);
 	h.emit({ kind: "idle", requestId: "request-1", member: requester });
 	// A later settle does NOT restart the grace.
 	h.clock.advance(5_000);
 	h.emit({ kind: "idle", requestId: "request-1", member: requester });
-	// At t=+130s grace fires.
+	// At t=+130s the nonterminal pending notice fires once.
 	h.clock.advance(115_000);
-	assert.deepEqual(outcomes, ["timeout:response-after-idle"]);
+	assert.deepEqual(outcomes, ["pending:pending-after-idle"]);
+	assert.equal(h.flow.registry.outboundCount(), 1);
+
+	// The same Request can be waited again and answered normally.
+	const rewait = h.flow.waitForRequestOutcomeById("request-1", (update) => outcomes.push(update.kind));
+	assert.equal(rewait.ok, true);
+	h.emit({ kind: "response", requestId: "request-1", member: requester, message: "answer", instructions: [] });
+	assert.deepEqual(outcomes, ["pending:pending-after-idle", "response"]);
 	assert.equal(h.flow.registry.outboundCount(), 0);
 });
 
-test("TASK-0080 C4: hard truncates a LATER grace deadline; exact tie resolves as response-after-idle", async () => {
+test("TASK-0215: hard max-wait remains terminal after pending-after-idle timing", async () => {
 	// Truncation: idle at t=+10s (grace t=+130s), hard at t=+121s -> max-wait.
 	const trunc = setup({ timeoutSeconds: 120, maxWaitSeconds: 121 });
 	await send(trunc, { timeoutSeconds: 120, maxWaitSeconds: 121 });
@@ -191,7 +200,7 @@ test("TASK-0080 C4: hard truncates a LATER grace deadline; exact tie resolves as
 	trunc.clock.advance(111_000);
 	assert.deepEqual(truncOutcomes, ["timeout:max-wait"]);
 
-	// Exact tie: idle at t=+1s (grace t=+121s), hard at t=+121s -> grace wins.
+	// Exact tie: hard max-wait remains terminal; pending is nonterminal.
 	const tie = setup({ timeoutSeconds: 120, maxWaitSeconds: 121 });
 	await send(tie, { timeoutSeconds: 120, maxWaitSeconds: 121 });
 	const tieOutcomes: string[] = [];
@@ -201,7 +210,7 @@ test("TASK-0080 C4: hard truncates a LATER grace deadline; exact tie resolves as
 	tie.clock.advance(1_000);
 	tie.emit({ kind: "idle", requestId: "request-1", member: requester });
 	tie.clock.advance(120_000);
-	assert.deepEqual(tieOutcomes, ["timeout:response-after-idle"]);
+	assert.deepEqual(tieOutcomes, ["timeout:max-wait"]);
 });
 
 test("TASK-0080 C5: response beats socket offline in the same handler; first terminal wins", async () => {

@@ -344,9 +344,8 @@ describe("best-effort hint", () => {
 		assert.equal(outcome.persisted, true);
 		assert.ok(hinted);
 		assert.ok(hinted!.endpoint.includes("Bob"));
-		assert.equal(hinted!.command.type, "send");
-		const payload = hinted!.command.payload as { content: string; origin?: unknown };
-		assert.ok(/check your inbox/i.test(payload.content));
+		assert.equal(hinted!.command.type, "inbox_hint");
+		assert.deepEqual(hinted!.command, { type: "inbox_hint" });
 		assert.ok(!JSON.stringify(hinted).includes("inbox-0-abc"));
 		assert.ok(!JSON.stringify(hinted).includes("please review"));
 	});

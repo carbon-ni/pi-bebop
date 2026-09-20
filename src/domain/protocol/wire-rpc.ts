@@ -257,18 +257,28 @@ const MemberRequestWaitResultOfflineSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+const MemberRequestWaitResultPendingSchema = Type.Object(
+	{
+		kind: Type.Literal("pending"),
+		requestId: RequestOutcomeRequestIdSchema,
+		member: MemberRequestWaitMemberSchema,
+		reason: Type.Literal("pending-after-idle"),
+	},
+	{ additionalProperties: false },
+);
 const MemberRequestWaitResultTimeoutSchema = Type.Object(
 	{
 		kind: Type.Literal("timeout"),
 		requestId: RequestOutcomeRequestIdSchema,
 		member: MemberRequestWaitMemberSchema,
-		reason: Type.Union([Type.Literal("max-wait"), Type.Literal("response-after-idle")]),
+		reason: Type.Literal("max-wait"),
 	},
 	{ additionalProperties: false },
 );
 export const MemberRequestWaitResultSchema = Type.Union([
 	MemberRequestWaitResultResponseSchema,
 	MemberRequestWaitResultOfflineSchema,
+	MemberRequestWaitResultPendingSchema,
 	MemberRequestWaitResultTimeoutSchema,
 ]);
 export const RpcMethodResultSchema = Type.Union([

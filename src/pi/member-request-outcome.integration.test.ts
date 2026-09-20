@@ -130,10 +130,12 @@ test("source wait blocks through a real socket and resolves the same call with t
 	});
 	assert.equal(accepted.requestId, "request-real-1");
 	let settled = false;
-	const pending = wait.execute("id", {} as never, new AbortController().signal).then((result) => {
-		settled = true;
-		return result;
-	});
+	const pending = wait
+		.execute("id", { request_id: "request-real-1" } as never, new AbortController().signal)
+		.then((result) => {
+			settled = true;
+			return result;
+		});
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(settled, false, "the same tool call remains blocked while the request is active");
 
@@ -162,17 +164,17 @@ test("source wait blocks through a real socket and resolves the same call with t
 	);
 	assert.equal(flow.registry.outboundCount(), 0);
 
-	// The same real socket path also covers a bounded terminal outcome: idle is
-	// nonterminal, then the exact captured grace callback resolves the blocked
-	// call directly.
+	// The same real socket path also covers a one-shot pending outcome: idle is
+	// nonterminal, then the exact captured grace callback releases this wait.
 	const timeoutAccepted = await flow.sendMemberRequest({
 		membership: sourceMembership,
 		member: "Kelly",
 		message: "Bounded evidence request",
 		timeoutSeconds: 1,
+		maxWaitSeconds: 60,
 	});
 	assert.equal(timeoutAccepted.requestId, "request-real-2");
-	const timeoutPending = wait.execute("id", {} as never, new AbortController().signal);
+	const timeoutPending = wait.execute("id", { request_id: "request-real-2" } as never, new AbortController().signal);
 	await new Promise((resolve) => setImmediate(resolve));
 	emitIdleSettled(server.targetState, { isIdle: () => true } as never);
 	await within(
@@ -189,6 +191,16 @@ test("source wait blocks through a real socket and resolves the same call with t
 	const timeoutResult = (await within(2_000, timeoutPending, "bounded wait did not resolve")) as {
 		details: { result: { kind: string; reason?: string } };
 	};
-	assert.equal(timeoutResult.details.result.kind, "timeout");
-	assert.equal(timeoutResult.details.result.reason, "response-after-idle");
+	assert.equal(timeoutResult.details.result.kind, "pending");
+	assert.equal(timeoutResult.details.result.reason, "pending-after-idle");
+
+	const rewait = wait.execute("id", { request_id: "request-real-2" } as never, new AbortController().signal);
+	const hardTimer = [...timers.entries()].find(([, timer]) => timer.delay === 60_000);
+	assert.ok(hardTimer, "hard max-wait timer was not retained");
+	hardTimer[1].callback();
+	const terminal = (await within(2_000, rewait, "exact re-wait did not resolve at hard expiry")) as {
+		details: { result: { kind: string; reason?: string } };
+	};
+	assert.equal(terminal.details.result.kind, "timeout");
+	assert.equal(terminal.details.result.reason, "max-wait");
 });

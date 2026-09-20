@@ -152,17 +152,18 @@ test("TASK-0080 G4: pre-request idle never arms grace; first post-context idle a
 	emitIdleSettled(target.state, { isIdle: () => true } as never);
 	await untilIdleArmed(flow, "request-real");
 	assert.equal(flow.registry.outboundCount(), 1, "idle is nonterminal");
-	// A later settle does not reset the grace: the terminal still arrives at the
-	// original grace deadline (1s from the FIRST idle).
+	// A later settle does not reset the grace: the one-shot pending notice still
+	// arrives at the original grace deadline (1s from the FIRST idle).
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	emitIdleSettled(target.state, { isIdle: () => true } as never);
 	const update = await waitOutcome(flow);
 	assert.deepEqual(update, {
-		kind: "timeout",
+		kind: "pending",
 		requestId: "request-real",
 		member: { name: "Kelly", role: "qa" },
-		reason: "response-after-idle",
+		reason: "pending-after-idle",
 	});
+	flow.cancelRequest("request-real");
 	await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -195,15 +196,16 @@ test("TASK-0080 G5: reminder queued exactly once with the original requestId; in
 	emitIdleSettled(target.state, { isIdle: () => true } as never);
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.deepEqual(target.reminders, ["request-real:Tony"]);
-	// Terminal (grace) arrives; the already-queued reminder is inert: it never
+	// Pending notice arrives; the already-queued reminder is inert: it never
 	// resolves or alters the Request outcome.
 	const update = await waitOutcome(flow);
 	assert.deepEqual(update, {
-		kind: "timeout",
+		kind: "pending",
 		requestId: "request-real",
 		member: { name: "Kelly", role: "qa" },
-		reason: "response-after-idle",
+		reason: "pending-after-idle",
 	});
+	flow.cancelRequest("request-real");
 	await fs.rm(root, { recursive: true, force: true });
 });
 

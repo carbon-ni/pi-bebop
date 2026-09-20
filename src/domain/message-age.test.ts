@@ -6,6 +6,8 @@ import {
 	formatMessageAge,
 	formatMessageAgeBetween,
 	formatMessageHeader,
+	INBOX_STALE_AFTER_MS,
+	isStaleInboxAge,
 	MESSAGE_KINDS,
 } from "./message-age.ts";
 
@@ -43,6 +45,14 @@ test("elapsedMessageMilliseconds rejects malformed, future, and overflowing inst
 test("formatMessageAgeBetween renders valid age and unavailable invalid timing", () => {
 	assert.equal(formatMessageAgeBetween(1_000, 61_000), "1m");
 	assert.equal(formatMessageAgeBetween(61_000, 60_999), UNAVAILABLE_MESSAGE_AGE);
+});
+
+test("classifies the exact Inbox stale boundary and rejects invalid timestamps", () => {
+	assert.equal(isStaleInboxAge(1_000, 1_000 + INBOX_STALE_AFTER_MS - 1), false);
+	assert.equal(isStaleInboxAge(1_000, 1_000 + INBOX_STALE_AFTER_MS), true);
+	assert.equal(isStaleInboxAge(1_000, 1_000 + INBOX_STALE_AFTER_MS + 1), true);
+	assert.equal(isStaleInboxAge(2_000, 1_000), false);
+	assert.equal(isStaleInboxAge(Number.NaN, 1_000), false);
 });
 
 test("formatMessageHeader uses the closed kind list and request ID only for request kinds", () => {

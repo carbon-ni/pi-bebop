@@ -155,6 +155,19 @@ export const PresenceHintCommandSchema = Type.Object(
 	{ type: Type.Literal("presence_hint"), ...PresenceHintParamsSchema.properties, id: Type.Optional(RpcIdSchema) },
 	{ additionalProperties: false },
 );
+export const InboxHintRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.inbox_hint"),
+		params: EmptyParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const InboxHintCommandSchema = Type.Object(
+	{ type: Type.Literal("inbox_hint"), id: Type.Optional(RpcIdSchema) },
+	{ additionalProperties: false },
+);
 
 export const RPC_ERROR = {
 	parse: -32700,

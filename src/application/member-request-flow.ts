@@ -118,7 +118,7 @@ export class MemberRequestFlow {
 				const armed = this.registry.armOutboundIdle(requestId, this.now());
 				if (armed.ok && !this.timers.has(`grace:${requestId}`)) {
 					const graceTimer = this.setTimer(() => {
-						this.resolveTerminal(requestId, "response-after-idle");
+						this.resolvePendingAfterIdle(requestId);
 					}, timeoutSeconds * 1000);
 					this.timers.set(`grace:${requestId}`, graceTimer);
 				}
@@ -158,7 +158,7 @@ export class MemberRequestFlow {
 			accepted = true;
 			// TASK-0080: hard safety starts exactly once at accepted delivery.
 			const hardTimer = this.setTimer(() => {
-				this.resolveTerminal(requestId, "max-wait");
+				this.resolveTerminal(requestId);
 			}, maxWaitSeconds * 1000);
 			this.timers.set(`hard:${requestId}`, hardTimer);
 			return { requestId, member: target };
@@ -175,20 +175,16 @@ export class MemberRequestFlow {
 		}
 	}
 
-	/** TASK-0080: resolve a timeout terminal with its reason and finish exactly once.
-	 * Exact grace/hard tie resolves as response-after-idle (the more specific
-	 * post-idle outcome); hard truncates a LATER grace deadline (max-wait). */
-	private resolveTerminal(requestId: string, reason: "max-wait" | "response-after-idle"): void {
-		if (reason === "max-wait") {
-			const request = this.registry.getOutbound(requestId);
-			if (
-				request?.idleArmed &&
-				request.idleAt !== undefined &&
-				request.idleAt + request.timeoutSeconds * 1000 <= this.now()
-			)
-				reason = "response-after-idle";
-		}
-		const outcome = this.registry.resolveTimeout(requestId, reason);
+	/** TASK-0215: grace expiry is a one-shot nonterminal observation. */
+	private resolvePendingAfterIdle(requestId: string): void {
+		const outcome = this.registry.resolvePendingAfterIdle(requestId);
+		this.timers.delete(`grace:${requestId}`);
+		if (!outcome.ok) return;
+	}
+
+	/** Resolve the bounded terminal max-wait outcome and finish exactly once. */
+	private resolveTerminal(requestId: string): void {
+		const outcome = this.registry.resolveTimeout(requestId, "max-wait");
 		if (!outcome.ok) return; // already terminal / unknown: first-terminal-wins
 		this.completed.add(requestId);
 		this.finishRequest(requestId);
@@ -225,7 +221,7 @@ export class MemberRequestFlow {
 		return this.registry.waitForRequest(requestId, onUpdate);
 	}
 
-	/** TASK-0077: true when a Request outcome is already pending or buffered. */
+	/** TASK-0077: retained for CLI/application callers that inspect all requests. */
 	hasPendingRequestOutcome(): boolean {
 		return this.registry.hasPendingOutcome();
 	}

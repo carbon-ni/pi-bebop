@@ -124,6 +124,7 @@ import {
 	ClearCommandSchema,
 	AbortCommandSchema,
 	PresenceHintCommandSchema,
+	InboxHintCommandSchema,
 	RPC_ERROR,
 	RpcCommandResponseSchema,
 	RpcTurnEndNotificationSchema,
@@ -232,6 +233,7 @@ export type RpcCommand =
 	| Static<typeof ClearCommandSchema>
 	| Static<typeof AbortCommandSchema>
 	| Static<typeof PresenceHintCommandSchema>
+	| Static<typeof InboxHintCommandSchema>
 	| Static<typeof MemberStatusCommandSchema>
 	| Static<typeof MemberStatusTargetCommandSchema>
 	| Static<typeof MemberRequestCommandSchema>
@@ -259,6 +261,7 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof ClearCommandSchema>>
 	| RequiredId<Static<typeof AbortCommandSchema>>
 	| RequiredId<Static<typeof PresenceHintCommandSchema>>
+	| RequiredId<Static<typeof InboxHintCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusTargetCommandSchema>>
 	| RequiredId<Static<typeof MemberRequestCommandSchema>>
@@ -284,6 +287,7 @@ export type GetMessageCommand = Static<typeof GetMessageCommandSchema>;
 export type ClearCommand = Static<typeof ClearCommandSchema>;
 export type AbortCommand = Static<typeof AbortCommandSchema>;
 export type PresenceHintCommand = Static<typeof PresenceHintCommandSchema>;
+export type InboxHintCommand = Static<typeof InboxHintCommandSchema>;
 export type MemberInboxSendCommand = Static<typeof MemberInboxSendCommandSchema>;
 export type CrewBroadcastCommand = Static<typeof CrewBroadcastCommandSchema>;
 export type MemberInboxSendResult = Static<typeof MemberInboxSendResultSchema>;

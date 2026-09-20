@@ -10,11 +10,11 @@ import {
  *
  * Transport-only: resolve a configured peer, build one ordinary structured
  * payload with crew origin derived at execute time, persist it through the
- * trusted member-inbox store, then fire one best-effort hint. "Persisted" means
+ * trusted member-inbox store, then fire one best-effort control hint. "Persisted" means
  * durably stored — never delivered, started, completed, or answered — and the
  * acknowledgement returns the stable item id. Recipient liveness or turn state
- * is never required. The hint carries no authoritative item data and its
- * failure never rolls back the persisted item.
+ * is never required. The typed control hint carries no item content, never
+ * enters model context, and its failure never rolls back the persisted item.
  */
 
 type CrewMember = { name: string; role: string; socket: string; socketPath: string };
@@ -111,15 +111,7 @@ export function mapStoreError(error: unknown): MemberInboxMessageError {
 	return new MemberInboxMessageError(mapped, error.message, { cause: error });
 }
 
-const hintCommand = (targetName: string, origin: MessagePayload["origin"]): RpcCommand => ({
-	type: "send",
-	payload: {
-		content: `[inbox] You have a new durable inbox item from ${origin?.kind === "crew" ? origin.name : "a crew member"}. Check your inbox when available.`,
-		origin,
-		instructions: ["Check your crew inbox for pending items"],
-	},
-	delivery: "follow_up",
-});
+const hintCommand = (): RpcCommand => ({ type: "inbox_hint" });
 
 export async function enqueueMemberInboxMessage(
 	request: MemberInboxMessageRequest,
@@ -168,7 +160,7 @@ export async function enqueueMemberInboxMessage(
 		try {
 			const endpoint = await resolveHintEndpoint(target, dependencies);
 			await withHintTimeout(
-				dependencies.hintTransport.sendHint(endpoint, hintCommand(target.name, payload.origin), {
+				dependencies.hintTransport.sendHint(endpoint, hintCommand(), {
 					signal: request.signal,
 				}),
 				dependencies.hintTimeoutMs ?? 1000,

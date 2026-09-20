@@ -28,6 +28,7 @@ export type RequestOutcomeFailureCode =
 	| "ambiguous-request"
 	| "unknown-request"
 	| "already-terminal"
+	| "already-pending"
 	| "response-expired"
 	| "outcome-consumed";
 
@@ -50,14 +51,24 @@ export interface RequestOutcomeOffline {
 	readonly requestId: string;
 	readonly member: MemberRequestMember;
 }
+export interface RequestOutcomePending {
+	readonly kind: "pending";
+	readonly requestId: string;
+	readonly member: MemberRequestMember;
+	readonly reason: "pending-after-idle";
+}
 export interface RequestOutcomeTimeout {
 	readonly kind: "timeout";
 	readonly requestId: string;
 	readonly member: MemberRequestMember;
-	/** TASK-0080: max-wait = hard safety from accepted; response-after-idle = post-idle grace. */
-	readonly reason: "max-wait" | "response-after-idle";
+	/** Hard safety deadline from accepted delivery. */
+	readonly reason: "max-wait";
 }
-export type RequestOutcome = RequestOutcomeResponse | RequestOutcomeOffline | RequestOutcomeTimeout;
+export type RequestOutcome =
+	| RequestOutcomeResponse
+	| RequestOutcomeOffline
+	| RequestOutcomePending
+	| RequestOutcomeTimeout;
 
 export function formatRequestOutcomeWithHeader(outcome: RequestOutcome): string {
 	if (outcome.kind !== "response") return formatRequestOutcome(outcome);
@@ -80,12 +91,12 @@ export function formatRequestOutcome(outcome: RequestOutcome): string {
 	}
 	if (outcome.kind === "offline")
 		return `Member ${member} is offline for request ${outcome.requestId}. Recovery: consider reassigning or using send_to_inbox for durable delivery.`;
-	if (outcome.reason === "response-after-idle")
-		return `Member ${member} settled without a Response for request ${outcome.requestId}. Recovery: if an answer is still required, send a new send_member_request.`;
+	if (outcome.kind === "pending")
+		return `Member ${member} is still pending for request ${outcome.requestId} after becoming idle. Recovery: wait again with the same request_id; do not send a replacement solely because this wait ended.`;
 	return `No Response arrived before the safety deadline for request ${outcome.requestId}. Recovery: consider checking Member Status, reassigning, using send_to_inbox, or using redirect_member when urgent.`;
 }
 
-/** Mechanical terminal union (no idle-without-response since TASK-0080). */
+/** Mechanical terminal union; pending-after-idle is deliberately nonterminal. */
 export type RequestOutcomeMechanical = RequestOutcomeOffline | RequestOutcomeTimeout;
 
 export interface MemberRequestOutbound {
@@ -96,6 +107,7 @@ export interface MemberRequestOutbound {
 	readonly deadlineAt: number;
 	readonly accepted: boolean;
 	readonly idleArmed: boolean;
+	readonly pendingAfterIdlePublished: boolean;
 	readonly timeoutSeconds: number;
 	readonly maxWaitSeconds: number;
 	readonly idleAt?: number;
@@ -114,6 +126,7 @@ interface MutableOutbound extends MemberRequestOutbound {
 	accepted: boolean;
 	acceptedAt?: number;
 	idleArmed: boolean;
+	pendingAfterIdlePublished: boolean;
 	idleAt?: number;
 }
 interface MutableInbound extends MemberRequestInbound {
@@ -130,7 +143,7 @@ export type RequestOutcomeWaitResult =
 
 type TerminalState = { kind: RequestOutcome["kind"]; update?: RequestOutcome };
 
-type TimeoutReason = "max-wait" | "response-after-idle";
+type TimeoutReason = "max-wait";
 
 function validRequestId(requestId: string): boolean {
 	return (
@@ -202,6 +215,7 @@ export class RequestOutcomeRegistry {
 			deadlineAt: input.now + maxWaitSeconds * 1000,
 			accepted: false,
 			idleArmed: false,
+			pendingAfterIdlePublished: false,
 			timeoutSeconds,
 			maxWaitSeconds,
 		};
@@ -338,14 +352,29 @@ export class RequestOutcomeRegistry {
 	resolveOffline(requestId: string): RequestOutcomeOperation<RequestOutcomeOffline> {
 		return this.resolveMechanical(requestId, "offline");
 	}
-	/** TASK-0080: timeout carries a reason; grace (response-after-idle) requires idleArmed. */
+	resolvePendingAfterIdle(requestId: string): RequestOutcomeOperation<RequestOutcomePending> {
+		const request = this.outbound.get(requestId);
+		if (!request) return { ok: false, code: this.terminal.has(requestId) ? "already-terminal" : "unknown-request" };
+		if (!request.accepted || !request.idleArmed) return { ok: false, code: "unknown-request" };
+		if (request.pendingAfterIdlePublished) return { ok: false, code: "already-pending" };
+		request.pendingAfterIdlePublished = true;
+		const update: RequestOutcomePending = {
+			kind: "pending",
+			requestId,
+			member: request.member,
+			reason: "pending-after-idle",
+		};
+		this.publish(update);
+		return { ok: true, value: update };
+	}
+
+	/** Terminal timeout; max-wait is the only timeout that closes the Request. */
 	resolveTimeout(requestId: string, reason: TimeoutReason): RequestOutcomeOperation<RequestOutcomeTimeout> {
 		const request = this.outbound.get(requestId);
 		if (!request)
 			return this.terminal.has(requestId)
 				? { ok: false, code: "already-terminal" }
 				: { ok: false, code: "unknown-request" };
-		if (reason === "response-after-idle" && !request.idleArmed) return { ok: false, code: "unknown-request" };
 		const update: RequestOutcomeTimeout = { kind: "timeout", requestId, member: request.member, reason };
 		this.outbound.delete(requestId);
 		this.forgetRegistration(requestId);

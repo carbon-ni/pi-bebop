@@ -215,6 +215,27 @@ test("exact wait consumes only the requested terminal and competing waiters cann
 	);
 });
 
+test("TASK-0215: pending-after-idle publishes once and preserves exact re-wait state", () => {
+	const registry = new RequestOutcomeRegistry();
+	request(registry, "pending-id");
+	registry.acceptOutbound("pending-id", 1_000);
+	registry.armOutboundIdle("pending-id", 2_000);
+	const updates: string[] = [];
+	const wait = registry.waitForRequest("pending-id", (update) => updates.push(update.kind));
+	assert.equal(wait.ok, true);
+	assert.equal(registry.resolvePendingAfterIdle("pending-id").ok, true);
+	assert.deepEqual(updates, ["pending"]);
+	assert.equal(registry.outboundCount(), 1);
+	assert.deepEqual(registry.resolvePendingAfterIdle("pending-id"), { ok: false, code: "already-pending" });
+	const rewait = registry.waitForRequest("pending-id", () => undefined);
+	assert.equal(rewait.ok, true);
+	assert.equal(
+		registry.resolveResponse({ requestId: "pending-id", member, message: "answer", instructions: [] }).ok,
+		true,
+	);
+	assert.equal(registry.outboundCount(), 0);
+});
+
 test("inbound response selection defaults only for one request; idle preserves the pending selection", () => {
 	const registry = new RequestOutcomeRegistry();
 	assert.deepEqual(registry.selectInbound(), { ok: false, code: "no-pending-request" });
@@ -239,8 +260,7 @@ test("tombstones are bounded while the newest terminal late-response recovery re
 	for (let index = 0; index < MAX_REQUEST_OUTCOME_TOMBSTONES + 1; index += 1) {
 		const id = `tombstone-${index}`;
 		assert.equal(request(registry, id).ok, true);
-		arm(registry, id);
-		assert.equal(registry.resolveTimeout(id, "response-after-idle").ok, true);
+		assert.equal(registry.resolveTimeout(id, "max-wait").ok, true);
 		assert.equal(registry.waitForUpdate(() => undefined).ok, true);
 	}
 	assert.deepEqual(
