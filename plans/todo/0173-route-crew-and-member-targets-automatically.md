@@ -1,7 +1,7 @@
 ---
 id: TASK-0173
 title: Route Crew and Member targets automatically
-status: todo
+status: doing
 depends_on: [TASK-0172]
 priority: high
 tags: [crew, member, routing, identity, privacy, deterministic, tdd]
