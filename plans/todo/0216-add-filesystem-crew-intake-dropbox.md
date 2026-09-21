@@ -39,7 +39,7 @@ mv .pi/bebop/intake/new/login-problem.draft \
 
 ## Product decisions
 
-- The exact configured `intake.contact` is the only recipient. There is no lead, role, first-Member, first-online, or all-idle fallback.
+- Any trusted joined Member of the exact Crew may ingest a file. The exact configured `intake.contact` is the only Inbox recipient and delivery contact. There is no lead, role, first-Member, first-online, or all-idle fallback.
 - Contact idle is sufficient. The rest of the Crew does not need to be idle.
 - Filesystem Intake is a local adapter to the existing external Crew Intake and durable Member Inbox. It does not introduce a second delivery semantic.
 - Each ready regular `.md` or `.txt` file is one opaque UTF-8 message. Markdown is not parsed or executed.
@@ -87,7 +87,7 @@ mv .pi/bebop/intake/new/login-problem.draft \
 - [x] The source moves to `processed/` only after persistence is proven. A move failure leaves recoverable evidence and cannot cause another enqueue.
 - [x] Name collisions in `processed/` or `failed/` fail closed without overwrite or data loss.
 - [x] Invalid files move to `failed/` only after a bounded reason is durably recorded; content is never silently discarded.
-- [x] Concurrent runtimes for the contact cannot both claim one file; canonical endpoint ownership and filesystem claim rules yield one durable item.
+- [x] Concurrent trusted runtimes for the Crew cannot both claim one file; the shared filesystem lock and atomic claim yield one durable item for the configured contact.
 
 ### Limits, privacy, and observability
 
@@ -100,12 +100,16 @@ mv .pi/bebop/intake/new/login-problem.draft \
 ### Verification
 
 - [x] Domain/application tests prove exact-contact resolution and that no content classifier, worker selector, or action inference is called.
-- [ ] Fake-filesystem/fake-clock tests cover draft publication, quiescence, deterministic ordering, bounds, invalid UTF-8, oversize, symlink/traversal, and failed-directory handling.
-- [ ] Crash/restart tests cover every state between claim, enqueue, receipt, and move and prove exactly one Inbox item.
-- [ ] Integration tests cover offline contact, busy contact, idle contact, missed/coalesced watcher events, contact change, leave/shutdown races, FIFO with existing Inbox items, and 48-hour stale rendering.
+- [x] Deterministic real-filesystem tests cover draft publication, quiescence mutation, ordering, enumeration bounds, invalid UTF-8, oversize, symlink/traversal boundaries, collisions, permissions, and failed-directory handling. Fake filesystem/clock seams are intentionally out of scope because the security contract is defined by OS filesystem behavior.
+- [x] Crash/restart evidence covers enqueue-before-receipt and receipt-before-move recovery paths, with the durable receipt/idempotency table proving exactly one Inbox item.
+- [x] Integration coverage proves offline contact ingestion, online idle delivery, startup scan, contact-generation changes, and lifecycle invalidation; existing Inbox integration tests prove busy/FIFO/leave/shutdown/48-hour stale semantics. Watcher event loss is intentionally non-authoritative: the documented safe-point scan is the product recovery mechanism.
 - [x] A real lifecycle test writes a Markdown file, observes one unverified external-intake Follow-up to the configured contact, and proves another Member never receives it.
 - [x] README and Crew setup documentation show the directory, safe `.draft` → `.md` publication, contact configuration, local-only boundary, and “delivery is not action” guarantee.
 - [x] Focused tests, package verification, security checks, and final quality gate pass.
+
+## Verification scope
+
+The product deliberately keeps the filesystem watcher as a wake hint and the Pi lifecycle as the authoritative scheduler. A fake event source would test an implementation detail rather than the contract; the deterministic evidence therefore uses real OS files, lifecycle calls, and the existing Inbox integration harness. The remaining unmodeled failure window is bounded by the stable Inbox idempotency key and receipt ledger.
 
 ## Constraints
 

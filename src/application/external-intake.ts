@@ -34,7 +34,8 @@ export type ExternalIntakeErrorCode =
 	| "inbox-full"
 	| "inbox-untrusted"
 	| "storage-unavailable"
-	| "intake-storage-failed";
+	| "intake-storage-failed"
+	| "stale-generation";
 
 export class ExternalIntakeError extends Error {
 	readonly code: ExternalIntakeErrorCode;
@@ -64,6 +65,8 @@ export interface ExternalIntakeDependencies {
 		projectRoot: string;
 		member: { name: string; role: string; socketPath: string };
 	}): Promise<MemberInboxStore>;
+	/** Optional adapter guard immediately before the durable enqueue commit. */
+	beforeEnqueue?(): Promise<boolean>;
 	now?(): number;
 }
 
@@ -164,6 +167,8 @@ export async function submitExternalIntake(
 
 	let itemId: string;
 	try {
+		if (dependencies.beforeEnqueue && !(await dependencies.beforeEnqueue()))
+			throw new ExternalIntakeError("stale-generation", "intake generation changed before persistence");
 		if (request.idempotencyKey !== undefined) {
 			const persisted = await store.enqueueWithId(
 				payload,
@@ -176,6 +181,7 @@ export async function submitExternalIntake(
 			itemId = persisted.item.id;
 		}
 	} catch (error) {
+		if (error instanceof ExternalIntakeError) throw error;
 		throw mapEnqueueError(error);
 	}
 

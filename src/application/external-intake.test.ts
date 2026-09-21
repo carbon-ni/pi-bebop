@@ -149,6 +149,19 @@ describe("submitExternalIntake happy path", () => {
 		assert.equal(harness.enqueued.length, 0);
 	});
 
+	test("a stale generation guard aborts before the durable enqueue", async () => {
+		const harness = makeDeps({ beforeEnqueue: async () => false });
+		await rejectsCode(
+			submitExternalIntake(
+				{ manifestPath: "/project/.pi/bebop/crew.json", label: "stale.md", content: "do not persist" },
+				harness.deps,
+			),
+			"stale-generation",
+		);
+		assert.equal(harness.idempotent.length, 0);
+		assert.equal(harness.enqueued.length, 0);
+	});
+
 	test("ack and payload never carry a reply route or promised response", async () => {
 		const harness = makeDeps();
 		const ack = await submitExternalIntake(

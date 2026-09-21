@@ -4,7 +4,10 @@ import * as path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createFilesystemCrewIntakeController } from "./filesystem-crew-intake.ts";
+import { createExternalIntakePayload } from "../domain/crew-intake.ts";
+import { createCrewIntakeDropbox, createCrewIntakeIdempotencyKey } from "../infra/crew-intake-dropbox.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
+import { readTrustedCrewManifest } from "../infra/crew-manifest-store.ts";
 
 async function fixture(contact = "Mary") {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "filesystem-crew-intake-"));
@@ -86,7 +89,174 @@ test("filesystem intake resolves the exact contact, persists, and retains proces
 	intake.controller.close();
 });
 
-test("non-contact membership leaves ready files untouched", async (t) => {
+test("restart after enqueue before receipt moves one item without duplicating Inbox state", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	const intake = controllerFor(harness);
+	t.after(() => intake.controller.close());
+	await intake.controller.scan();
+	const source = path.join(harness.layout, "intake", "new", "crash.md");
+	await fs.writeFile(source, "crash window");
+	const dropbox = createCrewIntakeDropbox({
+		manifestPath: harness.manifestPath,
+		projectRoot: harness.root,
+		isProjectTrusted: () => true,
+		quiescenceMs: 0,
+	});
+	await dropbox.prepare();
+	const work = (await dropbox.listWork())[0]!;
+	const claim = await dropbox.claim(work);
+	const content = await dropbox.read(claim!);
+	const key = createCrewIntakeIdempotencyKey(harness.manifestPath, claim!.name, content.digest);
+	const store = await storeFor(harness);
+	const persisted = await store.enqueueWithId(
+		createExternalIntakePayload({ label: claim!.name, content: content.content }),
+		1,
+		key,
+	);
+	assert.equal("alreadyPersisted" in persisted, false);
+	const result = await intake.controller.scan();
+	assert.deepEqual(result, { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	assert.equal(await store.count(), 1);
+	assert.equal(
+		await fs.readFile(path.join(harness.layout, "intake", "processed", "crash.md"), "utf8"),
+		"crash window",
+	);
+	assert.equal((await dropbox.readReceipt(key))?.itemId, persisted.item.id);
+});
+
+test("a manifest change after the Inbox commit retains one old-contact commit and moves on restart", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	let mutated = false;
+	const intake = createFilesystemCrewIntakeController({
+		getMembership: () => harness.membership,
+		isProjectTrusted: () => true,
+		externalIntake: {
+			openStore: async (options) => {
+				const store = await openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true });
+				return {
+					...store,
+					enqueueWithId: async (payload, now, id) => {
+						if (!mutated) {
+							mutated = true;
+							await fs.writeFile(
+								harness.manifestPath,
+								JSON.stringify({
+									version: 1,
+									members: [
+										{ name: "Mary", role: "po", socket: "sockets/Mary.sock" },
+										{ name: "Bob", role: "dev", socket: "sockets/Bob.sock" },
+									],
+									intake: { contact: "Bob" },
+								}),
+							);
+						}
+						return store.enqueueWithId(payload, now, id);
+					},
+				};
+			},
+		},
+	});
+	t.after(() => intake.close());
+	await intake.scan();
+	await fs.writeFile(path.join(harness.layout, "intake", "new", "commit.md"), "commit point");
+	assert.deepEqual(await intake.scan(), { state: "scanned", accepted: 0, failed: 0, remaining: 1 });
+	assert.equal(await (await storeFor(harness)).count(), 1);
+	assert.deepEqual(await intake.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	const bobMembership = {
+		name: "Bob",
+		role: "dev",
+		socketPath: path.join(harness.layout, "sockets", "Bob.sock"),
+	};
+	assert.equal(await (await storeFor(harness, bobMembership)).count(), 0);
+	assert.equal(
+		await fs.readFile(path.join(harness.layout, "intake", "processed", "commit.md"), "utf8"),
+		"commit point",
+	);
+});
+
+test("restart after receipt before move reuses the receipt without a duplicate", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	const intake = controllerFor(harness);
+	t.after(() => intake.controller.close());
+	await intake.controller.scan();
+	await fs.writeFile(path.join(harness.layout, "intake", "new", "receipt.md"), "receipt window");
+	const dropbox = createCrewIntakeDropbox({
+		manifestPath: harness.manifestPath,
+		projectRoot: harness.root,
+		isProjectTrusted: () => true,
+		quiescenceMs: 0,
+	});
+	await dropbox.prepare();
+	const claim = await dropbox.claim((await dropbox.listWork())[0]!);
+	const content = await dropbox.read(claim!);
+	const key = createCrewIntakeIdempotencyKey(harness.manifestPath, claim!.name, content.digest);
+	const store = await storeFor(harness);
+	const persisted = await store.enqueueWithId(
+		createExternalIntakePayload({ label: claim!.name, content: content.content }),
+		1,
+		key,
+	);
+	await dropbox.writeReceipt({
+		version: 1,
+		idempotencyKey: key,
+		filename: claim!.name,
+		digest: content.digest,
+		itemId: persisted.item.id,
+		recordedAt: 1,
+	});
+	assert.deepEqual(await intake.controller.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	assert.equal(await store.count(), 1);
+});
+
+test("membership generation changes before persistence requeue without Inbox writes", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	let current: typeof harness.membership | null = harness.membership;
+	let loads = 0;
+	const intake = createFilesystemCrewIntakeController({
+		getMembership: () => current,
+		isProjectTrusted: () => true,
+		loadManifest: async (manifestPath, projectRoot) => {
+			const manifest = await readTrustedCrewManifest(manifestPath, projectRoot, () => true);
+			loads += 1;
+			if (loads === 3) current = null;
+			return manifest;
+		},
+	});
+	t.after(() => intake.close());
+	await intake.scan();
+	await fs.writeFile(path.join(harness.layout, "intake", "new", "stale.md"), "must retry");
+	assert.deepEqual(await intake.scan(), { state: "scanned", accepted: 0, failed: 0, remaining: 1 });
+	assert.equal(await (await storeFor(harness)).count(), 0);
+	assert.equal(await fs.readFile(path.join(harness.layout, "intake", "new", "stale.md"), "utf8"), "must retry");
+});
+
+test("membership sync activates the watcher and scans immediately", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	const intake = controllerFor(harness);
+	t.after(() => intake.controller.close());
+	await fs.mkdir(path.join(harness.layout, "intake", "new"), { recursive: true, mode: 0o700 });
+	await fs.writeFile(path.join(harness.layout, "intake", "new", "startup.md"), "startup context");
+	intake.controller.syncMembership();
+	let processed = false;
+	for (let attempt = 0; attempt < 30; attempt += 1) {
+		try {
+			await fs.access(path.join(harness.layout, "intake", "processed", "startup.md"));
+			processed = true;
+			break;
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	}
+	assert.equal(processed, true);
+	assert.equal(intake.accepted, 1);
+});
+
+test("any trusted joined member persists intake for the exact offline contact", async (t) => {
 	const harness = await fixture();
 	t.after(harness.cleanup);
 	const bob = {
@@ -95,10 +265,16 @@ test("non-contact membership leaves ready files untouched", async (t) => {
 	};
 	const intake = controllerFor(harness, bob);
 	t.after(() => intake.controller.close());
-	await fs.mkdir(path.join(harness.layout, "intake", "new"), { recursive: true, mode: 0o700 });
+	await intake.controller.scan();
 	await fs.writeFile(path.join(harness.layout, "intake", "new", "later.txt"), "wait for Mary");
-	assert.deepEqual(await intake.controller.scan(), { state: "skipped", reason: "not-contact" });
-	assert.equal(await fs.readFile(path.join(harness.layout, "intake", "new", "later.txt"), "utf8"), "wait for Mary");
+	assert.deepEqual(await intake.controller.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	assert.equal(intake.accepted, 0);
+	assert.equal(await (await storeFor(harness)).count(), 1);
+	assert.equal(await (await storeFor(harness, bob.member)).count(), 0);
+	assert.equal(
+		await fs.readFile(path.join(harness.layout, "intake", "processed", "later.txt"), "utf8"),
+		"wait for Mary",
+	);
 	intake.controller.close();
 });
 
@@ -120,9 +296,14 @@ test("manifest contact changes invalidate the active intake owner", async (t) =>
 			intake: { contact: "Bob" },
 		}),
 	);
-	assert.deepEqual(await intake.controller.scan(), { state: "skipped", reason: "not-contact" });
+	assert.deepEqual(await intake.controller.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	const bobMembership = {
+		manifestPath: harness.manifestPath,
+		member: { name: "Bob", role: "dev", socketPath: path.join(harness.layout, "sockets", "Bob.sock") },
+	};
+	assert.equal(await (await storeFor(harness, bobMembership.member)).count(), 1);
 	assert.equal(
-		await fs.readFile(path.join(harness.layout, "intake", "new", "later.md"), "utf8"),
+		await fs.readFile(path.join(harness.layout, "intake", "processed", "later.md"), "utf8"),
 		"wait for the new contact",
 	);
 });

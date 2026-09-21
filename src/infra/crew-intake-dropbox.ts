@@ -1,7 +1,7 @@
-import { promises as fs, watch as watchFilesystem, type Dirent, type FSWatcher } from "node:fs";
+import { promises as fs, watch as watchFilesystem, type Dir, type Dirent, type FSWatcher } from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { MAX_MESSAGE_CONTENT_BYTES } from "../domain/message-payload.ts";
+import { MAX_MESSAGE_PAYLOAD_BYTES } from "../domain/message-payload.ts";
 import { isTrustedCrewManifestPath } from "./crew-manifest-store.ts";
 
 export const CREW_INTAKE_DIR_NAME = "intake";
@@ -9,9 +9,13 @@ export const CREW_INTAKE_NEW_DIR_NAME = "new";
 export const CREW_INTAKE_PROCESSED_DIR_NAME = "processed";
 export const CREW_INTAKE_FAILED_DIR_NAME = "failed";
 export const CREW_INTAKE_RECEIPTS_DIR_NAME = "receipts";
-export const MAX_CREW_INTAKE_FILE_BYTES = MAX_MESSAGE_CONTENT_BYTES;
+// Leave room for the external-intake origin and JSON framing before Inbox validation.
+export const MAX_CREW_INTAKE_FILE_BYTES = MAX_MESSAGE_PAYLOAD_BYTES - 2_048;
 export const MAX_CREW_INTAKE_FILES_PER_SCAN = 32;
-export const MAX_CREW_INTAKE_SCAN_BYTES = MAX_MESSAGE_CONTENT_BYTES * 4;
+export const MAX_CREW_INTAKE_SCAN_BYTES = MAX_CREW_INTAKE_FILE_BYTES * 4;
+export const MAX_CREW_INTAKE_SCAN_DURATION_MS = 5_000;
+export const MAX_CREW_INTAKE_ENUMERATION_DURATION_MS = 250;
+export const MAX_CREW_INTAKE_ENUMERATION_ENTRIES = MAX_CREW_INTAKE_FILES_PER_SCAN * 4;
 export const CREW_INTAKE_QUIESCENCE_MS = 25;
 const CLAIM_PREFIX = ".processing-";
 const LOCK_FILE_NAME = ".scan.lock";
@@ -69,6 +73,10 @@ export interface IntakeDropboxWorkItem {
 	readonly path: string;
 	readonly claimed: boolean;
 }
+
+export type IntakeDropboxWorkList = readonly IntakeDropboxWorkItem[] & {
+	readonly truncated: boolean;
+};
 
 export interface IntakeDropboxClaim {
 	readonly name: string;
@@ -238,28 +246,57 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 
 	const prepare = async (): Promise<void> => {
 		try {
-			const layoutStat = await fs.lstat(layoutDir);
-			if (!layoutStat.isDirectory() || layoutStat.isSymbolicLink())
-				throw new CrewIntakeDropboxError("unsafe-directory", "crew layout is not a real directory");
+			const ancestors = [path.join(path.resolve(options.projectRoot), ".pi"), layoutDir];
+			for (const directory of ancestors) {
+				const stat = await fs.lstat(directory);
+				if (!stat.isDirectory() || stat.isSymbolicLink())
+					throw new CrewIntakeDropboxError("unsafe-directory", "crew ancestor is not a real directory");
+				if (process.platform !== "win32" && (stat.mode & 0o022) !== 0)
+					throw new CrewIntakeDropboxError("permission-denied", "crew ancestor is group/world writable");
+			}
+			const manifestStat = await fs.lstat(manifestPath);
+			if (!manifestStat.isFile() || manifestStat.isSymbolicLink())
+				throw new CrewIntakeDropboxError("unsafe-directory", "crew manifest is not a real file");
 		} catch (error) {
 			if (error instanceof CrewIntakeDropboxError) throw error;
-			throw new CrewIntakeDropboxError("unsafe-directory", "crew layout is unavailable", { cause: error });
+			throw new CrewIntakeDropboxError("unsafe-directory", "crew ancestor is unavailable", { cause: error });
 		}
 		await privateDirectory(paths.root);
 		await Promise.all([paths.newDir, paths.processedDir, paths.failedDir, paths.receiptsDir].map(privateDirectory));
 	};
 
-	const listDirectory = async (directory: string): Promise<Dirent[]> => {
+	const listDirectory = async (
+		directory: string,
+	): Promise<{ readonly entries: readonly Dirent[]; readonly truncated: boolean }> => {
+		const entries: Dirent[] = [];
+		let truncated = false;
+		let handle: Dir;
 		try {
-			return await fs.readdir(directory, { withFileTypes: true });
+			handle = await fs.opendir(directory);
 		} catch (error) {
 			throw new CrewIntakeDropboxError("scan-failed", "intake directory could not be listed", { cause: error });
 		}
+		const deadline = Date.now() + MAX_CREW_INTAKE_ENUMERATION_DURATION_MS;
+		try {
+			for await (const entry of handle) {
+				if (entries.length >= MAX_CREW_INTAKE_ENUMERATION_ENTRIES || Date.now() >= deadline) {
+					truncated = true;
+					break;
+				}
+				entries.push(entry);
+			}
+		} catch (error) {
+			throw new CrewIntakeDropboxError("scan-failed", "intake directory could not be listed", { cause: error });
+		} finally {
+			await handle.close().catch(() => undefined);
+		}
+		return { entries, truncated };
 	};
 
-	const listWork = async (): Promise<readonly IntakeDropboxWorkItem[]> => {
+	const listWork = async (): Promise<IntakeDropboxWorkList> => {
 		await prepare();
-		const entries = await listDirectory(paths.newDir);
+		const listing = await listDirectory(paths.newDir);
+		const entries = listing.entries;
 		const work: IntakeDropboxWorkItem[] = [];
 		for (const entry of entries) {
 			if (entry.name.startsWith(CLAIM_PREFIX)) {
@@ -271,7 +308,9 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 			if (entry.name.startsWith(".") || !supportedExtension(entry.name) || !entry.isFile()) continue;
 			work.push({ name: entry.name, path: path.join(paths.newDir, entry.name), claimed: false });
 		}
-		return work.sort((left, right) => left.name.localeCompare(right.name));
+		const sorted = work.sort((left, right) => left.name.localeCompare(right.name));
+		Object.defineProperty(sorted, "truncated", { value: listing.truncated, enumerable: false });
+		return sorted as unknown as IntakeDropboxWorkList;
 	};
 
 	const claim = async (work: IntakeDropboxWorkItem): Promise<IntakeDropboxClaim | null> => {

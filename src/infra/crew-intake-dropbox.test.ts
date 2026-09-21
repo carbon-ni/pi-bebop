@@ -7,6 +7,8 @@ import {
 	createCrewIntakeDropbox,
 	createCrewIntakeIdempotencyKey,
 	isSafeCrewIntakeFilename,
+	MAX_CREW_INTAKE_ENUMERATION_ENTRIES,
+	MAX_CREW_INTAKE_FILE_BYTES,
 } from "./crew-intake-dropbox.ts";
 
 async function fixture() {
@@ -30,6 +32,10 @@ test("creates private intake directories and lists only deterministic ready file
 	await harness.dropbox.prepare();
 	await fs.writeFile(path.join(harness.dropbox.paths.newDir, "b.txt"), "B");
 	await fs.writeFile(path.join(harness.dropbox.paths.newDir, "a.md"), "A");
+	await fs.symlink(
+		path.join(harness.dropbox.paths.newDir, "a.md"),
+		path.join(harness.dropbox.paths.newDir, "link.md"),
+	);
 	await fs.writeFile(path.join(harness.dropbox.paths.newDir, "draft.draft"), "draft");
 	await fs.writeFile(path.join(harness.dropbox.paths.newDir, ".editor.md"), "hidden");
 	await fs.mkdir(path.join(harness.dropbox.paths.newDir, "nested.md"));
@@ -77,6 +83,88 @@ test("rejects malformed filenames and distinguishes safe names", () => {
 	assert.equal(isSafeCrewIntakeFilename("message.md\n"), false);
 	assert.equal(isSafeCrewIntakeFilename("../message.md"), false);
 	assert.equal(isSafeCrewIntakeFilename("message.exe"), true);
+});
+
+test("quiescence rejects a file mutated during the publication window", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	const dropbox = createCrewIntakeDropbox({
+		manifestPath: harness.manifestPath,
+		projectRoot: harness.root,
+		isProjectTrusted: () => true,
+		quiescenceMs: 25,
+	});
+	await dropbox.prepare();
+	const source = path.join(dropbox.paths.newDir, "changing.md");
+	await fs.writeFile(source, "before");
+	const work = (await dropbox.listWork())[0]!;
+	setTimeout(() => void fs.appendFile(source, " after"), 5);
+	await assert.rejects(
+		dropbox.claim(work),
+		(error: unknown) => (error as { code?: string }).code === "changed-while-reading",
+	);
+	assert.equal(await fs.readFile(source, "utf8"), "before after");
+});
+
+test("bounds directory enumeration and retains overflow for later scans", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	await harness.dropbox.prepare();
+	await Promise.all(
+		Array.from({ length: MAX_CREW_INTAKE_ENUMERATION_ENTRIES + 1 }, (_, index) =>
+			fs.writeFile(path.join(harness.dropbox.paths.newDir, `item-${String(index).padStart(3, "0")}.txt`), "x"),
+		),
+	);
+	const work = await harness.dropbox.listWork();
+	assert.equal(work.length, MAX_CREW_INTAKE_ENUMERATION_ENTRIES);
+	assert.equal(work.truncated, true);
+});
+
+test("rejects oversized content and refuses processed-name collisions", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	await harness.dropbox.prepare();
+	const source = path.join(harness.dropbox.paths.newDir, "collision.md");
+	await fs.writeFile(source, Buffer.alloc(MAX_CREW_INTAKE_FILE_BYTES + 1, 65));
+	const oversizedWork = (await harness.dropbox.listWork())[0]!;
+	const oversizedClaim = await harness.dropbox.claim(oversizedWork);
+	await assert.rejects(
+		harness.dropbox.read(oversizedClaim!),
+		(error: unknown) => (error as { code?: string }).code === "oversized",
+	);
+	await harness.dropbox.release(oversizedClaim!);
+	await fs.writeFile(source, "first");
+	const firstClaim = await harness.dropbox.claim((await harness.dropbox.listWork())[0]!);
+	await harness.dropbox.moveProcessed(firstClaim!);
+	await fs.writeFile(source, "second");
+	const secondClaim = await harness.dropbox.claim((await harness.dropbox.listWork())[0]!);
+	await assert.rejects(
+		harness.dropbox.moveProcessed(secondClaim!),
+		(error: unknown) => (error as { code?: string }).code === "move-conflict",
+	);
+	await harness.dropbox.release(secondClaim!);
+});
+
+test("rejects symlinked and unsafe canonical ancestors before creating intake directories", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	const realPi = path.join(harness.root, ".pi-real");
+	await fs.rename(path.join(harness.root, ".pi"), realPi);
+	await fs.symlink(".pi-real", path.join(harness.root, ".pi"));
+	await assert.rejects(
+		harness.dropbox.prepare(),
+		(error: unknown) => (error as { code?: string }).code === "unsafe-directory",
+	);
+
+	const permissions = await fixture();
+	t.after(permissions.cleanup);
+	if (process.platform !== "win32") {
+		await fs.chmod(path.join(permissions.root, ".pi"), 0o777);
+		await assert.rejects(
+			permissions.dropbox.prepare(),
+			(error: unknown) => (error as { code?: string }).code === "permission-denied",
+		);
+	}
 });
 
 test("atomic claim is idempotent across concurrent claimers", async (t) => {

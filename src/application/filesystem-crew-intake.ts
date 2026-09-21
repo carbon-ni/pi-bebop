@@ -6,6 +6,7 @@ import {
 	isSafeCrewIntakeFilename,
 	MAX_CREW_INTAKE_FILES_PER_SCAN,
 	MAX_CREW_INTAKE_SCAN_BYTES,
+	MAX_CREW_INTAKE_SCAN_DURATION_MS,
 	CrewIntakeDropboxError,
 	type CrewIntakeDropbox,
 	type IntakeDropboxClaim,
@@ -23,7 +24,7 @@ export interface FilesystemCrewIntakeMembership {
 
 export type FilesystemCrewIntakeScanResult =
 	| { readonly state: "scanned"; readonly accepted: number; readonly failed: number; readonly remaining: number }
-	| { readonly state: "skipped"; readonly reason: "not-joined" | "not-contact" | "external-intake-disabled" }
+	| { readonly state: "skipped"; readonly reason: "not-joined" | "external-intake-disabled" }
 	| { readonly state: "failed"; readonly code: string };
 
 export interface FilesystemCrewIntakeDependencies {
@@ -47,8 +48,20 @@ type Active = {
 	readonly generation: number;
 	readonly membership: FilesystemCrewIntakeMembership;
 	readonly manifest: CrewManifest;
+	readonly manifestFingerprint: string;
 	readonly dropbox: CrewIntakeDropbox;
 };
+
+function manifestFingerprint(manifest: CrewManifest): string {
+	return JSON.stringify(manifest);
+}
+
+function sameMember(
+	left: FilesystemCrewIntakeMembership["member"],
+	right: FilesystemCrewIntakeMembership["member"],
+): boolean {
+	return left.name === right.name && left.role === right.role && left.socketPath === right.socketPath;
+}
 
 function projectRootOf(manifestPath: string): string {
 	return path.resolve(path.dirname(manifestPath), "..", "..");
@@ -62,8 +75,9 @@ function errorCode(error: unknown): string {
 
 function isInvalidFileError(error: unknown): boolean {
 	return (
-		error instanceof CrewIntakeDropboxError &&
-		["invalid-filename", "invalid-utf8", "empty-file", "nul-byte", "oversized"].includes(error.code)
+		(error instanceof CrewIntakeDropboxError &&
+			["invalid-filename", "invalid-utf8", "empty-file", "nul-byte", "oversized"].includes(error.code)) ||
+		(error instanceof ExternalIntakeError && error.code === "invalid-payload")
 	);
 }
 
@@ -84,7 +98,7 @@ export function createFilesystemCrewIntakeController(
 	let active: Active | null = null;
 	let watcher: { close(): void } | null = null;
 	let watchRequested = false;
-	let inactiveReason: "not-contact" | "external-intake-disabled" = "not-contact";
+	let inactiveReason: "external-intake-disabled" = "external-intake-disabled";
 	let scanTail: Promise<unknown> = Promise.resolve();
 
 	const report = (error: unknown): void => dependencies.onError?.(errorCode(error));
@@ -122,22 +136,20 @@ export function createFilesystemCrewIntakeController(
 			resetActive();
 			throw error;
 		}
-		const resolution = resolveIntakeContact(manifest);
+		let resolution: ReturnType<typeof resolveIntakeContact>;
+		try {
+			resolution = resolveIntakeContact(manifest);
+		} catch (error) {
+			resetActive();
+			throw error;
+		}
 		if (!resolution.enabled) {
 			resetActive();
 			inactiveReason = "external-intake-disabled";
 			return null;
 		}
-		if (
-			resolution.contact.name !== membership.member.name ||
-			resolution.contact.role !== membership.member.role ||
-			resolution.contact.socketPath !== membership.member.socketPath
-		) {
-			resetActive();
-			inactiveReason = "not-contact";
-			return null;
-		}
-		if (active && isCurrent(active, active.generation, membership)) {
+		const fingerprint = manifestFingerprint(manifest);
+		if (active && isCurrent(active, active.generation, membership) && active.manifestFingerprint === fingerprint) {
 			if (watchForChanges && watcher === null)
 				watcher = active.dropbox.watch(() => {
 					void scan();
@@ -152,7 +164,7 @@ export function createFilesystemCrewIntakeController(
 			quiescenceMs: dependencies.quiescenceMs,
 		});
 		await dropbox.prepare();
-		const next: Active = { generation, membership, manifest, dropbox };
+		const next: Active = { generation, membership, manifest, manifestFingerprint: fingerprint, dropbox };
 		if (generation !== next.generation || !isCurrent(next, generation, dependencies.getMembership() ?? membership))
 			return null;
 		active = next;
@@ -163,6 +175,27 @@ export function createFilesystemCrewIntakeController(
 			}, report);
 		}
 		return next;
+	};
+
+	const isGenerationCurrent = async (current: Active): Promise<boolean> => {
+		const membership = dependencies.getMembership();
+		if (generation !== current.generation || !membership || !isCurrent(current, current.generation, membership))
+			return false;
+		try {
+			const manifest = await loadManifest(
+				current.membership.manifestPath,
+				projectRootOf(current.membership.manifestPath),
+			);
+			const latestMembership = dependencies.getMembership();
+			return (
+				generation === current.generation &&
+				latestMembership !== null &&
+				isCurrent(current, current.generation, latestMembership) &&
+				manifestFingerprint(manifest) === current.manifestFingerprint
+			);
+		} catch {
+			return false;
+		}
 	};
 
 	const processClaim = async (
@@ -180,6 +213,7 @@ export function createFilesystemCrewIntakeController(
 		} else {
 			const intakeDependencies: ExternalIntakeDependencies = {
 				loadManifest: (manifestPath) => loadManifest(manifestPath, projectRootOf(manifestPath)),
+				beforeEnqueue: () => isGenerationCurrent(current),
 				openStore:
 					dependencies.externalIntake?.openStore ??
 					(async (options) =>
@@ -189,18 +223,28 @@ export function createFilesystemCrewIntakeController(
 						})),
 				now: dependencies.externalIntake?.now,
 			};
-			const ack = await submitExternalIntake(
-				{
-					manifestPath: current.membership.manifestPath,
-					label: claim.name,
-					content: content.content,
-					idempotencyKey: key,
-				},
-				intakeDependencies,
-			);
-			const membershipAfterEnqueue = dependencies.getMembership();
-			if (!membershipAfterEnqueue || !isCurrent(current, current.generation, membershipAfterEnqueue))
-				throw new CrewIntakeDropboxError("scan-failed", "intake ownership changed during persistence");
+			if (!(await isGenerationCurrent(current))) {
+				await current.dropbox.release(claim).catch(() => undefined);
+				return "retry";
+			}
+			let ack: Awaited<ReturnType<typeof submitExternalIntake>>;
+			try {
+				ack = await submitExternalIntake(
+					{
+						manifestPath: current.membership.manifestPath,
+						label: claim.name,
+						content: content.content,
+						idempotencyKey: key,
+					},
+					intakeDependencies,
+				);
+			} catch (error) {
+				if (error instanceof ExternalIntakeError && error.code === "stale-generation") {
+					await current.dropbox.release(claim).catch(() => undefined);
+					return "retry";
+				}
+				throw error;
+			}
 			receipt = {
 				version: 1,
 				idempotencyKey: key,
@@ -209,13 +253,16 @@ export function createFilesystemCrewIntakeController(
 				itemId: ack.itemId,
 				recordedAt: Date.now(),
 			};
-			await current.dropbox.writeReceipt(receipt);
 		}
-		const membershipBeforeMove = dependencies.getMembership();
-		if (!membershipBeforeMove || !isCurrent(current, current.generation, membershipBeforeMove))
-			throw new CrewIntakeDropboxError("scan-failed", "intake ownership changed before final move");
+		await current.dropbox.writeReceipt(receipt);
+		if (!(await isGenerationCurrent(current))) {
+			await current.dropbox.release(claim).catch(() => undefined);
+			return "retry";
+		}
 		await current.dropbox.moveProcessed(claim);
-		await dependencies.onAccepted?.();
+		const resolution = resolveIntakeContact(current.manifest);
+		if (resolution.enabled && sameMember(current.membership.member, resolution.contact))
+			await dependencies.onAccepted?.();
 		return "accepted";
 	};
 
@@ -244,11 +291,18 @@ export function createFilesystemCrewIntakeController(
 		let accepted = 0;
 		let failed = 0;
 		let bytes = 0;
+		const deadline = Date.now() + MAX_CREW_INTAKE_SCAN_DURATION_MS;
 		try {
 			const work = await current.dropbox.listWork();
 			for (const candidate of work.slice(0, MAX_CREW_INTAKE_FILES_PER_SCAN)) {
+				if (Date.now() >= deadline) break;
 				const membership = dependencies.getMembership();
-				if (!membership || !isCurrent(current, generationAtStart, membership)) break;
+				if (
+					generation !== generationAtStart ||
+					!membership ||
+					!isCurrent(current, generationAtStart, membership)
+				)
+					break;
 				let claim: IntakeDropboxClaim | null = null;
 				try {
 					claim = await current.dropbox.claim(candidate);
@@ -256,11 +310,15 @@ export function createFilesystemCrewIntakeController(
 					if (!isSafeCrewIntakeFilename(claim.name))
 						throw new CrewIntakeDropboxError("invalid-filename", `unsafe intake filename: ${claim.name}`);
 					const content = await current.dropbox.read(claim);
+					if (bytes + content.bytes > MAX_CREW_INTAKE_SCAN_BYTES) {
+						await current.dropbox.release(claim);
+						claim = null;
+						break;
+					}
 					bytes += content.bytes;
-					if (bytes > MAX_CREW_INTAKE_SCAN_BYTES)
-						throw new CrewIntakeDropboxError("oversized", "intake scan byte budget exceeded");
 					const result = await processClaim(current, claim, content);
 					if (result === "accepted") accepted += 1;
+					if (result === "retry") break;
 				} catch (error) {
 					if (claim && isInvalidFileError(error)) {
 						await current.dropbox.moveFailed(claim, errorCode(error));
@@ -274,7 +332,12 @@ export function createFilesystemCrewIntakeController(
 					}
 				}
 			}
-			return { state: "scanned", accepted, failed, remaining: Math.max(0, work.length - accepted - failed) };
+			return {
+				state: "scanned",
+				accepted,
+				failed,
+				remaining: Math.max(0, work.length - accepted - failed) + (work.truncated ? 1 : 0),
+			};
 		} catch (error) {
 			report(error);
 			return { state: "failed", code: errorCode(error) };
@@ -295,7 +358,11 @@ export function createFilesystemCrewIntakeController(
 	const syncMembership = (): void => {
 		watchRequested = true;
 		resetActive();
-		void ensureActive().catch(report);
+		void ensureActive()
+			.then((current) => {
+				if (current) void scan();
+			})
+			.catch(report);
 	};
 	const close = (): void => invalidate();
 

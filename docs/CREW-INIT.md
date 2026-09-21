@@ -50,8 +50,18 @@ Defaults:
   instructions before starting member processes.
 - `.gitignore` excludes runtime-owned `sockets/`, private durable `inbox/`, and the local Intake dropbox.
 - Init creates empty `sockets/` for immediate discoverability but never creates socket links, member processes, Inbox records, Intake messages, session state, Git commits, or Pi trust decisions. Runtime creates `inbox/` and `intake/{new,processed,failed}/` only when needed.
-- With an exact `intake.contact`, write `.draft` files in `intake/new/` and atomically rename them to `.md` or `.txt`. Intake transports opaque text to that contact's durable Inbox as an unverified Follow-up; delivery does not imply action, classification, or delegation. The boundary is local-only.
-- Crash recovery is monotonic: `new -> processing` claims are retried; an Inbox enqueue without a receipt is retried with the same idempotency key; a receipt without a final move is moved on the next scan; and a `processed` file is never enqueued again. Failed validation is durably recorded beside the retained file.
+- With an exact `intake.contact`, write `.draft` files in `intake/new/` and atomically rename them to `.md` or `.txt`. Any trusted joined Member of the exact Crew may ingest the file; `intake.contact` controls the only durable Inbox recipient and delivery contact. Intake transports opaque text as an unverified Follow-up; delivery does not imply action, classification, or delegation. The boundary is local-only.
+- Crash recovery is monotonic:
+
+    | State                         | Restart action                                                        | Inbox result        |
+    | ----------------------------- | --------------------------------------------------------------------- | ------------------- |
+    | `new`                         | Claim and process normally                                            | One enqueue         |
+    | `processing`, no receipt      | Retry `enqueueWithId` with the same key, write the receipt, then move | Exactly one enqueue |
+    | `processing`, receipt present | Verify the receipt and move without enqueueing                        | No duplicate        |
+    | `processed`, receipt present  | Ignore; both durable evidence records already exist                   | No duplicate        |
+    | `failed`, reason present      | Retain for review; do not retry automatically                         | No enqueue          |
+
+    A manifest or membership generation change before persistence requeues the claim. A change after the Inbox commit does not retroactively move that persisted item; the receipt preserves the commit point. Failed validation is durably recorded beside the retained file.
 
 ## Manual layout
 
