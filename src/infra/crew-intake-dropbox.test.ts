@@ -186,6 +186,74 @@ test("moves a crafted decoded traversal claim to failed without escaping evidenc
 	await assert.rejects(fs.access(path.join(harness.root, "escape.txt")));
 });
 
+async function replaceDirectoryWithSymlink(directory: string, outside: string): Promise<() => Promise<void>> {
+	const realDirectory = `${directory}-real`;
+	await fs.rename(directory, realDirectory);
+	await fs.symlink(outside, directory);
+	return async () => {
+		await fs.unlink(directory);
+		await fs.rename(realDirectory, directory);
+	};
+}
+
+test("rejects replaced failed and processed directories without losing recoverable claims", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	await harness.dropbox.prepare();
+	const outside = path.join(harness.root, "outside");
+	await fs.mkdir(outside);
+
+	const failedName = "failed.md";
+	await fs.writeFile(path.join(harness.dropbox.paths.newDir, failedName), "failed");
+	const failedClaim = await harness.dropbox.claim((await harness.dropbox.listWork())[0]!);
+	const restoreFailed = await replaceDirectoryWithSymlink(harness.dropbox.paths.failedDir, outside);
+	await assert.rejects(
+		harness.dropbox.moveFailed(failedClaim!, "invalid-content"),
+		(error: unknown) => (error as { code?: string }).code === "unsafe-directory",
+	);
+	assert.deepEqual(await fs.readdir(outside), []);
+	assert.equal(
+		await fs.readFile(path.join(harness.dropbox.paths.newDir, path.basename(failedClaim!.path)), "utf8"),
+		"failed",
+	);
+	await restoreFailed();
+	await harness.dropbox.moveFailed(failedClaim!, "invalid-content");
+	assert.equal(await fs.readFile(path.join(harness.dropbox.paths.failedDir, failedName), "utf8"), "failed");
+
+	const processedName = "processed.md";
+	await fs.writeFile(path.join(harness.dropbox.paths.newDir, processedName), "processed");
+	const processedClaim = await harness.dropbox.claim((await harness.dropbox.listWork())[0]!);
+	const restoreProcessed = await replaceDirectoryWithSymlink(harness.dropbox.paths.processedDir, outside);
+	await assert.rejects(
+		harness.dropbox.moveProcessed(processedClaim!),
+		(error: unknown) => (error as { code?: string }).code === "unsafe-directory",
+	);
+	assert.deepEqual(await fs.readdir(outside), []);
+	await restoreProcessed();
+	await harness.dropbox.moveProcessed(processedClaim!);
+	assert.equal(await fs.readFile(path.join(harness.dropbox.paths.processedDir, processedName), "utf8"), "processed");
+});
+
+test("rejects a replaced new directory during release and recovers the claim", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	await harness.dropbox.prepare();
+	const outside = path.join(harness.root, "outside");
+	await fs.mkdir(outside);
+	const name = "release.md";
+	await fs.writeFile(path.join(harness.dropbox.paths.newDir, name), "release");
+	const claim = await harness.dropbox.claim((await harness.dropbox.listWork())[0]!);
+	const restore = await replaceDirectoryWithSymlink(harness.dropbox.paths.newDir, outside);
+	await assert.rejects(
+		harness.dropbox.release(claim!),
+		(error: unknown) => (error as { code?: string }).code === "unsafe-directory",
+	);
+	assert.deepEqual(await fs.readdir(outside), []);
+	await restore();
+	await harness.dropbox.release(claim!);
+	assert.equal(await fs.readFile(path.join(harness.dropbox.paths.newDir, name), "utf8"), "release");
+});
+
 test("atomic claim is idempotent across concurrent claimers", async (t) => {
 	const harness = await fixture();
 	t.after(harness.cleanup);

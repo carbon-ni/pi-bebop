@@ -127,15 +127,35 @@ function containedPath(directory: string, name: string): string {
 	return candidate;
 }
 
-async function canonicalContainedPath(directory: string, name: string): Promise<string> {
+interface DirectoryIdentity {
+	readonly dev: number;
+	readonly ino: number;
+	readonly realpath: string;
+}
+
+async function directoryIdentity(directory: string): Promise<DirectoryIdentity> {
 	try {
-		return containedPath(await fs.realpath(directory), name);
+		const stat = await fs.lstat(directory);
+		if (!stat.isDirectory() || stat.isSymbolicLink())
+			throw new CrewIntakeDropboxError(
+				"unsafe-directory",
+				`intake directory is not a real directory: ${directory}`,
+			);
+		return { dev: stat.dev, ino: stat.ino, realpath: await fs.realpath(directory) };
 	} catch (error) {
 		if (error instanceof CrewIntakeDropboxError) throw error;
-		throw new CrewIntakeDropboxError("unsafe-directory", "intake path is not canonically trusted", {
+		throw new CrewIntakeDropboxError("unsafe-directory", `intake directory is unavailable: ${directory}`, {
 			cause: error,
 		});
 	}
+}
+
+function sameDirectoryIdentity(expected: DirectoryIdentity, actual: DirectoryIdentity): boolean {
+	const hasStableDeviceIdentity = expected.ino !== 0 && actual.ino !== 0;
+	return (
+		(!hasStableDeviceIdentity || (expected.dev === actual.dev && expected.ino === actual.ino)) &&
+		expected.realpath === actual.realpath
+	);
 }
 
 export function isSafeCrewIntakeFilename(name: string): boolean {
@@ -248,17 +268,6 @@ async function moveNoReplace(source: string, destination: string): Promise<void>
 	}
 }
 
-async function atomicWrite(filePath: string, content: string): Promise<void> {
-	const temp = `${filePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-	try {
-		await fs.writeFile(temp, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
-		await fs.rename(temp, filePath);
-	} catch (error) {
-		await fs.unlink(temp).catch(() => undefined);
-		throw new CrewIntakeDropboxError("receipt-failed", "intake receipt could not be recorded", { cause: error });
-	}
-}
-
 export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 	if (!options.isProjectTrusted())
 		throw new CrewIntakeDropboxError("untrusted-project", "cannot use intake in an untrusted project");
@@ -275,6 +284,27 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		commitsDir: path.join(layoutDir, CREW_INTAKE_DIR_NAME, CREW_INTAKE_COMMITS_DIR_NAME),
 	};
 	const quiescenceMs = options.quiescenceMs ?? CREW_INTAKE_QUIESCENCE_MS;
+	const preparedDirectories = new Map<string, DirectoryIdentity>();
+	const privateDirectories = [
+		paths.root,
+		paths.newDir,
+		paths.processedDir,
+		paths.failedDir,
+		paths.receiptsDir,
+		paths.commitsDir,
+	] as const;
+
+	const assertPreparedDirectory = async (directory: string): Promise<void> => {
+		const expected = preparedDirectories.get(directory);
+		if (!expected) throw new CrewIntakeDropboxError("unsafe-directory", "intake directory was not prepared");
+		const actual = await directoryIdentity(directory);
+		if (!sameDirectoryIdentity(expected, actual))
+			throw new CrewIntakeDropboxError("unsafe-directory", "prepared intake directory was replaced");
+	};
+
+	const assertPreparedDirectories = async (directories: readonly string[]): Promise<void> => {
+		for (const directory of directories) await assertPreparedDirectory(directory);
+	};
 
 	const prepare = async (): Promise<void> => {
 		try {
@@ -293,17 +323,54 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 			if (error instanceof CrewIntakeDropboxError) throw error;
 			throw new CrewIntakeDropboxError("unsafe-directory", "crew ancestor is unavailable", { cause: error });
 		}
-		await privateDirectory(paths.root);
-		await Promise.all(
-			[paths.newDir, paths.processedDir, paths.failedDir, paths.receiptsDir, paths.commitsDir].map(
-				privateDirectory,
-			),
-		);
+
+		if (preparedDirectories.size === 0) {
+			await privateDirectory(paths.root);
+			await Promise.all(privateDirectories.slice(1).map(privateDirectory));
+			for (const directory of privateDirectories)
+				preparedDirectories.set(directory, await directoryIdentity(directory));
+			return;
+		}
+		await assertPreparedDirectories(privateDirectories);
+	};
+
+	const canonicalContainedPath = async (directory: string, name: string): Promise<string> => {
+		await assertPreparedDirectory(directory);
+		try {
+			return containedPath(await fs.realpath(directory), name);
+		} catch (error) {
+			if (error instanceof CrewIntakeDropboxError) throw error;
+			throw new CrewIntakeDropboxError("unsafe-directory", "intake path is not canonically trusted", {
+				cause: error,
+			});
+		}
+	};
+
+	const atomicWrite = async (directory: string, filePath: string, content: string): Promise<void> => {
+		await assertPreparedDirectory(directory);
+		const temp = `${filePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+		try {
+			await assertPreparedDirectory(directory);
+			await fs.writeFile(temp, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
+			await assertPreparedDirectory(directory);
+			await fs.rename(temp, filePath);
+		} catch (error) {
+			try {
+				await assertPreparedDirectory(directory);
+				await fs.unlink(temp).catch(() => undefined);
+			} catch {
+				// Do not follow a replaced directory while cleaning up the temporary file.
+			}
+			throw new CrewIntakeDropboxError("receipt-failed", "intake receipt could not be recorded", {
+				cause: error,
+			});
+		}
 	};
 
 	const listDirectory = async (
 		directory: string,
 	): Promise<{ readonly entries: readonly Dirent[]; readonly truncated: boolean }> => {
+		await assertPreparedDirectory(directory);
 		const entries: Dirent[] = [];
 		let truncated = false;
 		let handle: Dir;
@@ -356,6 +423,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		const source = path.join(paths.newDir, work.name);
 		const destination = path.join(paths.newDir, claimName(work.name));
 		try {
+			await assertPreparedDirectory(paths.newDir);
 			const stat = await fs.lstat(source);
 			if (!stat.isFile() || stat.isSymbolicLink()) return null;
 			const before = { size: stat.size, mtimeMs: stat.mtimeMs };
@@ -368,6 +436,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 				);
 			if (await exists(destination))
 				throw new CrewIntakeDropboxError("claim-conflict", `intake claim exists: ${work.name}`);
+			await assertPreparedDirectory(paths.newDir);
 			await fs.rename(source, destination);
 			return { name: work.name, path: destination, claimed: true };
 		} catch (error) {
@@ -380,6 +449,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 	};
 
 	const read = async (item: IntakeDropboxClaim): Promise<IntakeDropboxContent> => {
+		await assertPreparedDirectory(paths.newDir);
 		let before: Awaited<ReturnType<typeof fs.lstat>>;
 		try {
 			before = await fs.lstat(item.path);
@@ -388,7 +458,9 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		}
 		if (!before.isFile() || before.isSymbolicLink())
 			throw new CrewIntakeDropboxError("unsafe-directory", "intake claim is not a regular file");
+		await assertPreparedDirectory(paths.newDir);
 		const bytes = await boundedRead(item.path);
+		await assertPreparedDirectory(paths.newDir);
 		const after = await fs.lstat(item.path);
 		if (before.size !== after.size || before.mtimeMs !== after.mtimeMs)
 			throw new CrewIntakeDropboxError(
@@ -416,8 +488,17 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 	const receiptPath = (key: string): string => durableKeyPath(paths.receiptsDir, key);
 	const commitIntentPath = (key: string): string => durableKeyPath(paths.commitsDir, key);
 	const readReceipt = async (key: string): Promise<IntakeDropboxReceipt | null> => {
+		await assertPreparedDirectory(paths.receiptsDir);
 		try {
-			const raw = await fs.readFile(receiptPath(key), "utf8");
+			const target = receiptPath(key);
+			const stat = await fs.lstat(target).catch((error: unknown) => {
+				if (isCode(error, "ENOENT")) return null;
+				throw error;
+			});
+			if (stat && (!stat.isFile() || stat.isSymbolicLink()))
+				throw new CrewIntakeDropboxError("receipt-failed", "intake receipt is not a regular file");
+			if (!stat) return null;
+			const raw = await fs.readFile(target, "utf8");
 			const parsed = JSON.parse(raw) as IntakeDropboxReceipt;
 			if (
 				parsed.version !== 1 ||
@@ -446,11 +527,20 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 				);
 			return;
 		}
-		await atomicWrite(receiptPath(receipt.idempotencyKey), JSON.stringify(receipt));
+		await atomicWrite(paths.receiptsDir, receiptPath(receipt.idempotencyKey), JSON.stringify(receipt));
 	};
 	const readCommitIntent = async (key: string): Promise<IntakeDropboxCommitIntent | null> => {
+		await assertPreparedDirectory(paths.commitsDir);
 		try {
-			const raw = await fs.readFile(commitIntentPath(key), "utf8");
+			const target = commitIntentPath(key);
+			const stat = await fs.lstat(target).catch((error: unknown) => {
+				if (isCode(error, "ENOENT")) return null;
+				throw error;
+			});
+			if (stat && (!stat.isFile() || stat.isSymbolicLink()))
+				throw new CrewIntakeDropboxError("receipt-failed", "intake commit intent is not a regular file");
+			if (!stat) return null;
+			const raw = await fs.readFile(target, "utf8");
 			const parsed = JSON.parse(raw) as IntakeDropboxCommitIntent;
 			if (
 				parsed.version !== 1 ||
@@ -481,14 +571,16 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 				);
 			return;
 		}
-		await atomicWrite(commitIntentPath(intent.idempotencyKey), JSON.stringify(intent));
+		await atomicWrite(paths.commitsDir, commitIntentPath(intent.idempotencyKey), JSON.stringify(intent));
 	};
 
 	const moveTo = async (item: IntakeDropboxClaim, directory: string): Promise<void> => {
 		if (!isSafeCrewIntakeFilename(item.name))
 			throw new CrewIntakeDropboxError("invalid-filename", "decoded intake claim name is unsafe");
+		await assertPreparedDirectories([paths.newDir, directory]);
 		const source = await canonicalContainedPath(paths.newDir, path.basename(item.path));
 		const destination = await canonicalContainedPath(directory, item.name);
+		await assertPreparedDirectories([paths.newDir, directory]);
 		await moveNoReplace(source, destination);
 	};
 	const moveProcessed = (item: IntakeDropboxClaim): Promise<void> => moveTo(item, paths.processedDir);
@@ -497,31 +589,40 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		const safeName = isSafeCrewIntakeFilename(item.name);
 		const physicalName = path.basename(item.path);
 		const destinationName = safeName ? item.name : physicalName;
+		await assertPreparedDirectories([paths.newDir, paths.failedDir]);
 		const destination = await canonicalContainedPath(paths.failedDir, destinationName);
 		const reasonName = safeName
 			? `${item.name}.reason.json`
 			: `${createHash("sha256").update(physicalName, "utf8").digest("hex")}.reason.json`;
 		const reasonPath = await canonicalContainedPath(paths.failedDir, reasonName);
-		if (!(await exists(reasonPath)))
+		if (!(await exists(reasonPath))) {
+			await assertPreparedDirectory(paths.failedDir);
 			await atomicWrite(
+				paths.failedDir,
 				reasonPath,
 				JSON.stringify({ version: 1, filename: item.name, reason: boundedReason, recordedAt: Date.now() }),
 			);
+		}
+		await assertPreparedDirectories([paths.newDir, paths.failedDir]);
 		await moveNoReplace(await canonicalContainedPath(paths.newDir, physicalName), destination);
 	};
 	const release = async (item: IntakeDropboxClaim): Promise<void> => {
 		if (!isSafeCrewIntakeFilename(item.name)) return;
+		await assertPreparedDirectory(paths.newDir);
 		const source = await canonicalContainedPath(paths.newDir, path.basename(item.path));
 		const destination = await canonicalContainedPath(paths.newDir, item.name);
 		if (await exists(destination))
 			throw new CrewIntakeDropboxError("move-conflict", `intake source exists: ${item.name}`);
+		await assertPreparedDirectory(paths.newDir);
 		await fs.rename(source, destination);
 	};
 
 	const lock = async (): Promise<() => Promise<void>> => {
 		await prepare();
+		await assertPreparedDirectory(paths.root);
 		const lockPath = path.join(paths.root, LOCK_FILE_NAME);
 		const acquire = async () => {
+			await assertPreparedDirectory(paths.root);
 			const handle = await fs.open(lockPath, "wx", 0o600);
 			try {
 				await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: Date.now() }), "utf8");
@@ -536,6 +637,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 			const handle = await acquire();
 			return async () => {
 				await handle.close();
+				await assertPreparedDirectory(paths.root);
 				await fs.unlink(lockPath).catch(() => undefined);
 			};
 		} catch (error) {
@@ -567,6 +669,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 				const handle = await acquire();
 				return async () => {
 					await handle.close();
+					await assertPreparedDirectory(paths.root);
 					await fs.unlink(lockPath).catch(() => undefined);
 				};
 			} catch (recoveryError) {
