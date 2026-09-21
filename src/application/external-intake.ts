@@ -54,6 +54,8 @@ export interface ExternalIntakeRequest {
 	readonly instructions?: readonly string[];
 	/** Stable adapter-owned id for crash-safe retries; absent for legacy callers. */
 	readonly idempotencyKey?: string;
+	/** Durable adapter-owned target for retries after a manifest contact change. */
+	readonly targetMember?: { readonly name: string; readonly role: string; readonly socketPath: string };
 }
 
 export interface ExternalIntakeDependencies {
@@ -135,12 +137,17 @@ export async function submitExternalIntake(
 	}
 
 	const resolution = resolveIntakeContact(manifest);
-	if (!resolution.enabled)
+	if (!request.targetMember && !resolution.enabled)
 		throw new ExternalIntakeError(
 			"external-intake-disabled",
 			"external crew intake is disabled: the manifest has no configured crew contact",
 		);
-	const contact = resolution.contact;
+	const contact = request.targetMember ?? (resolution.enabled ? resolution.contact : undefined);
+	if (!contact)
+		throw new ExternalIntakeError(
+			"external-intake-disabled",
+			"external crew intake is disabled: the manifest has no configured crew contact",
+		);
 
 	let payload;
 	try {

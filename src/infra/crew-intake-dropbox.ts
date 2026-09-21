@@ -9,6 +9,7 @@ export const CREW_INTAKE_NEW_DIR_NAME = "new";
 export const CREW_INTAKE_PROCESSED_DIR_NAME = "processed";
 export const CREW_INTAKE_FAILED_DIR_NAME = "failed";
 export const CREW_INTAKE_RECEIPTS_DIR_NAME = "receipts";
+export const CREW_INTAKE_COMMITS_DIR_NAME = "commits";
 // Leave room for the external-intake origin and JSON framing before Inbox validation.
 export const MAX_CREW_INTAKE_FILE_BYTES = MAX_MESSAGE_PAYLOAD_BYTES - 2_048;
 export const MAX_CREW_INTAKE_FILES_PER_SCAN = 32;
@@ -67,6 +68,7 @@ export interface CrewIntakeDropboxPaths {
 	readonly processedDir: string;
 	readonly failedDir: string;
 	readonly receiptsDir: string;
+	readonly commitsDir: string;
 }
 
 export interface IntakeDropboxWorkItem {
@@ -94,6 +96,15 @@ export interface IntakeDropboxReceipt {
 	readonly recordedAt: number;
 }
 
+export interface IntakeDropboxCommitIntent {
+	readonly version: 1;
+	readonly idempotencyKey: string;
+	readonly filename: string;
+	readonly digest: string;
+	readonly target: { readonly name: string; readonly role: string; readonly socketPath: string };
+	readonly recordedAt: number;
+}
+
 export interface IntakeDropboxContent {
 	readonly content: string;
 	readonly digest: string;
@@ -106,6 +117,25 @@ function isCode(error: unknown, code: string): boolean {
 
 function byteLength(value: string): number {
 	return Buffer.byteLength(value, "utf8");
+}
+
+function containedPath(directory: string, name: string): string {
+	const parent = path.resolve(directory);
+	const candidate = path.resolve(parent, name);
+	if (candidate !== parent && !candidate.startsWith(`${parent}${path.sep}`))
+		throw new CrewIntakeDropboxError("unsafe-directory", "intake path escapes its trusted directory");
+	return candidate;
+}
+
+async function canonicalContainedPath(directory: string, name: string): Promise<string> {
+	try {
+		return containedPath(await fs.realpath(directory), name);
+	} catch (error) {
+		if (error instanceof CrewIntakeDropboxError) throw error;
+		throw new CrewIntakeDropboxError("unsafe-directory", "intake path is not canonically trusted", {
+			cause: error,
+		});
+	}
 }
 
 export function isSafeCrewIntakeFilename(name: string): boolean {
@@ -242,6 +272,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		processedDir: path.join(layoutDir, CREW_INTAKE_DIR_NAME, CREW_INTAKE_PROCESSED_DIR_NAME),
 		failedDir: path.join(layoutDir, CREW_INTAKE_DIR_NAME, CREW_INTAKE_FAILED_DIR_NAME),
 		receiptsDir: path.join(layoutDir, CREW_INTAKE_DIR_NAME, CREW_INTAKE_RECEIPTS_DIR_NAME),
+		commitsDir: path.join(layoutDir, CREW_INTAKE_DIR_NAME, CREW_INTAKE_COMMITS_DIR_NAME),
 	};
 	const quiescenceMs = options.quiescenceMs ?? CREW_INTAKE_QUIESCENCE_MS;
 
@@ -263,7 +294,11 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 			throw new CrewIntakeDropboxError("unsafe-directory", "crew ancestor is unavailable", { cause: error });
 		}
 		await privateDirectory(paths.root);
-		await Promise.all([paths.newDir, paths.processedDir, paths.failedDir, paths.receiptsDir].map(privateDirectory));
+		await Promise.all(
+			[paths.newDir, paths.processedDir, paths.failedDir, paths.receiptsDir, paths.commitsDir].map(
+				privateDirectory,
+			),
+		);
 	};
 
 	const listDirectory = async (
@@ -373,7 +408,13 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		return { content, digest: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.byteLength };
 	};
 
-	const receiptPath = (key: string): string => path.join(paths.receiptsDir, `${key}.json`);
+	const durableKeyPath = (directory: string, key: string): string => {
+		if (!/^intake-[a-f0-9]{64}$/.test(key))
+			throw new CrewIntakeDropboxError("receipt-failed", "intake durability key is invalid");
+		return containedPath(directory, `${key}.json`);
+	};
+	const receiptPath = (key: string): string => durableKeyPath(paths.receiptsDir, key);
+	const commitIntentPath = (key: string): string => durableKeyPath(paths.commitsDir, key);
 	const readReceipt = async (key: string): Promise<IntakeDropboxReceipt | null> => {
 		try {
 			const raw = await fs.readFile(receiptPath(key), "utf8");
@@ -407,27 +448,74 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		}
 		await atomicWrite(receiptPath(receipt.idempotencyKey), JSON.stringify(receipt));
 	};
+	const readCommitIntent = async (key: string): Promise<IntakeDropboxCommitIntent | null> => {
+		try {
+			const raw = await fs.readFile(commitIntentPath(key), "utf8");
+			const parsed = JSON.parse(raw) as IntakeDropboxCommitIntent;
+			if (
+				parsed.version !== 1 ||
+				parsed.idempotencyKey !== key ||
+				typeof parsed.filename !== "string" ||
+				typeof parsed.digest !== "string" ||
+				!parsed.target ||
+				typeof parsed.target.name !== "string" ||
+				typeof parsed.target.role !== "string" ||
+				typeof parsed.target.socketPath !== "string"
+			)
+				throw new Error("invalid commit intent");
+			return parsed;
+		} catch (error) {
+			if (isCode(error, "ENOENT")) return null;
+			throw new CrewIntakeDropboxError("receipt-failed", "intake commit intent is invalid or unreadable", {
+				cause: error,
+			});
+		}
+	};
+	const writeCommitIntent = async (intent: IntakeDropboxCommitIntent): Promise<void> => {
+		const existing = await readCommitIntent(intent.idempotencyKey);
+		if (existing) {
+			if (JSON.stringify(existing) !== JSON.stringify(intent))
+				throw new CrewIntakeDropboxError(
+					"receipt-conflict",
+					"intake commit intent conflicts with existing durability evidence",
+				);
+			return;
+		}
+		await atomicWrite(commitIntentPath(intent.idempotencyKey), JSON.stringify(intent));
+	};
 
 	const moveTo = async (item: IntakeDropboxClaim, directory: string): Promise<void> => {
-		const destination = path.join(directory, item.name);
-		await moveNoReplace(item.path, destination);
+		if (!isSafeCrewIntakeFilename(item.name))
+			throw new CrewIntakeDropboxError("invalid-filename", "decoded intake claim name is unsafe");
+		const source = await canonicalContainedPath(paths.newDir, path.basename(item.path));
+		const destination = await canonicalContainedPath(directory, item.name);
+		await moveNoReplace(source, destination);
 	};
 	const moveProcessed = (item: IntakeDropboxClaim): Promise<void> => moveTo(item, paths.processedDir);
 	const moveFailed = async (item: IntakeDropboxClaim, reason: string): Promise<void> => {
 		const boundedReason = reason.slice(0, MAX_FAILURE_REASON_BYTES);
-		const reasonPath = path.join(paths.failedDir, `${item.name}.reason.json`);
+		const safeName = isSafeCrewIntakeFilename(item.name);
+		const physicalName = path.basename(item.path);
+		const destinationName = safeName ? item.name : physicalName;
+		const destination = await canonicalContainedPath(paths.failedDir, destinationName);
+		const reasonName = safeName
+			? `${item.name}.reason.json`
+			: `${createHash("sha256").update(physicalName, "utf8").digest("hex")}.reason.json`;
+		const reasonPath = await canonicalContainedPath(paths.failedDir, reasonName);
 		if (!(await exists(reasonPath)))
 			await atomicWrite(
 				reasonPath,
 				JSON.stringify({ version: 1, filename: item.name, reason: boundedReason, recordedAt: Date.now() }),
 			);
-		await moveTo(item, paths.failedDir);
+		await moveNoReplace(await canonicalContainedPath(paths.newDir, physicalName), destination);
 	};
 	const release = async (item: IntakeDropboxClaim): Promise<void> => {
-		const destination = path.join(paths.newDir, item.name);
+		if (!isSafeCrewIntakeFilename(item.name)) return;
+		const source = await canonicalContainedPath(paths.newDir, path.basename(item.path));
+		const destination = await canonicalContainedPath(paths.newDir, item.name);
 		if (await exists(destination))
 			throw new CrewIntakeDropboxError("move-conflict", `intake source exists: ${item.name}`);
-		await fs.rename(item.path, destination);
+		await fs.rename(source, destination);
 	};
 
 	const lock = async (): Promise<() => Promise<void>> => {
@@ -506,6 +594,8 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		writeReceipt,
 		moveProcessed,
 		moveFailed,
+		readCommitIntent,
+		writeCommitIntent,
 		release,
 		lock,
 		watch,

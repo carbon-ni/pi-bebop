@@ -176,6 +176,65 @@ test("a manifest change after the Inbox commit retains one old-contact commit an
 	);
 });
 
+test("restart after enqueue without receipt preserves the original contact across a manifest change", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	let crashed = false;
+	const first = createFilesystemCrewIntakeController({
+		getMembership: () => harness.membership,
+		isProjectTrusted: () => true,
+		externalIntake: {
+			openStore: async (options) => {
+				const store = await openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true });
+				return {
+					...store,
+					enqueueWithId: async (payload, now, id) => {
+						const result = await store.enqueueWithId(payload, now, id);
+						if (!crashed) {
+							crashed = true;
+							await fs.writeFile(
+								harness.manifestPath,
+								JSON.stringify({
+									version: 1,
+									members: [
+										{ name: "Mary", role: "po", socket: "sockets/Mary.sock" },
+										{ name: "Bob", role: "dev", socket: "sockets/Bob.sock" },
+									],
+									intake: { contact: "Bob" },
+								}),
+							);
+							throw new Error("simulated crash before receipt");
+						}
+						return result;
+					},
+				};
+			},
+		},
+		quiescenceMs: 0,
+	});
+	t.after(() => first.close());
+	await first.scan();
+	await fs.writeFile(path.join(harness.layout, "intake", "new", "contact-crash.md"), "old contact commit");
+	assert.deepEqual(await first.scan(), { state: "failed", code: "intake-storage-failed" });
+	const bobMembership = {
+		manifestPath: harness.manifestPath,
+		member: {
+			name: "Bob",
+			role: "dev",
+			socketPath: path.join(harness.layout, "sockets", "Bob.sock"),
+		},
+	};
+	const restarted = controllerFor(harness, bobMembership);
+	t.after(() => restarted.controller.close());
+	assert.deepEqual(await restarted.controller.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	assert.equal(await (await storeFor(harness)).count(), 1);
+	assert.equal(await (await storeFor(harness, bobMembership.member)).count(), 0);
+	assert.equal(
+		await fs.readFile(path.join(harness.layout, "intake", "processed", "contact-crash.md"), "utf8"),
+		"old contact commit",
+	);
+});
+
 test("restart after receipt before move reuses the receipt without a duplicate", async (t) => {
 	const harness = await fixture();
 	t.after(harness.cleanup);

@@ -11,6 +11,7 @@ import {
 	type CrewIntakeDropbox,
 	type IntakeDropboxClaim,
 	type IntakeDropboxContent,
+	type IntakeDropboxCommitIntent,
 	type IntakeDropboxReceipt,
 } from "../infra/crew-intake-dropbox.ts";
 import { ExternalIntakeError, submitExternalIntake, type ExternalIntakeDependencies } from "./external-intake.ts";
@@ -61,6 +62,15 @@ function sameMember(
 	right: FilesystemCrewIntakeMembership["member"],
 ): boolean {
 	return left.name === right.name && left.role === right.role && left.socketPath === right.socketPath;
+}
+
+function validateCommitTarget(
+	manifest: CrewManifest,
+	target: IntakeDropboxCommitIntent["target"],
+): IntakeDropboxCommitIntent["target"] {
+	if (!manifest.members.some((member) => sameMember(member, target)))
+		throw new CrewIntakeDropboxError("receipt-conflict", "intake commit target is no longer a Crew member");
+	return target;
 }
 
 function projectRootOf(manifestPath: string): string {
@@ -205,12 +215,37 @@ export function createFilesystemCrewIntakeController(
 	): Promise<"accepted" | "failed" | "retry"> => {
 		const key = createCrewIntakeIdempotencyKey(current.membership.manifestPath, claim.name, content.digest);
 		const existing = await current.dropbox.readReceipt(key);
+		const existingIntent = await current.dropbox.readCommitIntent(key);
+		if (existingIntent && (existingIntent.filename !== claim.name || existingIntent.digest !== content.digest))
+			throw new CrewIntakeDropboxError("receipt-conflict", "intake commit intent does not match its source");
 		let receipt: IntakeDropboxReceipt;
+		let target: IntakeDropboxCommitIntent["target"];
 		if (existing) {
 			if (existing.filename !== claim.name || existing.digest !== content.digest)
 				throw new CrewIntakeDropboxError("receipt-conflict", "intake receipt does not match its source");
 			receipt = existing;
+			target = existingIntent?.target ?? current.membership.member;
 		} else {
+			if (existingIntent) {
+				target = validateCommitTarget(current.manifest, existingIntent.target);
+			} else {
+				const resolution = resolveIntakeContact(current.manifest);
+				if (!resolution.enabled)
+					throw new ExternalIntakeError(
+						"external-intake-disabled",
+						"external intake contact is no longer configured",
+					);
+				const intent: IntakeDropboxCommitIntent = {
+					version: 1,
+					idempotencyKey: key,
+					filename: claim.name,
+					digest: content.digest,
+					target: resolution.contact,
+					recordedAt: Date.now(),
+				};
+				await current.dropbox.writeCommitIntent(intent);
+				target = intent.target;
+			}
 			const intakeDependencies: ExternalIntakeDependencies = {
 				loadManifest: (manifestPath) => loadManifest(manifestPath, projectRootOf(manifestPath)),
 				beforeEnqueue: () => isGenerationCurrent(current),
@@ -235,6 +270,7 @@ export function createFilesystemCrewIntakeController(
 						label: claim.name,
 						content: content.content,
 						idempotencyKey: key,
+						targetMember: target,
 					},
 					intakeDependencies,
 				);
@@ -260,9 +296,7 @@ export function createFilesystemCrewIntakeController(
 			return "retry";
 		}
 		await current.dropbox.moveProcessed(claim);
-		const resolution = resolveIntakeContact(current.manifest);
-		if (resolution.enabled && sameMember(current.membership.member, resolution.contact))
-			await dependencies.onAccepted?.();
+		if (sameMember(current.membership.member, target!)) await dependencies.onAccepted?.();
 		return "accepted";
 	};
 

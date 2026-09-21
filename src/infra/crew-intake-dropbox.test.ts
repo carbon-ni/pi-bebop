@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -166,6 +167,23 @@ test("rejects symlinked and unsafe canonical ancestors before creating intake di
 			(error: unknown) => (error as { code?: string }).code === "permission-denied",
 		);
 	}
+});
+
+test("moves a crafted decoded traversal claim to failed without escaping evidence", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	const unsafeName = "../../../escape.txt";
+	const claimName = `.processing-${createHash("sha256").update(unsafeName).digest("hex").slice(0, 16)}-${Buffer.from(unsafeName, "utf8").toString("base64url")}`;
+	await harness.dropbox.prepare();
+	await fs.writeFile(path.join(harness.dropbox.paths.newDir, claimName), "unsafe claim");
+	const work = (await harness.dropbox.listWork())[0]!;
+	assert.equal(work.name, unsafeName);
+	const claim = await harness.dropbox.claim(work);
+	assert.ok(claim);
+	await harness.dropbox.moveFailed(claim!, "invalid-filename");
+	assert.equal(await fs.readFile(path.join(harness.dropbox.paths.failedDir, claimName), "utf8"), "unsafe claim");
+	await assert.rejects(fs.access(path.join(harness.root, ".pi", "bebop", "escape.txt")));
+	await assert.rejects(fs.access(path.join(harness.root, "escape.txt")));
 });
 
 test("atomic claim is idempotent across concurrent claimers", async (t) => {
