@@ -49,6 +49,7 @@ import {
 	wireMembershipRuntime,
 } from "./pi/session-lifecycle-composition.ts";
 import { createInboxBridgeController } from "./pi/inbox-bridge-runtime.ts";
+import { createFilesystemCrewIntakeController } from "./application/filesystem-crew-intake.ts";
 import { createInterruptFlow } from "./application/interrupt-flow.ts";
 import { SESSION_MESSAGE_TYPE } from "./domain/index.ts";
 import { MemberRequestFlow } from "./application/member-request-flow.ts";
@@ -102,6 +103,13 @@ export default function (pi: ExtensionAPI) {
 	state.onInboxHint = () => {
 		void inboxBridge.attemptOffer();
 	};
+	const filesystemIntake = createFilesystemCrewIntakeController({
+		getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+		onAccepted: async () => {
+			await inboxBridge.attemptOffer();
+		},
+	});
 
 	const recoverInterrupts = async () => {
 		const context = state.context;
@@ -257,6 +265,7 @@ export default function (pi: ExtensionAPI) {
 			refreshPresence,
 			stopPresence,
 			inboxBridge,
+			filesystemIntake,
 		},
 		"crew",
 	);
@@ -265,6 +274,7 @@ export default function (pi: ExtensionAPI) {
 		refreshGuestAdmission: guestComposition.refreshAdmission,
 		ensureGuestMessagingTools: guestComposition.ensureMessagingTools,
 		inboxBridge,
+		filesystemIntake,
 		recoverInterrupts,
 		refreshPresence,
 		stopPresence,

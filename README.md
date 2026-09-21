@@ -93,6 +93,16 @@ pi --crew-role developer
 Then use `/crew members` inside Pi to see who's `current`, `online`, or `offline`.
 Bebop's agent tools are available only while the member is joined.
 
+### Local Crew Intake dropbox
+
+If `crew.json` configures an exact `intake.contact`, local automation can publish opaque text through the private:
+
+```text
+.pi/bebop/intake/new/
+```
+
+Write a `.draft` or temporary file first, then atomically rename it to one `.md` or `.txt` file. Any trusted joined Member of the exact Crew may ingest the file; the configured `intake.contact` controls only the durable Inbox recipient and delivery. Bebop scans immediately after membership activation and at lifecycle safe points, while filesystem events are only wake hints. Accepted files persist through the existing Inbox and arrive to the configured contact as an ordinary unverified external-intake Follow-up; delivery is not action. Private commit intents preserve the original target across a contact change or crash before receipt. Files remain in `processed/` or `failed/` for review, and the adapter never classifies content or delegates work. This is a local filesystem boundary, not a remote submission service.
+
 When a joined Pi session has no display name, Bebop names it with the exact trusted
 manifest Member name. Existing names from `--name`, `/name`, RPC, or another
 extension are preserved. Renaming the session manually immediately takes ownership;

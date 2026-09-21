@@ -228,6 +228,37 @@ test("online enqueue persists before typed wake and emits exactly one follow-up 
 	assert.equal(recipient.entries.filter((entry) => entry.type === "custom_message").length, 1);
 });
 
+test("filesystem Intake writes one unverified contact Follow-up and no hint turn", async (t) => {
+	const crew = await makeCrew();
+	const manifestWithIntake = {
+		version: 1,
+		members: crew.members.map((member) => ({ ...member })),
+		intake: { contact: "developer" },
+	};
+	await fs.writeFile(crew.manifestPath, JSON.stringify(manifestWithIntake));
+	const recipient = session(crew, "developer");
+	recipient.bridge.establish(ownershipFromMembership(recipient.membership));
+	const intake = createFilesystemCrewIntakeController({
+		getMembership: () => recipient.membership,
+		isProjectTrusted: () => true,
+		onAccepted: async () => {
+			await recipient.bridge.attemptOffer();
+		},
+		quiescenceMs: 0,
+	});
+	t.after(() => intake.close());
+	t.after(crew.cleanup);
+	await intake.scan();
+	await fs.writeFile(path.join(crew.root, ".pi", "bebop", "intake", "new", "outside.md"), "opaque outside context");
+	const result = await intake.scan();
+	assert.deepEqual(result, { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	assert.equal(recipient.sent.length, 1);
+	assert.deepEqual(recipient.sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
+	assert.match(String(recipient.sent[0]!.message.content), /^\[external intake\] from outside\.md \(unverified\)/);
+	assert.equal(recipient.entries.filter((entry) => entry.type === "custom_message").length, 1);
+	assert.equal(await (await storeFor(crew, "lead")).count(), 0);
+});
+
 test("hours-old Inbox retry keeps original enqueue age and exact header", async (t) => {
 	const crew = await makeCrew();
 	t.after(crew.cleanup);
@@ -435,6 +466,7 @@ test("spoofed origin is stored as attribution only; the handoff still reaches th
 });
 
 import { submitExternalIntake } from "../application/external-intake.ts";
+import { createFilesystemCrewIntakeController } from "../application/filesystem-crew-intake.ts";
 import { parseCrewManifest } from "../domain/index.ts";
 
 test("external intake persists for an offline contact and later hands off as a follow-up", async (t) => {

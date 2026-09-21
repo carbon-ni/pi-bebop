@@ -41,6 +41,7 @@ const rejectsCode = async (promise: Promise<unknown>, code: string, mustNotInclu
 interface Harness {
 	opened: Array<{ member: { name: string; socketPath: string } }>;
 	enqueued: Array<{ payload: unknown; now: number }>;
+	idempotent: Array<{ payload: unknown; now: number; id: string }>;
 	setManifest(value: CrewManifest): void;
 	setStoreError(error: unknown): void;
 	setEnqueueError(error: unknown): void;
@@ -49,12 +50,14 @@ interface Harness {
 function makeDeps(overrides: Partial<ExternalIntakeDependencies> = {}): Harness & { deps: ExternalIntakeDependencies } {
 	const opened: Array<{ member: { name: string; socketPath: string } }> = [];
 	const enqueued: Array<{ payload: unknown; now: number }> = [];
+	const idempotent: Array<{ payload: unknown; now: number; id: string }> = [];
 	let currentManifest = manifest;
 	let storeError: unknown;
 	let enqueueError: unknown;
 	const harness: Harness = {
 		opened,
 		enqueued,
+		idempotent,
 		setManifest(value) {
 			currentManifest = value;
 		},
@@ -76,6 +79,11 @@ function makeDeps(overrides: Partial<ExternalIntakeDependencies> = {}): Harness 
 					if (enqueueError !== undefined) throw enqueueError;
 					enqueued.push({ payload, now });
 					return { item: item("inbox-0-abc") };
+				},
+				enqueueWithId: async (payload, now, id) => {
+					if (enqueueError !== undefined) throw enqueueError;
+					idempotent.push({ payload, now, id });
+					return { item: item(id) };
 				},
 				peekOldest: async () => null,
 				list: async () => [],
@@ -120,6 +128,38 @@ describe("submitExternalIntake happy path", () => {
 			kind: "external intake",
 		});
 		assert.equal(harness.enqueued[0]!.now, 1234);
+	});
+
+	test("idempotency key uses the durable Inbox enqueueWithId path", async () => {
+		const harness = makeDeps();
+		const ack = await submitExternalIntake(
+			{
+				manifestPath: "/project/.pi/bebop/crew.json",
+				label: "dropbox.md",
+				content: "retry-safe",
+				idempotencyKey: "intake-stable-1",
+			},
+			harness.deps,
+		);
+		assert.equal(ack.itemId, "intake-stable-1");
+		assert.deepEqual(
+			harness.idempotent.map((entry) => entry.id),
+			["intake-stable-1"],
+		);
+		assert.equal(harness.enqueued.length, 0);
+	});
+
+	test("a stale generation guard aborts before the durable enqueue", async () => {
+		const harness = makeDeps({ beforeEnqueue: async () => false });
+		await rejectsCode(
+			submitExternalIntake(
+				{ manifestPath: "/project/.pi/bebop/crew.json", label: "stale.md", content: "do not persist" },
+				harness.deps,
+			),
+			"stale-generation",
+		);
+		assert.equal(harness.idempotent.length, 0);
+		assert.equal(harness.enqueued.length, 0);
 	});
 
 	test("ack and payload never carry a reply route or promised response", async () => {

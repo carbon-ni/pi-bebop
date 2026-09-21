@@ -34,7 +34,8 @@ export type ExternalIntakeErrorCode =
 	| "inbox-full"
 	| "inbox-untrusted"
 	| "storage-unavailable"
-	| "intake-storage-failed";
+	| "intake-storage-failed"
+	| "stale-generation";
 
 export class ExternalIntakeError extends Error {
 	readonly code: ExternalIntakeErrorCode;
@@ -51,6 +52,10 @@ export interface ExternalIntakeRequest {
 	readonly label: string;
 	readonly content: string;
 	readonly instructions?: readonly string[];
+	/** Stable adapter-owned id for crash-safe retries; absent for legacy callers. */
+	readonly idempotencyKey?: string;
+	/** Durable adapter-owned target for retries after a manifest contact change. */
+	readonly targetMember?: { readonly name: string; readonly role: string; readonly socketPath: string };
 }
 
 export interface ExternalIntakeDependencies {
@@ -62,6 +67,8 @@ export interface ExternalIntakeDependencies {
 		projectRoot: string;
 		member: { name: string; role: string; socketPath: string };
 	}): Promise<MemberInboxStore>;
+	/** Optional adapter guard immediately before the durable enqueue commit. */
+	beforeEnqueue?(): Promise<boolean>;
 	now?(): number;
 }
 
@@ -130,12 +137,17 @@ export async function submitExternalIntake(
 	}
 
 	const resolution = resolveIntakeContact(manifest);
-	if (!resolution.enabled)
+	if (!request.targetMember && !resolution.enabled)
 		throw new ExternalIntakeError(
 			"external-intake-disabled",
 			"external crew intake is disabled: the manifest has no configured crew contact",
 		);
-	const contact = resolution.contact;
+	const contact = request.targetMember ?? (resolution.enabled ? resolution.contact : undefined);
+	if (!contact)
+		throw new ExternalIntakeError(
+			"external-intake-disabled",
+			"external crew intake is disabled: the manifest has no configured crew contact",
+		);
 
 	let payload;
 	try {
@@ -160,16 +172,29 @@ export async function submitExternalIntake(
 		throw mapStoreOpenError(error);
 	}
 
-	let item;
+	let itemId: string;
 	try {
-		({ item } = await store.enqueue(payload, dependencies.now?.() ?? Date.now()));
+		if (dependencies.beforeEnqueue && !(await dependencies.beforeEnqueue()))
+			throw new ExternalIntakeError("stale-generation", "intake generation changed before persistence");
+		if (request.idempotencyKey !== undefined) {
+			const persisted = await store.enqueueWithId(
+				payload,
+				dependencies.now?.() ?? Date.now(),
+				request.idempotencyKey,
+			);
+			itemId = "alreadyPersisted" in persisted ? persisted.itemId : persisted.item.id;
+		} else {
+			const persisted = await store.enqueue(payload, dependencies.now?.() ?? Date.now());
+			itemId = persisted.item.id;
+		}
 	} catch (error) {
+		if (error instanceof ExternalIntakeError) throw error;
 		throw mapEnqueueError(error);
 	}
 
 	return {
 		ok: true,
-		itemId: item.id,
+		itemId,
 		persisted: true,
 		contact: contact.name,
 		contactRole: contact.role,

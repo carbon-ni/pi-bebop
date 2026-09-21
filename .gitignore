@@ -31,4 +31,7 @@ pnpm-debug.log*
 .yarn/
 .pnpm-store/
 *.tgz
+
+# Local Crew Intake messages and receipts
+.pi/bebop/intake/
 .bebop-build-*
