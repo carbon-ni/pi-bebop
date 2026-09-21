@@ -34,6 +34,7 @@ import {
 } from "./startup-send.ts";
 import { ownershipFromMembership } from "./inbox-bridge-runtime.ts";
 import type { InboxBridgeController } from "../application/inbox-bridge.ts";
+import type { FilesystemCrewIntakeController } from "../application/filesystem-crew-intake.ts";
 
 export const CREW_FLAG = "crew";
 export const CREW_SOCKET_FLAG = "crew-socket";
@@ -45,6 +46,7 @@ export interface SessionLifecycleDeps {
 	readonly refreshGuestAdmission: () => void;
 	readonly ensureGuestMessagingTools: () => void;
 	readonly inboxBridge: InboxBridgeController;
+	readonly filesystemIntake?: FilesystemCrewIntakeController;
 	readonly recoverInterrupts: () => Promise<void>;
 	readonly refreshPresence: () => Promise<void>;
 	readonly stopPresence: () => Promise<void>;
@@ -84,7 +86,7 @@ export function wireMembershipRuntime(state: SocketState): void {
  * only — every decision stays in the moved handler bodies, unchanged.
  */
 export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, deps: SessionLifecycleDeps): void {
-	const { inboxBridge, recoverInterrupts, syncSessionName } = deps;
+	const { inboxBridge, filesystemIntake, recoverInterrupts, syncSessionName } = deps;
 	const { persistMembership, announceMembership } = createMembershipRecording(pi);
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
@@ -210,6 +212,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 					`Crew joined ${membership.member.name} (${membership.member.role}) at ${membership.socketPath}`,
 				);
 				inboxBridge.establish(ownershipFromMembership(membership));
+				filesystemIntake?.syncMembership();
 				void inboxBridge.attemptOffer();
 				void recoverInterrupts();
 			} else {
@@ -238,6 +241,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 				if (membership) {
 					await syncSessionName(membership);
 					inboxBridge.establish(ownershipFromMembership(membership));
+					filesystemIntake?.syncMembership();
 					void inboxBridge.attemptOffer();
 					void recoverInterrupts();
 				}
@@ -265,6 +269,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 
 	pi.on("session_shutdown", async () => {
 		inboxBridge.invalidate();
+		filesystemIntake?.invalidate();
 		const context = state.context;
 		await releaseMembershipBeforeCleanup({
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
@@ -289,6 +294,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 
 	pi.on("turn_end", (event, ctx) => {
 		emitTurnEnd(state, event, ctx);
+		void filesystemIntake?.scan();
 		void inboxBridge.attemptOffer();
 	});
 

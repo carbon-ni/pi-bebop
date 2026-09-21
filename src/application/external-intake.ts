@@ -51,6 +51,8 @@ export interface ExternalIntakeRequest {
 	readonly label: string;
 	readonly content: string;
 	readonly instructions?: readonly string[];
+	/** Stable adapter-owned id for crash-safe retries; absent for legacy callers. */
+	readonly idempotencyKey?: string;
 }
 
 export interface ExternalIntakeDependencies {
@@ -160,16 +162,26 @@ export async function submitExternalIntake(
 		throw mapStoreOpenError(error);
 	}
 
-	let item;
+	let itemId: string;
 	try {
-		({ item } = await store.enqueue(payload, dependencies.now?.() ?? Date.now()));
+		if (request.idempotencyKey !== undefined) {
+			const persisted = await store.enqueueWithId(
+				payload,
+				dependencies.now?.() ?? Date.now(),
+				request.idempotencyKey,
+			);
+			itemId = "alreadyPersisted" in persisted ? persisted.itemId : persisted.item.id;
+		} else {
+			const persisted = await store.enqueue(payload, dependencies.now?.() ?? Date.now());
+			itemId = persisted.item.id;
+		}
 	} catch (error) {
 		throw mapEnqueueError(error);
 	}
 
 	return {
 		ok: true,
-		itemId: item.id,
+		itemId,
 		persisted: true,
 		contact: contact.name,
 		contactRole: contact.role,

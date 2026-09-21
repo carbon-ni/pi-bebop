@@ -16,6 +16,7 @@ import { deriveIntrayStatus, ensureControlServer, type SocketState } from "./con
 import { releaseMembershipBeforeCleanup } from "./membership-lifecycle.ts";
 import { formatInboxStatus, type InboxBridgeController } from "../application/inbox-bridge.ts";
 import { ownershipFromMembership } from "./inbox-bridge-runtime.ts";
+import type { FilesystemCrewIntakeController } from "../application/filesystem-crew-intake.ts";
 
 export type ControlCommandDeps = {
 	ensureControlServer?: typeof ensureControlServer;
@@ -32,6 +33,7 @@ export type ControlCommandDeps = {
 	refreshGuestAdmission?: () => void;
 	stopPresence?: () => void | Promise<void>;
 	inboxBridge?: InboxBridgeController | null;
+	filesystemIntake?: FilesystemCrewIntakeController;
 	guestMembershipRuntime?: GuestMembershipRuntime;
 	guestAdmissionRuntime?: GuestAdmissionRuntime;
 	guestIdentity?: () => string;
@@ -144,6 +146,7 @@ export function registerSessionControlCommand(
 					await deps.refreshPresence?.();
 					deps.announceMembership?.(joinedMessage);
 					deps.inboxBridge?.establish(ownershipFromMembership(result.membership));
+					deps.filesystemIntake?.syncMembership();
 					void deps.inboxBridge?.attemptOffer();
 					notify(ctx, joinedMessage);
 					return;
@@ -166,6 +169,7 @@ export function registerSessionControlCommand(
 							await deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
 							deps.inboxBridge?.invalidate();
+							deps.filesystemIntake?.invalidate();
 						}
 						notify(ctx, result.left ? "Crew membership released" : "Crew not joined");
 					}
@@ -267,6 +271,7 @@ export function registerSessionControlCommand(
 							await deps.stopPresence?.();
 							deps.announceMembership?.("Crew membership released");
 							deps.inboxBridge?.invalidate();
+							deps.filesystemIntake?.invalidate();
 						},
 						reportFailure: (message) => notify(ctx, message, "warning"),
 					});

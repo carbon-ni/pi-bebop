@@ -54,13 +54,14 @@ export function crewInitManagedPaths(): readonly string[] {
 	];
 }
 
-/** Deterministic `.gitignore`: runtime-owned sockets and private durable inbox only. */
+/** Deterministic `.gitignore`: runtime-owned sockets, Inbox, and Intake only. */
 export function crewInitGitignore(): string {
 	return [
-		"# Runtime-owned member endpoints and durable inbox (created by Bebop).",
+		"# Runtime-owned member endpoints, durable inbox, and local Intake (created by Bebop).",
 		"",
 		"sockets/",
 		"inbox/",
+		"intake/",
 		"",
 	].join(NEWLINE);
 }

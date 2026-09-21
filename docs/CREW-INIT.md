@@ -35,6 +35,10 @@ Defaults:
 │   ├── product.md
 │   ├── developer.md
 │   └── quality.md
+├── intake/
+│   ├── new/
+│   ├── processed/
+│   └── failed/
 └── sockets/
 ```
 
@@ -44,10 +48,10 @@ Defaults:
   `instructionsFile` values under `instructions/`; notifications enabled; exact
   Intake contact `product`. Review names, contact, common guidance, and role
   instructions before starting member processes.
-- `.gitignore` excludes runtime-owned `sockets/` and private durable `inbox/`.
-- Init creates empty `sockets/` for immediate discoverability but never creates
-  socket links, member processes, Inbox records, session state, Git commits, or
-  Pi trust decisions. Runtime creates `inbox/` only when needed.
+- `.gitignore` excludes runtime-owned `sockets/`, private durable `inbox/`, and the local Intake dropbox.
+- Init creates empty `sockets/` for immediate discoverability but never creates socket links, member processes, Inbox records, Intake messages, session state, Git commits, or Pi trust decisions. Runtime creates `inbox/` and `intake/{new,processed,failed}/` only when needed.
+- With an exact `intake.contact`, write `.draft` files in `intake/new/` and atomically rename them to `.md` or `.txt`. Intake transports opaque text to that contact's durable Inbox as an unverified Follow-up; delivery does not imply action, classification, or delegation. The boundary is local-only.
+- Crash recovery is monotonic: `new -> processing` claims are retried; an Inbox enqueue without a receipt is retried with the same idempotency key; a receipt without a final move is moved on the next scan; and a `processed` file is never enqueued again. Failed validation is durably recorded beside the retained file.
 
 ## Manual layout
 
@@ -81,7 +85,12 @@ or explicit join/rejoin (no hot reload; leave and rejoin to refresh):
 	"version": 2,
 	"commonInstructionsFile": "instructions/common.md",
 	"members": [
-		{ "name": "Bob", "role": "developer", "socket": "sockets/Bob.sock", "instructionsFile": "instructions/developer.md" }
+		{
+			"name": "Bob",
+			"role": "developer",
+			"socket": "sockets/Bob.sock",
+			"instructionsFile": "instructions/developer.md"
+		}
 	]
 }
 ```

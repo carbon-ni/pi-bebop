@@ -89,10 +89,11 @@ test("generated crew.json is LF-only and independent of locale, time, user, Git,
 	assert.ok(!/git|GIT/i.test(json), "must not depend on Git");
 });
 
-test("generated .gitignore excludes sockets and inbox only", () => {
+test("generated .gitignore excludes sockets, inbox, and local intake", () => {
 	const gitignore = crewInitGitignore();
 	assert.match(gitignore, /sockets\//);
 	assert.match(gitignore, /inbox\//);
+	assert.match(gitignore, /intake\//);
 	assert.ok(!gitignore.includes(".pi/bebop/crew.json"), "never ignores the manifest itself");
 });
 
