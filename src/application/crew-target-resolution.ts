@@ -214,9 +214,11 @@ function lexicalTrustedManifestPath(manifestPath: string, projectRoot: string): 
 	}
 }
 
-export function createCrewRouteResolutionDependencies(): CrewRouteResolutionDependencies {
+export function createCrewRouteResolutionDependencies(
+	isProjectTrusted: () => boolean = () => false,
+): CrewRouteResolutionDependencies {
 	return {
-		isProjectTrusted: () => true,
+		isProjectTrusted,
 		isTrustedManifestPath: isTrustedCanonicalManifestPath,
 		discoverLocators: async (projectRoot) =>
 			getTrustedCrewManifestPaths(projectRoot).map((locator) => ({ locator, availability: "unknown" as const })),
@@ -231,7 +233,7 @@ export function createCrewRouteResolutionDependencies(): CrewRouteResolutionDepe
 			const manifest = await readTrustedCrewManifestMetadata(
 				lexicalTrustedManifestPath(locator, projectRoot),
 				projectRoot,
-				() => true,
+				isProjectTrusted,
 			);
 			throwIfAborted(signal);
 			return manifest;
@@ -243,7 +245,10 @@ export function createCrewRouteResolutionDependencies(): CrewRouteResolutionDepe
 export function createCrewTargetResolver(
 	dependencies: Partial<CrewRouteResolutionDependencies> = {},
 ): (request: CrewRouteResolutionRequest) => Promise<ResolvedCrewRoute> {
-	const resolvedDependencies = { ...createCrewRouteResolutionDependencies(), ...dependencies };
+	const resolvedDependencies = {
+		...createCrewRouteResolutionDependencies(dependencies.isProjectTrusted),
+		...dependencies,
+	};
 	return (request) => resolveCrewTarget(request, resolvedDependencies);
 }
 
@@ -535,7 +540,10 @@ export async function resolveCrewTarget(
 	request: CrewRouteResolutionRequest,
 	dependencies: Partial<CrewRouteResolutionDependencies> = {},
 ): Promise<ResolvedCrewRoute> {
-	const deps = { ...createCrewRouteResolutionDependencies(), ...dependencies };
+	const deps = {
+		...createCrewRouteResolutionDependencies(dependencies.isProjectTrusted),
+		...dependencies,
+	};
 	const target = parseCrewTarget(request.target);
 	const caller = validateCaller(request, target);
 	const signal = request.signal ?? new AbortController().signal;

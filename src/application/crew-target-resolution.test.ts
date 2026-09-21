@@ -185,6 +185,32 @@ test("production composition resolves joined Member and approved Guest through a
 	}
 });
 
+test("factory fails closed without injected project trust before manifest or transport IO", async () => {
+	let manifests = 0;
+	let probes = 0;
+	const resolve = createCrewTargetResolver({
+		discoverLocators: async () => [{ locator: "/untrusted/project/.pi/bebop/crew.json" }],
+		readManifest: async () => {
+			manifests += 1;
+			return manifest();
+		},
+		probeCanonicalOwner: async () => {
+			probes += 1;
+			return { state: "online", owner: { selector: "alpha", member: "Mony", locator: LOCATOR } };
+		},
+	});
+	await rejectsCode(
+		resolve({
+			target: "alpha/Mony",
+			projectRoot: "/untrusted/project",
+			caller: caller({ crewLocator: "/untrusted/project/.pi/bebop/crew.json" }),
+		}),
+		"authorization-required",
+	);
+	assert.equal(manifests, 0);
+	assert.equal(probes, 0);
+});
+
 test("Crew target uses only manifest-authored contact and never role or first-member fallback", async () => {
 	const deps = dependencies({
 		readManifest: async () => manifest({ intake: { contact: "Mony" } }),
