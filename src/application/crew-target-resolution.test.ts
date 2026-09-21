@@ -3,6 +3,7 @@ import test from "node:test";
 import type { CrewManifest } from "../domain/index.ts";
 import {
 	CrewRouteResolutionError,
+	compareStable,
 	publicCrewRoute,
 	resolveCrewTarget,
 	type CanonicalOwnerObservation,
@@ -144,6 +145,28 @@ test("unknown and ambiguous selectors do not probe transport", async () => {
 	const error = await rejectsCode(resolveCrewTarget(request("alpha/Mony"), ambiguous), "ambiguous-crew");
 	assert.deepEqual(error.candidateLocators, ["/project/.pi/bebop/crew.json", "/project/.pi/crew/crew.json"]);
 	assert.deepEqual(ambiguous.probes, []);
+});
+
+test("trusted layout rejects traversal and symlink escapes before manifest IO", async () => {
+	let reads = 0;
+	const deps = dependencies({
+		readManifest: async () => {
+			reads += 1;
+			return manifest();
+		},
+	});
+	await rejectsCode(
+		resolveCrewTarget(request("alpha/Mony", { locator: "/project/.pi/bebop/../crew.json" }), deps),
+		"authorization-required",
+	);
+	await rejectsCode(
+		resolveCrewTarget(
+			request("alpha/Mony", { locator: LOCATOR }),
+			dependencies({ realpath: async () => "/outside/crew.json", readManifest: async () => manifest() }),
+		),
+		"authorization-required",
+	);
+	assert.equal(reads, 0);
 });
 
 test("Locator-only and cross-Crew callers cannot gain routing authority", async () => {
@@ -298,6 +321,112 @@ test("discovery has a separate bounded deadline and never probes after timeout",
 	const error = await rejectsCode(resolveCrewTarget(request("alpha/Mony"), deps), "discovery-timeout");
 	assert.equal(error.stage, "discovery");
 	assert.deepEqual(deps.probes, []);
+});
+
+test("discovery deadline covers manifest IO and cancels downstream work", async () => {
+	let reads = 0;
+	const deps = dependencies({
+		realpath: async () => await new Promise<never>(() => undefined),
+		readManifest: async () => {
+			reads += 1;
+			return manifest();
+		},
+	});
+	await rejectsCode(resolveCrewTarget(request("alpha/Mony"), deps), "discovery-timeout");
+	assert.equal(reads, 0);
+	assert.deepEqual(deps.probes, []);
+});
+
+test("cancellation during candidate IO stops before manifest and probe work", async () => {
+	const controller = new AbortController();
+	let reads = 0;
+	const deps = dependencies({
+		realpath: async (_locator, signal) => {
+			signal?.addEventListener("abort", () => undefined);
+			controller.abort();
+			return LOCATOR;
+		},
+		readManifest: async () => {
+			reads += 1;
+			return manifest();
+		},
+	});
+	await rejectsCode(resolveCrewTarget(request("alpha/Mony", { signal: controller.signal }), deps), "cancelled");
+	assert.equal(reads, 0);
+	assert.deepEqual(deps.probes, []);
+});
+
+test("pre-probe cancellation never starts the canonical probe", async () => {
+	const controller = new AbortController();
+	const deps = dependencies({
+		readManifest: async () => {
+			controller.abort();
+			return manifest();
+		},
+	});
+	await rejectsCode(resolveCrewTarget(request("alpha/Mony", { signal: controller.signal }), deps), "cancelled");
+	assert.deepEqual(deps.probes, []);
+});
+
+test("cancellation during canonical probing stops before revalidation", async () => {
+	const controller = new AbortController();
+	const deps = dependencies({
+		probeCanonicalOwner: async () => {
+			controller.abort();
+			return { state: "online", owner: { selector: "alpha", member: "Mony", locator: LOCATOR } };
+		},
+		revalidateRoute: async () => {
+			throw new Error("must not revalidate");
+		},
+	});
+	await rejectsCode(resolveCrewTarget(request("alpha/Mony", { signal: controller.signal }), deps), "cancelled");
+	assert.deepEqual(deps.probes, [ENDPOINT]);
+});
+
+test("revalidation is bounded and cancellable", async () => {
+	const timeout = dependencies({ revalidateRoute: async () => await new Promise<never>(() => undefined) });
+	await rejectsCode(resolveCrewTarget(request("alpha/Mony"), timeout), "route-lost");
+
+	const controller = new AbortController();
+	const cancelled = dependencies({
+		revalidateRoute: async (_endpoint, _expected, signal) => {
+			controller.abort();
+			await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+			return false;
+		},
+	});
+	await rejectsCode(resolveCrewTarget(request("alpha/Mony", { signal: controller.signal }), cancelled), "cancelled");
+});
+
+test("canonical aliases are deduplicated and ambiguous candidates expose bounded metadata", async () => {
+	let reads = 0;
+	const aliases = dependencies({
+		discoverLocators: async () => [{ locator: LOCATOR }, { locator: "/project/.pi/crew/crew.json" }],
+		realpath: async () => LOCATOR,
+		readManifest: async () => {
+			reads += 1;
+			return manifest();
+		},
+	});
+	await resolveCrewTarget(request("alpha/Mony"), aliases);
+	assert.equal(reads, 1);
+
+	const locators = Array.from({ length: 25 }, (_, index) => `/project/.pi/bebop/crew-${index}.json`);
+	const many = dependencies({
+		isTrustedManifestPath: () => true,
+		discoverLocators: async () => locators.map((locator) => ({ locator })),
+		realpath: async (locator) => locator,
+	});
+	const error = await rejectsCode(resolveCrewTarget(request("alpha/Mony"), many), "ambiguous-crew");
+	assert.equal(error.totalCandidates, 26);
+	assert.equal(error.shownCandidates, 20);
+	assert.equal(error.truncatedCandidates, true);
+});
+
+test("stable candidate ordering is locale-independent", () => {
+	assert.equal(compareStable("z", "ä"), -1);
+	assert.equal(compareStable("ä", "z"), 1);
+	assert.equal(compareStable("same", "same"), 0);
 });
 
 test("cancellation stops before discovery and reports the phase", async () => {

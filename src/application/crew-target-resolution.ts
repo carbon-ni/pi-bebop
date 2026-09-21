@@ -125,6 +125,7 @@ export type CanonicalOwnerObservation =
 
 export interface CrewRouteResolutionDependencies {
 	readonly isProjectTrusted: () => boolean;
+	readonly isTrustedManifestPath?: (manifestPath: string, projectRoot: string) => boolean;
 	readonly discoverLocators: (
 		projectRoot: string,
 		signal?: AbortSignal,
@@ -217,26 +218,33 @@ function abortError(target: CrewTarget): CrewRouteResolutionError {
 	);
 }
 
+/** Bounds the complete discovery phase, including canonicalization and manifest reads. */
 async function withDiscoveryDeadline<T>(
 	operation: (signal: AbortSignal) => Promise<T>,
 	target: CrewTarget,
 	parentSignal: AbortSignal,
 ): Promise<T> {
+	if (parentSignal.aborted) throw abortError(target);
 	const controller = new AbortController();
 	const onParentAbort = () => controller.abort(parentSignal.reason);
-	if (parentSignal.aborted) onParentAbort();
-	else parentSignal.addEventListener("abort", onParentAbort, { once: true });
+	parentSignal.addEventListener("abort", onParentAbort, { once: true });
 	return await new Promise<T>((resolve, reject) => {
 		let settled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
 		const finish = (callback: () => void) => {
 			if (settled) return;
 			settled = true;
-			clearTimeout(timer);
+			if (timer !== undefined) clearTimeout(timer);
 			parentSignal.removeEventListener("abort", onParentAbort);
 			parentSignal.removeEventListener("abort", onAbort);
 			callback();
 		};
-		const timer = setTimeout(() => {
+		const onAbort = () => {
+			controller.abort(parentSignal.reason);
+			finish(() => reject(abortError(target)));
+		};
+		parentSignal.addEventListener("abort", onAbort, { once: true });
+		timer = setTimeout(() => {
 			controller.abort(new Error("Crew discovery timeout"));
 			finish(() =>
 				reject(
@@ -250,31 +258,35 @@ async function withDiscoveryDeadline<T>(
 				),
 			);
 		}, CREW_ROUTE_DISCOVERY_TIMEOUT_MS);
-		const onAbort = () => {
-			controller.abort(parentSignal.reason);
-			finish(() => reject(abortError(target)));
-		};
-		parentSignal.addEventListener("abort", onAbort, { once: true });
-		void operation(controller.signal).then(
-			(value) => finish(() => resolve(value)),
-			(error) => finish(() => reject(error)),
-		);
+		void Promise.resolve()
+			.then(() => {
+				if (controller.signal.aborted) throw abortError(target);
+				return operation(controller.signal);
+			})
+			.then(
+				(value) => finish(() => resolve(value)),
+				(error) => finish(() => reject(error)),
+			);
 	});
 }
 
+/** Bounds the canonical owner probe and aborts the underlying transport operation. */
 async function withProbeDeadline(
 	operation: (signal: AbortSignal) => Promise<CanonicalOwnerObservation>,
 	target: CrewTarget,
 	parentSignal: AbortSignal,
 ): Promise<CanonicalOwnerObservation> {
+	if (parentSignal.aborted) throw abortError(target);
 	const controller = new AbortController();
 	const onAbort = () => controller.abort(parentSignal.reason);
-	if (parentSignal.aborted) onAbort();
-	else parentSignal.addEventListener("abort", onAbort, { once: true });
+	parentSignal.addEventListener("abort", onAbort, { once: true });
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		const result = await Promise.race([
-			operation(controller.signal),
+			Promise.resolve().then(() => {
+				if (controller.signal.aborted) throw abortError(target);
+				return operation(controller.signal);
+			}),
 			new Promise<CanonicalOwnerObservation>((resolve) => {
 				timer = setTimeout(() => {
 					controller.abort(new Error("canonical route probe timeout"));
@@ -291,10 +303,56 @@ async function withProbeDeadline(
 	}
 }
 
+/** Bounds the post-probe route revalidation used to close mutation races. */
+async function withRevalidationDeadline(
+	operation: (signal: AbortSignal) => Promise<boolean>,
+	target: CrewTarget,
+	parentSignal: AbortSignal,
+): Promise<boolean> {
+	if (parentSignal.aborted) throw abortError(target);
+	const controller = new AbortController();
+	const onAbort = () => controller.abort(parentSignal.reason);
+	parentSignal.addEventListener("abort", onAbort, { once: true });
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const result = await Promise.race([
+			Promise.resolve().then(() => {
+				if (controller.signal.aborted) throw abortError(target);
+				return operation(controller.signal);
+			}),
+			new Promise<boolean>((resolve) => {
+				timer = setTimeout(() => {
+					controller.abort(new Error("route revalidation timeout"));
+					resolve(false);
+				}, CREW_ROUTE_PROBE_TIMEOUT_MS);
+			}),
+		]);
+		if (parentSignal.aborted) throw abortError(target);
+		return result;
+	} catch {
+		if (parentSignal.aborted) throw abortError(target);
+		return false;
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+		parentSignal.removeEventListener("abort", onAbort);
+		controller.abort();
+	}
+}
+
+function hasTraversal(locator: string): boolean {
+	return locator.split(/[\\/]+/).includes("..");
+}
+
+export function compareStable(a: string, b: string): number {
+	return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function canonicalCandidates(locators: readonly string[], projectRoot: string): string[] {
-	return [...new Set(locators.map((locator) => path.resolve(projectRoot, locator)))].sort((a, b) =>
-		a.localeCompare(b),
-	);
+	return [
+		...new Set(
+			locators.filter((locator) => !hasTraversal(locator)).map((locator) => path.resolve(projectRoot, locator)),
+		),
+	].sort(compareStable);
 }
 
 function validateCaller(
@@ -413,75 +471,107 @@ export async function resolveCrewTarget(
 			"Use the current joined Member or approved Guest route for this Crew.",
 		);
 
-	const discovered = request.locator
-		? [{ locator: request.locator }]
-		: await withDiscoveryDeadline(
-				(discoverySignal) => deps.discoverLocators(request.projectRoot, discoverySignal),
-				target,
-				signal,
-			);
-	const candidateInputs = request.locator ? discovered : [...discovered, { locator: caller.crewLocator }];
-	const availabilityByLocator = new Map<string, CrewRouteLocatorCandidate["availability"]>();
-	for (const candidate of candidateInputs) {
-		const locator = path.resolve(candidate.locator);
-		if (candidate.availability !== undefined || !availabilityByLocator.has(locator))
-			availabilityByLocator.set(locator, candidate.availability);
-	}
-	const candidates = canonicalCandidates(
-		candidateInputs.map((candidate) => candidate.locator),
-		request.projectRoot,
-	);
-	const trustedCandidates = candidates.filter((locator) => isTrustedCrewManifestPath(locator, request.projectRoot));
-	if (trustedCandidates.length === 0)
+	if (request.locator && hasTraversal(request.locator))
 		throw resolutionError(
-			request.locator ? "authorization-required" : "unknown-crew",
+			"authorization-required",
 			target,
-			request.locator
-				? `Crew Locator is outside the trusted project for '${productTarget(target)}'`
-				: `Unknown Crew '${target.selector}'`,
-			request.locator
-				? "Use the canonical trusted Crew Locator from the current project."
-				: "Run `bebop crew list` and use an exact Crew selector.",
+			`Crew Locator is outside the trusted project for '${productTarget(target)}'`,
+			"Use the canonical trusted Crew Locator from the current project.",
 		);
+	const matching = await withDiscoveryDeadline(
+		async (discoverySignal) => {
+			const discovered = request.locator
+				? [{ locator: request.locator }]
+				: await deps.discoverLocators(request.projectRoot, discoverySignal);
+			const candidateInputs = request.locator ? discovered : [...discovered, { locator: caller.crewLocator }];
+			const availabilityByLocator = new Map<string, CrewRouteLocatorCandidate["availability"]>();
+			for (const candidate of candidateInputs) {
+				const locator = path.resolve(candidate.locator);
+				if (candidate.availability !== undefined || !availabilityByLocator.has(locator))
+					availabilityByLocator.set(locator, candidate.availability);
+			}
+			const candidates = canonicalCandidates(
+				candidateInputs.map((candidate) => candidate.locator),
+				request.projectRoot,
+			);
+			const isTrustedManifestPath = deps.isTrustedManifestPath ?? isTrustedCrewManifestPath;
+			const trustedCandidates = candidates.filter((locator) =>
+				isTrustedManifestPath(locator, request.projectRoot),
+			);
+			if (trustedCandidates.length === 0)
+				throw resolutionError(
+					request.locator ? "authorization-required" : "unknown-crew",
+					target,
+					request.locator
+						? `Crew Locator is outside the trusted project for '${productTarget(target)}'`
+						: `Unknown Crew '${target.selector}'`,
+					request.locator
+						? "Use the canonical trusted Crew Locator from the current project."
+						: "Run `bebop crew list` and use an exact Crew selector.",
+				);
 
-	const matching: Array<{
-		locator: string;
-		manifest: CrewManifest;
-		availability?: CrewRouteLocatorCandidate["availability"];
-	}> = [];
-	let invalidCount = 0;
-	for (const locator of trustedCandidates) {
-		if (signal.aborted) throw abortError(target);
-		let canonical: string;
-		try {
-			canonical = await deps.realpath(locator);
-		} catch {
-			continue;
-		}
-		if (!isTrustedCrewManifestPath(canonical, request.projectRoot)) continue;
-		try {
-			const manifest = await deps.readManifest(canonical, request.projectRoot);
-			if (manifest.crew?.id === target.selector)
-				matching.push({ locator: canonical, manifest, availability: availabilityByLocator.get(locator) });
-		} catch {
-			invalidCount += 1;
-		}
-	}
-	if (matching.length === 0) {
-		if (invalidCount > 0)
-			throw resolutionError(
-				"invalid-manifest",
-				target,
-				`Crew '${target.selector}' could not be read from a valid manifest`,
-				"Repair the trusted Crew manifest and retry.",
-			);
-		throw resolutionError(
-			"unknown-crew",
-			target,
-			`Unknown Crew '${target.selector}'`,
-			"Run `bebop crew list` and use an exact Crew selector.",
-		);
-	}
+			const matching: Array<{
+				locator: string;
+				manifest: CrewManifest;
+				availability?: CrewRouteLocatorCandidate["availability"];
+			}> = [];
+			const canonicalSeen = new Set<string>();
+			let invalidCount = 0;
+			let escapedCount = 0;
+			for (const locator of trustedCandidates) {
+				if (discoverySignal.aborted) throw abortError(target);
+				let canonical: string;
+				try {
+					canonical = await deps.realpath(locator);
+				} catch {
+					continue;
+				}
+				if (discoverySignal.aborted) throw abortError(target);
+				if (canonicalSeen.has(canonical)) continue;
+				canonicalSeen.add(canonical);
+				if (!isTrustedManifestPath(canonical, request.projectRoot)) {
+					escapedCount += 1;
+					continue;
+				}
+				try {
+					const manifest = await deps.readManifest(canonical, request.projectRoot);
+					if (manifest.crew?.id === target.selector)
+						matching.push({
+							locator: canonical,
+							manifest,
+							availability: availabilityByLocator.get(locator),
+						});
+				} catch {
+					invalidCount += 1;
+				}
+			}
+			if (matching.length === 0) {
+				if (request.locator && escapedCount > 0)
+					throw resolutionError(
+						"authorization-required",
+						target,
+						`Crew Locator is outside the trusted project for '${productTarget(target)}'`,
+						"Use the canonical trusted Crew Locator from the current project.",
+					);
+				if (invalidCount > 0)
+					throw resolutionError(
+						"invalid-manifest",
+						target,
+						`Crew '${target.selector}' could not be read from a valid manifest`,
+						"Repair the trusted Crew manifest and retry.",
+					);
+				throw resolutionError(
+					"unknown-crew",
+					target,
+					`Unknown Crew '${target.selector}'`,
+					"Run `bebop crew list` and use an exact Crew selector.",
+				);
+			}
+			return matching;
+		},
+		target,
+		signal,
+	);
 	if (!request.locator && matching.length > 1) {
 		const shown = matching.map(({ locator }) => locator).slice(0, MAX_AMBIGUOUS_LOCATORS);
 		throw resolutionError(
@@ -521,6 +611,7 @@ export async function resolveCrewTarget(
 			`Choose another exact Member in Crew '${target.selector}'.`,
 		);
 	const expected = { selector: target.selector, member: member.name, locator: selected.locator } as const;
+	if (signal.aborted) throw abortError(target);
 	let owner: CanonicalOwnerObservation;
 	try {
 		owner = await withProbeDeadline(
@@ -566,7 +657,14 @@ export async function resolveCrewTarget(
 			"Do not guess a runtime; repair the Crew endpoint and retry.",
 			{ safeRetry: false },
 		);
-	if (deps.revalidateRoute && !(await deps.revalidateRoute(member.socketPath, expected, signal)))
+	if (
+		deps.revalidateRoute &&
+		!(await withRevalidationDeadline(
+			(revalidateSignal) => deps.revalidateRoute!(member.socketPath, expected, revalidateSignal),
+			target,
+			signal,
+		))
+	)
 		throw resolutionError(
 			"route-lost",
 			target,
