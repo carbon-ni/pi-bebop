@@ -22,6 +22,7 @@ import type {
 	SendResult,
 	InterruptResult,
 	MemberStatusResult,
+	StatusResult,
 	MemberRequestResult,
 	GuestJoinResult,
 } from "./protocol-types.ts";
@@ -166,6 +167,9 @@ export function isInterruptResult(value: unknown): value is InterruptResult {
 }
 export function isMemberStatusResult(value: unknown): value is MemberStatusResult {
 	return Value.Check(MemberStatusResultSchema, value);
+}
+export function isStatusResult(value: unknown): value is StatusResult {
+	return Value.Check(StatusResultSchema, value);
 }
 export function isMemberRequestResult(value: unknown): value is MemberRequestResult {
 	return Value.Check(MemberRequestResultSchema, value);
