@@ -1,7 +1,7 @@
 ---
 id: TASK-0216
 title: Add a filesystem Crew Intake dropbox
-status: in-progress
+status: done
 depends_on: []
 priority: high
 tags: [crew, intake, inbox, filesystem, follow-up, durability, security, tdd]
