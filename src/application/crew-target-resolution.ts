@@ -1,5 +1,7 @@
+import { realpathSync } from "node:fs";
 import * as path from "node:path";
-import type { CrewManifest, CrewMember } from "../domain/index.ts";
+import { isStatusResult, type CrewManifest, type CrewMember } from "../domain/index.ts";
+import { sendRpcCommand, RpcProtocolError } from "../infra/rpc-client.ts";
 import { getTrustedCrewManifestPaths, isTrustedCrewManifestPath } from "../infra/crew-layout.ts";
 import { readTrustedCrewManifestMetadata } from "../infra/crew-manifest-store.ts";
 
@@ -130,8 +132,8 @@ export interface CrewRouteResolutionDependencies {
 		projectRoot: string,
 		signal?: AbortSignal,
 	) => Promise<readonly CrewRouteLocatorCandidate[]>;
-	readonly realpath: (locator: string) => Promise<string>;
-	readonly readManifest: (locator: string, projectRoot: string) => Promise<CrewManifest>;
+	readonly realpath: (locator: string, signal?: AbortSignal) => Promise<string>;
+	readonly readManifest: (locator: string, projectRoot: string, signal?: AbortSignal) => Promise<CrewManifest>;
 	readonly probeCanonicalOwner: (
 		endpoint: string,
 		expected: { readonly selector: string; readonly member: string; readonly locator: string },
@@ -151,15 +153,98 @@ export const MAX_AMBIGUOUS_LOCATORS = 20;
 const SELECTOR_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_TARGET_BYTES = 256;
 
-function defaultDependencies(): CrewRouteResolutionDependencies {
+function throwIfAborted(signal?: AbortSignal): void {
+	if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("Operation aborted");
+}
+
+async function probeCanonicalOwner(
+	endpoint: string,
+	expected: { readonly selector: string; readonly member: string; readonly locator: string },
+	signal?: AbortSignal,
+): Promise<CanonicalOwnerObservation> {
+	throwIfAborted(signal);
+	try {
+		const { response } = await sendRpcCommand(
+			endpoint,
+			{ type: "status" },
+			{ timeout: CREW_ROUTE_PROBE_TIMEOUT_MS, signal },
+		);
+		throwIfAborted(signal);
+		if (!response.success || !isStatusResult(response.data)) return { state: "malformed" };
+		if (response.data.status === "stopped") return { state: "offline" };
+		if (response.data.projectTrusted !== true || !response.data.crewLocator) return { state: "conflict" };
+		if (!sameCanonicalPath(response.data.crewLocator, expected.locator)) return { state: "conflict" };
+		return { state: "online", owner: expected };
+	} catch (error) {
+		throwIfAborted(signal);
+		if (error instanceof RpcProtocolError && ["malformed-response", "invalid-result"].includes(error.code))
+			return { state: "malformed" };
+		return { state: "offline" };
+	}
+}
+
+function isTrustedCanonicalManifestPath(manifestPath: string, projectRoot: string): boolean {
+	if (isTrustedCrewManifestPath(manifestPath, projectRoot)) return true;
+	try {
+		return getTrustedCrewManifestPaths(realpathSync(projectRoot)).includes(path.resolve(manifestPath));
+	} catch {
+		return false;
+	}
+}
+
+function sameCanonicalPath(left: string, right: string): boolean {
+	if (path.resolve(left) === path.resolve(right)) return true;
+	try {
+		return realpathSync(left) === realpathSync(right);
+	} catch {
+		return false;
+	}
+}
+
+function lexicalTrustedManifestPath(manifestPath: string, projectRoot: string): string {
+	if (isTrustedCrewManifestPath(manifestPath, projectRoot)) return manifestPath;
+	try {
+		const canonical = path.resolve(manifestPath);
+		return (
+			getTrustedCrewManifestPaths(projectRoot).find((candidate) => realpathSync(candidate) === canonical) ??
+			manifestPath
+		);
+	} catch {
+		return manifestPath;
+	}
+}
+
+export function createCrewRouteResolutionDependencies(): CrewRouteResolutionDependencies {
 	return {
 		isProjectTrusted: () => true,
+		isTrustedManifestPath: isTrustedCanonicalManifestPath,
 		discoverLocators: async (projectRoot) =>
 			getTrustedCrewManifestPaths(projectRoot).map((locator) => ({ locator, availability: "unknown" as const })),
-		realpath: async (locator) => (await import("node:fs/promises")).realpath(locator),
-		readManifest: (locator, projectRoot) => readTrustedCrewManifestMetadata(locator, projectRoot, () => true),
-		probeCanonicalOwner: async () => ({ state: "offline" }),
+		realpath: async (locator, signal) => {
+			throwIfAborted(signal);
+			const resolved = await (await import("node:fs/promises")).realpath(locator);
+			throwIfAborted(signal);
+			return resolved;
+		},
+		readManifest: async (locator, projectRoot, signal) => {
+			throwIfAborted(signal);
+			const manifest = await readTrustedCrewManifestMetadata(
+				lexicalTrustedManifestPath(locator, projectRoot),
+				projectRoot,
+				() => true,
+			);
+			throwIfAborted(signal);
+			return manifest;
+		},
+		probeCanonicalOwner,
 	};
+}
+
+export function createCrewTargetResolver(
+	dependencies: Partial<CrewRouteResolutionDependencies> = {},
+): (request: CrewRouteResolutionRequest) => Promise<ResolvedCrewRoute> {
+	const resolvedDependencies = { ...createCrewRouteResolutionDependencies(), ...dependencies };
+	return (request) => resolveCrewTarget(request, resolvedDependencies);
 }
 
 function targetLabel(target: CrewTarget): string {
@@ -170,29 +255,28 @@ function productTarget(target: CrewTarget): string {
 	return targetLabel(target);
 }
 
+function invalidTargetError(
+	recovery = "Run `bebop crew list` and use an exact Crew selector.",
+): CrewRouteResolutionError {
+	return new CrewRouteResolutionError("unknown-crew", "Invalid Crew target", {
+		target: "<invalid-target>",
+		recovery,
+	});
+}
+
 export function parseCrewTarget(input: string | CrewTarget): CrewTarget {
 	if (typeof input !== "string") {
 		if (!SELECTOR_PATTERN.test(input.selector) || input.member === "" || input.member?.includes("/"))
-			throw new CrewRouteResolutionError("unknown-crew", "Invalid Crew target", {
-				target: String(input.selector),
-				recovery: "Run `bebop crew list` and use an exact Crew selector.",
-			});
+			throw invalidTargetError();
 		return { selector: input.selector, ...(input.member === undefined ? {} : { member: input.member }) };
 	}
 	if (Buffer.byteLength(input, "utf8") > MAX_TARGET_BYTES || input !== input.trim() || input.length === 0) {
-		throw new CrewRouteResolutionError("unknown-crew", "Crew target must be a trimmed non-empty value", {
-			target: input,
-			recovery: "Run `bebop crew list` and use an exact Crew selector.",
-		});
+		throw invalidTargetError();
 	}
 	const slash = input.indexOf("/");
 	const selector = slash < 0 ? input : input.slice(0, slash);
 	const member = slash < 0 ? undefined : input.slice(slash + 1);
-	if (!SELECTOR_PATTERN.test(selector) || member === "")
-		throw new CrewRouteResolutionError("unknown-crew", `Unknown Crew target '${input}'`, {
-			target: input,
-			recovery: "Run `bebop crew list` and use an exact Crew selector.",
-		});
+	if (!SELECTOR_PATTERN.test(selector) || member === "") throw invalidTargetError();
 	return { selector, ...(member === undefined ? {} : { member }) };
 }
 
@@ -451,7 +535,7 @@ export async function resolveCrewTarget(
 	request: CrewRouteResolutionRequest,
 	dependencies: Partial<CrewRouteResolutionDependencies> = {},
 ): Promise<ResolvedCrewRoute> {
-	const deps = { ...defaultDependencies(), ...dependencies };
+	const deps = { ...createCrewRouteResolutionDependencies(), ...dependencies };
 	const target = parseCrewTarget(request.target);
 	const caller = validateCaller(request, target);
 	const signal = request.signal ?? new AbortController().signal;
@@ -478,8 +562,20 @@ export async function resolveCrewTarget(
 			`Crew Locator is outside the trusted project for '${productTarget(target)}'`,
 			"Use the canonical trusted Crew Locator from the current project.",
 		);
-	const matching = await withDiscoveryDeadline(
+	const resolution = await withDiscoveryDeadline(
 		async (discoverySignal) => {
+			let canonicalCallerLocator: string;
+			try {
+				canonicalCallerLocator = await deps.realpath(caller.crewLocator, discoverySignal);
+			} catch {
+				if (discoverySignal.aborted) throw abortError(target);
+				throw resolutionError(
+					"authorization-required",
+					target,
+					`The current route does not own Crew '${target.selector}'`,
+					"Use the current joined Member or approved Guest route for this Crew.",
+				);
+			}
 			const discovered = request.locator
 				? [{ locator: request.locator }]
 				: await deps.discoverLocators(request.projectRoot, discoverySignal);
@@ -522,8 +618,9 @@ export async function resolveCrewTarget(
 				if (discoverySignal.aborted) throw abortError(target);
 				let canonical: string;
 				try {
-					canonical = await deps.realpath(locator);
+					canonical = await deps.realpath(locator, discoverySignal);
 				} catch {
+					if (discoverySignal.aborted) throw abortError(target);
 					continue;
 				}
 				if (discoverySignal.aborted) throw abortError(target);
@@ -534,7 +631,7 @@ export async function resolveCrewTarget(
 					continue;
 				}
 				try {
-					const manifest = await deps.readManifest(canonical, request.projectRoot);
+					const manifest = await deps.readManifest(canonical, request.projectRoot, discoverySignal);
 					if (manifest.crew?.id === target.selector)
 						matching.push({
 							locator: canonical,
@@ -542,6 +639,7 @@ export async function resolveCrewTarget(
 							availability: availabilityByLocator.get(locator),
 						});
 				} catch {
+					if (discoverySignal.aborted) throw abortError(target);
 					invalidCount += 1;
 				}
 			}
@@ -567,11 +665,12 @@ export async function resolveCrewTarget(
 					"Run `bebop crew list` and use an exact Crew selector.",
 				);
 			}
-			return matching;
+			return { matching, canonicalCallerLocator };
 		},
 		target,
 		signal,
 	);
+	const { matching, canonicalCallerLocator } = resolution;
 	if (!request.locator && matching.length > 1) {
 		const shown = matching.map(({ locator }) => locator).slice(0, MAX_AMBIGUOUS_LOCATORS);
 		throw resolutionError(
@@ -595,7 +694,7 @@ export async function resolveCrewTarget(
 			`Crew '${target.selector}' is offline`,
 			"Retry later; no delivery was attempted.",
 		);
-	if (selected.locator !== path.resolve(caller.crewLocator))
+	if (selected.locator !== canonicalCallerLocator)
 		throw resolutionError(
 			"authorization-required",
 			target,
@@ -688,4 +787,31 @@ export function publicCrewRoute(route: ResolvedCrewRoute): {
 	readonly caller: ResolvedCrewRoute["caller"];
 } {
 	return { target: route.target, caller: route.caller };
+}
+
+export interface PublicCrewRouteError {
+	readonly code: CrewRouteResolutionErrorCode;
+	readonly stage: CrewRouteResolutionStage;
+	readonly target: string;
+	readonly recovery: string;
+	readonly safeRetry: boolean;
+	readonly candidateLocators?: readonly string[];
+	readonly totalCandidates?: number;
+	readonly shownCandidates?: number;
+	readonly truncatedCandidates?: boolean;
+}
+
+/** Safe product projection for CLI/text/TOON/JSON error output. */
+export function publicCrewRouteError(error: CrewRouteResolutionError): PublicCrewRouteError {
+	return {
+		code: error.code,
+		stage: error.stage,
+		target: error.target,
+		recovery: error.recovery,
+		safeRetry: error.safeRetry,
+		...(error.candidateLocators === undefined ? {} : { candidateLocators: error.candidateLocators }),
+		...(error.totalCandidates === undefined ? {} : { totalCandidates: error.totalCandidates }),
+		...(error.shownCandidates === undefined ? {} : { shownCandidates: error.shownCandidates }),
+		...(error.truncatedCandidates === undefined ? {} : { truncatedCandidates: error.truncatedCandidates }),
+	};
 }

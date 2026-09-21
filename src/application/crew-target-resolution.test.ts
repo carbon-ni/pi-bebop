@@ -1,10 +1,16 @@
+import { promises as fs } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CrewManifest } from "../domain/index.ts";
+import { closeRpcServer, createRpcServer, writeResponse } from "../infra/rpc-server.ts";
 import {
 	CrewRouteResolutionError,
 	compareStable,
+	createCrewTargetResolver,
 	publicCrewRoute,
+	publicCrewRouteError,
 	resolveCrewTarget,
 	type CanonicalOwnerObservation,
 	type CrewRouteResolutionDependencies,
@@ -111,6 +117,72 @@ test("resolves an exact Member target through the canonical endpoint and keeps p
 	});
 	assert.equal(JSON.stringify(publicCrewRoute(route)).includes("socket"), false);
 	assert.deepEqual(deps.probes, [ENDPOINT]);
+});
+
+test("production composition resolves joined Member and approved Guest through a real endpoint owner", async () => {
+	const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "crew-target-resolution-"));
+	const manifestPath = path.join(projectRoot, ".pi", "bebop", "crew.json");
+	const endpoint = path.join(projectRoot, ".pi", "bebop", "sockets", "Mony.sock");
+	await fs.mkdir(path.dirname(endpoint), { recursive: true });
+	await fs.writeFile(
+		manifestPath,
+		JSON.stringify({
+			version: 2,
+			crew: { id: "alpha", displayName: "Alpha Crew" },
+			members: [
+				{ name: "Mony", role: "lead", socket: "sockets/Mony.sock" },
+				{ name: "Kelly", role: "qa", socket: "sockets/Kelly.sock" },
+			],
+			presence: { notifications: true },
+			intake: { contact: "Mony" },
+		}),
+	);
+	const server = await createRpcServer(endpoint, (command, socket) => {
+		if (command.type !== "status") return;
+		writeResponse(socket, {
+			type: "response",
+			command: "status",
+			success: true,
+			id: command.id,
+			data: { status: "joined", crewLocator: manifestPath, projectTrusted: true },
+		});
+	});
+	try {
+		const resolve = createCrewTargetResolver({ isProjectTrusted: () => true });
+		const memberRoute = await resolve({
+			target: "alpha/Mony",
+			projectRoot,
+			caller: {
+				kind: "member",
+				crewSelector: "alpha",
+				crewLocator: manifestPath,
+				memberName: "Kelly",
+				role: "qa",
+				trusted: true,
+			},
+		});
+		assert.deepEqual(publicCrewRoute(memberRoute), {
+			target: { crew: { selector: "alpha", displayName: "Alpha Crew" }, member: { name: "Mony", role: "lead" } },
+			caller: { kind: "member", identity: "Kelly" },
+		});
+		const guestRoute = await resolve({
+			target: "alpha/Mony",
+			projectRoot,
+			caller: {
+				kind: "guest",
+				crewSelector: "alpha",
+				crewLocator: manifestPath,
+				guestIdentity: "guest-1",
+				guestName: "Ada",
+				approved: true,
+				capabilities: ["member-request"],
+			},
+		});
+		assert.deepEqual(publicCrewRoute(guestRoute).caller, { kind: "guest", identity: "Ada" });
+	} finally {
+		await closeRpcServer(server);
+		await fs.rm(projectRoot, { recursive: true, force: true });
+	}
 });
 
 test("Crew target uses only manifest-authored contact and never role or first-member fallback", async () => {
@@ -325,8 +397,14 @@ test("discovery has a separate bounded deadline and never probes after timeout",
 
 test("discovery deadline covers manifest IO and cancels downstream work", async () => {
 	let reads = 0;
+	let observedSignal: AbortSignal | undefined;
 	const deps = dependencies({
-		realpath: async () => await new Promise<never>(() => undefined),
+		// Node's realpath syscall cannot be interrupted, but the resolver settles at
+		// the deadline and does not start any subsequent manifest or probe work.
+		realpath: async (_locator, signal) => {
+			observedSignal = signal;
+			return await new Promise<never>(() => undefined);
+		},
 		readManifest: async () => {
 			reads += 1;
 			return manifest();
@@ -335,6 +413,7 @@ test("discovery deadline covers manifest IO and cancels downstream work", async 
 	await rejectsCode(resolveCrewTarget(request("alpha/Mony"), deps), "discovery-timeout");
 	assert.equal(reads, 0);
 	assert.deepEqual(deps.probes, []);
+	assert.equal(observedSignal?.aborted, true);
 });
 
 test("cancellation during candidate IO stops before manifest and probe work", async () => {
@@ -421,6 +500,24 @@ test("canonical aliases are deduplicated and ambiguous candidates expose bounded
 	assert.equal(error.totalCandidates, 26);
 	assert.equal(error.shownCandidates, 20);
 	assert.equal(error.truncatedCandidates, true);
+});
+
+test("public projections redact transport, capability, request, and private error details", async () => {
+	const route = await resolveCrewTarget(request("alpha/Mony"), dependencies());
+	const routeJson = JSON.stringify(publicCrewRoute(route));
+	assert.equal(/socket|endpoint|locator|capabilit|request|session|path/i.test(routeJson), false);
+
+	const error = await rejectsCode(
+		resolveCrewTarget(
+			request("alpha/Mony", { locator: LOCATOR }),
+			dependencies({ realpath: async () => "/private/session/socket.sock" }),
+		),
+		"authorization-required",
+	);
+	const errorJson = JSON.stringify(publicCrewRouteError(error));
+	assert.equal(errorJson.includes("/private/session/socket.sock"), false);
+	assert.equal(errorJson.includes("raw transport"), false);
+	assert.equal(Object.hasOwn(JSON.parse(errorJson), "message"), false);
 });
 
 test("stable candidate ordering is locale-independent", () => {

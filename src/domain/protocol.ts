@@ -257,6 +257,7 @@ export {
 	isSendResult,
 	isInterruptResult,
 	isMemberStatusResult,
+	isStatusResult,
 	isMemberRequestResult,
 	isGuestJoinResult,
 	isMemberIdleWaitSubscribeResult,
