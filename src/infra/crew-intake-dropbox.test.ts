@@ -83,6 +83,7 @@ test("rejects malformed filenames and distinguishes safe names", () => {
 	assert.equal(isSafeCrewIntakeFilename("message.md\n"), false);
 	assert.equal(isSafeCrewIntakeFilename("../message.md"), false);
 	assert.equal(isSafeCrewIntakeFilename("message.exe"), true);
+	assert.equal(isSafeCrewIntakeFilename(`${"a".repeat(160)}.md`), false);
 });
 
 test("quiescence rejects a file mutated during the publication window", async (t) => {

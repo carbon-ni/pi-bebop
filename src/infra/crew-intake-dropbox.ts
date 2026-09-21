@@ -19,7 +19,8 @@ export const MAX_CREW_INTAKE_ENUMERATION_ENTRIES = MAX_CREW_INTAKE_FILES_PER_SCA
 export const CREW_INTAKE_QUIESCENCE_MS = 25;
 const CLAIM_PREFIX = ".processing-";
 const LOCK_FILE_NAME = ".scan.lock";
-const MAX_FILENAME_BYTES = 256;
+// Claims include a base64url copy of the source name; keep the encoded claim below NAME_MAX.
+const MAX_FILENAME_BYTES = 160;
 const MAX_FAILURE_REASON_BYTES = 256;
 const STALE_LOCK_MS = 10 * 60 * 1000;
 
