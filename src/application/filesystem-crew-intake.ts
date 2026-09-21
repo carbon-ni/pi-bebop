@@ -42,7 +42,7 @@ export interface FilesystemCrewIntakeController {
 	syncMembership(): void;
 	invalidate(): void;
 	scan(): Promise<FilesystemCrewIntakeScanResult>;
-	close(): void;
+	close(): Promise<void>;
 }
 
 type Active = {
@@ -110,6 +110,21 @@ export function createFilesystemCrewIntakeController(
 	let watchRequested = false;
 	let inactiveReason: "external-intake-disabled" = "external-intake-disabled";
 	let scanTail: Promise<unknown> = Promise.resolve();
+	let closed = false;
+	const pending = new Set<Promise<unknown>>();
+
+	const track = <T>(promise: Promise<T>): Promise<T> => {
+		pending.add(promise);
+		void promise.then(
+			() => pending.delete(promise),
+			() => pending.delete(promise),
+		);
+		return promise;
+	};
+
+	const waitForPending = async (): Promise<void> => {
+		while (pending.size > 0) await Promise.allSettled([...pending]);
+	};
 
 	const report = (error: unknown): void => dependencies.onError?.(errorCode(error));
 	const closeWatcher = (): void => {
@@ -381,24 +396,32 @@ export function createFilesystemCrewIntakeController(
 	};
 
 	const scan = (): Promise<FilesystemCrewIntakeScanResult> => {
+		if (closed) return Promise.resolve({ state: "skipped", reason: "not-joined" });
 		const run = scanTail.then(scanUnlocked, scanUnlocked);
 		scanTail = run.then(
 			() => undefined,
 			() => undefined,
 		);
-		return run;
+		return track(run);
 	};
 
 	const syncMembership = (): void => {
+		if (closed) return;
 		watchRequested = true;
 		resetActive();
-		void ensureActive()
-			.then((current) => {
-				if (current) void scan();
-			})
-			.catch(report);
+		track(
+			ensureActive().then((current) => {
+				if (current && !closed) return scan();
+			}),
+		).catch(report);
 	};
-	const close = (): void => invalidate();
+	const close = async (): Promise<void> => {
+		if (!closed) {
+			closed = true;
+			invalidate();
+		}
+		await waitForPending();
+	};
 
 	return { syncMembership, invalidate, scan, close };
 }

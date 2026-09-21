@@ -230,7 +230,6 @@ test("online enqueue persists before typed wake and emits exactly one follow-up 
 
 test("filesystem Intake writes one unverified contact Follow-up and no hint turn", async (t) => {
 	const crew = await makeCrew();
-	t.after(crew.cleanup);
 	const manifestWithIntake = {
 		version: 1,
 		members: crew.members.map((member) => ({ ...member })),
@@ -248,6 +247,7 @@ test("filesystem Intake writes one unverified contact Follow-up and no hint turn
 		quiescenceMs: 0,
 	});
 	t.after(() => intake.close());
+	t.after(crew.cleanup);
 	await intake.scan();
 	await fs.writeFile(path.join(crew.root, ".pi", "bebop", "intake", "new", "outside.md"), "opaque outside context");
 	const result = await intake.scan();

@@ -71,9 +71,9 @@ async function storeFor(harness: Awaited<ReturnType<typeof fixture>>, member = h
 
 test("filesystem intake resolves the exact contact, persists, and retains processed evidence", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	const intake = controllerFor(harness);
 	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
 	await intake.controller.scan();
 	const newDir = path.join(harness.layout, "intake", "new");
 	await fs.writeFile(path.join(newDir, "2026-09-20-login.md"), "opaque external context\nwithout classification");
@@ -91,9 +91,9 @@ test("filesystem intake resolves the exact contact, persists, and retains proces
 
 test("restart after enqueue before receipt moves one item without duplicating Inbox state", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	const intake = controllerFor(harness);
 	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
 	await intake.controller.scan();
 	const source = path.join(harness.layout, "intake", "new", "crash.md");
 	await fs.writeFile(source, "crash window");
@@ -127,7 +127,6 @@ test("restart after enqueue before receipt moves one item without duplicating In
 
 test("a manifest change after the Inbox commit retains one old-contact commit and moves on restart", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	let mutated = false;
 	const intake = createFilesystemCrewIntakeController({
 		getMembership: () => harness.membership,
@@ -159,6 +158,7 @@ test("a manifest change after the Inbox commit retains one old-contact commit an
 		},
 	});
 	t.after(() => intake.close());
+	t.after(harness.cleanup);
 	await intake.scan();
 	await fs.writeFile(path.join(harness.layout, "intake", "new", "commit.md"), "commit point");
 	assert.deepEqual(await intake.scan(), { state: "scanned", accepted: 0, failed: 0, remaining: 1 });
@@ -178,7 +178,6 @@ test("a manifest change after the Inbox commit retains one old-contact commit an
 
 test("restart after enqueue without receipt preserves the original contact across a manifest change", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	let crashed = false;
 	const first = createFilesystemCrewIntakeController({
 		getMembership: () => harness.membership,
@@ -226,6 +225,7 @@ test("restart after enqueue without receipt preserves the original contact acros
 	};
 	const restarted = controllerFor(harness, bobMembership);
 	t.after(() => restarted.controller.close());
+	t.after(harness.cleanup);
 	assert.deepEqual(await restarted.controller.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
 	assert.equal(await (await storeFor(harness)).count(), 1);
 	assert.equal(await (await storeFor(harness, bobMembership.member)).count(), 0);
@@ -237,9 +237,9 @@ test("restart after enqueue without receipt preserves the original contact acros
 
 test("restart after receipt before move reuses the receipt without a duplicate", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	const intake = controllerFor(harness);
 	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
 	await intake.controller.scan();
 	await fs.writeFile(path.join(harness.layout, "intake", "new", "receipt.md"), "receipt window");
 	const dropbox = createCrewIntakeDropbox({
@@ -272,7 +272,6 @@ test("restart after receipt before move reuses the receipt without a duplicate",
 
 test("membership generation changes before persistence requeue without Inbox writes", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	let current: typeof harness.membership | null = harness.membership;
 	let loads = 0;
 	const intake = createFilesystemCrewIntakeController({
@@ -286,6 +285,7 @@ test("membership generation changes before persistence requeue without Inbox wri
 		},
 	});
 	t.after(() => intake.close());
+	t.after(harness.cleanup);
 	await intake.scan();
 	await fs.writeFile(path.join(harness.layout, "intake", "new", "stale.md"), "must retry");
 	assert.deepEqual(await intake.scan(), { state: "scanned", accepted: 0, failed: 0, remaining: 1 });
@@ -295,9 +295,9 @@ test("membership generation changes before persistence requeue without Inbox wri
 
 test("membership sync activates the watcher and scans immediately", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	const intake = controllerFor(harness);
 	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
 	await fs.mkdir(path.join(harness.layout, "intake", "new"), { recursive: true, mode: 0o700 });
 	await fs.writeFile(path.join(harness.layout, "intake", "new", "startup.md"), "startup context");
 	intake.controller.syncMembership();
@@ -315,15 +315,54 @@ test("membership sync activates the watcher and scans immediately", async (t) =>
 	assert.equal(intake.accepted, 1);
 });
 
+test("close awaits an in-flight startup scan before filesystem teardown", async (t) => {
+	const harness = await fixture();
+	let openedResolve!: () => void;
+	const opened = new Promise<void>((resolve) => {
+		openedResolve = resolve;
+	});
+	let releaseResolve!: () => void;
+	const release = new Promise<void>((resolve) => {
+		releaseResolve = resolve;
+	});
+	const intake = createFilesystemCrewIntakeController({
+		getMembership: () => harness.membership,
+		isProjectTrusted: () => true,
+		externalIntake: {
+			openStore: async (options) => {
+				openedResolve();
+				await release;
+				return openTrustedMemberInboxStore({ ...options, isProjectTrusted: () => true });
+			},
+		},
+		quiescenceMs: 0,
+	});
+	t.after(() => intake.close());
+	t.after(harness.cleanup);
+	await fs.mkdir(path.join(harness.layout, "intake", "new"), { recursive: true, mode: 0o700 });
+	await fs.writeFile(path.join(harness.layout, "intake", "new", "shutdown.md"), "shutdown context");
+	intake.syncMembership();
+	await opened;
+	let closed = false;
+	const closing = intake.close().then(() => {
+		closed = true;
+	});
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(closed, false);
+	releaseResolve();
+	await closing;
+	await harness.cleanup();
+});
+
 test("any trusted joined member persists intake for the exact offline contact", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	const bob = {
 		manifestPath: harness.manifestPath,
 		member: { name: "Bob", role: "dev", socketPath: path.join(harness.layout, "sockets", "Bob.sock") },
 	};
 	const intake = controllerFor(harness, bob);
 	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
 	await intake.controller.scan();
 	await fs.writeFile(path.join(harness.layout, "intake", "new", "later.txt"), "wait for Mary");
 	assert.deepEqual(await intake.controller.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
@@ -339,9 +378,9 @@ test("any trusted joined member persists intake for the exact offline contact", 
 
 test("manifest contact changes invalidate the active intake owner", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	const intake = controllerFor(harness);
 	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
 	await intake.controller.scan();
 	await fs.writeFile(path.join(harness.layout, "intake", "new", "later.md"), "wait for the new contact");
 	await fs.writeFile(
@@ -369,9 +408,9 @@ test("manifest contact changes invalidate the active intake owner", async (t) =>
 
 test("invalid UTF-8 is retained in failed with a bounded reason", async (t) => {
 	const harness = await fixture();
-	t.after(harness.cleanup);
 	const intake = controllerFor(harness);
 	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
 	await fs.mkdir(path.join(harness.layout, "intake", "new"), { recursive: true, mode: 0o700 });
 	await fs.writeFile(path.join(harness.layout, "intake", "new", "broken.txt"), Buffer.from([0xc3, 0x28]));
 	const result = await intake.controller.scan();

@@ -269,7 +269,7 @@ export function registerSessionLifecycle(pi: ExtensionAPI, state: SocketState, d
 
 	pi.on("session_shutdown", async () => {
 		inboxBridge.invalidate();
-		filesystemIntake?.invalidate();
+		await filesystemIntake?.close();
 		const context = state.context;
 		await releaseMembershipBeforeCleanup({
 			hasMembership: Boolean(state.membershipRuntime?.getMembership()),
