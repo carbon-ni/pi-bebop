@@ -111,8 +111,10 @@ python3 skills/crew-creator/scripts/crew_intake_smoke.py stop --run-dir "$RUN"
 # python3 skills/crew-creator/scripts/crew_intake_smoke.py stop --run-dir "$RUN" --remove
 ```
 
-The harness reports file, pane, socket, and process evidence only. A processed
-file, live socket, idle pane, or transcript never proves that a Member read,
+`start` returns only after every requested Member has a live titled pane and an
+exact Unix-socket claim; startup errors or a deadline failure retain bounded
+`failure.json` evidence and terminate the run session. The harness reports
+file, pane, socket, and process evidence only. A processed file, live socket, idle pane, or transcript never proves that a Member read,
 understood, acted on, or completed the Intake. If preflight fails, inspect the
 reported executable/version and use a fresh run directory; if a pane dies,
 `status` and `capture` preserve bounded evidence before `stop`. Run

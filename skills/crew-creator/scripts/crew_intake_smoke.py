@@ -317,25 +317,61 @@ def control_command(run_dir: Path) -> str:
     return "bash -lc " + shlex.quote(f"printf %s {shlex.quote(message)}; exec bash --noprofile --norc")
 
 
+def validate_manifest_paths(manifest: Mapping[str, Any], manifest_path: Path) -> None:
+    """Mirror production's namespace checks for manifest-relative paths."""
+    root = manifest_path.parent
+    instructions_root = (root / "instructions").resolve()
+    sockets_root = (root / "sockets").resolve()
+
+    def require_under(value: Any, namespace: Path, field: str) -> None:
+        if not isinstance(value, str) or not value or Path(value).is_absolute():
+            raise HarnessError(f"{field} must be a non-empty relative path")
+        resolved = (root / value).resolve()
+        try:
+            resolved.relative_to(namespace)
+        except ValueError as error:
+            raise HarnessError(f"{field} must remain under {namespace.name}") from error
+
+    require_under(manifest.get("commonInstructionsFile"), instructions_root, "commonInstructionsFile")
+    members = manifest.get("members")
+    if not isinstance(members, list) or not members:
+        raise HarnessError("members must be a non-empty array")
+    names: set[str] = set()
+    sockets: set[str] = set()
+    for member in members:
+        if not isinstance(member, Mapping):
+            raise HarnessError("member must be an object")
+        name = member.get("name")
+        if not isinstance(name, str) or not name or name in names:
+            raise HarnessError("member names must be non-empty and unique")
+        names.add(name)
+        socket = member.get("socket")
+        require_under(socket, sockets_root, "member socket")
+        if socket in sockets:
+            raise HarnessError("member socket paths must be unique")
+        sockets.add(socket)
+        require_under(member.get("instructionsFile"), instructions_root, "member instructionsFile")
+
+
 def build_manifest() -> dict[str, Any]:
     return {
         "version": 2,
-        "commonInstructionsFile": ".pi/bebop/instructions/common.md",
+        "commonInstructionsFile": "instructions/common.md",
         "presence": {"notifications": False},
         "intake": {"contact": "Contact"},
         "members": [
             {
                 "name": "Contact",
                 "role": "Contact",
-                "socket": ".pi/bebop/sockets/contact.sock",
-                "instructionsFile": ".pi/bebop/instructions/contact.md",
+                "socket": "sockets/contact.sock",
+                "instructionsFile": "instructions/contact.md",
                 "description": "Receives external Crew Intake for triage.",
             },
             {
                 "name": "Peer",
                 "role": "Peer",
-                "socket": ".pi/bebop/sockets/peer.sock",
-                "instructionsFile": ".pi/bebop/instructions/peer.md",
+                "socket": "sockets/peer.sock",
+                "instructionsFile": "instructions/peer.md",
                 "description": "Second member used to prove exact-contact routing.",
             },
         ],
@@ -362,7 +398,9 @@ def prepare_project(run_dir: Path) -> dict[str, Path]:
     (instructions / "contact.md").write_text(contact, encoding="utf-8")
     (instructions / "peer.md").write_text(peer, encoding="utf-8")
     manifest = bebop / "crew.json"
-    atomic_json(manifest, build_manifest())
+    manifest_value = build_manifest()
+    validate_manifest_paths(manifest_value, manifest)
+    atomic_json(manifest, manifest_value)
     return {
         "project": project,
         "manifest": manifest,
@@ -501,6 +539,7 @@ def create_run(args: argparse.Namespace, adapter: CommandAdapter) -> dict[str, A
         tmux_command(adapter, tmux, ["set-option", "-t", session, "remain-on-exit", "on"], check=True)
         tmux_command(adapter, tmux, ["select-layout", "-t", session, "tiled"], check=True)
         atomic_json(run_dir / "state.json", run_state)
+        wait_for_members_ready(run_dir, order, args.timeout_ms, adapter)
         return run_state
     except BaseException as error:
         # The exact session is the only process boundary this harness created.
@@ -560,7 +599,15 @@ def attach_role(run_dir: Path, role: str, adapter: CommandAdapter) -> dict[str, 
     tmux_command(adapter, tmux, ["select-pane", "-t", pane, "-T", role], check=True)
     state["members"][role] = {"role": role, "paneId": pane, "sessionDir": str(session_dir), "command": command, "startedAt": utc_now()}
     atomic_json(run_dir / "state.json", state)
+    wait_for_members_ready(run_dir, [role], int(state["timeoutMs"]), adapter)
     return {"status": "attached", "role": role, "paneId": pane}
+
+
+def socket_claimed(path: Path, adapter: CommandAdapter) -> bool:
+    test_claims = getattr(adapter, "claimed_sockets", None)
+    if test_claims is not None:
+        return str(path) in test_claims
+    return path.exists() and stat.S_ISSOCK(path.stat().st_mode)
 
 
 def observe(run_dir: Path, adapter: CommandAdapter) -> dict[str, Any]:
@@ -574,7 +621,7 @@ def observe(run_dir: Path, adapter: CommandAdapter) -> dict[str, Any]:
         "runDirectory": str(run_dir),
         "tmuxSession": session,
         "panes": panes,
-        "members": {role: {"paneId": value.get("paneId"), "socket": str(Path(state["project"]) / ".pi" / "bebop" / "sockets" / f"{role.lower()}.sock"), "socketExists": (Path(state["project"]) / ".pi" / "bebop" / "sockets" / f"{role.lower()}.sock").exists()} for role, value in state.get("members", {}).items()},
+        "members": {role: {"paneId": value.get("paneId"), "socket": str(Path(state["project"]) / ".pi" / "bebop" / "sockets" / f"{role.lower()}.sock"), "socketExists": socket_claimed(Path(state["project"]) / ".pi" / "bebop" / "sockets" / f"{role.lower()}.sock", adapter)} for role, value in state.get("members", {}).items()},
         "intakeFiles": {
             "new": list_children(intake / "new"),
             "processed": list_children(intake / "processed"),
@@ -583,6 +630,40 @@ def observe(run_dir: Path, adapter: CommandAdapter) -> dict[str, Any]:
         "evidencePaths": {"state": str(run_dir / "state.json"), "captureDirectory": str(run_dir / "captures")},
         "note": "Presence, pane state, and file state are transport evidence; they do not prove a message was read, acted on, or completed.",
     }
+
+
+STARTUP_ERROR_MARKERS = ("crew startup role join failed", "startup role join failed", "error: failed to join")
+
+
+def capture_pane_tail(adapter: CommandAdapter, tmux: str, pane_id: str) -> str:
+    result = tmux_command(adapter, tmux, ["capture-pane", "-p", "-t", pane_id, "-S", "-200"])
+    return result.stdout if result.returncode == 0 else ""
+
+
+def wait_for_members_ready(run_dir: Path, roles: Sequence[str], timeout_ms: int, adapter: CommandAdapter) -> dict[str, Any]:
+    state = load_state(run_dir)
+    tmux = adapter.executable("tmux") or "tmux"
+    deadline = time.monotonic() + timeout_ms / 1000
+    while True:
+        observation = observe(run_dir, adapter)
+        rows = {row["paneId"]: row for row in observation["panes"]}
+        missing: list[str] = []
+        for role in roles:
+            member = observation["members"].get(role, {})
+            pane = rows.get(member.get("paneId"))
+            pane_text = capture_pane_tail(adapter, tmux, str(member.get("paneId", ""))).lower()
+            if any(marker in pane_text for marker in STARTUP_ERROR_MARKERS):
+                raise HarnessError(f"{role} startup reported a role-join error")
+            socket_path = Path(str(member.get("socket", "")))
+            socket_ready = socket_claimed(socket_path, adapter)
+            if not socket_ready or pane is None or pane["dead"]:
+                missing.append(role)
+        if not missing:
+            return observation
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise HarnessError(f"startup readiness timeout; missing socket claims or live panes: {', '.join(missing)}")
+        time.sleep(min(0.1, remaining))
 
 
 def wait_for(run_dir: Path, kind: str, timeout_ms: int, adapter: CommandAdapter) -> dict[str, Any]:
