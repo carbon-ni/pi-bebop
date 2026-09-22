@@ -16,6 +16,8 @@ class FakeAdapter:
         self.calls: list[tuple[list[str], Path | None]] = []
         self.panes = 0
         self.sessions: set[str] = set()
+        self.capture_text = "bounded pane evidence\n"
+        self.fail_command: str | None = None
         self.exes = {"pi": "/fake/pi", "tmux": "/fake/tmux"}
 
     def executable(self, name: str) -> str | None:
@@ -25,6 +27,8 @@ class FakeAdapter:
         command = list(argv)
         self.calls.append((command, cwd))
         args = command[1:]
+        if self.fail_command and args and args[0] == self.fail_command:
+            return harness.CommandResult(1, "", "simulated command failure")
         if args == ["-V"]:
             return harness.CommandResult(0, self.tmux_version + "\n", "")
         if args and args[0] == "has-session":
@@ -38,7 +42,7 @@ class FakeAdapter:
             rows = [f"%{index}\t{title}\t123\t0\tpi" for index, title in enumerate(("Contact", "Peer", "Control / evidence"), start=1)]
             return harness.CommandResult(0, "\n".join(rows) + "\n", "")
         if args and args[0] == "capture-pane":
-            return harness.CommandResult(0, "bounded pane evidence\n", "")
+            return harness.CommandResult(0, self.capture_text, "")
         if args and args[0] == "kill-session":
             self.sessions.discard(args[-1])
             return harness.CommandResult(0, "", "")
@@ -127,14 +131,32 @@ class IntakeHarnessTests(unittest.TestCase):
         with self.assertRaises(harness.HarnessError):
             harness.wait_for(Path(state["runDirectory"]), "processed", 1, self.adapter)
 
-    def test_capture_is_bounded_and_redacts_sensitive_config_keys(self) -> None:
+    def test_capture_is_bounded_and_redacts_sensitive_config_keys_and_text(self) -> None:
         state = harness.create_run(self.options(), self.adapter)
         state["apiKey"] = "do-not-capture"
         harness.atomic_json(Path(state["runDirectory"]) / "state.json", state)
+        self.adapter.capture_text = "keep this prose Authorization: Bearer super-secret-token-12345 token=plain-secret sk-live_123456789\n"
         result = harness.capture(Path(state["runDirectory"]), self.adapter, 128)
         evidence = json.loads((Path(result["directory"]) / "evidence.json").read_text())
+        pane_text = (Path(result["directory"]) / "contact.txt").read_text()
         self.assertEqual(evidence["state"]["apiKey"], "<redacted>")
+        self.assertNotIn("super-secret-token-12345", pane_text)
+        self.assertNotIn("plain-secret", pane_text)
+        self.assertNotIn("sk-live_123456789", pane_text)
+        self.assertIn("keep this prose", pane_text)
         self.assertLessEqual(evidence["panes"]["Contact"]["bytes"], 128)
+
+    def test_partial_start_writes_bounded_failure_evidence_and_kills_session(self) -> None:
+        self.adapter.fail_command = "split-window"
+        run_dir = self.root / "failed-run"
+        with self.assertRaises(harness.HarnessError):
+            harness.create_run(self.options(run_dir=str(run_dir), session_name="failed-session"), self.adapter)
+        failure = json.loads((run_dir / "failure.json").read_text())
+        self.assertEqual(failure["status"], "startup-failure")
+        self.assertEqual(failure["cleanup"], "tmux-session-terminated")
+        self.assertEqual(failure["membersStarted"], ["Contact"])
+        self.assertFalse(self.adapter.sessions)
+        self.assertNotIn("simulated command failure", failure)
 
     def test_stop_is_idempotent_and_removes_only_when_requested(self) -> None:
         state = harness.create_run(self.options(), self.adapter)

@@ -33,6 +33,13 @@ THINKING_LEVELS = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SAFE_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}\.(?:md|txt)$")
 SENSITIVE_KEY = re.compile(r"(?:token|secret|password|credential|api.?key)", re.I)
+TEXT_SECRET_PATTERNS = (
+    re.compile(r"(?i)(\bauthorization\s*[:=]\s*(?:bearer|basic)\s+)[^\s,;]+"),
+    re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{8,}"),
+    re.compile(r"(?i)(\b(?:api[-_ ]?key|x-api-key|access[-_ ]?token|refresh[-_ ]?token|secret|token)\s*[:=]\s*)[^\s,;\"'`\)\]}]+"),
+    re.compile(r"(?i)([?&](?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|token)=)[^&#\s]+"),
+    re.compile(r"(?i)\b(?:sk|rk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b"),
+)
 
 
 class HarnessError(Exception):
@@ -172,6 +179,14 @@ def redact(value: Any) -> Any:
     return value
 
 
+def redact_text(value: str) -> str:
+    """Redact high-confidence credential forms while preserving transcript prose."""
+    redacted = value
+    for pattern in TEXT_SECRET_PATTERNS:
+        redacted = pattern.sub(lambda match: f"{match.group(1) if match.lastindex else ''}<redacted>", redacted)
+    return redacted
+
+
 def list_children(directory: Path) -> list[str]:
     try:
         return sorted(entry.name for entry in directory.iterdir())
@@ -269,6 +284,33 @@ def role_command(
     ]
 
 
+def record_start_failure(run_dir: Path, session: str, adapter: CommandAdapter, tmux: str, error: BaseException, members: Sequence[str]) -> None:
+    cleanup = "not-started"
+    try:
+        if tmux_has_session(adapter, tmux, session):
+            tmux_command(adapter, tmux, ["kill-session", "-t", session])
+            cleanup = "tmux-session-terminated"
+        else:
+            cleanup = "no-tmux-session"
+        atomic_json(
+            run_dir / "failure.json",
+            {
+                "schemaVersion": 1,
+                "status": "startup-failure",
+                "failedAt": utc_now(),
+                "runDirectory": str(run_dir),
+                "tmuxSession": session,
+                "cleanup": cleanup,
+                "membersStarted": list(members),
+                "errorType": type(error).__name__,
+                "evidenceBounded": True,
+            },
+        )
+    except BaseException:
+        # A partial run without bounded evidence must not remain discoverable.
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
 def control_command(run_dir: Path) -> str:
     message = f"Crew Intake control surface\nRun: {run_dir}\nUse: status/capture/stop from another shell.\n"
     return "bash -lc " + shlex.quote(f"printf %s {shlex.quote(message)}; exec bash --noprofile --norc")
@@ -346,8 +388,13 @@ def create_run(args: argparse.Namespace, adapter: CommandAdapter) -> dict[str, A
         run_dir.chmod(0o700)
     session = args.session_name or f"bebop-intake-{uuid.uuid4().hex[:12]}"
     if tmux_has_session(adapter, tmux, session):
+        shutil.rmtree(run_dir, ignore_errors=True)
         raise HarnessError(f"tmux session already exists: {session}")
-    paths = prepare_project(run_dir)
+    try:
+        paths = prepare_project(run_dir)
+    except BaseException:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        raise
     extension = Path(args.extension).expanduser().resolve()
     session_dirs = {role: run_dir / "sessions" / role.lower() for role in ("Contact", "Peer")}
     for directory in session_dirs.values():
@@ -401,7 +448,10 @@ def create_run(args: argparse.Namespace, adapter: CommandAdapter) -> dict[str, A
                     ["split-window", "-h", "-t", panes[order[0]], "-c", str(paths["project"]), "-P", "-F", "#{pane_id}", rendered],
                     check=True,
                 )
-            pane = result.stdout.strip().splitlines()[-1].strip()
+            if result.returncode != 0:
+                raise HarnessError(f"tmux failed while starting {role}")
+            lines = result.stdout.strip().splitlines()
+            pane = lines[-1].strip() if lines else ""
             if not pane:
                 raise HarnessError(f"tmux did not return a pane id for {role}")
             panes[role] = pane
@@ -419,17 +469,21 @@ def create_run(args: argparse.Namespace, adapter: CommandAdapter) -> dict[str, A
             ["split-window", "-v", "-t", panes[order[0]], "-c", str(paths["project"]), "-P", "-F", "#{pane_id}", control_command(run_dir)],
             check=True,
         )
-        control_pane = control_result.stdout.strip().splitlines()[-1].strip()
+        if control_result.returncode != 0:
+            raise HarnessError("tmux failed while creating the control pane")
+        control_lines = control_result.stdout.strip().splitlines()
+        control_pane = control_lines[-1].strip() if control_lines else ""
+        if not control_pane:
+            raise HarnessError("tmux did not return a control pane id")
         run_state["controlPane"] = control_pane
         tmux_command(adapter, tmux, ["select-pane", "-t", control_pane, "-T", "Control / evidence"], check=True)
         tmux_command(adapter, tmux, ["set-option", "-t", session, "remain-on-exit", "on"], check=True)
         tmux_command(adapter, tmux, ["select-layout", "-t", session, "tiled"], check=True)
         atomic_json(run_dir / "state.json", run_state)
         return run_state
-    except BaseException:
+    except BaseException as error:
         # The exact session is the only process boundary this harness created.
-        if tmux_has_session(adapter, tmux, session):
-            tmux_command(adapter, tmux, ["kill-session", "-t", session])
+        record_start_failure(run_dir, session, adapter, tmux, error, list(run_state["members"]))
         raise
 
 
@@ -476,7 +530,12 @@ def attach_role(run_dir: Path, role: str, adapter: CommandAdapter) -> dict[str, 
     )
     peer_pane = next(iter(state["members"].values()))["paneId"]
     result = tmux_command(adapter, tmux, ["split-window", "-h", "-t", peer_pane, "-c", str(project), "-P", "-F", "#{pane_id}", "exec " + shlex.join(command)], check=True)
-    pane = result.stdout.strip().splitlines()[-1].strip()
+    if result.returncode != 0:
+        raise HarnessError(f"tmux failed while attaching {role}")
+    lines = result.stdout.strip().splitlines()
+    pane = lines[-1].strip() if lines else ""
+    if not pane:
+        raise HarnessError(f"tmux did not return a pane id for {role}")
     tmux_command(adapter, tmux, ["select-pane", "-t", pane, "-T", role], check=True)
     state["members"][role] = {"role": role, "paneId": pane, "sessionDir": str(session_dir), "command": command, "startedAt": utc_now()}
     atomic_json(run_dir / "state.json", state)
@@ -536,7 +595,8 @@ def capture(run_dir: Path, adapter: CommandAdapter, max_bytes: int = MAX_CAPTURE
         if not pane:
             continue
         result = tmux_command(adapter, tmux, ["capture-pane", "-p", "-S", "-200", "-t", pane])
-        text = result.stdout.encode("utf-8")[:max_bytes].decode("utf-8", "replace")
+        text = redact_text(result.stdout)
+        text = text.encode("utf-8")[:max_bytes].decode("utf-8", "replace")
         (directory / (re.sub(r"[^A-Za-z0-9._-]+", "_", role.lower()) + ".txt")).write_text(text, encoding="utf-8")
         panes[role] = {"paneId": pane, "returnCode": result.returncode, "bytes": len(text.encode("utf-8"))}
     snapshot = {"capturedAt": utc_now(), "state": redact(state), "status": redact(observe(run_dir, adapter)), "panes": panes}
