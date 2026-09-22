@@ -34,19 +34,19 @@ These are transport smoke cases, not semantic quality comparisons. There is no f
 
 ## Acceptance criteria
 
-- [ ] Add an external harness under `skills/crew-creator/scripts/`; production Bebop does not start agents, own eval state, or grade results.
-- [ ] `start` preflights `pi`, `tmux >= 3.5`, the built Bebop extension/CLI, provider/model arguments, project trust mode, unique session name, bounds, and paths before creating any process.
-- [ ] Every run uses a fresh disposable project, session directory, two-Member manifest, instructions, sockets, Intake directories, logs, and tmux session; it never joins or mutates the developer's active Crew.
-- [ ] tmux shows separate panes/windows for `Contact`, `Peer`, and a control/evidence surface. Each agent starts with exact `--crew-role`, explicit model/provider/thinking configuration, isolated session storage, and the project approved only for that run.
-- [ ] Starting the harness performs no model call. `publish` is a separate explicit action that shows the exact file and warns that delivery may trigger a paid model turn.
-- [ ] `publish` writes a temporary `.draft`, fsyncs/closes it, then atomically renames to a bounded direct-child `.md`/`.txt` filename; arbitrary path/content injection is rejected.
-- [ ] Support both predeclared cases: online contact and contact-joins-later. Lifecycle transitions wait on observable socket/file/session evidence with finite deadlines, never arbitrary sleeps or idle-state completion inference.
-- [ ] `status` reports process/pane liveness, socket claims, Intake file state, and bounded capture paths without claiming the message was read, acted on, or completed.
-- [ ] `capture` records bounded tmux pane text, process exit state, manifest/config snapshot, Intake directory listing, and timestamps beneath the run directory; it redacts credentials and does not treat transcript text as authoritative completion.
-- [ ] `stop` is idempotent and terminates the exact tmux session and child processes, then retains or removes the run directory only as explicitly requested. SIGINT, startup failure, timeout, and partial launch use the same cleanup path.
-- [ ] Deterministic tests use fake `pi`/tmux/process adapters for preflight, command construction, isolation, atomic publication, timeout, cleanup, and evidence. One opt-in local smoke verifies the real tmux layout without making a model call.
-- [ ] Documentation gives copy-paste `start`, `publish`, `attach`, `status`, `capture`, and `stop` examples plus expected visible observations and troubleshooting.
-- [ ] A live paid run requires explicit user agreement on provider/model/thinking, cases, repetitions, concurrency, timeouts, and whether artifacts may be retained.
+- [x] Add an external harness under `skills/crew-creator/scripts/`; production Bebop does not start agents, own eval state, or grade results.
+- [x] `start` preflights `pi`, `tmux >= 3.5`, the built Bebop extension/CLI, provider/model arguments, project trust mode, unique session name, bounds, and paths before creating any process.
+- [x] Every run uses a fresh disposable project, session directory, two-Member manifest, instructions, sockets, Intake directories, logs, and tmux session; it never joins or mutates the developer's active Crew.
+- [x] tmux shows separate panes/windows for `Contact`, `Peer`, and a control/evidence surface. Each agent starts with exact `--crew-role`, explicit model/provider/thinking configuration, isolated session storage, and the project approved only for that run.
+- [x] Starting the harness performs no model call. `publish` is a separate explicit action that shows the exact file and warns that delivery may trigger a paid model turn.
+- [x] `publish` writes a temporary `.draft`, fsyncs/closes it, then atomically renames to a bounded direct-child `.md`/`.txt` filename; arbitrary path/content injection is rejected.
+- [x] Support both predeclared cases: online contact and contact-joins-later. Lifecycle transitions wait on observable socket/file/session evidence with finite deadlines, never arbitrary sleeps or idle-state completion inference.
+- [x] `status` reports process/pane liveness, socket claims, Intake file state, and bounded capture paths without claiming the message was read, acted on, or completed.
+- [x] `capture` records bounded tmux pane text, process exit state, manifest/config snapshot, Intake directory listing, and timestamps beneath the run directory; it redacts credentials and does not treat transcript text as authoritative completion.
+- [x] `stop` is idempotent and terminates the exact tmux session and child processes, then retains or removes the run directory only as explicitly requested. SIGINT, startup failure, timeout, and partial launch use the same cleanup path.
+- [x] Deterministic tests use fake `pi`/tmux/process adapters for preflight, command construction, isolation, atomic publication, timeout, cleanup, and evidence. One opt-in local smoke verifies the real tmux layout without making a model call.
+- [x] Documentation gives copy-paste `start`, `publish`, `attach`, `status`, `capture`, and `stop` examples plus expected visible observations and troubleshooting.
+- [x] A live paid run requires explicit user agreement on provider/model/thinking, cases, repetitions, concurrency, timeouts, and whether artifacts may be retained.
 
 ## Non-goals
 

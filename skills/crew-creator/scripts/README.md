@@ -62,3 +62,59 @@ bounded `benchmark.md` review surface. It never averages away individual runs.
   evaluations, untrusted fixtures, or consequential effects without explicit
   user-agreed cases, models, repetitions, concurrency, timeouts, permissions,
   and an external policy boundary.
+
+## Two-agent Crew Intake smoke harness
+
+`crew_intake_smoke.py` is a separate lifecycle harness for the filesystem
+Intake adapter. It creates a fresh project, manifest, session directories,
+private Intake directories, and tmux session. It never starts a model prompt:
+`publish` is the explicit action that may trigger a paid turn.
+
+Preflight and start an online Contact/Peer case:
+
+```bash
+RUN=$(python3 skills/crew-creator/scripts/crew_intake_smoke.py start \
+  --case online --provider google --model gemini-2.5-flash --thinking off \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["runDirectory"])')
+```
+
+Publish a bounded fixture atomically, inspect observable state, and capture:
+
+```bash
+python3 skills/crew-creator/scripts/crew_intake_smoke.py publish \
+  --run-dir "$RUN" --file /absolute/path/to/intake.md --confirm-paid
+python3 skills/crew-creator/scripts/crew_intake_smoke.py status --run-dir "$RUN"
+python3 skills/crew-creator/scripts/crew_intake_smoke.py capture --run-dir "$RUN"
+```
+
+For the contact-joins-later case, start only Peer, publish before Contact joins,
+then attach Contact explicitly:
+
+```bash
+RUN=$(python3 skills/crew-creator/scripts/crew_intake_smoke.py start \
+  --case contact-joins-later --provider google --model gemini-2.5-flash \
+  --thinking off | python3 -c 'import json,sys; print(json.load(sys.stdin)["runDirectory"])')
+python3 skills/crew-creator/scripts/crew_intake_smoke.py publish \
+  --run-dir "$RUN" --file /absolute/path/to/intake.md --confirm-paid
+python3 skills/crew-creator/scripts/crew_intake_smoke.py attach \
+  --run-dir "$RUN" --role Contact
+```
+
+Use `attach --view` to join the tmux session, or bounded observable waits such
+as `status --wait-for processed --timeout-ms 120000`. Stop is idempotent and
+retains evidence by default; add `--remove` only when the run directory should
+be deleted:
+
+```bash
+python3 skills/crew-creator/scripts/crew_intake_smoke.py attach --run-dir "$RUN" --view
+python3 skills/crew-creator/scripts/crew_intake_smoke.py stop --run-dir "$RUN"
+# python3 skills/crew-creator/scripts/crew_intake_smoke.py stop --run-dir "$RUN" --remove
+```
+
+The harness reports file, pane, socket, and process evidence only. A processed
+file, live socket, idle pane, or transcript never proves that a Member read,
+understood, acted on, or completed the Intake. If preflight fails, inspect the
+reported executable/version and use a fresh run directory; if a pane dies,
+`status` and `capture` preserve bounded evidence before `stop`. Run
+`CREW_INTAKE_REAL_TMUX_SMOKE=1 python3 -m unittest discover -s skills/crew-creator/scripts -p 'test_crew_intake_smoke.py'`
+only when an opt-in local no-prompt tmux layout check is desired.

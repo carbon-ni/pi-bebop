@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+import crew_intake_smoke as harness
+
+
+class FakeAdapter:
+    def __init__(self, *, tmux_version: str = "tmux 3.5") -> None:
+        self.tmux_version = tmux_version
+        self.calls: list[tuple[list[str], Path | None]] = []
+        self.panes = 0
+        self.sessions: set[str] = set()
+        self.exes = {"pi": "/fake/pi", "tmux": "/fake/tmux"}
+
+    def executable(self, name: str) -> str | None:
+        return self.exes.get(name)
+
+    def run(self, argv, *, cwd=None, timeout=None, check=False):
+        command = list(argv)
+        self.calls.append((command, cwd))
+        args = command[1:]
+        if args == ["-V"]:
+            return harness.CommandResult(0, self.tmux_version + "\n", "")
+        if args and args[0] == "has-session":
+            return harness.CommandResult(0 if args[-1] in self.sessions else 1, "", "")
+        if args and args[0] in ("new-session", "split-window"):
+            self.panes += 1
+            if args[0] == "new-session":
+                self.sessions.add(args[args.index("-s") + 1])
+            return harness.CommandResult(0, f"%{self.panes}\n", "")
+        if args and args[0] == "list-panes":
+            rows = [f"%{index}\t{title}\t123\t0\tpi" for index, title in enumerate(("Contact", "Peer", "Control / evidence"), start=1)]
+            return harness.CommandResult(0, "\n".join(rows) + "\n", "")
+        if args and args[0] == "capture-pane":
+            return harness.CommandResult(0, "bounded pane evidence\n", "")
+        if args and args[0] == "kill-session":
+            self.sessions.discard(args[-1])
+            return harness.CommandResult(0, "", "")
+        return harness.CommandResult(0, "", "")
+
+
+class IntakeHarnessTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.extension = self.root / "extension.js"
+        self.cli = self.root / "cli.js"
+        self.extension.write_text("extension", encoding="utf-8")
+        self.cli.write_text("cli", encoding="utf-8")
+        self.adapter = FakeAdapter()
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def options(self, **changes):
+        values = {
+            "run_dir": str(self.root / "run"),
+            "run_root": str(self.root),
+            "case": "online",
+            "provider": "fake",
+            "model": "provider/model",
+            "thinking": "off",
+            "extension": str(self.extension),
+            "cli": str(self.cli),
+            "pi": "pi",
+            "tmux": "tmux",
+            "session_name": "smoke-session",
+            "timeout_ms": 1000,
+        }
+        values.update(changes)
+        return type("Options", (), values)()
+
+    def test_start_isolated_and_contains_no_model_call_flags(self) -> None:
+        state = harness.create_run(self.options(), self.adapter)
+        self.assertEqual(sorted(state["members"]), ["Contact", "Peer"])
+        self.assertEqual(json.loads((self.root / "run" / "project" / ".pi" / "bebop" / "crew.json").read_text())["intake"], {"contact": "Contact"})
+        pi_commands = [call[0] for call in self.adapter.calls if "/fake/pi" in call[0]]
+        self.assertEqual(len(pi_commands), 0, "Pi commands are handed to tmux, not executed by the harness")
+        rendered = " ".join(" ".join(call[0]) for call in self.adapter.calls)
+        self.assertIn("--crew-role Contact", rendered)
+        self.assertIn("--crew-role Peer", rendered)
+        self.assertIn("--provider fake", rendered)
+        self.assertIn("--model provider/model", rendered)
+        self.assertIn("--thinking off", rendered)
+        self.assertNotIn(" --print", rendered)
+        self.assertNotIn(" -p", rendered)
+
+    def test_preflight_rejects_old_tmux_before_creating_run(self) -> None:
+        self.adapter.tmux_version = "tmux 3.4"
+        with self.assertRaises(harness.HarnessError):
+            harness.create_run(self.options(), self.adapter)
+        self.assertFalse((self.root / "run").exists())
+
+    def test_publish_is_bounded_atomic_and_rejects_path_injection(self) -> None:
+        state = harness.create_run(self.options(), self.adapter)
+        source = self.root / "fixture.md"
+        source.write_bytes(b"# fixed intake\n")
+        result = harness.publish(Path(state["runDirectory"]), source, "case.md")
+        self.assertEqual(result["status"], "published")
+        new = Path(state["intake"]) / "new"
+        self.assertEqual([item.name for item in new.iterdir()], ["case.md"])
+        self.assertFalse(any(item.name.endswith(".draft") for item in new.iterdir()))
+        with self.assertRaises(harness.HarnessError):
+            harness.publish(Path(state["runDirectory"]), source, "../escape.md")
+        oversized = self.root / "large.txt"
+        oversized.write_bytes(b"x" * (harness.MAX_FILE_BYTES + 1))
+        with self.assertRaises(harness.HarnessError):
+            harness.publish(Path(state["runDirectory"]), oversized, "large.txt")
+
+    def test_contact_joins_later_and_attach_is_observable(self) -> None:
+        state = harness.create_run(self.options(case="contact-joins-later"), self.adapter)
+        self.assertEqual(sorted(state["members"]), ["Peer"])
+        result = harness.attach_role(Path(state["runDirectory"]), "Contact", self.adapter)
+        self.assertEqual(result["status"], "attached")
+        status = harness.observe(Path(state["runDirectory"]), self.adapter)
+        self.assertEqual(sorted(status["members"]), ["Contact", "Peer"])
+        self.assertIn("socketExists", status["members"]["Contact"])
+
+    def test_observable_wait_has_a_finite_deadline(self) -> None:
+        state = harness.create_run(self.options(), self.adapter)
+        with self.assertRaises(harness.HarnessError):
+            harness.wait_for(Path(state["runDirectory"]), "processed", 1, self.adapter)
+
+    def test_capture_is_bounded_and_redacts_sensitive_config_keys(self) -> None:
+        state = harness.create_run(self.options(), self.adapter)
+        state["apiKey"] = "do-not-capture"
+        harness.atomic_json(Path(state["runDirectory"]) / "state.json", state)
+        result = harness.capture(Path(state["runDirectory"]), self.adapter, 128)
+        evidence = json.loads((Path(result["directory"]) / "evidence.json").read_text())
+        self.assertEqual(evidence["state"]["apiKey"], "<redacted>")
+        self.assertLessEqual(evidence["panes"]["Contact"]["bytes"], 128)
+
+    def test_stop_is_idempotent_and_removes_only_when_requested(self) -> None:
+        state = harness.create_run(self.options(), self.adapter)
+        run_dir = Path(state["runDirectory"])
+        first = harness.stop(run_dir, self.adapter)
+        second = harness.stop(run_dir, self.adapter)
+        self.assertFalse(first["removed"])
+        self.assertTrue(second["stopWasIdempotent"])
+        removed = self.root / "removed"
+        state = harness.create_run(self.options(run_dir=str(removed), session_name="remove-session"), self.adapter)
+        result = harness.stop(Path(state["runDirectory"]), self.adapter, remove=True)
+        self.assertTrue(result["removed"])
+        self.assertFalse(removed.exists())
+        self.assertEqual(harness.stop(removed, self.adapter, remove=True)["status"], "already-removed")
+
+    @unittest.skipUnless(os.environ.get("CREW_INTAKE_REAL_TMUX_SMOKE") == "1", "opt-in real tmux smoke")
+    def test_opt_in_real_tmux_layout_without_model_call(self) -> None:
+        # This test intentionally starts no prompt and uses --offline. It must
+        # be explicitly opted into because it opens a real interactive tmux run.
+        import shutil
+
+        if not shutil.which("pi") or not shutil.which("tmux"):
+            self.skipTest("pi and tmux are required")
+        run_dir = self.root / "real-run"
+        options = self.options(run_dir=str(run_dir), session_name="real-intake-smoke")
+        state = harness.create_run(options, harness.SystemAdapter())
+        try:
+            status = harness.observe(run_dir, harness.SystemAdapter())
+            self.assertEqual(status["status"], "running")
+            self.assertEqual(len(status["panes"]), 3)
+        finally:
+            harness.stop(run_dir, harness.SystemAdapter())
+
+
+if __name__ == "__main__":
+    unittest.main()
