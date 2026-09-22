@@ -108,6 +108,7 @@ class IntakeHarnessTests(unittest.TestCase):
         self.assertIn("external transport boundary, not the crew Inbox", guide)
         self.assertIn("997,952 UTF-8 bytes", guide)
         self.assertIn("160 UTF-8 bytes", guide)
+        self.assertIn("flush and fsync it while open, close it, then atomically rename", guide)
         self.assertIn(".pi/bebop/intake/processed/", guide)
         self.assertIn(".pi/bebop/sockets/", guide)
         self.assertIn(".pi/bebop/inbox/", guide)

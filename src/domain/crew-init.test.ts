@@ -71,6 +71,7 @@ test("Intake guide is deterministic and keeps transport evidence separate from I
 	assert.match(guide, /997,952 UTF-8 bytes/);
 	assert.match(guide, /160 UTF-8 bytes/);
 	assert.match(guide, /\.draft/);
+	assert.match(guide, /flush and fsync it while open, close it, then atomically rename/);
 	assert.match(guide, /\.pi\/bebop\/intake\/processed/);
 	assert.match(guide, /\.pi\/bebop\/sockets/);
 	assert.match(guide, /\.pi\/bebop\/inbox/);
