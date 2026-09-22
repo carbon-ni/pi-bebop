@@ -451,7 +451,10 @@ async function discover(options: BebopOperationOptions | undefined): Promise<rea
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
 			throw error;
 		}
-		const bounded = entries.slice().sort((left, right) => left.name.localeCompare(right.name)).slice(0, MAX_DISCOVERY_ENTRIES);
+		const bounded = entries
+			.slice()
+			.sort((left, right) => left.name.localeCompare(right.name))
+			.slice(0, MAX_DISCOVERY_ENTRIES);
 		const ids = bounded
 			.filter((entry) => !entry.isDirectory() && entry.name.endsWith(".sock"))
 			.map((entry) => entry.name.slice(0, -5))
