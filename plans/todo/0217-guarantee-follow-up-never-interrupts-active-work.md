@@ -1,7 +1,7 @@
 ---
 id: TASK-0217
 title: Guarantee Follow-up never interrupts active work
-status: done
+status: doing
 depends_on: []
 priority: high
 tags: [crew, messaging, follow-up, queue, lifecycle, regression, tdd]

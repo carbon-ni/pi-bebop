@@ -26,6 +26,8 @@ export interface IdleWaitSubscription {
 }
 export interface SocketState {
 	server: RpcServer | null;
+	/** Follow-ups accepted during manual compaction wait for its end event. */
+	deferredModelDeliveries: Array<() => void>;
 	socketPath: string | null;
 	context: ExtensionContext | null;
 	aliases: string[];

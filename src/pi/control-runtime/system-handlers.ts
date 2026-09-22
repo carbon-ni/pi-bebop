@@ -366,14 +366,17 @@ export async function handleSend(
 		details: { messagePayload: payload, ...(deliveredAt === undefined ? {} : { deliveredAt }) },
 		display: true,
 	};
+	const send = () =>
+		pi.sendMessage(customMessage, {
+			triggerTurn: true,
+			deliverAs: mode === "follow_up" ? "followUp" : "steer",
+		});
 
 	// TASK-0081: accepted Bebop model delivery (Follow-up/Redirect) wakes a
 	// local blocking idle wait; the unchanged message keeps its mode/FIFO.
 	notifyAcceptedMessage(state, `delivery-${id}`);
-	pi.sendMessage(customMessage, {
-		triggerTurn: true,
-		deliverAs: mode === "follow_up" ? "followUp" : "steer",
-	});
+	if (mode === "follow_up" && contextIsCompacting(ctx)) state.deferredModelDeliveries.push(send);
+	else send();
 
 	const disposition = isIdle ? "direct" : mode === "follow_up" ? "queued" : "steered";
 	respond(true, "send", { deliveryId: `delivery-${id}`, disposition });

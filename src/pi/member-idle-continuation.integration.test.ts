@@ -20,7 +20,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { createSocketState, handleCommand } from "./control-runtime.ts";
+import { createSocketState, emitIdleSettled, handleCommand } from "./control-runtime.ts";
 import { registerWaitForMemberIdleTool, type MemberIdleWaitToolTransport } from "../tools/wait-for-member-idle.ts";
 
 /**
@@ -72,6 +72,7 @@ interface FakeHarness {
 	readonly session: ReturnType<typeof createAgentSession> extends Promise<infer T> ? T["session"] : never;
 	readonly contexts: Context[];
 	readonly script: AssistantMessage[];
+	readonly events: string[];
 	readonly state: ReturnType<typeof createSocketState>;
 	readonly pi: ExtensionAPI;
 	readonly cleanup: () => Promise<void>;
@@ -87,19 +88,27 @@ const parkTransport: MemberIdleWaitToolTransport = {
 };
 
 async function createFakeSession(
-	options: { readonly extraTool?: (pi: ExtensionAPI) => void } = {},
+	options: {
+		readonly extraTool?: (pi: ExtensionAPI) => void;
+		readonly beforeProviderDone?: (callIndex: number, context: Context) => Promise<void>;
+		readonly compactionEnabled?: boolean;
+	} = {},
 ): Promise<FakeHarness> {
 	const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-0089-cwd-"));
 	const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-0089-agent-"));
 	const contexts: Context[] = [];
 	const script: AssistantMessage[] = [];
+	const events: string[] = [];
 	const state = createSocketState();
 
 	const streamSimple = (_model: Model<"bebop-fake">, context: Context) => {
 		contexts.push(context);
+		const callIndex = contexts.length;
+		events.push(`provider:${callIndex}:start`);
 		const stream = createAssistantMessageEventStream();
 		const message = script.shift();
-		queueMicrotask(() => {
+		queueMicrotask(async () => {
+			await options.beforeProviderDone?.(callIndex, context);
 			if (!message) {
 				const error = assistantMessage([], "error");
 				error.errorMessage = "fake script exhausted";
@@ -109,6 +118,7 @@ async function createFakeSession(
 			}
 			stream.push({ type: "start", partial: message });
 			stream.push({ type: "done", reason: message.stopReason, message });
+			events.push(`provider:${callIndex}:done`);
 			stream.end();
 		});
 		return stream;
@@ -164,7 +174,14 @@ async function createFakeSession(
 		sessionManager: { getSessionId: () => "continuation-session" },
 	} as never;
 
-	const settings = () => SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
+	const settings = () =>
+		SettingsManager.inMemory({
+			compaction: {
+			enabled: options.compactionEnabled ?? false,
+			keepRecentTokens: options.compactionEnabled ? 0 : undefined,
+		},
+			retry: { enabled: false },
+		});
 	let piRef: ExtensionAPI | undefined;
 	const inlineExtension = {
 		name: "bebop-0089-continuation",
@@ -202,17 +219,29 @@ async function createFakeSession(
 		sessionManager: SessionManager.inMemory(cwd),
 		settingsManager: settings(),
 	});
-
+	const unsubscribe = session.subscribe((event) => {
+		events.push(`session:${event.type}`);
+		if (event.type === "compaction_end") emitIdleSettled(state, state.context as never);
+	});
+	state.context = {
+		hasUI: false,
+		isProjectTrusted: () => true,
+		isIdle: () => session.isIdle,
+		isCompacting: () => session.isCompacting,
+		sessionManager: session.sessionManager,
+	} as never;
 	return {
 		session,
 		contexts,
 		script,
+		events,
 		state,
 		get pi(): ExtensionAPI {
 			assert.ok(piRef, "extension factory must have run");
 			return piRef;
 		},
 		cleanup: async () => {
+			unsubscribe();
 			session.dispose();
 			await fs.rm(cwd, { recursive: true, force: true });
 			await fs.rm(agentDir, { recursive: true, force: true });
@@ -225,6 +254,14 @@ async function waitForArmedWake(state: ReturnType<typeof createSocketState>, dea
 	const started = Date.now();
 	while (!state.wakeGate.armed) {
 		if (Date.now() - started > deadlineMs) throw new Error("wake gate was never armed");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
+
+async function waitForEvent(events: readonly string[], expected: string, deadlineMs = 5_000): Promise<void> {
+	const started = Date.now();
+	while (!events.includes(expected)) {
+		if (Date.now() - started > deadlineMs) throw new Error(`event never observed: ${expected}`);
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
 }
@@ -421,6 +458,100 @@ test("TASK-0089: a second accepted message stays FIFO-ordered and is never dropp
 				message.content?.some((block) => block.text?.includes("second consumed")),
 		),
 	);
+});
+
+test("TASK-0217: Follow-up stays behind a real in-flight tool call without aborting work", async (t) => {
+	let harnessEvents: string[] | undefined;
+	let releaseTool!: () => void;
+	const toolReleased = new Promise<void>((resolve) => {
+		releaseTool = resolve;
+	});
+	const harness = await createFakeSession({
+		extraTool: (pi) => {
+			pi.registerTool({
+				name: "bebop_blocking",
+				label: "Blocking",
+				description: "Deterministic in-flight tool",
+				parameters: { type: "object", properties: {}, additionalProperties: false } as never,
+				execute: async () => {
+					harnessEvents?.push("tool:start");
+					await toolReleased;
+					harnessEvents?.push("tool:end");
+					return { content: [{ type: "text", text: "blocking done" }], details: {} };
+				},
+			} as never);
+		},
+	});
+	harnessEvents = harness.events;
+	t.after(() => harness.cleanup());
+
+	harness.script.push(
+		assistantMessage([{ type: "toolCall", id: "tc-block", name: "bebop_blocking", arguments: {} }], "toolUse"),
+		assistantMessage([{ type: "text", text: "tool continuation" }], "stop"),
+		assistantMessage([{ type: "text", text: "follow-up consumed" }], "stop"),
+	);
+	const promptDone = harness.session.prompt("start blocking work");
+	await waitForEvent(harness.events, "tool:start");
+	await deliver(harness.pi, harness.state, "w-tool", WAKE_CONTENT_1, "follow_up");
+	assert.equal(harness.contexts.length, 1, "Follow-up must not start a provider turn while the tool is active");
+	releaseTool();
+	await promptDone;
+
+	assert.equal(harness.contexts.length, 3, "Follow-up must be consumed after the tool result");
+	assert.ok(harness.events.indexOf("tool:end") < harness.events.indexOf("provider:2:start"));
+	assert.equal(harness.events.filter((event) => event === "tool:start").length, 1);
+	assert.equal(harness.events.filter((event) => event === "tool:end").length, 1);
+	assert.equal(occurrences(harness.contexts[1]!, WAKE_CONTENT_1), 0);
+	const third = harness.contexts[2]!;
+	assert.equal(occurrences(third, WAKE_CONTENT_1), 1);
+	const blocks = textBlocks(third);
+	const toolResultIndex = blocks.findIndex(({ role, text }) => role === "toolResult" && text.includes("blocking done"));
+	const wakeIndex = blocks.findIndex(({ text }) => text.includes(WAKE_CONTENT_1));
+	assert.ok(toolResultIndex >= 0);
+	assert.ok(wakeIndex > toolResultIndex, "Follow-up must follow the completed tool result");
+});
+
+test("TASK-0217: Follow-up waits for real compaction and is consumed exactly once afterward", async (t) => {
+	let releaseSummary!: () => void;
+	const summaryReleased = new Promise<void>((resolve) => {
+		releaseSummary = resolve;
+	});
+	const harness = await createFakeSession({
+		compactionEnabled: true,
+		beforeProviderDone: async (callIndex) => {
+			if (callIndex === 2) {
+				harness.events.push("summary:blocked");
+				await summaryReleased;
+			}
+		},
+	});
+	t.after(() => harness.cleanup());
+	harness.script.push(
+		assistantMessage([{ type: "text", text: "seed" }], "stop"),
+		assistantMessage([{ type: "text", text: "compaction summary" }], "stop"),
+		assistantMessage([{ type: "text", text: "after compaction" }], "stop"),
+	);
+	await harness.session.prompt("seed context");
+	const compactionDone = harness.session.compact("summarize for TASK-0217");
+	await waitForEvent(harness.events, "session:compaction_start");
+	await waitForEvent(harness.events, "summary:blocked");
+
+	const delivery = deliver(harness.pi, harness.state, "w-compaction", WAKE_CONTENT_1, "follow_up");
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(harness.contexts.length, 2, "Follow-up must not start while compaction is active");
+	assert.equal(harness.state.deferredModelDeliveries.length, 1);
+
+	releaseSummary();
+	await compactionDone;
+	await waitForEvent(harness.events, "provider:3:start");
+	await delivery;
+	assert.equal(harness.state.deferredModelDeliveries.length, 0);
+	assert.equal(harness.contexts.length, 3, "exactly one post-compaction Follow-up turn is expected");
+	const compactionEnd = harness.events.indexOf("session:compaction_end");
+	const postCompactionProvider = harness.events.indexOf("provider:3:start");
+	assert.ok(compactionEnd >= 0);
+	assert.ok(postCompactionProvider > compactionEnd, "Follow-up must wait for compaction_end");
+	assert.equal(occurrences(harness.contexts[2]!, WAKE_CONTENT_1), 1);
 });
 
 test("TASK-0089: mixed batch — non-terminating sibling tool call (characterized Pi scheduling rule)", async (t) => {

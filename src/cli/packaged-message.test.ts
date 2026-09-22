@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import * as net from "node:net";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
-import { createSocketState, handleCommand } from "../pi/control-runtime.ts";
+import { createSocketState, emitIdleSettled, handleCommand } from "../pi/control-runtime.ts";
 import { sendRpcCommand, sendMemberRequest } from "../infra/rpc-client.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
 
@@ -30,6 +30,7 @@ interface Sessions {
 	readonly sourceEntries: unknown[];
 	readonly setTargetIdle: (value: boolean) => void;
 	readonly setTargetCompacting: (value: boolean) => void;
+	readonly settleTargetCompaction: () => void;
 	readonly getTargetAbortCount: () => number;
 	readonly sourceFlow: MemberRequestFlow;
 	readonly targetFlow: MemberRequestFlow;
@@ -154,6 +155,10 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		},
 		setTargetCompacting: (value) => {
 			targetCompacting = value;
+		},
+		settleTargetCompaction: () => {
+			targetCompacting = false;
+			emitIdleSettled(targetState, targetState.context as never);
 		},
 		getTargetAbortCount: () => targetAbortCount,
 		sourceFlow,
@@ -345,6 +350,9 @@ test("packaged Follow-up keeps followUp mode for idle and compacting targets", a
 	]);
 	assert.equal(compacting.code, 0, compacting.stdout);
 	assert.equal(JSON.parse(compacting.stdout).data.disposition, "queued");
+	assert.equal(sessions.targetDeliveries.length, 1, "compacting Follow-up must wait for compaction end");
+	sessions.settleTargetCompaction();
+	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.deepEqual(
 		sessions.targetDeliveries.map(({ options }) => options),
 		[

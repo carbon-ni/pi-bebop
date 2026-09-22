@@ -55,6 +55,7 @@ async function startControlServer(pi: ExtensionAPI, state: SocketState, ctx: Ext
 
 async function stopControlServer(state: SocketState): Promise<void> {
 	if (!state.server) {
+		state.deferredModelDeliveries = [];
 		await removeAliasesForSocket(state.socketPath);
 		await removeSocket(state.socketPath);
 		state.socketPath = null;
@@ -67,6 +68,7 @@ async function stopControlServer(state: SocketState): Promise<void> {
 	state.socketPath = null;
 	state.turnEndSubscriptions = [];
 	state.idleWaitSubscriptions = [];
+	state.deferredModelDeliveries = [];
 	await closeRpcServer(state.server);
 	state.server = null;
 	await removeAliasesForSocket(socketPath);
@@ -157,6 +159,7 @@ function updateSessionEnv(ctx: ExtensionContext | null, enabled: boolean): void 
 export function createSocketState(now?: () => number): SocketState {
 	return {
 		server: null,
+		deferredModelDeliveries: [],
 		socketPath: null,
 		context: null,
 		aliases: [],
@@ -194,6 +197,11 @@ export function emitTurnEnd(state: SocketState, event: TurnEndEvent, ctx: Extens
 /** Emit the one-shot idle terminal event after Pi reports a fully settled agent. */
 export function emitIdleSettled(state: SocketState, ctx?: ExtensionContext): void {
 	if (ctx && (!ctx.isIdle() || contextIsCompacting(ctx))) return;
+	if (state.deferredModelDeliveries.length > 0) {
+		const deliveries = state.deferredModelDeliveries;
+		state.deferredModelDeliveries = [];
+		for (const deliver of deliveries) queueMicrotask(deliver);
+	}
 	if (state.memberRequestFlow)
 		setImmediate(() => {
 			void state.memberRequestFlow?.settleAllInboundIdle();

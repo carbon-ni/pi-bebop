@@ -9,7 +9,7 @@ import { createGuestMembershipRuntime, type GuestMembershipRuntime } from "../in
 import { digestGuestCapability, createGuestRegistryStore } from "../infra/guest-registry-store.ts";
 import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-server.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
-import { handleGuestJoin, handleGuestLeave, handleGuestSend } from "./control-runtime.ts";
+import { emitIdleSettled, handleGuestJoin, handleGuestLeave, handleGuestSend } from "./control-runtime.ts";
 
 const GUEST_IDENTITY = "guest-session-integration";
 
@@ -494,10 +494,19 @@ test("Guest recipient revalidates direct Guest Broadcast sends before delivery",
 		"recipient-capability",
 	);
 	const sentMessages: Array<{ content: string; details: any; options: any }> = [];
+	let idle = true;
+	let compacting = false;
 	const state = {
 		membershipRuntime: null,
+		idleWaitSubscriptions: [],
+		turnEndSubscriptions: [],
 		guestMembershipRuntime: recipient,
-		context: { isProjectTrusted: () => true, isIdle: () => true },
+		deferredModelDeliveries: [] as Array<() => void>,
+		context: {
+			isProjectTrusted: () => true,
+			isIdle: () => idle,
+			isCompacting: () => compacting,
+		},
 	};
 	const server = await createRpcServer(callbackEndpoint, (command, socket) => {
 		const respond = (success: boolean, commandName: string, data?: unknown, error?: string) =>
@@ -542,6 +551,52 @@ test("Guest recipient revalidates direct Guest Broadcast sends before delivery",
 		identity: GUEST_IDENTITY,
 		name: "Alex",
 	});
+
+	// The same approved Guest callback path remains a queued Follow-up while
+	// the receiving Pi is busy or compacting. The receiver never asks the
+	// sender to steer or abort the active work.
+	idle = false;
+	const busy = await sendRpcCommand(
+		callbackEndpoint,
+		{
+			type: "guest_send",
+			crewId: "alpha",
+			guestIdentity: GUEST_IDENTITY,
+			callbackEndpoint: sourceEndpoint,
+			capability: "source-capability",
+			target: "Blake",
+			content: "queued while busy",
+			kind: "broadcast",
+		},
+		{ timeout: 5000 },
+	);
+	assert.ok(busy.response.success);
+	assert.equal((busy.response.data as { disposition: string }).disposition, "queued");
+	assert.deepEqual(sentMessages[1]!.options, { triggerTurn: true, deliverAs: "followUp" });
+
+	idle = true;
+	compacting = true;
+	const compactingSend = await sendRpcCommand(
+		callbackEndpoint,
+		{
+			type: "guest_send",
+			crewId: "alpha",
+			guestIdentity: GUEST_IDENTITY,
+			callbackEndpoint: sourceEndpoint,
+			capability: "source-capability",
+			target: "Blake",
+			content: "queued while compacting",
+			kind: "broadcast",
+		},
+		{ timeout: 5000 },
+	);
+	assert.ok(compactingSend.response.success);
+	assert.equal((compactingSend.response.data as { disposition: string }).disposition, "queued");
+	assert.equal(sentMessages.length, 2, "compacting Follow-up must wait for compaction end");
+	compacting = false;
+	emitIdleSettled(state as never, state.context as never);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.deepEqual(sentMessages[2]!.options, { triggerTurn: true, deliverAs: "followUp" });
 
 	await assert.rejects(
 		() =>

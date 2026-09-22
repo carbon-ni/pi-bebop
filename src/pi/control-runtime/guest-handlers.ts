@@ -122,11 +122,14 @@ export async function handleGuestSend(
 		display: true,
 	};
 	const isIdle = ctx.isIdle() && !contextIsCompacting(ctx);
+	const send = () =>
+		pi.sendMessage(customMessage, {
+			triggerTurn: true,
+			deliverAs: "followUp",
+		});
 	notifyAcceptedMessage(state, `delivery-${id}`);
-	pi.sendMessage(customMessage, {
-		triggerTurn: true,
-		deliverAs: "followUp",
-	});
+	if (contextIsCompacting(ctx)) state.deferredModelDeliveries.push(send);
+	else send();
 	const disposition = isIdle ? "direct" : "queued";
 	respond(true, "guest_send", {
 		deliveryId: `delivery-${id}`,
