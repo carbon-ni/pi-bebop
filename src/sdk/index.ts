@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import {
 	isSafeAlias,
@@ -214,17 +214,40 @@ async function withBudget<T>(
 
 function normalizeError(error: unknown, budget: Budget): BebopClientError {
 	if (error instanceof BebopClientError) return error;
+	// sendRpcCommand classifies an acknowledgement lost after dispatch as
+	// outcome-unknown. Preserve that side-effect boundary before translating
+	// the shared deadline/cancellation signal.
+	if (error instanceof RpcProtocolError && error.code === "outcome-unknown")
+		return new BebopClientError("outcome-unknown");
 	if (budget.timedOut()) return new BebopClientError("timeout");
 	if (budget.signal.aborted) return new BebopClientError("aborted");
 	if (error instanceof RpcProtocolError) {
-		if (error.code === "outcome-unknown") return new BebopClientError("outcome-unknown");
+		if (
+			[
+				"not-joined",
+				"untrusted",
+				"untrusted-project",
+				"unknown-member",
+				"ambiguous-member",
+				"ambiguous-role",
+				"self-query",
+				"self-send",
+			].includes(error.code)
+		)
+			return mapRemoteError(error.code);
 		if (error.code === "malformed-response" || error.code === "invalid-result" || error.code === "mismatched-id")
 			return new BebopClientError("malformed-response");
 		if (error.code === "remote-error") return mapRemoteError(error.message.replace(/^remote-error:\s*/, ""));
 	}
 	const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
 	if (code === "ENOENT") return new BebopClientError("unknown-session");
-	if (code === "ECONNREFUSED" || code === "ENOTCONN" || code === "EPIPE")
+	if (
+		code === "ECONNREFUSED" ||
+		code === "ENOTCONN" ||
+		code === "EPIPE" ||
+		code === "EPROTOTYPE" ||
+		code === "ENOTSOCK"
+	)
 		return new BebopClientError("offline-session");
 	if (error instanceof Error && /timeout|timed? ?out/i.test(error.message)) return new BebopClientError("timeout");
 	return new BebopClientError("transport-error");
@@ -444,17 +467,26 @@ function sourceClient(endpoint: string): BebopSource {
 
 async function discover(options: BebopOperationOptions | undefined): Promise<readonly BebopSourceInfo[]> {
 	return withBudget(options, async (budget) => {
-		let entries: import("node:fs").Dirent[];
+		const entries: Dirent[] = [];
+		let directory: Awaited<ReturnType<typeof fs.opendir>> | undefined;
 		try {
-			entries = await fs.readdir(CONTROL_DIR, { withFileTypes: true });
+			directory = await fs.opendir(CONTROL_DIR);
+			for await (const entry of directory) {
+				if (budget.signal.aborted) throw new Error("source discovery aborted");
+				entries.push(entry);
+				if (entries.length >= MAX_DISCOVERY_ENTRIES) break;
+			}
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
 			throw error;
+		} finally {
+			try {
+				await directory?.close();
+			} catch {
+				// The async iterator may already have closed the directory.
+			}
 		}
-		const bounded = entries
-			.slice()
-			.sort((left, right) => left.name.localeCompare(right.name))
-			.slice(0, MAX_DISCOVERY_ENTRIES);
+		const bounded = entries.sort((left, right) => left.name.localeCompare(right.name));
 		const ids = bounded
 			.filter((entry) => !entry.isDirectory() && entry.name.endsWith(".sock"))
 			.map((entry) => entry.name.slice(0, -5))
