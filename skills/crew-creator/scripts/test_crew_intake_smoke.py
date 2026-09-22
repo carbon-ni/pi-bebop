@@ -5,6 +5,7 @@ import json
 import os
 import shlex
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -104,6 +105,8 @@ class IntakeHarnessTests(unittest.TestCase):
         self.assertEqual(manifest["commonInstructionsFile"], "instructions/common.md")
         self.assertEqual([member["socket"] for member in manifest["members"]], ["sockets/contact.sock", "sockets/peer.sock"])
         harness.validate_manifest_paths(manifest, manifest_path)
+        for directory in (self.root / "run" / "project", self.root / "run" / "project" / ".pi", self.root / "run" / "project" / ".pi" / "bebop", self.root / "run" / "project" / ".pi" / "bebop" / "intake"):
+            self.assertEqual(directory.stat().st_mode & 0o077, 0, str(directory))
         invalid = dict(manifest, commonInstructionsFile="../instructions/common.md")
         with self.assertRaises(harness.HarnessError):
             harness.validate_manifest_paths(invalid, manifest_path)
@@ -253,6 +256,15 @@ class IntakeHarnessTests(unittest.TestCase):
             for role in ("Contact", "Peer"):
                 pane_id = state["members"][role]["paneId"]
                 self.assertFalse(any(marker in harness.capture_pane_tail(adapter, "tmux", pane_id).lower() for marker in harness.STARTUP_ERROR_MARKERS))
+            fixture = run_dir.parent / "no-prompt-fixture.md"
+            fixture.write_text("offline startup smoke intake", encoding="utf-8")
+            harness.publish(run_dir, fixture, "intake.md")
+            processed = run_dir / "project" / ".pi" / "bebop" / "intake" / "processed" / "intake.md"
+            for _ in range(300):
+                if processed.exists():
+                    break
+                time.sleep(0.1)
+            self.assertTrue(processed.exists(), "actual extension did not move Intake to processed")
         except Exception:
             if (run_dir / "failure.json").exists():
                 failure = json.loads((run_dir / "failure.json").read_text())

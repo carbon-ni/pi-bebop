@@ -119,6 +119,15 @@ function byteLength(value: string): number {
 	return Buffer.byteLength(value, "utf8");
 }
 
+async function closeQuietly(handle: { close(): unknown } | undefined): Promise<void> {
+	if (!handle) return;
+	try {
+		await Promise.resolve(handle.close());
+	} catch {
+		// Cleanup must not hide the operation's original result.
+	}
+}
+
 function containedPath(directory: string, name: string): string {
 	const parent = path.resolve(directory);
 	const candidate = path.resolve(parent, name);
@@ -248,7 +257,7 @@ async function boundedRead(filePath: string): Promise<Buffer> {
 			throw new CrewIntakeDropboxError("not-found", "intake file disappeared", { cause: error });
 		throw new CrewIntakeDropboxError("scan-failed", "intake file could not be read", { cause: error });
 	} finally {
-		await handle?.close().catch(() => undefined);
+		await closeQuietly(handle);
 	}
 }
 
@@ -391,7 +400,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		} catch (error) {
 			throw new CrewIntakeDropboxError("scan-failed", "intake directory could not be listed", { cause: error });
 		} finally {
-			await handle.close().catch(() => undefined);
+			await closeQuietly(handle);
 		}
 		return { entries, truncated };
 	};
@@ -628,7 +637,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 				await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: Date.now() }), "utf8");
 				return handle;
 			} catch (error) {
-				await handle.close().catch(() => undefined);
+				await closeQuietly(handle);
 				await fs.unlink(lockPath).catch(() => undefined);
 				throw error;
 			}

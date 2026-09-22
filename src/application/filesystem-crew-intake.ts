@@ -34,7 +34,7 @@ export interface FilesystemCrewIntakeDependencies {
 	readonly loadManifest?: (manifestPath: string, projectRoot: string) => Promise<CrewManifest>;
 	readonly externalIntake?: Pick<ExternalIntakeDependencies, "openStore" | "now">;
 	readonly onAccepted?: () => void | Promise<void>;
-	readonly onError?: (code: string) => void;
+	readonly onError?: (code: string, message?: string) => void;
 	readonly quiescenceMs?: number;
 }
 
@@ -126,7 +126,8 @@ export function createFilesystemCrewIntakeController(
 		while (pending.size > 0) await Promise.allSettled([...pending]);
 	};
 
-	const report = (error: unknown): void => dependencies.onError?.(errorCode(error));
+	const report = (error: unknown): void =>
+		dependencies.onError?.(errorCode(error), error instanceof Error ? error.message : String(error));
 	const closeWatcher = (): void => {
 		watcher?.close();
 		watcher = null;

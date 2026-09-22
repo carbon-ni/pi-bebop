@@ -384,7 +384,19 @@ def prepare_project(run_dir: Path) -> dict[str, Path]:
     instructions = bebop / "instructions"
     sockets = bebop / "sockets"
     intake = bebop / "intake"
-    for directory in (instructions, sockets, run_dir / "logs", intake / "new", intake / "processed", intake / "failed"):
+    private_directories = (
+        project,
+        project / ".pi",
+        bebop,
+        instructions,
+        sockets,
+        intake,
+        run_dir / "logs",
+        intake / "new",
+        intake / "processed",
+        intake / "failed",
+    )
+    for directory in private_directories:
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         try:
             directory.chmod(0o700)

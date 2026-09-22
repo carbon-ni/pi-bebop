@@ -109,6 +109,8 @@ export default function (pi: ExtensionAPI) {
 		onAccepted: async () => {
 			await inboxBridge.attemptOffer();
 		},
+		onError: (code, message) =>
+			console.error(`Crew filesystem intake failed: ${code}${message ? `: ${message}` : ""}`),
 	});
 
 	const recoverInterrupts = async () => {
