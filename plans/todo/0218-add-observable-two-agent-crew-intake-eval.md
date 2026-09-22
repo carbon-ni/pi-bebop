@@ -1,7 +1,7 @@
 ---
 id: TASK-0218
 title: Add observable two-agent Crew Intake eval
-status: todo
+status: doing
 depends_on: [TASK-0216]
 priority: high
 tags: [crew, intake, eval, smoke, tmux, lifecycle, observability, tdd]
