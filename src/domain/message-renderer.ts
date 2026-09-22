@@ -32,15 +32,8 @@ export function parseRenderedMessagePayload(rendered: string): MessagePayload {
 /** UI-safe display text; callback routing is intentionally never displayed. */
 export function renderMessagePayloadForDisplay(payload: MessagePayload): string {
 	const sections: string[] = [];
-	if (payload.origin) {
-		sections.push(
-			payload.origin.kind === "crew"
-				? `Claimed origin: from ${payload.origin.name} (${payload.origin.role})`
-				: payload.origin.kind === "guest"
-					? `Claimed origin: from ${payload.origin.name} (guest)`
-					: `Claimed origin: from ${payload.origin.label}`,
-		);
-	}
+	// Sender and timing are rendered by the typed TUI header. Keep origin in the
+	// canonical/model payload, but do not repeat it in the message body.
 	if (payload.instructions)
 		sections.push(
 			["Instructions:", ...payload.instructions.map((item, index) => `${index + 1}. ${item}`)].join("\n"),
