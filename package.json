@@ -11,6 +11,17 @@
 	"description": "Independent crew management for Pi agents",
 	"type": "module",
 	"main": "./dist/extension.js",
+	"exports": {
+		".": {
+			"import": "./dist/extension.js",
+			"default": "./dist/extension.js"
+		},
+		"./sdk": {
+			"types": "./dist/sdk.d.ts",
+			"import": "./dist/sdk.js"
+		},
+		"./package.json": "./package.json"
+	},
 	"bin": {
 		"bebop": "./dist/cli/main.js"
 	},
@@ -118,6 +129,8 @@
 		"src/tools/send-to-inbox.ts",
 		"dist/cli/main.js",
 		"dist/extension.js",
+		"dist/sdk.js",
+		"dist/sdk.d.ts",
 		"README.md",
 		"docs",
 		"LICENSE"

@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { acquireBuildLock } from "./build-lock.mjs";
 import { atomicSwapDirectory } from "./build-swap.mjs";
@@ -50,6 +50,46 @@ try {
 		external: ["@earendil-works/*", "@sinclair/typebox", "typebox"],
 		outfile: join(staging, "extension.js"),
 	});
+	await build({
+		entryPoints: [join(projectRoot, "src/sdk/index.ts")],
+		bundle: true,
+		platform: "node",
+		format: "esm",
+		external: ["@sinclair/typebox", "typebox"],
+		outfile: join(staging, "sdk.js"),
+	});
+	const declarationDir = await mkdtemp(join(projectRoot, ".bebop-sdk-types-"));
+	try {
+		execFileSync(
+			process.execPath,
+			[
+				join(projectRoot, "node_modules/typescript/bin/tsc"),
+				"--declaration",
+				"--emitDeclarationOnly",
+				"--outDir",
+				declarationDir,
+				"--rootDir",
+				projectRoot,
+				"--allowImportingTsExtensions",
+				"--target",
+				"ES2022",
+				"--module",
+				"NodeNext",
+				"--moduleResolution",
+				"NodeNext",
+				"--strict",
+				"false",
+				"--skipLibCheck",
+				"--types",
+				"node",
+				join(projectRoot, "src/sdk/index.ts"),
+			],
+			{ cwd: projectRoot, stdio: "inherit" },
+		);
+		await copyFile(join(declarationDir, "src/sdk/index.d.ts"), join(staging, "sdk.d.ts"));
+	} finally {
+		await rm(declarationDir, { recursive: true, force: true });
+	}
 	await atomicSwapDirectory(staging, dist, `${dist}.backup-${process.pid}`);
 	staging = undefined;
 } finally {
