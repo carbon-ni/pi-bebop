@@ -106,6 +106,25 @@ test("Ask sends exactly one correlated request, waits its opaque ID, and hides t
 	assert.equal((injected.calls[0] as any).maxWaitSeconds, 120);
 });
 
+test("Ask preserves an approved Guest route and sends its exact Crew selector", async () => {
+	const options = readAskCommand(parse(["alpha/Kelly", "What is blocked?"]));
+	const injected = deps({
+		capture: async () => ({
+			crewLocator: "/project/.pi/bebop/crew.json",
+			crew: { id: "alpha", displayName: "Alpha" },
+			guest: { identity: "guest-1", name: "Ada", capabilities: ["member-request"] },
+			projectRoot: "/project",
+		}),
+		resolveRoute: async (_capture: unknown, target: string) => ({
+			...route,
+			caller: { kind: "guest", identity: "Ada" },
+			target: route.target,
+		}),
+	});
+	await runAskCommand(options, context, injected as never);
+	assert.equal((injected.calls[0] as any).crew, "alpha");
+});
+
 test("Ask reports acceptance uncertainty without retrying", async () => {
 	const options = readAskCommand(parse(["alpha", "question"]));
 	let sends = 0;

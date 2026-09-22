@@ -10,7 +10,7 @@ export async function handleMemberRequest(
 	const membership = state.membershipRuntime?.getMembership();
 	const flow = state.memberRequestFlow;
 	const origin = command.payload.origin;
-	if (!membership || !flow) {
+	if (!flow || (!membership && !command.guestAuth)) {
 		respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
 		return;
 	}
@@ -18,21 +18,35 @@ export async function handleMemberRequest(
 		respond(false, command.type, undefined, "untrusted");
 		return;
 	}
-	if (!origin || origin.kind !== "crew") {
+	if (!origin || (origin.kind !== "crew" && origin.kind !== "guest")) {
 		respond(false, command.type, undefined, "invalid-payload");
 		return;
 	}
-	const configuredOrigin = membership.manifest.members.find(
-		(member) => member.name === origin.name && member.role === origin.role,
-	);
-	if (!configuredOrigin || configuredOrigin.name === membership.member.name) {
-		respond(false, command.type, undefined, "invalid-origin");
-		return;
+	if (origin.kind === "guest") {
+		const auth = command.guestAuth;
+		const admission = state.guestAdmissionRuntime;
+		if (!membership || !auth || !admission) {
+			respond(false, command.type, undefined, "invalid-origin");
+			return;
+		}
+		const authorized = admission.authorizeSend(auth);
+		if (!authorized.ok || authorized.guestName !== origin.name || auth.guestIdentity !== origin.identity) {
+			respond(false, command.type, undefined, "invalid-origin");
+			return;
+		}
+	} else {
+		const configuredOrigin = membership?.manifest.members.find(
+			(member) => member.name === origin.name && member.role === origin.role,
+		);
+		if (!configuredOrigin || configuredOrigin.name === membership?.member.name) {
+			respond(false, command.type, undefined, "invalid-origin");
+			return;
+		}
 	}
 	try {
 		flow.registerInboundRequest({
 			requestId: command.requestId,
-			requester: { name: origin.name, role: origin.role },
+			requester: { name: origin.name, role: origin.kind === "guest" ? "guest" : origin.role },
 			message: command.payload.content,
 			instructions: command.payload.instructions ?? [],
 			channel: {
@@ -84,19 +98,43 @@ export async function handleMemberRequestStart(
 	const { state, respond } = context;
 	const membership = state.membershipRuntime?.getMembership();
 	const flow = state.memberRequestFlow;
-	if (!membership || !flow) {
+	const guestRuntime = state.guestMembershipRuntime;
+	if (!flow || (!membership && (!guestRuntime || !command.crew))) {
 		respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
 		return;
 	}
+	if (state.context?.isProjectTrusted?.() !== true) {
+		respond(false, command.type, undefined, "untrusted");
+		return;
+	}
 	try {
-		const accepted = await flow.sendMemberRequest({
-			membership,
-			member: command.target,
-			message: command.message,
-			instructions: command.instructions,
-			timeoutSeconds: command.timeoutSeconds,
-			maxWaitSeconds: command.maxWaitSeconds,
-		});
+		const accepted = membership
+			? await flow.sendMemberRequest({
+					membership,
+					member: command.target,
+					message: command.message,
+					instructions: command.instructions,
+					timeoutSeconds: command.timeoutSeconds,
+					maxWaitSeconds: command.maxWaitSeconds,
+				})
+			: await (async () => {
+					const credentials = guestRuntime!.credentials(command.crew!);
+					const memberSocket = guestRuntime!.getMemberSocket(command.crew!);
+					if (!credentials || !memberSocket) throw new Error("not-approved");
+					return flow.sendGuestMemberRequest({
+						crewId: command.crew!,
+						memberSocket,
+						target: { name: command.target },
+						guestIdentity: credentials.guestIdentity,
+						guestName: credentials.guestName,
+						callbackEndpoint: credentials.callbackEndpoint,
+						capability: credentials.capability,
+						message: command.message,
+						instructions: command.instructions,
+						timeoutSeconds: command.timeoutSeconds,
+						maxWaitSeconds: command.maxWaitSeconds,
+					});
+				})();
 		const member =
 			accepted.member.kind === "member"
 				? { name: accepted.member.name, role: accepted.member.role }

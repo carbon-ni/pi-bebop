@@ -51,6 +51,20 @@ export interface SendMemberRequestAccepted {
 	readonly requestId: string;
 	readonly member: MessageTarget;
 }
+export interface SendGuestMemberRequestInput {
+	readonly crewId: string;
+	readonly memberSocket: string;
+	readonly target: { readonly name: string; readonly role?: string };
+	readonly guestIdentity: string;
+	readonly guestName: string;
+	readonly callbackEndpoint: string;
+	readonly capability: string;
+	readonly message: string;
+	readonly instructions?: readonly string[];
+	readonly timeoutSeconds?: number;
+	readonly maxWaitSeconds?: number;
+	readonly signal?: AbortSignal;
+}
 
 function defaultRequestId(): string {
 	return `request_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -74,6 +88,102 @@ export class MemberRequestFlow {
 		this.createRequestId = dependencies.createRequestId ?? defaultRequestId;
 		this.setTimer = dependencies.setTimeout ?? ((callback, delay) => globalThis.setTimeout(callback, delay));
 		this.clearTimer = dependencies.clearTimeout ?? ((handle) => globalThis.clearTimeout(handle));
+	}
+
+	async sendGuestMemberRequest(input: SendGuestMemberRequestInput): Promise<SendMemberRequestAccepted> {
+		const payload = {
+			content: input.message,
+			...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
+			origin: { kind: "guest" as const, identity: input.guestIdentity, name: input.guestName },
+			kind: "member request" as const,
+			sentAt: this.now(),
+		};
+		if (!isMessagePayload(payload))
+			throw new MemberMessageError("invalid-payload", "Invalid structured message payload");
+		const requestId = this.createRequestId();
+		const timeoutSeconds = input.timeoutSeconds ?? DEFAULT_MEMBER_REQUEST_TIMEOUT_SECONDS;
+		const maxWaitSeconds = input.maxWaitSeconds ?? DEFAULT_MEMBER_REQUEST_MAX_WAIT_SECONDS;
+		const registration = this.registry.registerOutbound({
+			requestId,
+			member: { name: input.target.name, role: input.target.role ?? "member" },
+			now: this.now(),
+			timeoutSeconds,
+			maxWaitSeconds,
+		});
+		if (registration.ok === false) throw new Error(registration.code);
+		let accepted = false;
+		const onUpdate = (update: MemberChannelUpdate) => {
+			if (update.kind === "idle") {
+				const armed = this.registry.armOutboundIdle(requestId, this.now());
+				if (armed.ok && !armed.value.pendingAfterIdlePublished && !this.timers.has(`grace:${requestId}`)) {
+					const graceTimer = this.setTimer(
+						() => this.resolvePendingAfterIdle(requestId),
+						timeoutSeconds * 1000,
+					);
+					this.timers.set(`grace:${requestId}`, graceTimer);
+				}
+				return;
+			}
+			if (update.kind === "response")
+				this.registry.resolveResponse({
+					requestId,
+					member: update.member,
+					message: update.message,
+					instructions: update.instructions ?? [],
+					receivedAt: this.now(),
+				});
+			else if (update.kind === "offline") this.registry.resolveOffline(requestId);
+			else this.registry.resolveTimeout(requestId, "max-wait");
+			this.completed.add(requestId);
+			this.finishRequest(requestId);
+		};
+		try {
+			const endpoint = await this.dependencies.resolveEndpoint(input.memberSocket);
+			const opened = await this.dependencies.transport.open(
+				endpoint,
+				{
+					type: "member_request",
+					requestId,
+					payload,
+					timeoutSeconds,
+					guestAuth: {
+						crewId: input.crewId,
+						guestIdentity: input.guestIdentity,
+						guestName: input.guestName,
+						callbackEndpoint: input.callbackEndpoint,
+						capability: input.capability,
+					},
+				},
+				{ signal: input.signal, timeoutMs: MEMBER_REQUEST_ACCEPT_DEADLINE_MS, onUpdate },
+			);
+			this.closes.set(requestId, opened.close);
+			this.channels.set(requestId, { send: async () => undefined });
+			if (this.completed.delete(requestId)) this.finishRequest(requestId);
+			const acceptedOutcome = this.registry.acceptOutbound(requestId, this.now());
+			if (acceptedOutcome.ok === false) throw new Error(acceptedOutcome.code);
+			accepted = true;
+			const hardTimer = this.setTimer(() => this.resolveTerminal(requestId), maxWaitSeconds * 1000);
+			this.timers.set(`hard:${requestId}`, hardTimer);
+			return {
+				requestId,
+				member: {
+					kind: "member",
+					name: input.target.name,
+					role: input.target.role ?? "member",
+					socketPath: input.memberSocket,
+				},
+			};
+		} catch (error) {
+			if (accepted) this.finishRequest(requestId);
+			else {
+				this.clearTimer(this.timers.get(`grace:${requestId}`)!);
+				this.timers.delete(`grace:${requestId}`);
+				if (error instanceof RpcProtocolError && error.code === "outcome-unknown")
+					this.registry.closeOutcomeUnknown(requestId);
+				else this.registry.failBeforeAcceptance(requestId);
+			}
+			throw error;
+		}
 	}
 
 	async sendMemberRequest(input: SendMemberRequestInput): Promise<SendMemberRequestAccepted> {

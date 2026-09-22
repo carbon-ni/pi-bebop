@@ -15,6 +15,14 @@ const SessionCaptureMemberSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+const SessionCaptureGuestSchema = Type.Object(
+	{
+		identity: Type.String({ minLength: 1, maxLength: 256 }),
+		name: Type.String({ minLength: 1, maxLength: 256 }),
+		capabilities: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { minItems: 1, maxItems: 8 }),
+	},
+	{ additionalProperties: false },
+);
 const SessionCaptureEvidenceSchema = Type.Object(
 	{
 		persisted: Type.Boolean(),
@@ -42,7 +50,8 @@ export const SessionCaptureResultSchema = Type.Object(
 	{
 		crewLocator: Type.String({ minLength: 1, maxLength: 4096 }),
 		crew: SessionCaptureCrewSchema,
-		member: SessionCaptureMemberSchema,
+		member: Type.Optional(SessionCaptureMemberSchema),
+		guest: Type.Optional(SessionCaptureGuestSchema),
 		session: SessionCaptureEvidenceSchema,
 	},
 	{ additionalProperties: false },

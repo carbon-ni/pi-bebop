@@ -123,7 +123,8 @@ export function readAskCommand(command: Command): AskCliOptions {
 export interface AskSourceCapture {
 	readonly crewLocator: string;
 	readonly crew: { readonly id?: string; readonly displayName?: string };
-	readonly member: { readonly name: string; readonly role: string };
+	readonly member?: { readonly name: string; readonly role: string };
+	readonly guest?: { readonly identity: string; readonly name: string; readonly capabilities: readonly string[] };
 	readonly projectRoot: string;
 }
 
@@ -166,17 +167,29 @@ function captureFromResult(response: RpcCommandResponse): AskSourceCapture {
 	if (!response.success || !isMethodResult("session.capture", response.data))
 		throw new RpcProtocolError("malformed-response", "Source session capture was unavailable");
 	const data = response.data as SessionCaptureResult;
-	if (!data.crewLocator || !data.crew.id || !data.member)
-		throw new RpcProtocolError("authorization-required", "Source session is not a joined Crew Member");
+	if (!data.crewLocator || !data.crew.id || (!data.member && !data.guest))
+		throw new RpcProtocolError("authorization-required", "Source session is not an authorized Crew route");
 	return {
 		crewLocator: data.crewLocator,
 		crew: data.crew,
-		member: data.member,
+		...(data.member === undefined ? {} : { member: data.member }),
+		...(data.guest === undefined ? {} : { guest: data.guest }),
 		projectRoot: data.session.root,
 	};
 }
 
 function callerFromCapture(capture: AskSourceCapture): CrewRouteCaller {
+	if (capture.guest)
+		return {
+			kind: "guest",
+			crewSelector: capture.crew.id!,
+			crewLocator: capture.crewLocator,
+			guestIdentity: capture.guest.identity,
+			guestName: capture.guest.name,
+			approved: true,
+			capabilities: capture.guest.capabilities,
+		};
+	if (!capture.member) throw new RpcProtocolError("authorization-required", "Source session route is unavailable");
 	return {
 		kind: "member",
 		crewSelector: capture.crew.id!,
@@ -289,6 +302,7 @@ async function deliverAsk(
 		...(options.instructions.length === 0 ? {} : { instructions: options.instructions }),
 		timeoutSeconds: options.responseGraceSeconds,
 		maxWaitSeconds: options.totalWaitSeconds,
+		...(route.caller.kind === "guest" ? { crew: route.target.crew.selector } : {}),
 	};
 	try {
 		const result = await deps.send(source, command, DELIVERY_TIMEOUT_MS, context.signal);

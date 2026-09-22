@@ -72,6 +72,40 @@ test("request registers before endpoint/open and returns accepted without waitin
 	assert.equal(flow.registry.resolveOffline("request-1").ok, true);
 });
 
+test("approved Guest request preserves guest auth on the existing Member Request wire", async () => {
+	let sent: any;
+	const { flow } = setup({
+		transport: {
+			open: async (_endpoint, command, options) => {
+				sent = command;
+				(options as any).onUpdate;
+				return { close: () => undefined };
+			},
+			respond: async () => undefined,
+		},
+	});
+	const accepted = await flow.sendGuestMemberRequest({
+		crewId: "alpha",
+		memberSocket: "/project/.pi/bebop/sockets/qa.sock",
+		target: { name: "qa", role: "reviewer" },
+		guestIdentity: "guest-1",
+		guestName: "Ada",
+		callbackEndpoint: "/tmp/guest.sock",
+		capability: "opaque-capability",
+		message: "What is blocked?",
+	});
+	assert.equal(accepted.requestId, "request-1");
+	assert.deepEqual(sent.guestAuth, {
+		crewId: "alpha",
+		guestIdentity: "guest-1",
+		guestName: "Ada",
+		callbackEndpoint: "/tmp/guest.sock",
+		capability: "opaque-capability",
+	});
+	assert.equal(sent.payload.origin.kind, "guest");
+	flow.cancelRequest("request-1");
+});
+
 test("pre-accept failure cleans request while lost acknowledgement closes as outcome-unknown", async () => {
 	const failed = setup({
 		transport: {

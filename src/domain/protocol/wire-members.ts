@@ -81,11 +81,22 @@ export const RequestOutcomeRequestIdSchema = Type.String({
 	pattern: "^\\S(?:[\\s\\S]*\\S)?$",
 });
 export const RequestOutcomeTimeoutSchema = Type.Integer({ minimum: 1, maximum: 600 });
+const MemberRequestGuestAuthSchema = Type.Object(
+	{
+		crewId: Type.String({ minLength: 1, maxLength: 128 }),
+		guestIdentity: Type.String({ minLength: 1, maxLength: 256 }),
+		guestName: Type.String({ minLength: 1, maxLength: 256 }),
+		callbackEndpoint: Type.String({ minLength: 1, maxLength: 512 }),
+		capability: Type.String({ minLength: 1, maxLength: 512 }),
+	},
+	{ additionalProperties: false },
+);
 export const MemberRequestParamsSchema = Type.Object(
 	{
 		requestId: RequestOutcomeRequestIdSchema,
 		payload: MessagePayloadSchema,
 		timeoutSeconds: RequestOutcomeTimeoutSchema,
+		guestAuth: Type.Optional(MemberRequestGuestAuthSchema),
 	},
 	{ additionalProperties: false },
 );
@@ -120,6 +131,7 @@ export const MemberRequestResultSchema = Type.Object(
 export const MemberRequestStartParamsSchema = Type.Object(
 	{
 		target: MemberStatusTargetSchema,
+		crew: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 		message: MemberMessageContentSchema,
 		instructions: Type.Optional(MessageInstructionsSchema),
 		timeoutSeconds: RequestOutcomeTimeoutSchema,
