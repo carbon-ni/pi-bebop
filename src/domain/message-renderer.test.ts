@@ -24,6 +24,14 @@ test("renders and round-trips Bob to Kelly with every structured field", () => {
 	assert.match(renderMessagePayloadForDisplay(payload), /Review/);
 });
 
+test("keeps claimed origin in the model envelope while omitting its duplicate TUI body", () => {
+	const payload = { content: "hello", origin: { kind: "external" as const, label: "CI" } };
+	const model = renderMessagePayload(payload);
+	assert.deepEqual(parseRenderedMessagePayload(model).origin, payload.origin);
+	assert.equal(renderMessagePayloadForDisplay(payload), "hello");
+	assert.doesNotMatch(renderMessagePayloadForDisplay(payload), /CI|Claimed origin/);
+});
+
 test("returns content byte-for-byte when metadata is absent", () => {
 	const content = '<origin>\n{"x":true}\n😀\n';
 	assert.equal(renderMessagePayload({ content }), content);
