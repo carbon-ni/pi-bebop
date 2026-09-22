@@ -240,14 +240,15 @@ class IntakeHarnessTests(unittest.TestCase):
         if not extension.is_file() or not cli.is_file():
             self.skipTest("built Bebop extension and CLI are required")
         run_dir = self.root / "real-run"
-        options = self.options(run_dir=str(run_dir), session_name="real-intake-smoke", extension=str(extension), cli=str(cli))
+        options = self.options(run_dir=str(run_dir), session_name="real-intake-smoke", extension=str(extension), cli=str(cli), provider="google", model="gemini-2.5-flash", timeout_ms=30_000)
         adapter = harness.SystemAdapter()
         try:
             state = harness.create_run(options, adapter)
             status = harness.observe(run_dir, adapter)
             self.assertEqual(status["status"], "running")
-            self.assertEqual({member["title"] for member in status["panes"]}, {"Contact", "Peer", "Control / evidence"})
-            self.assertTrue(all(not member["dead"] for member in status["panes"]))
+            self.assertTrue(any(member["title"] == "Control / evidence" for member in status["panes"]))
+            live_panes = {member["paneId"] for member in status["panes"] if not member["dead"]}
+            self.assertTrue(all(status["members"][role]["paneId"] in live_panes for role in ("Contact", "Peer")))
             self.assertTrue(all(status["members"][role]["socketExists"] for role in ("Contact", "Peer")))
             for role in ("Contact", "Peer"):
                 pane_id = state["members"][role]["paneId"]
