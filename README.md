@@ -75,7 +75,7 @@ npm install @carbon-ni/pi-bebop
 ```
 
 ```ts
-import { createBebopClient } from "@carbon-ni/pi-bebop/sdk";
+import { BebopClientError, createBebopClient } from "@carbon-ni/pi-bebop/sdk";
 
 const bebop = createBebopClient();
 const sources = await bebop.listSources({ timeoutMs: 10_000 });
@@ -84,6 +84,18 @@ const crew = await bebop.selectSource({ session: process.env.PI_SESSION_ID ?? so
 const status = await crew.getMemberStatus("developer");
 await crew.sendFollowUp("developer", { message: "Build finished" });
 await crew.sendToInbox("developer", { message: "Durable context for your next startup" });
+
+const cancellation = new AbortController();
+const pending = crew.sendFollowUp("developer", { message: "Cancel if still pending" }, { signal: cancellation.signal });
+setTimeout(() => cancellation.abort(), 100);
+try {
+  await pending;
+} catch (error) {
+  if (!(error instanceof BebopClientError)) throw error;
+  if (error.code === "aborted") console.warn("Follow-up was cancelled before acceptance");
+  else if (error.code === "outcome-unknown") console.warn("Reconcile delivery; do not blindly retry");
+  else throw error;
+}
 ```
 
 Select an already-running joined, trusted source session explicitly, or use `PI_SESSION_ID` as the convenience fallback. The SDK never reads a manifest or accepts socket paths; the selected source remains authoritative for membership, trust, target resolution, and storage. `getMemberStatus` reports mechanical observations only. Follow-up means accepted delivery, and Inbox means persistence; neither means read, acted on, or completed. Every operation accepts `AbortSignal` and a finite `timeoutMs`. A lost acknowledgement after a message write throws `BebopClientError` with `code === "outcome-unknown"`; the SDK never retries effects automatically.

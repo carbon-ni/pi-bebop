@@ -11,6 +11,7 @@ interface FakeSource {
 	server: Server;
 	session: string;
 	requests: { method: string; params?: Record<string, unknown> }[];
+	closedSockets: number;
 	close(): Promise<void>;
 }
 
@@ -29,6 +30,7 @@ async function fakeSource(
 		dropInbox?: boolean;
 		hangFollowUp?: boolean;
 		hangInbox?: boolean;
+		holdMemberStatus?: boolean;
 		malformedStatus?: boolean;
 		remoteError?: string;
 	} = {},
@@ -37,8 +39,12 @@ async function fakeSource(
 	const session = `000sdk-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 	const socketPath = getSocketPath(session);
 	const requests: FakeSource["requests"] = [];
+	let closedSockets = 0;
 	const server = createServer((socket) => {
 		socket.setEncoding("utf8");
+		socket.on("close", () => {
+			closedSockets += 1;
+		});
 		let buffer = "";
 		socket.on("data", (chunk) => {
 			buffer += chunk;
@@ -63,7 +69,8 @@ async function fakeSource(
 				}
 				if (
 					(options.hangFollowUp && request.method === "member.follow_up") ||
-					(options.hangInbox && request.method === "member.inbox_send")
+					(options.hangInbox && request.method === "member.inbox_send") ||
+					(options.holdMemberStatus && request.method === "member.status_target")
 				)
 					return;
 				if (options.remoteError && request.method !== "session.status") {
@@ -118,6 +125,9 @@ async function fakeSource(
 		server,
 		session,
 		requests,
+		get closedSockets() {
+			return closedSockets;
+		},
 		async close() {
 			await new Promise<void>((resolve) => server.close(() => resolve()));
 			await rm(socketPath, { force: true });
@@ -343,6 +353,45 @@ test("SDK maps unknown, offline, malformed, and source target errors without lea
 		);
 	} finally {
 		await rejected.close();
+	}
+});
+
+test("SDK aborts an in-flight local-socket status request and the peer observes closure", async () => {
+	const source = await fakeSource({ holdMemberStatus: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		const controller = new AbortController();
+		const pending = selected.getMemberStatus("developer", { signal: controller.signal });
+		await waitForRequest(source, "member.status_target");
+		controller.abort();
+		await assert.rejects(
+			pending,
+			(error: unknown) => error instanceof BebopClientError && error.code === "aborted",
+		);
+		const deadline = Date.now() + 1000;
+		while (source.closedSockets === 0 && Date.now() < deadline)
+			await new Promise((resolve) => setTimeout(resolve, 1));
+		assert.equal(source.closedSockets, 1);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK maps table-driven target rejection codes", async () => {
+	for (const [remoteError, expected] of [
+		["ambiguous-role", "ambiguous-member"],
+		["self-query", "self-query"],
+	] as const) {
+		const source = await fakeSource({ remoteError });
+		try {
+			const selected = await createBebopClient().selectSource({ session: source.session });
+			await assert.rejects(
+				selected.getMemberStatus("developer"),
+				(error: unknown) => error instanceof BebopClientError && error.code === expected,
+			);
+		} finally {
+			await source.close();
+		}
 	}
 });
 
