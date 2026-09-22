@@ -31,7 +31,11 @@ async function fixture(contact = "Mary") {
 	return { root, layout, manifestPath, membership, cleanup: () => fs.rm(root, { recursive: true, force: true }) };
 }
 
-function controllerFor(harness: Awaited<ReturnType<typeof fixture>>, member = harness.membership) {
+function controllerFor(
+	harness: Awaited<ReturnType<typeof fixture>>,
+	member = harness.membership,
+	options: { readonly quiescenceMs?: number } = { quiescenceMs: 0 },
+) {
 	let current: typeof member | null = member;
 	let accepted = 0;
 	const errors: string[] = [];
@@ -42,7 +46,7 @@ function controllerFor(harness: Awaited<ReturnType<typeof fixture>>, member = ha
 			accepted += 1;
 		},
 		onError: (code) => errors.push(code),
-		quiescenceMs: 0,
+		quiescenceMs: options.quiescenceMs,
 	});
 	return {
 		controller,
@@ -313,6 +317,48 @@ test("membership sync activates the watcher and scans immediately", async (t) =>
 	}
 	assert.equal(processed, true);
 	assert.equal(intake.accepted, 1);
+});
+
+test("watcher retries an atomic publication after the initial event quiesces", async (t) => {
+	const harness = await fixture();
+	const intake = controllerFor(harness, harness.membership, {});
+	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
+	intake.controller.syncMembership();
+	await intake.controller.scan();
+	const draft = path.join(harness.layout, "intake", "new", ".context.md.draft");
+	const published = path.join(harness.layout, "intake", "new", "atomic.md");
+	await fs.writeFile(draft, "atomic external context");
+	await fs.rename(draft, published);
+	let processed = false;
+	for (let attempt = 0; attempt < 120; attempt += 1) {
+		try {
+			await fs.access(path.join(harness.layout, "intake", "processed", "atomic.md"));
+			processed = true;
+			break;
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	}
+	assert.equal(processed, true);
+	assert.equal(intake.accepted, 1);
+});
+
+test("close cancels a debounced watcher retry", async (t) => {
+	const harness = await fixture();
+	const intake = controllerFor(harness, harness.membership, {});
+	t.after(harness.cleanup);
+	intake.controller.syncMembership();
+	await intake.controller.scan();
+	const draft = path.join(harness.layout, "intake", "new", ".context.md.draft");
+	const published = path.join(harness.layout, "intake", "new", "closed.md");
+	await fs.writeFile(draft, "must remain after close");
+	await fs.rename(draft, published);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	await intake.controller.close();
+	await new Promise((resolve) => setTimeout(resolve, 60));
+	assert.equal(await fs.readFile(published, "utf8"), "must remain after close");
+	assert.equal(await (await storeFor(harness)).count(), 0);
 });
 
 test("close awaits an in-flight startup scan before filesystem teardown", async (t) => {

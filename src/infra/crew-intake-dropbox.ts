@@ -1,4 +1,4 @@
-import { promises as fs, watch as watchFilesystem, type Dir, type Dirent, type FSWatcher } from "node:fs";
+import { promises as fs, watch as watchFilesystem, type Dir, type Dirent } from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { MAX_MESSAGE_PAYLOAD_BYTES } from "../domain/message-payload.ts";
@@ -680,10 +680,33 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		}
 	};
 
-	const watch = (onEvent: () => void, onError: (error: unknown) => void): FSWatcher => {
-		const watcher = watchFilesystem(paths.newDir, () => onEvent());
-		watcher.on("error", onError);
-		return watcher;
+	const watch = (onEvent: () => void, onError: (error: unknown) => void): { close(): void } => {
+		let retryTimer: ReturnType<typeof setTimeout> | undefined;
+		let closed = false;
+		const schedule = (): void => {
+			if (closed || retryTimer !== undefined) return;
+			retryTimer = setTimeout(
+				() => {
+					retryTimer = undefined;
+					if (!closed) onEvent();
+				},
+				Math.max(0, quiescenceMs),
+			);
+		};
+		const watcher = watchFilesystem(paths.newDir, schedule);
+		watcher.on("error", (error) => {
+			if (retryTimer !== undefined) clearTimeout(retryTimer);
+			retryTimer = undefined;
+			onError(error);
+		});
+		return {
+			close: () => {
+				closed = true;
+				if (retryTimer !== undefined) clearTimeout(retryTimer);
+				retryTimer = undefined;
+				watcher.close();
+			},
+		};
 	};
 
 	return {
