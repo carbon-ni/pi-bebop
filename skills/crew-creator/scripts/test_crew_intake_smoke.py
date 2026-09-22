@@ -265,6 +265,10 @@ class IntakeHarnessTests(unittest.TestCase):
                     break
                 time.sleep(0.1)
             self.assertTrue(processed.exists(), "actual extension did not move Intake to processed")
+            contact_pane = harness.capture_pane_tail(adapter, "tmux", state["members"]["Contact"]["paneId"])
+            peer_pane = harness.capture_pane_tail(adapter, "tmux", state["members"]["Peer"]["paneId"])
+            self.assertIn("offline startup smoke intake", contact_pane)
+            self.assertNotIn("offline startup smoke intake", peer_pane)
         except Exception:
             if (run_dir / "failure.json").exists():
                 failure = json.loads((run_dir / "failure.json").read_text())

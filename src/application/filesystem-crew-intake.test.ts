@@ -34,7 +34,10 @@ async function fixture(contact = "Mary") {
 function controllerFor(
 	harness: Awaited<ReturnType<typeof fixture>>,
 	member = harness.membership,
-	options: { readonly quiescenceMs?: number } = { quiescenceMs: 0 },
+	options: {
+		readonly quiescenceMs?: number;
+		readonly hintTransport?: { sendHint(endpoint: string, command: { type: "inbox_hint" }): Promise<unknown> };
+	} = { quiescenceMs: 0 },
 ) {
 	let current: typeof member | null = member;
 	let accepted = 0;
@@ -46,6 +49,7 @@ function controllerFor(
 			accepted += 1;
 		},
 		onError: (code) => errors.push(code),
+		hintTransport: options.hintTransport,
 		quiescenceMs: options.quiescenceMs,
 	});
 	return {
@@ -420,6 +424,58 @@ test("any trusted joined member persists intake for the exact offline contact", 
 		"wait for Mary",
 	);
 	intake.controller.close();
+});
+
+test("remote contact receives a best-effort inbox hint after durable persistence", async (t) => {
+	const harness = await fixture();
+	const bob = {
+		manifestPath: harness.manifestPath,
+		member: { name: "Bob", role: "dev", socketPath: path.join(harness.layout, "sockets", "Bob.sock") },
+	};
+	const hints: Array<{ endpoint: string; type: string }> = [];
+	const intake = controllerFor(harness, bob, {
+		quiescenceMs: 0,
+		hintTransport: {
+			sendHint: async (endpoint, command) => {
+				hints.push({ endpoint, type: command.type });
+			},
+		},
+	});
+	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
+	await intake.controller.scan();
+	await fs.writeFile(path.join(harness.layout, "intake", "new", "hint.md"), "wake Mary");
+	assert.deepEqual(await intake.controller.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	assert.deepEqual(hints, [{ endpoint: path.join(harness.layout, "sockets", "Mary.sock"), type: "inbox_hint" }]);
+	assert.equal(await (await storeFor(harness)).count(), 1);
+	assert.equal(intake.errors.length, 0);
+});
+
+test("hint failure leaves the remote inbox item and processed evidence durable", async (t) => {
+	const harness = await fixture();
+	const bob = {
+		manifestPath: harness.manifestPath,
+		member: { name: "Bob", role: "dev", socketPath: path.join(harness.layout, "sockets", "Bob.sock") },
+	};
+	const intake = controllerFor(harness, bob, {
+		quiescenceMs: 0,
+		hintTransport: {
+			sendHint: async () => {
+				throw new Error("offline");
+			},
+		},
+	});
+	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
+	await intake.controller.scan();
+	await fs.writeFile(path.join(harness.layout, "intake", "new", "offline.md"), "keep durable");
+	assert.deepEqual(await intake.controller.scan(), { state: "scanned", accepted: 1, failed: 0, remaining: 0 });
+	assert.equal(await (await storeFor(harness)).count(), 1);
+	assert.equal(
+		await fs.readFile(path.join(harness.layout, "intake", "processed", "offline.md"), "utf8"),
+		"keep durable",
+	);
+	assert.equal(intake.errors.length, 0);
 });
 
 test("manifest contact changes invalidate the active intake owner", async (t) => {

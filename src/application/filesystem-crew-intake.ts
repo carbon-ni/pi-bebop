@@ -16,6 +16,7 @@ import {
 } from "../infra/crew-intake-dropbox.ts";
 import { ExternalIntakeError, submitExternalIntake, type ExternalIntakeDependencies } from "./external-intake.ts";
 import { readTrustedCrewManifest } from "../infra/crew-manifest-store.ts";
+import type { InboxHintTransport } from "./member-inbox-message.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
 
 export interface FilesystemCrewIntakeMembership {
@@ -33,6 +34,8 @@ export interface FilesystemCrewIntakeDependencies {
 	readonly isProjectTrusted: () => boolean;
 	readonly loadManifest?: (manifestPath: string, projectRoot: string) => Promise<CrewManifest>;
 	readonly externalIntake?: Pick<ExternalIntakeDependencies, "openStore" | "now">;
+	/** Best-effort wake-up for a persisted item owned by another live member. */
+	readonly hintTransport?: InboxHintTransport | null;
 	readonly onAccepted?: () => void | Promise<void>;
 	readonly onError?: (code: string, message?: string) => void;
 	readonly quiescenceMs?: number;
@@ -312,7 +315,15 @@ export function createFilesystemCrewIntakeController(
 			return "retry";
 		}
 		await current.dropbox.moveProcessed(claim);
-		if (sameMember(current.membership.member, target!)) await dependencies.onAccepted?.();
+		if (sameMember(current.membership.member, target!)) {
+			await dependencies.onAccepted?.();
+		} else if (dependencies.hintTransport) {
+			try {
+				await dependencies.hintTransport.sendHint(target!.socketPath, { type: "inbox_hint" }, {});
+			} catch {
+				// Persistence and processed evidence remain authoritative when the contact is offline.
+			}
+		}
 		return "accepted";
 	};
 
@@ -335,7 +346,7 @@ export function createFilesystemCrewIntakeController(
 		try {
 			release = await current.dropbox.lock();
 		} catch (error) {
-			report(error);
+			if (!(error instanceof CrewIntakeDropboxError && error.code === "scan-locked")) report(error);
 			return { state: "failed", code: errorCode(error) };
 		}
 		let accepted = 0;

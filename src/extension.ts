@@ -106,6 +106,12 @@ export default function (pi: ExtensionAPI) {
 	const filesystemIntake = createFilesystemCrewIntakeController({
 		getMembership: () => state.membershipRuntime?.getMembership() ?? null,
 		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+		hintTransport: {
+			sendHint: async (socketPath, command, options) => {
+				const endpoint = await resolveMemberEndpoint(socketPath);
+				return sendRpcCommand(endpoint, command, { signal: options.signal, timeout: 1000 });
+			},
+		},
 		onAccepted: async () => {
 			await inboxBridge.attemptOffer();
 		},
