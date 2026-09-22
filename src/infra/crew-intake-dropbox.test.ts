@@ -108,6 +108,34 @@ test("quiescence rejects a file mutated during the publication window", async (t
 	assert.equal(await fs.readFile(source, "utf8"), "before after");
 });
 
+test("watch debounce resets after a near-deadline update", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	const dropbox = createCrewIntakeDropbox({
+		manifestPath: harness.manifestPath,
+		projectRoot: harness.root,
+		isProjectTrusted: () => true,
+		quiescenceMs: 80,
+	});
+	await dropbox.prepare();
+	const events: number[] = [];
+	const watcher = dropbox.watch(
+		() => events.push(Date.now()),
+		() => assert.fail("watch failed"),
+	);
+	t.after(() => watcher.close());
+	const source = path.join(dropbox.paths.newDir, "near-deadline.md");
+	await fs.writeFile(source, "before");
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	const updatedAt = Date.now();
+	await fs.appendFile(source, " after");
+	for (let attempt = 0; attempt < 30 && events.length === 0; attempt += 1)
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	watcher.close();
+	assert.equal(events.length, 1);
+	assert.ok(events[0]! - updatedAt >= 45, `debounce fired too early: ${events[0]! - updatedAt}ms`);
+});
+
 test("bounds directory enumeration and retains overflow for later scans", async (t) => {
 	const harness = await fixture();
 	t.after(harness.cleanup);

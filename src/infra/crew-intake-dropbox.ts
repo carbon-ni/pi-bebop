@@ -684,7 +684,8 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
 		let closed = false;
 		const schedule = (): void => {
-			if (closed || retryTimer !== undefined) return;
+			if (closed) return;
+			if (retryTimer !== undefined) clearTimeout(retryTimer);
 			retryTimer = setTimeout(
 				() => {
 					retryTimer = undefined;
