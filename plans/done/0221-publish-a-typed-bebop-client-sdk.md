@@ -1,7 +1,7 @@
 ---
 id: TASK-0221
 title: Publish a typed Bebop client SDK
-status: doing
+status: done
 depends_on: [TASK-0061]
 priority: high
 tags: [sdk, api, crew, typescript, security]
@@ -66,39 +66,39 @@ The selected `session` is an ID or alias for an already-running, joined Pi membe
 
 ### Public package
 
-- [ ] Add a dedicated `src/sdk/` composition boundary with no Pi UI/tool/Commander dependency.
-- [ ] Export a minimal client constructor, public input/result types, `MemberStatus`, and one typed public error from `@carbon-ni/pi-bebop/sdk`.
-- [ ] Preserve the package root/extension entry point. Add an explicit `./sdk` package export with runnable ESM JavaScript and matching `.d.ts` declarations.
-- [ ] `npm pack` contains the SDK JavaScript and declarations. A clean temporary JavaScript consumer and a clean temporary TypeScript consumer can import and typecheck the packed package.
+- [x] Add a dedicated `src/sdk/` composition boundary with no Pi UI/tool/Commander dependency.
+- [x] Export a minimal client constructor, public input/result types, `MemberStatus`, and one typed public error from `@carbon-ni/pi-bebop/sdk`.
+- [x] Preserve the package root/extension entry point. Add an explicit `./sdk` package export with runnable ESM JavaScript and matching `.d.ts` declarations.
+- [x] `npm pack` contains the SDK JavaScript and declarations. A clean temporary JavaScript consumer and a clean temporary TypeScript consumer can import and typecheck the packed package.
 
 ### Source-session delegation
 
-- [ ] `listSources({ signal? })` performs bounded local discovery and returns redacted public metadata without loading Crew manifests or claiming a source is trusted/joined until queried.
-- [ ] Explicit session selection takes precedence over `PI_SESSION_ID`; missing, malformed, unknown, or offline source sessions return stable distinct errors.
-- [ ] Session ID and alias fallback behavior matches the existing CLI source resolution and cannot escape the controlled session socket namespace.
-- [ ] The SDK delegates target resolution and authorization to the joined source session. It never reads a Crew manifest to authorize an operation.
+- [x] `listSources({ signal? })` performs bounded local discovery and returns redacted public metadata without loading Crew manifests or claiming a source is trusted/joined until queried.
+- [x] Explicit session selection takes precedence over `PI_SESSION_ID`; missing, malformed, unknown, or offline source sessions return stable distinct errors.
+- [x] Session ID and alias fallback behavior matches the existing CLI source resolution and cannot escape the controlled session socket namespace.
+- [x] The SDK delegates target resolution and authorization to the joined source session. It never reads a Crew manifest to authorize an operation.
 
 ### Status
 
-- [ ] `getMemberStatus(nameOrUniqueRole, { signal? })` preserves the existing online/offline `MemberStatus` shape and target-provided `observedAt` unchanged.
-- [ ] Unknown member, ambiguous role, self-query, malformed peer response, timeout, cancellation, and transport failure map to stable documented SDK error codes.
-- [ ] Status does not start, steer, interrupt, wake, or send a model turn.
+- [x] `getMemberStatus(nameOrUniqueRole, { signal? })` preserves the existing online/offline `MemberStatus` shape and target-provided `observedAt` unchanged.
+- [x] Unknown member, ambiguous role, self-query, malformed peer response, timeout, cancellation, and transport failure map to stable documented SDK error codes.
+- [x] Status does not start, steer, interrupt, wake, or send a model turn.
 
 ### Communication
 
-- [ ] `sendFollowUp` reuses the existing ordinary Follow-up path and reports only transport acceptance/rejection.
-- [ ] `sendToInbox` reuses the existing durable Inbox path and reports persistence/acceptance without claiming delivery or completion.
-- [ ] Message and instruction validation is identical to existing tool/CLI protocol bounds. Empty, oversized, or malformed input fails before socket IO.
-- [ ] No automatic retry occurs after an ambiguous write/read failure, preventing duplicate messages.
+- [x] `sendFollowUp` reuses the existing ordinary Follow-up path and reports only transport acceptance/rejection.
+- [x] `sendToInbox` reuses the existing durable Inbox path and reports persistence/acceptance without claiming delivery or completion.
+- [x] Message and instruction validation is identical to existing tool/CLI protocol bounds. Empty, oversized, or malformed input fails before socket IO.
+- [x] No automatic retry occurs after an ambiguous write/read failure, preventing duplicate messages.
 
 ### Lifecycle and tests
 
-- [ ] Every operation has one finite configurable end-to-end deadline with a safe default and bounded minimum/maximum; discovery, alias fallback, source RPC, target probe, and target RPC consume the same remaining budget rather than stacking full timeouts.
-- [ ] Abort before resolution performs no IO; abort during transport closes the request and yields the stable cancellation error.
-- [ ] Concurrent calls have isolated request IDs/state and do not leak listeners, sockets, timers, or results across calls.
-- [ ] Unit tests inject source resolution and transport adapters. Integration tests use real local sockets for online, offline, malformed, timeout, and cancellation paths.
-- [ ] Package-contract tests verify exports, declarations, packed contents, and both JS/TS consumer examples.
-- [ ] README documents installation, status caveats, effect semantics, source-session selection, cancellation, error handling, and copy-paste scripts.
+- [x] Every operation has one finite configurable end-to-end deadline with a safe default and bounded minimum/maximum; discovery, alias fallback, source RPC, target probe, and target RPC consume the same remaining budget rather than stacking full timeouts.
+- [x] Abort before resolution performs no IO; abort during transport closes the request and yields the stable cancellation error.
+- [x] Concurrent calls have isolated request IDs/state and do not leak listeners, sockets, timers, or results across calls.
+- [x] Unit tests inject source resolution and transport adapters. Integration tests use real local sockets for online, offline, malformed, timeout, and cancellation paths.
+- [x] Package-contract tests verify exports, declarations, packed contents, and both JS/TS consumer examples.
+- [x] README documents installation, status caveats, effect semantics, source-session selection, cancellation, error handling, and copy-paste scripts.
 
 ## Non-goals for v0.1
 
