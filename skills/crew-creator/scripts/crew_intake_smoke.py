@@ -15,6 +15,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -374,6 +375,27 @@ def prepare_project(run_dir: Path) -> dict[str, Path]:
     }
 
 
+def prepare_run_root(raw_root: str) -> Path:
+    root = Path(raw_root).expanduser()
+    if root.is_symlink():
+        raise HarnessError(f"run root must not be a symlink: {root}")
+    if root.exists():
+        if not root.is_dir():
+            raise HarnessError(f"run root must be a directory: {root}")
+    else:
+        root.mkdir(parents=True, mode=0o700)
+        root.chmod(0o700)
+    root = root.resolve(strict=True)
+    metadata = root.stat()
+    if hasattr(os, "getuid") and metadata.st_uid != os.getuid():
+        raise HarnessError(f"run root must be owned by the current user: {root}")
+    if metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise HarnessError(f"run root must not be group/world writable: {root}")
+    if not os.access(root, os.W_OK | os.X_OK):
+        raise HarnessError(f"run root must be writable: {root}")
+    return root
+
+
 def create_run(args: argparse.Namespace, adapter: CommandAdapter) -> dict[str, Any]:
     pi, tmux = validate_start_options(args, adapter)
     run_dir = Path(args.run_dir).expanduser().resolve() if args.run_dir else None
@@ -382,8 +404,7 @@ def create_run(args: argparse.Namespace, adapter: CommandAdapter) -> dict[str, A
             raise HarnessError(f"run directory must be fresh: {run_dir}")
         run_dir.mkdir(parents=True, mode=0o700)
     else:
-        root = Path(args.run_root).expanduser().resolve()
-        root.mkdir(parents=True, mode=0o700)
+        root = prepare_run_root(args.run_root)
         run_dir = Path(tempfile.mkdtemp(prefix="intake-", dir=root))
         run_dir.chmod(0o700)
     session = args.session_name or f"bebop-intake-{uuid.uuid4().hex[:12]}"

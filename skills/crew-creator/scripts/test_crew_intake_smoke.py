@@ -101,6 +101,36 @@ class IntakeHarnessTests(unittest.TestCase):
             harness.create_run(self.options(), self.adapter)
         self.assertFalse((self.root / "run").exists())
 
+    def test_existing_run_root_is_reusable_without_touching_contents(self) -> None:
+        run_root = self.root / "run-root"
+        run_root.mkdir(mode=0o700)
+        marker = run_root / "keep.txt"
+        marker.write_text("preserve", encoding="utf-8")
+        state = harness.create_run(self.options(run_dir=None, run_root=str(run_root)), self.adapter)
+        self.assertTrue(marker.exists())
+        self.assertEqual(marker.read_text(encoding="utf-8"), "preserve")
+        self.assertEqual(Path(state["runDirectory"]).parent.resolve(), run_root.resolve())
+
+    def test_run_root_rejects_symlink_and_non_directory(self) -> None:
+        target = self.root / "target"
+        target.mkdir(mode=0o700)
+        link = self.root / "link"
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except (NotImplementedError, OSError):
+            self.skipTest("symlinks are unavailable")
+        with self.assertRaises(harness.HarnessError):
+            harness.create_run(self.options(run_dir=None, run_root=str(link)), self.adapter)
+        file_root = self.root / "not-a-directory"
+        file_root.write_text("not a directory", encoding="utf-8")
+        with self.assertRaises(harness.HarnessError):
+            harness.create_run(self.options(run_dir=None, run_root=str(file_root)), self.adapter)
+        writable_root = self.root / "world-writable"
+        writable_root.mkdir(mode=0o700)
+        writable_root.chmod(0o777)
+        with self.assertRaises(harness.HarnessError):
+            harness.create_run(self.options(run_dir=None, run_root=str(writable_root)), self.adapter)
+
     def test_publish_is_bounded_atomic_and_rejects_path_injection(self) -> None:
         state = harness.create_run(self.options(), self.adapter)
         source = self.root / "fixture.md"
