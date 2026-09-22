@@ -106,8 +106,11 @@ class IntakeHarnessTests(unittest.TestCase):
         self.assertEqual([member["socket"] for member in manifest["members"]], ["sockets/contact.sock", "sockets/peer.sock"])
         guide = (self.root / "run" / "project" / ".pi" / "bebop" / "intake" / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("external transport boundary, not the crew Inbox", guide)
-        self.assertIn("bounded, non-empty UTF-8", guide)
-        self.assertIn("processed/`, `failed/`, `receipts/`", guide)
+        self.assertIn("997,952 UTF-8 bytes", guide)
+        self.assertIn("160 UTF-8 bytes", guide)
+        self.assertIn(".pi/bebop/intake/processed/", guide)
+        self.assertIn(".pi/bebop/sockets/", guide)
+        self.assertIn(".pi/bebop/inbox/", guide)
         self.assertIn("does not prove that the content was read", guide)
         harness.validate_manifest_paths(manifest, manifest_path)
         for directory in (self.root / "run" / "project", self.root / "run" / "project" / ".pi", self.root / "run" / "project" / ".pi" / "bebop", self.root / "run" / "project" / ".pi" / "bebop" / "intake"):

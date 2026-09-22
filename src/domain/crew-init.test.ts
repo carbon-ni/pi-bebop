@@ -68,9 +68,12 @@ test("managed path set is canonical .pi/bebop layout with no compatibility .pi/c
 test("Intake guide is deterministic and keeps transport evidence separate from Inbox semantics", () => {
 	const guide = crewInitTemplateBytes()[".pi/bebop/intake/AGENTS.md"]!;
 	assert.equal(guide, crewInitTemplateBytes()[".pi/bebop/intake/AGENTS.md"]);
-	assert.match(guide, /bounded, non-empty UTF-8/);
+	assert.match(guide, /997,952 UTF-8 bytes/);
+	assert.match(guide, /160 UTF-8 bytes/);
 	assert.match(guide, /\.draft/);
-	assert.match(guide, /processed.*failed.*receipts.*commits.*locks.*sockets.*inbox/s);
+	assert.match(guide, /\.pi\/bebop\/intake\/processed/);
+	assert.match(guide, /\.pi\/bebop\/sockets/);
+	assert.match(guide, /\.pi\/bebop\/inbox/);
 	assert.match(guide, /does not prove.*read.*understood.*acted on.*completed/s);
 	assert.doesNotMatch(guide, /new\/AGENTS\.md/);
 });
@@ -106,7 +109,8 @@ test("generated .gitignore excludes sockets, inbox, and local intake", () => {
 	const gitignore = crewInitGitignore();
 	assert.match(gitignore, /sockets\//);
 	assert.match(gitignore, /inbox\//);
-	assert.match(gitignore, /intake\//);
+	assert.match(gitignore, /intake\/\*/);
+	assert.match(gitignore, /!intake\/AGENTS\.md/);
 	assert.ok(!gitignore.includes(".pi/bebop/crew.json"), "never ignores the manifest itself");
 });
 

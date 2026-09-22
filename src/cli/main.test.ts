@@ -809,11 +809,55 @@ test("crew init creates only managed Intake guidance, never Inbox or root AGENTS
 		assert.deepEqual(entries.sort(), [".gitignore", "crew.json", "instructions", "intake", "sockets"]);
 		const intakeGuide = await readFile(path.join(dotPi, "intake/AGENTS.md"), "utf8");
 		assert.match(intakeGuide, /external transport boundary, not the crew Inbox/);
-		assert.match(intakeGuide, /bounded, non-empty UTF-8/);
+		assert.match(intakeGuide, /997,952 UTF-8 bytes/);
+		assert.match(intakeGuide, /\.pi\/bebop\/sockets/);
 		assert.equal(await readFile(rootAgents, "utf8"), "project-owned guidance\n");
 		assert.ok(!(await pathExists(path.join(dir, ".git"))), "no Git state created");
 		assert.ok(!(await pathExists(path.join(dotPi, "inbox"))), "no inbox created");
 		assert.ok(!(await pathExists(path.join(dotPi, "sockets/lead.sock"))), "no socket link created");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("crew init gitignore tracks Intake guidance and ignores runtime artifacts", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-gitignore-"));
+	try {
+		await runCli(["crew", "init", "--project", dir, "--format", "json"], dir, process.stdin, new PassThrough());
+		await execFile("git", ["init", "-q"], { cwd: dir });
+		const runtimePaths = [
+			".pi/bebop/intake/new",
+			".pi/bebop/intake/new/item.md",
+			".pi/bebop/intake/processed",
+			".pi/bebop/intake/.scan.lock",
+		];
+		await mkdir(path.join(dir, ".pi/bebop/intake/new"), { recursive: true });
+		await writeFile(path.join(dir, ".pi/bebop/intake/new/item.md"), "runtime");
+		await mkdir(path.join(dir, ".pi/bebop/intake/processed"), { recursive: true });
+		await writeFile(path.join(dir, ".pi/bebop/intake/.scan.lock"), "runtime");
+		const isIgnored = async (relative: string): Promise<boolean> => {
+			try {
+				await execFile(
+					"git",
+					["-c", "core.excludesFile=/dev/null", "check-ignore", "--no-index", "-q", relative],
+					{
+						cwd: dir,
+					},
+				);
+				return true;
+			} catch (error) {
+				if (
+					typeof error === "object" &&
+					error !== null &&
+					"code" in error &&
+					(error as { code?: number }).code === 1
+				)
+					return false;
+				throw error;
+			}
+		};
+		assert.equal(await isIgnored(".pi/bebop/intake/AGENTS.md"), false);
+		for (const runtimePath of runtimePaths) assert.equal(await isIgnored(runtimePath), true, runtimePath);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
