@@ -798,13 +798,19 @@ test("crew init conflict leaves user content untouched and exits 1", async () =>
 	}
 });
 
-test("crew init does not create inbox, sockets links, processes, or Git state", async () => {
+test("crew init creates only managed Intake guidance, never Inbox or root AGENTS content", async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), "bebop-cli-init-"));
 	try {
+		const rootAgents = path.join(dir, "AGENTS.md");
+		await writeFile(rootAgents, "project-owned guidance\n");
 		await runCli(["crew", "init", "--project", dir, "--format", "json"], dir, process.stdin, new PassThrough());
 		const dotPi = path.join(dir, ".pi/bebop");
 		const entries = await readdir(dotPi);
-		assert.deepEqual(entries.sort(), [".gitignore", "crew.json", "instructions", "sockets"]);
+		assert.deepEqual(entries.sort(), [".gitignore", "crew.json", "instructions", "intake", "sockets"]);
+		const intakeGuide = await readFile(path.join(dotPi, "intake/AGENTS.md"), "utf8");
+		assert.match(intakeGuide, /external transport boundary, not the crew Inbox/);
+		assert.match(intakeGuide, /bounded, non-empty UTF-8/);
+		assert.equal(await readFile(rootAgents, "utf8"), "project-owned guidance\n");
 		assert.ok(!(await pathExists(path.join(dir, ".git"))), "no Git state created");
 		assert.ok(!(await pathExists(path.join(dotPi, "inbox"))), "no inbox created");
 		assert.ok(!(await pathExists(path.join(dotPi, "sockets/lead.sock"))), "no socket link created");

@@ -3,6 +3,7 @@ import {
 	CREW_INIT_MANIFEST_REL,
 	CREW_INIT_PROJECT_DIR,
 	CREW_INIT_SOCKETS_REL,
+	CREW_INIT_INTAKE_REL,
 	crewInitManagedPaths,
 	crewInitTemplateBytes,
 	redactCrewInitPath,
@@ -138,8 +139,9 @@ export function createCrewInitFlow(adapter: CrewInitFsAdapter) {
 				const stagingRelative = relative.replace(`${CREW_INIT_PROJECT_DIR}/`, "");
 				await adapter.writeFile(`${staging}/${stagingRelative}`, templates[relative]!);
 			}
-			// sockets/ empty directory for immediate discoverability.
+			// Runtime-owned dropbox directories start empty; the guide remains outside new/.
 			await adapter.mkdir(`${staging}/${CREW_INIT_SOCKETS_REL.replace(`${CREW_INIT_PROJECT_DIR}/`, "")}`);
+			await adapter.mkdir(`${staging}/${CREW_INIT_INTAKE_REL.replace(`${CREW_INIT_PROJECT_DIR}/`, "")}`);
 			const targetAbs = `${projectAbs}/${CREW_INIT_PROJECT_DIR}`;
 			try {
 				await adapter.publishStaging(staging, targetAbs);

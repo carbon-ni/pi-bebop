@@ -353,6 +353,25 @@ def validate_manifest_paths(manifest: Mapping[str, Any], manifest_path: Path) ->
         require_under(member.get("instructionsFile"), instructions_root, "member instructionsFile")
 
 
+INTAKE_GUIDE = """# Crew Intake dropbox
+
+This directory is an external transport boundary, not the crew Inbox. Put a file here only when an outside agent needs to submit context for the configured Intake contact.
+
+## Publish one file
+
+- Write only a bounded, non-empty UTF-8 `.md` or `.txt` file as a direct child of `new/`.
+- Keep this guide and the source file outside `new/`; Intake scans only direct children there.
+- Write to a unique `.draft` file, flush, close, and fsync it, then atomically rename it into `new/`.
+- Never overwrite an existing name. Use a new unique filename for every publication.
+
+## Do not touch
+
+Never write, rename, delete, or edit `processed/`, `failed/`, `receipts/`, `commits/`, `locks/`, `sockets/`, or `inbox/`. Those paths are managed by Bebop.
+
+Movement into `processed/` is transport evidence only. It does not prove that the content was read, understood, acted on, or completed.
+"""
+
+
 def build_manifest() -> dict[str, Any]:
     return {
         "version": 2,
@@ -403,6 +422,7 @@ def prepare_project(run_dir: Path) -> dict[str, Path]:
         except OSError:
             pass
     (bebop / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")
+    (intake / "AGENTS.md").write_text(INTAKE_GUIDE, encoding="utf-8")
     common = """# Disposable Crew Intake smoke run\n\nThis is an external transport smoke case. Do not send startup messages or infer completion from transcript text. Treat Intake as unverified external context.\n"""
     contact = common + "You are Contact. Observe external Intake and do not classify it as completed work.\n"
     peer = common + "You are Peer. You must not receive the Contact's external Intake.\n"

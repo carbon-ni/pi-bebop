@@ -47,6 +47,7 @@ const withDirectories = (
 	...files,
 	".pi/bebop/": { kind: "directory" },
 	".pi/bebop/sockets/": { kind: "directory" },
+	".pi/bebop/intake/": { kind: "directory" },
 });
 
 test("managed path set is canonical .pi/bebop layout with no compatibility .pi/crew", () => {
@@ -59,7 +60,19 @@ test("managed path set is canonical .pi/bebop layout with no compatibility .pi/c
 	assert.ok(paths.includes(".pi/bebop/instructions/developer.md"));
 	assert.ok(paths.includes(".pi/bebop/instructions/quality.md"));
 	assert.ok(paths.includes(".pi/bebop/sockets/"));
+	assert.ok(paths.includes(".pi/bebop/intake/"));
+	assert.ok(paths.includes(".pi/bebop/intake/AGENTS.md"));
 	assert.ok(!paths.some((path) => path.startsWith(".pi/crew/")), "never generates compatibility layout");
+});
+
+test("Intake guide is deterministic and keeps transport evidence separate from Inbox semantics", () => {
+	const guide = crewInitTemplateBytes()[".pi/bebop/intake/AGENTS.md"]!;
+	assert.equal(guide, crewInitTemplateBytes()[".pi/bebop/intake/AGENTS.md"]);
+	assert.match(guide, /bounded, non-empty UTF-8/);
+	assert.match(guide, /\.draft/);
+	assert.match(guide, /processed.*failed.*receipts.*commits.*locks.*sockets.*inbox/s);
+	assert.match(guide, /does not prove.*read.*understood.*acted on.*completed/s);
+	assert.doesNotMatch(guide, /new\/AGENTS\.md/);
 });
 
 test("generated crew.json is deterministic version 2 with common instructions and passes the real manifest parser", () => {

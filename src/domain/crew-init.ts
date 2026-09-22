@@ -30,6 +30,8 @@ export const CREW_INIT_MANIFEST_REL = `${CREW_INIT_PROJECT_DIR}/crew.json`;
 export const CREW_INIT_GITIGNORE_REL = `${CREW_INIT_PROJECT_DIR}/.gitignore`;
 export const CREW_INIT_INSTRUCTIONS_REL = `${CREW_INIT_PROJECT_DIR}/instructions`;
 export const CREW_INIT_SOCKETS_REL = `${CREW_INIT_PROJECT_DIR}/sockets/`;
+export const CREW_INIT_INTAKE_REL = `${CREW_INIT_PROJECT_DIR}/intake/`;
+export const CREW_INIT_INTAKE_GUIDE_REL = `${CREW_INIT_INTAKE_REL}AGENTS.md`;
 
 export const CREW_INIT_EXIT_OK = 0;
 export const CREW_INIT_EXIT_OPERATIONAL = 1;
@@ -51,6 +53,8 @@ export function crewInitManagedPaths(): readonly string[] {
 		`${CREW_INIT_INSTRUCTIONS_REL}/developer.md`,
 		`${CREW_INIT_INSTRUCTIONS_REL}/quality.md`,
 		CREW_INIT_SOCKETS_REL,
+		CREW_INIT_INTAKE_REL,
+		CREW_INIT_INTAKE_GUIDE_REL,
 	];
 }
 
@@ -242,6 +246,29 @@ export function crewInitInstructions(role: "lead" | "product" | "developer" | "q
 	}
 }
 
+/** Guidance for outside agents publishing bounded external context to Crew Intake. */
+export function crewInitIntakeGuide(): string {
+	return [
+		"# Crew Intake dropbox",
+		"",
+		"This directory is an external transport boundary, not the crew Inbox. Put a file here only when an outside agent needs to submit context for the configured Intake contact.",
+		"",
+		"## Publish one file",
+		"",
+		"- Write only a bounded, non-empty UTF-8 `.md` or `.txt` file as a direct child of `new/`.",
+		"- Keep this guide and the source file outside `new/`; Intake scans only direct children there.",
+		"- Write to a unique `.draft` file, flush, close, and fsync it, then atomically rename it into `new/`.",
+		"- Never overwrite an existing name. Use a new unique filename for every publication.",
+		"",
+		"## Do not touch",
+		"",
+		"Never write, rename, delete, or edit `processed/`, `failed/`, `receipts/`, `commits/`, `locks/`, `sockets/`, or `inbox/`. Those paths are managed by Bebop.",
+		"",
+		"Movement into `processed/` is transport evidence only. It does not prove that the content was read, understood, acted on, or completed.",
+		"",
+	].join(NEWLINE);
+}
+
 /** Deterministic aggregate template bytes keyed by project-relative managed path. */
 export function crewInitTemplateBytes(): Record<string, string> {
 	return {
@@ -252,6 +279,7 @@ export function crewInitTemplateBytes(): Record<string, string> {
 		[`${CREW_INIT_INSTRUCTIONS_REL}/product.md`]: crewInitInstructions("product"),
 		[`${CREW_INIT_INSTRUCTIONS_REL}/developer.md`]: crewInitInstructions("developer"),
 		[`${CREW_INIT_INSTRUCTIONS_REL}/quality.md`]: crewInitInstructions("quality"),
+		[CREW_INIT_INTAKE_GUIDE_REL]: crewInitIntakeGuide(),
 	};
 }
 
