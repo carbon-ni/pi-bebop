@@ -5,6 +5,7 @@ import { defaultFormatForCommand } from "./audience-policy.ts";
 test("every canonical command defaults to concise text", () => {
 	assert.equal(defaultFormatForCommand("crew-init"), "text");
 	for (const command of [
+		"ask",
 		"crew-list",
 		"crew-roles",
 		"crew-broadcast",

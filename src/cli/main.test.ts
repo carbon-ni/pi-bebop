@@ -223,6 +223,7 @@ test("unknown root options are usage failures: plain stderr, exit 2, empty stdou
 
 test("leaf -h is standard help and never reaches a handler", async () => {
 	const leaves: string[][] = [
+		["ask"],
 		["crew", "init"],
 		["member", "status"],
 		["member", "wait-idle"],
@@ -270,6 +271,7 @@ test("packaged artifact exposes the member status, session live, and crew roles 
 
 	// Help paths are deterministic and exit 0.
 	for (const args of [
+		["ask", "--help"],
 		["member", "status", "--help"],
 		["session", "live", "--help"],
 		["crew", "roles", "--help"],
@@ -282,7 +284,7 @@ test("packaged artifact exposes the member status, session live, and crew roles 
 		});
 		const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
 		assert.equal(code, 0, args.join(" "));
-		assert.match(stdout, /bebop member status|bebop session live|bebop crew roles/);
+		assert.match(stdout, /bebop ask|bebop member status|bebop session live|bebop crew roles/);
 	}
 });
 

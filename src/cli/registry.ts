@@ -1,5 +1,6 @@
 import path from "node:path";
 import { Command } from "commander";
+import { buildAskCommand, readAskCommand, runAskCommand, type AskCliOptions } from "./commands/ask.ts";
 import { buildCrewInitCommand, readCrewInitCommand } from "./commands/crew-init.ts";
 import { runCrewInitCommand } from "./commands/crew-init-handler.ts";
 import type { CrewInitCliOptions } from "./support/arguments.ts";
@@ -195,6 +196,14 @@ export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
 		root: () => buildRootCommand(leaves),
 	};
 }
+
+const askLeaf: CliLeaf = {
+	id: "ask",
+	names: ["ask"],
+	build: () => buildAskCommand(),
+	read: (command) => readAskCommand(command),
+	run: (options, context) => runAskCommand(options as AskCliOptions, context),
+};
 
 const crewInitLeaf: CliLeaf = {
 	id: "crew-init",
@@ -405,6 +414,7 @@ const guestBroadcastLeaf: CliLeaf = {
 
 export function createCliRegistry(): CliRegistry {
 	return composeRegistry([
+		askLeaf,
 		crewInitLeaf,
 		crewListLeaf,
 		sessionCaptureLeaf,
