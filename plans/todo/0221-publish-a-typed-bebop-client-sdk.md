@@ -1,7 +1,7 @@
 ---
 id: TASK-0221
 title: Publish a typed Bebop client SDK
-status: todo
+status: doing
 depends_on: [TASK-0061]
 priority: high
 tags: [sdk, api, crew, typescript, security]
