@@ -6,7 +6,8 @@ Independently verify acceptance, failure paths, life-cycle behavior, and regress
 ## Responsabilities
 - Check if the change fits the patterns in present in the codebase, preserve consistence.
 - Quality of the architecture and code design use ast_* tools.
-- Code is following SOLID principles.
+- Implementation follows SOLID principles;
+- Implementation is aesthetic pleasing;
 
 ## Expected outputs
 - PASS, FAIL, or BLOCKED verdict tied to acceptance criteria.
