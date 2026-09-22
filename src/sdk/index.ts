@@ -13,6 +13,8 @@ import {
 	MAX_MESSAGE_CONTENT_BYTES,
 	MAX_MESSAGE_INSTRUCTION_BYTES,
 	MAX_MESSAGE_INSTRUCTIONS,
+	MAX_MESSAGE_ORIGIN_FIELD_BYTES,
+	MAX_MESSAGE_PAYLOAD_BYTES,
 } from "../domain/message-payload.ts";
 import { getAliasPath, getSocketPath, CONTROL_DIR } from "../infra/intray-paths.ts";
 import { RpcProtocolError, sendRpcCommand } from "../infra/rpc-client.ts";
@@ -212,6 +214,41 @@ async function withBudget<T>(
 	}
 }
 
+function budgetAbortReason(budget: Budget): unknown {
+	return budget.timedOut() ? new DeadlineExceeded() : (budget.signal.reason ?? new Error("aborted"));
+}
+
+/** Race non-abortable filesystem promises without abandoning their rejection handlers. */
+function awaitBudget<T>(operation: PromiseLike<T>, budget: Budget): Promise<T> {
+	const pending = Promise.resolve(operation);
+	return new Promise<T>((resolve, reject) => {
+		let settled = false;
+		const onAbort = () => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			reject(budgetAbortReason(budget));
+		};
+		const cleanup = () => budget.signal.removeEventListener("abort", onAbort);
+		budget.signal.addEventListener("abort", onAbort, { once: true });
+		pending.then(
+			(value) => {
+				if (settled) return;
+				settled = true;
+				cleanup();
+				resolve(value);
+			},
+			(error) => {
+				if (settled) return;
+				settled = true;
+				cleanup();
+				reject(error);
+			},
+		);
+		if (budget.signal.aborted) onAbort();
+	});
+}
+
 function normalizeError(error: unknown, budget: Budget): BebopClientError {
 	if (error instanceof BebopClientError) return error;
 	// sendRpcCommand classifies an acknowledgement lost after dispatch as
@@ -318,9 +355,30 @@ function validateInstructions(instructions: readonly string[] | undefined): void
 	}
 }
 
-async function controlledSocket(candidate: string): Promise<string> {
+function validateEffectPayload(
+	message: string,
+	instructions: readonly string[] | undefined,
+	kind: "follow-up" | "inbox",
+): void {
+	// Source runtimes add these fields before persistence/delivery. Use valid
+	// one-byte control characters to conservatively model their escaped size.
+	const maxEscapedOriginField = "\x01".repeat(MAX_MESSAGE_ORIGIN_FIELD_BYTES);
+	const payload = {
+		content: message,
+		...(instructions === undefined ? {} : { instructions: [...instructions] }),
+		origin: { kind: "crew", name: maxEscapedOriginField, role: maxEscapedOriginField },
+		kind,
+		sentAt: Number.MAX_SAFE_INTEGER,
+	};
+	if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_MESSAGE_PAYLOAD_BYTES) invalidInput();
+}
+
+async function controlledSocket(candidate: string, budget: Budget): Promise<string> {
 	try {
-		const [root, resolved] = await Promise.all([fs.realpath(CONTROL_DIR), fs.realpath(candidate)]);
+		const [root, resolved] = await Promise.all([
+			awaitBudget(fs.realpath(CONTROL_DIR), budget),
+			awaitBudget(fs.realpath(candidate), budget),
+		]);
 		const relative = path.relative(root, resolved);
 		const base = path.basename(resolved);
 		if (
@@ -341,9 +399,12 @@ function invalidControlledSocket(): never {
 	throw new BebopClientError("unknown-session");
 }
 
-async function aliasSocket(alias: string): Promise<string> {
+async function aliasSocket(alias: string, budget: Budget): Promise<string> {
 	const aliasPath = getAliasPath(alias);
-	const [root, resolved] = await Promise.all([fs.realpath(CONTROL_DIR), fs.realpath(aliasPath)]);
+	const [root, resolved] = await Promise.all([
+		awaitBudget(fs.realpath(CONTROL_DIR), budget),
+		awaitBudget(fs.realpath(aliasPath), budget),
+	]);
 	const relative = path.relative(root, resolved);
 	const base = path.basename(resolved);
 	if (
@@ -357,13 +418,14 @@ async function aliasSocket(alias: string): Promise<string> {
 	return resolved;
 }
 
-async function sourceCandidates(session: string): Promise<string[]> {
+async function sourceCandidates(session: string, budget: Budget): Promise<string[]> {
 	const candidates: string[] = [];
 	if (isSafeSessionId(session)) candidates.push(getSocketPath(session));
 	if (isSafeAlias(session)) {
 		try {
-			candidates.push(await aliasSocket(session));
-		} catch {
+			candidates.push(await aliasSocket(session, budget));
+		} catch (error) {
+			if (budget.signal.aborted) throw error;
 			// A malformed or stale alias cannot override a valid session-id candidate.
 		}
 	}
@@ -371,7 +433,7 @@ async function sourceCandidates(session: string): Promise<string[]> {
 }
 
 async function querySource(endpoint: string, budget: Budget): Promise<ReturnType<typeof parseStatus>> {
-	const resolved = await controlledSocket(endpoint);
+	const resolved = await controlledSocket(endpoint, budget);
 	const { response } = await sendRpcCommand(
 		resolved,
 		{ type: "status" },
@@ -419,6 +481,7 @@ function sourceClient(endpoint: string): BebopSource {
 			validateMember(member);
 			validateMessage(input.message);
 			validateInstructions(input.instructions);
+			validateEffectPayload(input.message, input.instructions, "follow-up");
 			return call(
 				{
 					type: "member_follow_up",
@@ -442,6 +505,7 @@ function sourceClient(endpoint: string): BebopSource {
 			validateMember(member);
 			validateMessage(input.message);
 			validateInstructions(input.instructions);
+			validateEffectPayload(input.message, input.instructions, "inbox");
 			return call(
 				{
 					type: "member_inbox_send",
@@ -465,33 +529,69 @@ function sourceClient(endpoint: string): BebopSource {
 	};
 }
 
+function compareNames(left: string, right: string): number {
+	return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function retainDiscoveryEntry(entries: Map<string, Dirent>, entry: Dirent): void {
+	if (entries.has(entry.name)) return;
+	if (entries.size < MAX_DISCOVERY_ENTRIES) {
+		entries.set(entry.name, entry);
+		return;
+	}
+	let largest: string | undefined;
+	for (const name of entries.keys()) {
+		if (largest === undefined || compareNames(name, largest) > 0) largest = name;
+	}
+	if (largest !== undefined && compareNames(entry.name, largest) < 0) {
+		entries.delete(largest);
+		entries.set(entry.name, entry);
+	}
+}
+
+async function closeDirectory(directory: Awaited<ReturnType<typeof fs.opendir>>): Promise<void> {
+	try {
+		await directory.close();
+	} catch {
+		// The async iterator may already have closed the directory.
+	}
+}
+
 async function discover(options: BebopOperationOptions | undefined): Promise<readonly BebopSourceInfo[]> {
 	return withBudget(options, async (budget) => {
-		const entries: Dirent[] = [];
+		const entries = new Map<string, Dirent>();
 		let directory: Awaited<ReturnType<typeof fs.opendir>> | undefined;
+		let opening: Promise<Awaited<ReturnType<typeof fs.opendir>>> | undefined;
 		try {
-			directory = await fs.opendir(CONTROL_DIR);
-			for await (const entry of directory) {
-				if (budget.signal.aborted) throw new Error("source discovery aborted");
-				entries.push(entry);
-				if (entries.length >= MAX_DISCOVERY_ENTRIES) break;
+			opening = fs.opendir(CONTROL_DIR);
+			try {
+				directory = await awaitBudget(opening, budget);
+			} catch (error) {
+				void opening.then(closeDirectory, () => undefined);
+				throw error;
+			}
+			const iterator = directory[Symbol.asyncIterator]();
+			for (;;) {
+				const result = await awaitBudget(iterator.next(), budget);
+				if (result.done) break;
+				if (budget.signal.aborted) throw budgetAbortReason(budget);
+				retainDiscoveryEntry(entries, result.value);
 			}
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
 			throw error;
 		} finally {
-			try {
-				await directory?.close();
-			} catch {
-				// The async iterator may already have closed the directory.
+			if (directory !== undefined) {
+				const closing = closeDirectory(directory);
+				if (!budget.signal.aborted) await awaitBudget(closing, budget);
 			}
 		}
-		const bounded = entries.sort((left, right) => left.name.localeCompare(right.name));
+		const bounded = [...entries.values()].sort((left, right) => compareNames(left.name, right.name));
 		const ids = bounded
 			.filter((entry) => !entry.isDirectory() && entry.name.endsWith(".sock"))
 			.map((entry) => entry.name.slice(0, -5))
 			.filter(isSafeSessionId)
-			.sort()
+			.sort(compareNames)
 			.slice(0, MAX_DISCOVERY_SOURCES);
 		const aliases = new Map<string, string[]>();
 		for (const entry of bounded) {
@@ -499,10 +599,11 @@ async function discover(options: BebopOperationOptions | undefined): Promise<rea
 			const alias = entry.name.slice(0, -6);
 			if (!isSafeAlias(alias)) continue;
 			try {
-				const endpoint = await aliasSocket(alias);
+				const endpoint = await aliasSocket(alias, budget);
 				const session = path.basename(endpoint).slice(0, -5);
 				if (ids.includes(session)) aliases.set(session, [...(aliases.get(session) ?? []), alias]);
-			} catch {
+			} catch (error) {
+				if (budget.signal.aborted) throw error;
 				// Stale or unsafe aliases are omitted from public discovery.
 			}
 		}
@@ -512,17 +613,22 @@ async function discover(options: BebopOperationOptions | undefined): Promise<rea
 					const status = await querySource(getSocketPath(session), budget);
 					return {
 						session,
-						aliases: (aliases.get(session) ?? []).sort(),
+						aliases: (aliases.get(session) ?? []).sort(compareNames),
 						state: status.state,
 						trusted: status.trusted,
 					};
 				} catch (error) {
 					if (budget.signal.aborted) throw error;
-					return { session, aliases: (aliases.get(session) ?? []).sort(), state: "unknown", trusted: false };
+					return {
+						session,
+						aliases: (aliases.get(session) ?? []).sort(compareNames),
+						state: "unknown",
+						trusted: false,
+					};
 				}
 			}),
 		);
-		return sources.sort((left, right) => left.session.localeCompare(right.session));
+		return sources.sort((left, right) => compareNames(left.session, right.session));
 	});
 }
 
@@ -534,7 +640,7 @@ async function select(
 	if (session === undefined || session === "") throw new BebopClientError("source-required");
 	validateSession(session);
 	return withBudget(options, async (budget) => {
-		const candidates = await sourceCandidates(session);
+		const candidates = await sourceCandidates(session, budget);
 		if (candidates.length === 0) throw new BebopClientError("unknown-session");
 		let last: BebopClientError | undefined;
 		for (const candidate of candidates) {
@@ -542,7 +648,7 @@ async function select(
 				const status = await querySource(candidate, budget);
 				if (status.state !== "joined") throw new BebopClientError("not-joined");
 				if (!status.trusted) throw new BebopClientError("untrusted");
-				return sourceClient(await controlledSocket(candidate));
+				return sourceClient(await controlledSocket(candidate, budget));
 			} catch (error) {
 				const mapped = normalizeError(error, budget);
 				last = mapped;

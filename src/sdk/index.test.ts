@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:net";
 import { mkdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { promises as fs } from "node:fs";
 import { CONTROL_DIR, getAliasPath, getSocketPath } from "../infra/intray-paths.ts";
+import { MAX_MESSAGE_PAYLOAD_BYTES, MAX_MESSAGE_ORIGIN_FIELD_BYTES } from "../domain/message-payload.ts";
 import { BebopClientError, createBebopClient } from "./index.ts";
 
 interface FakeSource {
@@ -371,7 +372,7 @@ test("SDK bounds discovery incrementally and closes its directory handle", async
 	}) as typeof fs.opendir;
 	try {
 		assert.deepEqual(await createBebopClient().listSources(), []);
-		assert.equal(yielded, 256);
+		assert.equal(yielded, 400);
 		assert.equal(closed, true);
 	} finally {
 		fs.opendir = original;
@@ -390,5 +391,139 @@ test("SDK isolates concurrent status requests and closes all client transports",
 		assert.equal(source.requests.filter((request) => request.method === "member.status_target").length, 2);
 	} finally {
 		await source.close();
+	}
+});
+
+function maxSafeMessageLength(kind: "follow-up" | "inbox"): number {
+	const escaped = "\x01".repeat(MAX_MESSAGE_ORIGIN_FIELD_BYTES);
+	const fits = (length: number) =>
+		Buffer.byteLength(
+			JSON.stringify({
+				content: "x".repeat(length),
+				origin: { kind: "crew", name: escaped, role: escaped },
+				kind,
+				sentAt: Number.MAX_SAFE_INTEGER,
+			}),
+			"utf8",
+		) <= MAX_MESSAGE_PAYLOAD_BYTES;
+	let low = 0;
+	let high = MAX_MESSAGE_PAYLOAD_BYTES + 1;
+	while (low + 1 < high) {
+		const middle = Math.floor((low + high) / 2);
+		if (fits(middle)) low = middle;
+		else high = middle;
+	}
+	return low;
+}
+
+test("SDK validates exact aggregate payload boundaries before effect IO", async () => {
+	const source = await fakeSource();
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		const followUpLength = maxSafeMessageLength("follow-up");
+		await selected.sendFollowUp("developer", { message: "x".repeat(followUpLength) });
+		const afterFollowUp = source.requests.length;
+		await assert.rejects(
+			Promise.resolve().then(() =>
+				selected.sendFollowUp("developer", { message: "x".repeat(followUpLength + 1) }),
+			),
+			(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+		);
+		assert.equal(source.requests.length, afterFollowUp);
+
+		const inboxLength = maxSafeMessageLength("inbox");
+		await selected.sendToInbox("developer", { message: "x".repeat(inboxLength) });
+		const afterInbox = source.requests.length;
+		await assert.rejects(
+			Promise.resolve().then(() => selected.sendToInbox("developer", { message: "x".repeat(inboxLength + 1) })),
+			(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+		);
+		assert.equal(source.requests.length, afterInbox);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK races delayed opendir against the deadline and closes a late handle", async () => {
+	const original = fs.opendir;
+	let release: ((directory: never) => void) | undefined;
+	let closed = false;
+	fs.opendir = (() =>
+		new Promise((resolve) => {
+			release = resolve as (directory: never) => void;
+		})) as typeof fs.opendir;
+	try {
+		const started = Date.now();
+		await assert.rejects(
+			createBebopClient().listSources({ timeoutMs: 50 }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "timeout",
+		);
+		assert.ok(Date.now() - started < 500);
+		release?.({
+			async next() {
+				return { done: true as const, value: undefined };
+			},
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			async close() {
+				closed = true;
+			},
+		} as never);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.equal(closed, true);
+	} finally {
+		fs.opendir = original;
+	}
+});
+
+test("SDK races delayed alias realpath against the selection deadline", async () => {
+	const source = await fakeSource();
+	const alias = `sdk-timeout-alias-${process.pid}-${Date.now()}`;
+	const aliasPath = getAliasPath(alias);
+	await symlink(`${source.session}.sock`, aliasPath);
+	const original = fs.realpath;
+	fs.realpath = (async (...args: Parameters<typeof fs.realpath>) => {
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		return original(...args);
+	}) as typeof fs.realpath;
+	try {
+		await assert.rejects(
+			createBebopClient().selectSource({ session: alias }, { timeoutMs: 50 }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "timeout",
+		);
+	} finally {
+		fs.realpath = original;
+		await unlink(aliasPath).catch(() => undefined);
+		await source.close();
+	}
+});
+
+test("SDK chooses the same deterministic discovery subset regardless of enumeration order", async () => {
+	const original = fs.opendir;
+	const names = Array.from({ length: 300 }, (_, index) => `000sdk-order-${String(index).padStart(3, "0")}.sock`);
+	const shuffled = [...names].reverse();
+	fs.opendir = (async () => {
+		let index = 0;
+		return {
+			async next() {
+				if (index >= shuffled.length) return { done: true as const, value: undefined };
+				const name = shuffled[index++];
+				return { done: false as const, value: { name, isDirectory: () => false, isSymbolicLink: () => false } };
+			},
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			async close() {},
+		} as never;
+	}) as typeof fs.opendir;
+	try {
+		const sources = await createBebopClient().listSources();
+		assert.deepEqual(
+			sources.map((source) => source.session),
+			names.slice(0, 100).map((name) => name.slice(0, -5)),
+		);
+	} finally {
+		fs.opendir = original;
 	}
 });
