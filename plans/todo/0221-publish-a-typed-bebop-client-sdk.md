@@ -111,9 +111,9 @@ Browser/Deno support, remote network transport, process lifecycle/orchestration,
 3. **Explicit messaging:** Follow-up and durable Inbox with shared validation and no retry.
 4. **Hardening/docs:** concurrency/leak tests, redaction, package verification, examples, and release note.
 
-## Decisions required before implementation
+## Accepted MVP decisions
 
-1. Confirm Node.js ESM-only is acceptable for the first release.
-2. Confirm the first SDK includes both messaging methods, or ship read-only status first.
-3. Confirm the public error style: thrown `BebopClientError` (proposed) versus discriminated `{ ok, value/error }` results.
-4. Confirm whether source discovery plus explicit selection is the default, with `PI_SESSION_ID` as an explicit convenience fallback.
+1. Node.js ESM plus TypeScript declarations; no browser/Deno/CommonJS support in the first release.
+2. Include status, transient Follow-up, and durable Inbox operations.
+3. Throw typed `BebopClientError` instances with stable public codes.
+4. Use bounded source discovery and explicit selection, with `PI_SESSION_ID` as a convenience fallback.
