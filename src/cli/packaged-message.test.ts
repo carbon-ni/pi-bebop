@@ -25,9 +25,11 @@ interface Sessions {
 	readonly sourceServer: net.Server;
 	readonly targetServer: net.Server;
 	readonly targetMessages: string[];
+	readonly targetDeliveries: Array<{ content: string; options: { deliverAs?: string; triggerTurn?: boolean } }>;
 	readonly targetEntries: unknown[];
 	readonly sourceEntries: unknown[];
 	readonly setTargetIdle: (value: boolean) => void;
+	readonly setTargetCompacting: (value: boolean) => void;
 	readonly getTargetAbortCount: () => number;
 	readonly sourceFlow: MemberRequestFlow;
 	readonly targetFlow: MemberRequestFlow;
@@ -41,9 +43,11 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 	const sourceSocket = path.join(controlDir, "source-session-1.sock");
 	const targetSocket = path.join(controlDir, "target.sock");
 	const targetMessages: string[] = [];
+	const targetDeliveries: Array<{ content: string; options: { deliverAs?: string; triggerTurn?: boolean } }> = [];
 	const targetEntries: unknown[] = [];
 	const sourceEntries: unknown[] = [];
 	let targetIdle = false;
+	let targetCompacting = false;
 	let targetAbortCount = 0;
 
 	const targetState = createSocketState();
@@ -65,6 +69,7 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		hasUI: false,
 		sessionManager: { getSessionId: () => "target", getSessionName: () => null, getEntries: () => targetEntries },
 		isIdle: () => targetIdle,
+		isCompacting: () => targetCompacting,
 		abort: () => {
 			targetAbortCount += 1;
 		},
@@ -77,8 +82,9 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 	});
 	targetState.memberRequestFlow = targetFlow;
 	const targetPi = {
-		sendMessage: (customMessage: { content: string }, _options: unknown) => {
+		sendMessage: (customMessage: { content: string }, options: { deliverAs?: string; triggerTurn?: boolean }) => {
 			targetMessages.push(customMessage.content);
+			targetDeliveries.push({ content: customMessage.content, options });
 		},
 		appendEntry: (customType: string, data: unknown) => targetEntries.push({ type: "custom", customType, data }),
 	} as never;
@@ -140,10 +146,14 @@ async function startSessions(t: test.TestContext): Promise<Sessions> {
 		sourceServer,
 		targetServer,
 		targetMessages,
+		targetDeliveries,
 		targetEntries,
 		sourceEntries,
 		setTargetIdle: (value) => {
 			targetIdle = value;
+		},
+		setTargetCompacting: (value) => {
+			targetCompacting = value;
 		},
 		getTargetAbortCount: () => targetAbortCount,
 		sourceFlow,
@@ -295,6 +305,54 @@ test("packaged CLI delivers follow-up and redirect end to end with accepted disp
 	assert.equal(sessions.targetMessages.length, 2);
 	assert.match(sessions.targetMessages[0]!, /wrap up/);
 	assert.match(sessions.targetMessages[1]!, /change course/);
+	assert.deepEqual(
+		sessions.targetDeliveries.map(({ options }) => options),
+		[
+			{ triggerTurn: true, deliverAs: "followUp" },
+			{ triggerTurn: true, deliverAs: "steer" },
+		],
+	);
+	assert.equal(sessions.getTargetAbortCount(), 0, "Follow-up and Redirect never abort the active target turn");
+});
+
+test("packaged Follow-up keeps followUp mode for idle and compacting targets", async (t) => {
+	const sessions = await startSessions(t);
+	sessions.setTargetIdle(true);
+	const idle = await packagedMessage(sessions.root, [
+		"member",
+		"follow-up",
+		"Kelly",
+		"--session",
+		"source-session-1",
+		"--message",
+		"idle follow-up",
+		"--format",
+		"json",
+	]);
+	assert.equal(idle.code, 0, idle.stdout);
+	assert.equal(JSON.parse(idle.stdout).data.disposition, "direct");
+	sessions.setTargetCompacting(true);
+	const compacting = await packagedMessage(sessions.root, [
+		"member",
+		"follow-up",
+		"Kelly",
+		"--session",
+		"source-session-1",
+		"--message",
+		"compacting follow-up",
+		"--format",
+		"json",
+	]);
+	assert.equal(compacting.code, 0, compacting.stdout);
+	assert.equal(JSON.parse(compacting.stdout).data.disposition, "queued");
+	assert.deepEqual(
+		sessions.targetDeliveries.map(({ options }) => options),
+		[
+			{ triggerTurn: true, deliverAs: "followUp" },
+			{ triggerTurn: true, deliverAs: "followUp" },
+		],
+	);
+	assert.equal(sessions.getTargetAbortCount(), 0);
 });
 
 test("packaged CLI interrupt proves idle direct and busy best-effort recovery dispositions", async (t) => {

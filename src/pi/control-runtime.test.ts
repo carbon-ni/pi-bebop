@@ -408,7 +408,7 @@ test("characterizes idle direct and busy follow-up or immediate delivery disposi
 		id: "idle",
 		result: { deliveryId: "delivery-idle", disposition: "direct" },
 	});
-	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true });
+	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true, deliverAs: "followUp" });
 	writes.length = 0;
 	sent.length = 0;
 	context.isIdle = () => false;
@@ -438,6 +438,33 @@ test("characterizes idle direct and busy follow-up or immediate delivery disposi
 		result: { deliveryId: "delivery-immediate", disposition: "steered" },
 	});
 	assert.deepEqual((sent[0] as { options: unknown }).options, { triggerTurn: true, deliverAs: "steer" });
+});
+
+test("Follow-up keeps FIFO delivery across an idle-to-busy submission race", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	let idle = true;
+	let aborts = 0;
+	const sent: Array<{ options: unknown }> = [];
+	const state = createSocketState();
+	state.server = {} as never;
+	state.context = {
+		sessionManager: { getSessionId: () => "session" },
+		isIdle: () => idle,
+		abort: () => {
+			aborts += 1;
+		},
+	} as never;
+	const pi = {
+		sendMessage: (_message: unknown, options: unknown) => {
+			idle = false;
+			sent.push({ options });
+		},
+	} as never;
+	await handleCommand(pi, state, { type: "send", payload: { content: "race" }, id: "race" }, socket);
+	assert.deepEqual(sent[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
+	assert.equal(JSON.parse(writes[0]!).result.disposition, "direct");
+	assert.equal(aborts, 0);
 });
 
 test("member.status target handler reports mechanical idle/busy and pending without a turn", async () => {

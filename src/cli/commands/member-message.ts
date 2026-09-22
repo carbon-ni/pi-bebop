@@ -53,8 +53,8 @@ export function buildMemberMessageCommand(intent: MemberMessageIntent): Command 
 	const word = intentWord(intent);
 	const description =
 		intent === "follow_up"
-			? "Send a normal follow-up to a joined crew member (accepted-delivery only)"
-			: "Insert a message into a crew member's active work (accepted-delivery only)";
+			? "Send a non-interrupting Follow-up that waits behind active work (accepted-delivery only)"
+			: "Send an urgent Redirect as steering for the next model step (accepted-delivery only)";
 	return new Command(word)
 		.description(description)
 		.option("--session <id|alias>", "Source joined Pi session id or alias (default: PI_SESSION_ID)")
@@ -74,8 +74,8 @@ export function buildMemberMessageCommand(intent: MemberMessageIntent): Command 
 				`Send a member ${label(intent)} through one already-joined Pi session, which derives`,
 				"membership and trust authoritatively. The CLI never loads a crew manifest.",
 				"",
-				`Delivery: online normal ${label(intent)}; ${intent === "follow_up" ? "waits behind the target's active work" : "enters before the target's next model step"}. Accepted means the message was`,
-				"accepted for delivery — it NEVER means replied, delivered work, or completed.",
+				`Delivery: online ${label(intent)}; ${intent === "follow_up" ? "non-interrupting, reaches Pi as triggerTurn=true + deliverAs=followUp, and waits behind streaming, tools, or compaction" : "urgent steering via deliverAs=steer for the next model step; it does not hard-abort"}. Accepted means the message was`,
+				"accepted for delivery — it NEVER means read, acted on, replied, delivered work, or completed.",
 				"There is no wait_for flag: Pi cannot prove delivery-level response correlation.",
 				"",
 				`Discover sessions with: ${SESSION_LIST_HINT}`,

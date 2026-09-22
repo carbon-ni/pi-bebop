@@ -125,7 +125,7 @@ export async function handleGuestSend(
 	notifyAcceptedMessage(state, `delivery-${id}`);
 	pi.sendMessage(customMessage, {
 		triggerTurn: true,
-		deliverAs: isIdle ? undefined : "followUp",
+		deliverAs: "followUp",
 	});
 	const disposition = isIdle ? "direct" : "queued";
 	respond(true, "guest_send", {

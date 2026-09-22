@@ -55,8 +55,8 @@ export function registerMemberIntentTool(
 	const label = intent === "follow_up" ? "Send Follow-up" : "Redirect Member";
 	const description =
 		intent === "follow_up"
-			? "Send an ordinary informational Follow-up to a joined crew member; no correlated Response is expected. Use send_member_request instead when you require exactly one answer, report, verdict, or evidence response."
-			: "Insert a message into a crew member's active work to change what they are doing now; use only when redirecting active work.";
+			? "Send a non-interrupting informational Follow-up to a joined crew member. It reaches Pi as triggerTurn=true with deliverAs=followUp and waits behind streaming, tool execution, and compaction. Accepted means queued or submitted only; no correlated Response is expected. Use send_member_request when you require exactly one answer, report, verdict, or evidence response."
+			: "Send an urgent Redirect into a joined crew member's active work as deliverAs=steer. It changes the next response step but does not hard-abort current work; use interrupt_member only for emergency recovery.";
 	pi.registerTool({
 		name,
 		label,

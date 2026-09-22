@@ -114,6 +114,8 @@ test("TASK-0076: packaged tool descriptions present one non-contradictory reques
 	// No contradictory "default" guidance ahead of the request-specific rule.
 	assert.doesNotMatch(followUp, /by default|default coordination/i);
 	assert.match(followUp, /no correlated Response is expected/i);
+	assert.match(followUp, /deliverAs=followUp/i);
+	assert.match(followUp, /streaming, tool execution, and compaction/i);
 	assert.match(followUp, /send_member_request/i);
 	// Requester side: send then wait.
 	assert.match(send, /requester-side/i);

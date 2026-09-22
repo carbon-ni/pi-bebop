@@ -370,14 +370,10 @@ export async function handleSend(
 	// TASK-0081: accepted Bebop model delivery (Follow-up/Redirect) wakes a
 	// local blocking idle wait; the unchanged message keeps its mode/FIFO.
 	notifyAcceptedMessage(state, `delivery-${id}`);
-	if (isIdle) {
-		pi.sendMessage(customMessage, { triggerTurn: true });
-	} else {
-		pi.sendMessage(customMessage, {
-			triggerTurn: true,
-			deliverAs: mode === "follow_up" ? "followUp" : "steer",
-		});
-	}
+	pi.sendMessage(customMessage, {
+		triggerTurn: true,
+		deliverAs: mode === "follow_up" ? "followUp" : "steer",
+	});
 
 	const disposition = isIdle ? "direct" : mode === "follow_up" ? "queued" : "steered";
 	respond(true, "send", { deliveryId: `delivery-${id}`, disposition });

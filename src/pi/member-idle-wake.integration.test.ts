@@ -185,12 +185,26 @@ test("TASK-0081: busy target -> accepted Follow-up wakes the blocked wait; uncha
 		payload: { content: "wake up" },
 		delivery: "follow_up",
 	} as never);
+	await sendRpcCommand(aPath, {
+		type: "send",
+		id: "w2",
+		payload: { content: "second follow-up" },
+		delivery: "follow_up",
+	} as never);
 
 	const result = await within(2_000, pending, "blocked wait never released by accepted Follow-up");
 	assert.equal((result as { terminate?: boolean }).terminate, true);
 	assert.equal(result.details.result.outcome, "message-received");
-	assert.equal(sentA.length, 1, "unchanged message submitted exactly once");
-	assert.equal(sentA[0]!.options.deliverAs, "followUp", "Follow-up keeps FIFO mode");
+	assert.deepEqual(
+		sentA.map(({ options }) => options),
+		[
+			{ triggerTurn: true, deliverAs: "followUp" },
+			{ triggerTurn: true, deliverAs: "followUp" },
+		],
+		"Follow-ups keep followUp mode",
+	);
+	assert.match(sentA[0]!.content, /wake up/);
+	assert.match(sentA[1]!.content, /second follow-up/);
 	await within(2_000, waitForNoSubscription(stateB), "remote idle subscription never cancelled on wake");
 });
 

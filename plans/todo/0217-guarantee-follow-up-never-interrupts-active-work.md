@@ -1,7 +1,7 @@
 ---
 id: TASK-0217
 title: Guarantee Follow-up never interrupts active work
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [crew, messaging, follow-up, queue, lifecycle, regression, tdd]
@@ -19,15 +19,15 @@ A sender can use `send_follow_up` without changing what the recipient is doing n
 
 ## Acceptance criteria
 
-- [ ] Every live `send_follow_up` delivery to a Member or approved Guest reaches Pi with `triggerTurn: true` and `deliverAs: "followUp"`; no local idle snapshot may downgrade it to implicit/default delivery.
-- [ ] When the recipient is streaming, executing tools, or compacting, the current turn and its remaining tool calls finish before the Follow-up enters model context.
-- [ ] When the recipient is idle, the same Follow-up mode starts one normal turn without requiring a different transport path.
-- [ ] Follow-up delivery never invokes abort, steer, redirect, interrupt, or replacement behavior. `redirect_member` continues to use `deliverAs: "steer"`; `interrupt_member` remains the only hard-abort path.
-- [ ] Releasing a blocking Member Idle Wait or Request outcome wait because a Follow-up arrived does not classify the message as urgent or discard it; the unchanged Follow-up is consumed once at the next continuation boundary.
-- [ ] The acknowledgement distinguishes accepted/direct/queued honestly without claiming the recipient read, acted on, or completed the message.
-- [ ] Offline recipients remain an explicit error; this task does not silently turn Follow-up into durable Inbox delivery.
-- [ ] Deterministic unit and real-runtime integration tests cover idle, streaming, tool execution, compaction, activity-transition races, Member and approved Guest recipients, wait release, FIFO order, and contrast with Redirect/Interrupt.
-- [ ] Tool descriptions and CLI/help use one contract: Follow-up is non-interrupting; Redirect is urgent steering; Interrupt is emergency recovery.
+- [x] Every live `send_follow_up` delivery to a Member or approved Guest reaches Pi with `triggerTurn: true` and `deliverAs: "followUp"`; no local idle snapshot may downgrade it to implicit/default delivery.
+- [x] When the recipient is streaming, executing tools, or compacting, the current turn and its remaining tool calls finish before the Follow-up enters model context.
+- [x] When the recipient is idle, the same Follow-up mode starts one normal turn without requiring a different transport path.
+- [x] Follow-up delivery never invokes abort, steer, redirect, interrupt, or replacement behavior. `redirect_member` continues to use `deliverAs: "steer"`; `interrupt_member` remains the only hard-abort path.
+- [x] Releasing a blocking Member Idle Wait or Request outcome wait because a Follow-up arrived does not classify the message as urgent or discard it; the unchanged Follow-up is consumed once at the next continuation boundary.
+- [x] The acknowledgement distinguishes accepted/direct/queued honestly without claiming the recipient read, acted on, or completed the message.
+- [x] Offline recipients remain an explicit error; this task does not silently turn Follow-up into durable Inbox delivery.
+- [x] Deterministic unit and real-runtime integration tests cover idle, streaming, tool execution, compaction, activity-transition races, Member and approved Guest recipients, wait release, FIFO order, and contrast with Redirect/Interrupt.
+- [x] Tool descriptions and CLI/help use one contract: Follow-up is non-interrupting; Redirect is urgent steering; Interrupt is emergency recovery.
 
 ## Non-goals
 

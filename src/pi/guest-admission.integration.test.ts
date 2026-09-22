@@ -493,7 +493,7 @@ test("Guest recipient revalidates direct Guest Broadcast sends before delivery",
 		"approved",
 		"recipient-capability",
 	);
-	const sentMessages: Array<{ content: string; details: any }> = [];
+	const sentMessages: Array<{ content: string; details: any; options: any }> = [];
 	const state = {
 		membershipRuntime: null,
 		guestMembershipRuntime: recipient,
@@ -506,8 +506,8 @@ test("Guest recipient revalidates direct Guest Broadcast sends before delivery",
 		return handleGuestSend(
 			{
 				pi: {
-					sendMessage: (message: any) =>
-						sentMessages.push({ content: message.content, details: message.details }),
+					sendMessage: (message: any, options: any) =>
+						sentMessages.push({ content: message.content, details: message.details, options }),
 				},
 				state,
 				ctx: state.context,
@@ -536,6 +536,7 @@ test("Guest recipient revalidates direct Guest Broadcast sends before delivery",
 	assert.ok(response.response.success, String(response.response.error));
 	assert.equal(sentMessages.length, 1);
 	assert.equal(sentMessages[0]!.details.messagePayload.kind, "broadcast");
+	assert.deepEqual(sentMessages[0]!.options, { triggerTurn: true, deliverAs: "followUp" });
 	assert.deepEqual(sentMessages[0]!.details.messagePayload.origin, {
 		kind: "guest",
 		identity: GUEST_IDENTITY,
