@@ -20,7 +20,16 @@ test("renders and round-trips Bob to Kelly with every structured field", () => {
 	assert.deepEqual(parseRenderedMessagePayload(rendered), payload);
 	assert.match(rendered, /\\"x\\":true/);
 	assert.equal(renderMessagePayloadForDisplay(payload).includes("bob-session"), false);
-	assert.match(renderMessagePayloadForDisplay(payload), /Claimed origin: from Bob \(dev\)/);
+	assert.doesNotMatch(renderMessagePayloadForDisplay(payload), /Claimed origin/);
+	assert.match(renderMessagePayloadForDisplay(payload), /Review/);
+});
+
+test("keeps claimed origin in the model envelope while omitting its duplicate TUI body", () => {
+	const payload = { content: "hello", origin: { kind: "external" as const, label: "CI" } };
+	const model = renderMessagePayload(payload);
+	assert.deepEqual(parseRenderedMessagePayload(model).origin, payload.origin);
+	assert.equal(renderMessagePayloadForDisplay(payload), "hello");
+	assert.doesNotMatch(renderMessagePayloadForDisplay(payload), /CI|Claimed origin/);
 });
 
 test("returns content byte-for-byte when metadata is absent", () => {
@@ -36,13 +45,13 @@ test("renders the reverse Kelly (qa) to Bob (dev) recipient model context", () =
 	};
 	const rendered = renderMessagePayload(payload);
 	assert.deepEqual(parseRenderedMessagePayload(rendered), payload);
-	assert.match(renderMessagePayloadForDisplay(payload), /^Claimed origin: from Kelly \(qa\)/);
+	assert.equal(renderMessagePayloadForDisplay(payload), "Instructions:\n1. Reply synchronously\n\nPlease verify");
 });
 
 test("labels typed Guest origin without exposing callback identity or role", () => {
 	const payload = { content: "hello", origin: { kind: "guest" as const, identity: "guest-1", name: "Taylor" } };
-	assert.match(renderMessagePayloadForDisplay(payload), /^Claimed origin: from Taylor \(guest\)/);
-	assert.doesNotMatch(renderMessagePayloadForDisplay(payload), /guest-1/);
+	assert.equal(renderMessagePayloadForDisplay(payload), "hello");
+	assert.doesNotMatch(renderMessagePayloadForDisplay(payload), /guest-1|Claimed origin/);
 });
 
 test("preserves claimed external origin and reply route independently", () => {
@@ -51,6 +60,8 @@ test("preserves claimed external origin and reply route independently", () => {
 	const withRoute = { ...withoutRoute, replyTo: { sessionId: "exact-session" } };
 	assert.deepEqual(parseRenderedMessagePayload(renderMessagePayload(withRoute)).origin, origin);
 	assert.equal(parseRenderedMessagePayload(renderMessagePayload(withoutRoute)).replyTo, undefined);
+	assert.equal(renderMessagePayloadForDisplay(withoutRoute), "hello");
+	assert.doesNotMatch(renderMessagePayloadForDisplay(withoutRoute), /CI|Claimed origin/);
 });
 
 test("TASK-0076: Member request model content carries a bounded marker, Request ID, and respond instruction only", () => {

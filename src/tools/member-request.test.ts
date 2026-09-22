@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createSocketState } from "../pi/control-runtime.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import { RequestOutcomeRegistry } from "../domain/index.ts";
-import { registerWaitForRequestOutcomeTool } from "./member-request.ts";
+import { registerSendMemberRequestTool, registerWaitForRequestOutcomeTool } from "./member-request.ts";
 
 type Tool = { name: string; description: string; execute: (...args: any[]) => Promise<any> };
 
@@ -24,6 +24,19 @@ function setup() {
 			respond: async () => undefined,
 		},
 	});
+	state.membershipRuntime = {
+		getMembership: () => ({
+			member: { name: "lead", role: "lead", socketPath: "/lead.sock" },
+			socketPath: "/lead.sock",
+			manifest: {
+				members: [
+					{ name: "lead", role: "lead", socketPath: "/lead.sock" },
+					{ name: "qa", role: "reviewer", socketPath: "/qa.sock" },
+				],
+			},
+		}),
+	} as never;
+	registerSendMemberRequestTool(pi, state);
 	registerWaitForRequestOutcomeTool(pi, state);
 	return { tools, state, pi };
 }
@@ -98,6 +111,23 @@ test("TASK-0151: wait blocks the same tool call until a terminal Response arrive
 	assert.match(String(result.content[0]?.text ?? ""), /1\. review finding 1/);
 	assert.match(String(result.content[0]?.text ?? ""), /2\. confirm gate/);
 	assert.equal(registry.outboundCount(), 0);
+	const text = String(result.content[0]?.text ?? "");
+	assert.equal((text.match(/active/g) ?? []).length, 1, "the exact Request ID appears only in the typed header");
+	assert.doesNotMatch(text, /Response received from/);
+});
+
+test("accepted request prose keeps the target, exact ID, and one next action", async () => {
+	const { tools } = setup();
+	const result = await tools.get("send_member_request")!.execute("id", {
+		member: "qa",
+		message: "Need the current gate",
+	});
+	assert.equal(result.isError, undefined);
+	assert.equal(
+		result.content[0].text,
+		"Request accepted for qa (reviewer). Next: call wait_for_request_outcome with request_id=request-1; do not send a replacement after pending-after-idle.",
+	);
+	assert.deepEqual(result.details, { requestId: "request-1", member: { name: "qa", role: "reviewer" } });
 });
 
 test("accepted inbound messages release the Request outcome wait without settling the outbound request", async () => {
@@ -114,6 +144,11 @@ test("accepted inbound messages release the Request outcome wait without settlin
 	assert.equal(result.isError, undefined);
 	assert.equal(result.terminate, true, "the message wake skips the content-free continuation");
 	assert.deepEqual(result.details, { outcome: "message-received", request_id: "active" });
+	assert.equal(
+		result.content[0].text,
+		"An accepted Bebop message is ready; process it before waiting again with the same Request ID.",
+	);
+	assert.doesNotMatch(result.content[0].text, /delivery-1/);
 	assert.equal(registry.outboundCount(), 1, "message wake does not settle the outbound request");
 	assert.equal(state.wakeGate.armed, false, "the consumed wake listener is cleaned up");
 

@@ -157,7 +157,7 @@ export function registerSendMemberRequestTool(pi: ExtensionAPI, state: SocketSta
 						? `${outcome.member.name} (${outcome.member.role})`
 						: `${outcome.member.guestName} (guest)`;
 				return success(
-					`Request accepted: ${memberLabel}, request_id=${outcome.requestId}. Next: call wait_for_request_outcome with request_id=${outcome.requestId}; do not send a replacement solely because a wait returns pending-after-idle.`,
+					`Request accepted for ${memberLabel}. Next: call wait_for_request_outcome with request_id=${outcome.requestId}; do not send a replacement after pending-after-idle.`,
 					{
 						requestId: outcome.requestId,
 						member:
@@ -252,7 +252,7 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 				if ("wake" in waited)
 					return {
 						...success(
-							`Request ${params.request_id} outcome wait released because an accepted Bebop message is ready; process it before waiting again with the same request_id.`,
+							"An accepted Bebop message is ready; process it before waiting again with the same Request ID.",
 							{ outcome: waited.wake, request_id: params.request_id },
 						),
 						terminate: true,

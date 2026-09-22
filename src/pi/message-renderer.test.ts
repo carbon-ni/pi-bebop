@@ -100,8 +100,9 @@ test("typed external details and malformed details fail safely to legacy content
 		true,
 	);
 	assert.equal(external.senderText, "from CI (unverified)");
-	assert.match(external.text, /Claimed origin: from CI/);
-	assert.match(external.text, /body$/);
+	assert.equal(external.text, "body");
+	assert.equal((external.senderText.match(/from CI/g) ?? []).length, 1);
+	assert.doesNotMatch(external.text, /Claimed origin/);
 	const malformed = getMessageDisplayModel({ content: "legacy", details: { messagePayload: { content: 1 } } }, true);
 	assert.equal(malformed.text, "legacy");
 	assert.equal(malformed.senderText, null);

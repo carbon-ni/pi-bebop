@@ -34,10 +34,10 @@ test("accepted Request Response freezes request age and formats its canonical he
 	assert.equal(result.ok, true);
 	if (result.ok) {
 		assert.equal(result.value.requestAgeMs, 60_000);
-		assert.match(
-			formatRequestOutcomeWithHeader(result.value),
-			/^\[member response\] from qa \(reviewer\) · request age 1m · request request-age/,
-		);
+		const rendered = formatRequestOutcomeWithHeader(result.value);
+		assert.match(rendered, /^\[member response\] from qa \(reviewer\) · request age 1m · request request-age/);
+		assert.match(rendered, /\ndone\nInstructions:/);
+		assert.equal((rendered.match(/request-age/g) ?? []).length, 1);
 	}
 });
 

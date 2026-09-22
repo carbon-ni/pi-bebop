@@ -78,7 +78,10 @@ export function formatRequestOutcomeWithHeader(outcome: RequestOutcome): string 
 		elapsedMs: outcome.requestAgeMs,
 		requestId: outcome.requestId,
 	});
-	return `${header}\n${formatRequestOutcome(outcome)}`;
+	const instructions = outcome.instructions.length
+		? `\nInstructions:\n${outcome.instructions.map((item, index) => `${index + 1}. ${item}`).join("\n")}`
+		: "";
+	return `${header}\n${outcome.message}${instructions}`;
 }
 
 export function formatRequestOutcome(outcome: RequestOutcome): string {
