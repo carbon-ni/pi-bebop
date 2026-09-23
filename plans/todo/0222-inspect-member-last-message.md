@@ -15,7 +15,7 @@ Automation can inspect a member's mechanical status, but cannot read the member'
 
 ## Desired outcome
 
-A caller can query an online Crew member's latest finalized assistant text through the CLI or typed SDK. The joined trusted source session authorizes and resolves the target. The observation never starts, wakes, steers, interrupts, or sends a model turn.
+A caller can query an online Crew member's latest recorded assistant-text snapshot through the CLI or typed SDK. The joined trusted source session authorizes and resolves the target. The observation never starts, wakes, steers, interrupts, or sends a model turn.
 
 ## Public shape
 
@@ -32,9 +32,10 @@ The result contains the resolved public member identity and either the existing 
 
 ## Semantics and boundaries
 
-- "Last message" means the newest assistant text on the target session's current active branch. It excludes user messages, system prompts, reasoning, tool arguments/results, socket paths, and session internals.
+- "Last message" means the newest recorded assistant text on the target session's current active branch. Pi does not expose a separate finalization flag here, so the snapshot can reflect text recorded during an active turn. It excludes user messages, system prompts, reasoning, tool arguments/results, socket paths, and session internals.
+- Content is limited to 1,000,000 UTF-8 bytes. Oversized target content fails with stable `message-too-large`; it is never truncated or returned partially. Timestamp is a finite, non-negative safe integer.
 - The read is a snapshot, not proof of progress, completion, intent, or acknowledgement.
-- An offline target cannot expose its in-memory branch and returns a stable `offline-member` error. No historical session-file scan occurs.
+- An offline target cannot expose its in-memory branch and returns a stable `offline-member` error. A target that does not answer before the shared deadline returns `timeout`; caller cancellation returns `aborted`. No historical session-file scan occurs.
 - The existing joined trusted source remains authoritative for exact-name/unique-role resolution, self-query policy, Crew membership, and target routing.
 - The target's existing read-only message RPC may be reused after source authorization. The public CLI/SDK never accepts a target socket or manifest path.
 - Empty history is a successful `message: null` result. Malformed target output is an error, never silently coerced.
@@ -43,11 +44,11 @@ The result contains the resolved public member identity and either the existing 
 
 ### Domain and delegated protocol
 
-- [ ] Define one strict, bounded public observation/result schema using the existing extracted assistant-message shape and redacted member identity.
+- [ ] Define one strict public observation/result schema using assistant-only role, 1,000,000-byte UTF-8 content, finite non-negative safe-integer timestamp, and redacted member identity.
 - [ ] Add a source-delegated member-last-message command. It rejects unjoined/untrusted sources before target IO and delegates target resolution to the existing Crew resolver.
 - [ ] Querying a target is read-only and performs no Pi prompt/send/steer/interrupt/wake action.
-- [ ] Return only latest assistant text from current branch, unchanged, or `null` when absent. Never return user/system/tool/reasoning content.
-- [ ] Offline member, unknown member, ambiguous role, self-query, malformed response, timeout, cancellation, and transport failure have stable codes.
+- [ ] Return only the latest recorded assistant-text snapshot from current branch, unchanged, or `null` when absent. Never return user/system/tool/reasoning content.
+- [ ] Offline member, unknown member, ambiguous role, self-query, oversized/malformed response, timeout, cancellation, and transport failure have stable distinct codes.
 
 ### CLI
 
