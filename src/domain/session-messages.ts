@@ -44,7 +44,7 @@ export function inspectLastAssistantMessage(branch: MessageEntry[]): LastAssista
 		if (textParts.length === 0) continue;
 		if (textParts.some((part) => typeof part.text !== "string"))
 			return { kind: "malformed", code: "malformed-response" };
-		const content = textParts.map((part) => part.text).join("\\n");
+		const content = textParts.map((part) => part.text).join("\n");
 		if (!content) continue;
 		if (!Number.isSafeInteger(msg.timestamp) || msg.timestamp < 0)
 			return { kind: "malformed", code: "malformed-response" };

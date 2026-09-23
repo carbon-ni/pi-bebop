@@ -22,10 +22,27 @@ async function targetServer(
 	socketPath: string,
 	message: { role: "assistant"; content: string; timestamp: number } | null,
 	onCommand: (command: string) => void = () => {},
+	branch?: readonly unknown[],
 ): Promise<net.Server> {
 	return createRpcServer(socketPath, async (command, socket) => {
 		onCommand(command.type);
 		if (command.type !== "get_message") return;
+		if (branch) {
+			const respond: CommandHandlerContext["respond"] = (success, commandName, data, error) =>
+				writeResponse(socket, { type: "response", command: commandName, success, data, error, id: command.id });
+			await handleGetMessage(
+				{
+					pi: {} as CommandHandlerContext["pi"],
+					state: {} as SocketState,
+					ctx: { sessionManager: { getBranch: () => branch } } as never,
+					socket,
+					id: command.id,
+					respond,
+				},
+				command,
+			);
+			return;
+		}
 		writeResponse(socket, {
 			type: "response",
 			command: "get_message",
@@ -180,6 +197,19 @@ test("CLI/SDK-shaped RPC traverses source authorization into target get_message 
 		(command) => {
 			targetCommands.push(command);
 		},
+		[
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "chain result" },
+						{ type: "text", text: "second part" },
+					],
+					timestamp: 11,
+				},
+			},
+		],
 	);
 	const sourceState = {
 		membershipRuntime: {
@@ -238,10 +268,16 @@ test("CLI/SDK-shaped RPC traverses source authorization into target get_message 
 		},
 	);
 	assert.equal(cliOutcome.kind, "result");
+	if (cliOutcome.kind === "result")
+		assert.deepEqual((cliOutcome.result.data as { message?: unknown }).message, {
+			role: "assistant",
+			content: "chain result\nsecond part",
+			timestamp: 11,
+		});
 	const sdk = await createBebopClient().selectSource({ session: sourceSession });
 	assert.deepEqual(await sdk.getMemberLastMessage("developer"), {
 		member: { name: "developer", role: "Developer" },
-		message: { role: "assistant", content: "chain result", timestamp: 11 },
+		message: { role: "assistant", content: "chain result\nsecond part", timestamp: 11 },
 	});
 	assert.deepEqual(targetCommands, ["get_message", "get_message"]);
 });

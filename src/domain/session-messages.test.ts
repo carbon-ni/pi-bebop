@@ -80,6 +80,22 @@ test("inspectLastAssistantMessage rejects malformed newest text instead of revea
 	);
 });
 
+test("inspectLastAssistantMessage preserves exact newlines between text parts", () => {
+	assert.deepEqual(
+		inspectLastAssistantMessage([
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [text("first part"), text("second part")],
+					timestamp: 7,
+				},
+			},
+		]),
+		{ kind: "message", message: { role: "assistant", content: "first part\nsecond part", timestamp: 7 } },
+	);
+});
+
 test("inspectLastAssistantMessage skips a newest tool-only entry", () => {
 	assert.deepEqual(
 		inspectLastAssistantMessage([
