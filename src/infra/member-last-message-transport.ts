@@ -5,12 +5,10 @@ import {
 	type MemberLastMessageResult,
 } from "../domain/index.ts";
 import type { MemberLastMessageFlowErrorCode } from "../application/member-last-message-flow.ts";
-import { probeMemberEndpoint } from "./member-endpoint.ts";
 import { resolveMemberEndpoint } from "./socket-endpoint.ts";
-import { sendRpcCommand } from "./rpc-client.ts";
+import { RpcProtocolError, sendRpcCommand } from "./rpc-client.ts";
 
 export interface MemberLastMessageTransport {
-	readonly probeEndpoint: (socketPath: string, signal?: AbortSignal) => Promise<boolean>;
 	readonly requestLastMessage: (
 		endpoint: string,
 		signal?: AbortSignal,
@@ -39,13 +37,29 @@ function mapCode(code: string): MemberLastMessageFlowErrorCode {
 		: "transport-error";
 }
 
-export function createMemberLastMessageTransport(probeTimeoutMs = 300): MemberLastMessageTransport {
+function mapTransportError(error: unknown, signal?: AbortSignal): MemberLastMessageFlowErrorCode {
+	if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) return "aborted";
+	if (error instanceof RpcProtocolError) {
+		if (["invalid-result", "malformed-response", "mismatched-id"].includes(error.code)) return "malformed-response";
+		if (error.code === "remote-error") return mapCode(error.message.replace(/^remote-error:\s*/, ""));
+		return mapCode(error.code);
+	}
+	const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+	if (["ENOENT", "ECONNREFUSED", "ENOTCONN", "ENOTSOCK"].includes(code ?? "")) return "offline-member";
+	if (error instanceof Error && /timed? ?out|timeout/i.test(error.message)) return "timeout";
+	return "transport-error";
+}
+
+export function createMemberLastMessageTransport(requestTimeoutMs = 5000): MemberLastMessageTransport {
 	return {
-		probeEndpoint: (socketPath, signal) => probeMemberEndpoint(socketPath, { timeoutMs: probeTimeoutMs, signal }),
 		requestLastMessage: async (endpoint, signal) => {
 			try {
 				const resolved = await resolveMemberEndpoint(endpoint);
-				const { response } = await sendRpcCommand(resolved, { type: "get_message" }, { timeout: 5000, signal });
+				const { response } = await sendRpcCommand(
+					resolved,
+					{ type: "get_message" },
+					{ timeout: requestTimeoutMs, signal },
+				);
 				if (!response.success) return { ok: false, code: mapCode(response.error ?? "remote-rejected") };
 				const rawMessage =
 					response.data && typeof response.data === "object" && "message" in response.data
@@ -64,10 +78,7 @@ export function createMemberLastMessageTransport(probeTimeoutMs = 300): MemberLa
 				if (message !== null && !isMemberLastMessage(message)) return { ok: false, code: "malformed-response" };
 				return { ok: true, message: message as MemberLastMessageResult["message"] };
 			} catch (error) {
-				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
-				const message = error instanceof Error ? error.message : "";
-				if (/timed? ?out|timeout/i.test(message)) return { ok: false, code: "timeout" };
-				return { ok: false, code: "transport-error" };
+				return { ok: false, code: mapTransportError(error, signal) };
 			}
 		},
 	};

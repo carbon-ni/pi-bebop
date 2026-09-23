@@ -19,6 +19,30 @@ test("getLastAssistantMessage returns newest assistant text", () => {
 	});
 });
 
+test("getLastAssistantMessage ignores non-string text and invalid timestamps", () => {
+	const branch = [
+		{
+			type: "message",
+			message: { role: "assistant", content: [{ type: "text", text: { unsafe: true } }], timestamp: 4 },
+		},
+		{ type: "message", message: { role: "assistant", content: [text("missing timestamp")] } },
+		{ type: "message", message: { role: "assistant", content: [text("invalid timestamp")], timestamp: -1 } },
+		{ type: "message", message: { role: "assistant", content: [text("valid")], timestamp: 3 } },
+	];
+
+	assert.deepEqual(getLastAssistantMessage(branch), {
+		role: "assistant",
+		content: "valid",
+		timestamp: 3,
+	});
+	assert.equal(
+		getLastAssistantMessage([
+			{ type: "message", message: { role: "assistant", content: [{ type: "text", text: 7 }], timestamp: 1 } },
+		]),
+		undefined,
+	);
+});
+
 test("getMessagesSinceLastPrompt returns user prompt and following assistant messages", () => {
 	const branch = [
 		{ type: "message", message: { role: "user", content: [text("older")], timestamp: 1 } },

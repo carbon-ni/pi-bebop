@@ -30,7 +30,6 @@ type CrewMembership = { member: CrewMember; socketPath: string; manifest: { memb
 export interface MemberLastMessageSurface {
 	readonly getMembership: () => CrewMembership | null;
 	readonly isTrusted: () => boolean;
-	readonly probeEndpoint: (socketPath: string, signal?: AbortSignal) => Promise<boolean>;
 	readonly requestLastMessage: (
 		socketPath: string,
 		signal?: AbortSignal,
@@ -65,9 +64,6 @@ export function createMemberLastMessageFlow(surface: MemberLastMessageSurface) {
 	const queryLastMessage = async (memberLabel: string): Promise<MemberLastMessageResult> => {
 		const membership = requireJoined(surface);
 		const target = resolveTarget(membership, memberLabel.trim());
-		const alive = await surface.probeEndpoint(target.socketPath, surface.signal);
-		if (surface.signal?.aborted) throw new MemberLastMessageFlowError("aborted", "Last-message query aborted");
-		if (!alive) throw new MemberLastMessageFlowError("offline-member", "Member is offline");
 		const outcome = await surface.requestLastMessage(target.socketPath, surface.signal);
 		if (outcome.ok === false)
 			throw new MemberLastMessageFlowError(outcome.code, `Last-message query failed: ${outcome.code}`);

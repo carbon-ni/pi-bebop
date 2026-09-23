@@ -15,7 +15,10 @@ function textContent(content: unknown): string {
 	return (Array.isArray(content) ? content : [])
 		.filter(
 			(part): part is TextPart =>
-				typeof part === "object" && part !== null && (part as { type?: string }).type === "text",
+				typeof part === "object" &&
+				part !== null &&
+				(part as { type?: string; text?: unknown }).type === "text" &&
+				typeof (part as { text?: unknown }).text === "string",
 		)
 		.map((part) => part.text)
 		.join("\n");
@@ -28,8 +31,8 @@ export function getLastAssistantMessage(branch: MessageEntry[]): ExtractedMessag
 		const msg = entry.message;
 		if (!msg || msg.role !== "assistant") continue;
 		const content = textContent(msg.content);
-		if (!content) continue;
-		return { role: "assistant", content, timestamp: msg.timestamp ?? 0 };
+		if (!content || !Number.isSafeInteger(msg.timestamp) || msg.timestamp < 0) continue;
+		return { role: "assistant", content, timestamp: msg.timestamp };
 	}
 	return undefined;
 }

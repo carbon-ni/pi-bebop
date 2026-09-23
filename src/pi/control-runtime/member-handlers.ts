@@ -101,7 +101,6 @@ export async function handleMemberLastMessageTarget(
 	const surface: MemberLastMessageSurface = {
 		getMembership: () => state.membershipRuntime?.getMembership() ?? null,
 		isTrusted: () => state.context?.isProjectTrusted?.() === true,
-		probeEndpoint: transport.probeEndpoint,
 		requestLastMessage: transport.requestLastMessage,
 		signal: controller.signal,
 	};

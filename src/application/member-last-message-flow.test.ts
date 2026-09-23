@@ -17,7 +17,6 @@ function surface(overrides: Partial<MemberLastMessageSurface> = {}): MemberLastM
 	return {
 		getMembership: () => membership,
 		isTrusted: () => true,
-		probeEndpoint: async () => true,
 		requestLastMessage: async () => ({
 			ok: true,
 			message: { role: "assistant", content: "latest", timestamp: 10 },
@@ -33,6 +32,20 @@ test("last-message flow returns only the target identity and assistant snapshot"
 	});
 });
 
+test("last-message flow does not probe before the read request", async () => {
+	let requests = 0;
+	const result = await createMemberLastMessageFlow(
+		surface({
+			requestLastMessage: async () => {
+				requests += 1;
+				return { ok: true as const, message: null };
+			},
+		}),
+	).queryLastMessage("developer");
+	assert.equal(requests, 1);
+	assert.equal(result.message, null);
+});
+
 test("last-message flow returns null for empty online history", async () => {
 	const flow = createMemberLastMessageFlow(
 		surface({ requestLastMessage: async () => ({ ok: true, message: null }) }),
@@ -42,7 +55,11 @@ test("last-message flow returns null for empty online history", async () => {
 
 test("last-message flow distinguishes offline, authorization, resolution, timeout, and cancellation", async () => {
 	for (const [name, override, code] of [
-		["offline", { probeEndpoint: async () => false }, "offline-member"],
+		[
+			"offline",
+			{ requestLastMessage: async () => ({ ok: false as const, code: "offline-member" as const }) },
+			"offline-member",
+		],
 		["timeout", { requestLastMessage: async () => ({ ok: false as const, code: "timeout" as const }) }, "timeout"],
 		["aborted", { requestLastMessage: async () => ({ ok: false as const, code: "aborted" as const }) }, "aborted"],
 	] as const) {
