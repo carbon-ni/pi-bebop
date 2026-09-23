@@ -1,7 +1,7 @@
 ---
 id: TASK-0222
 title: Inspect a Crew member's last assistant message
-status: doing
+status: done
 depends_on: [TASK-0221]
 priority: high
 tags: [cli, sdk, status, crew, privacy]
@@ -44,30 +44,30 @@ The result contains the resolved public member identity and either the existing 
 
 ### Domain and delegated protocol
 
-- [ ] Define one strict public observation/result schema using assistant-only role, 1,000,000-byte UTF-8 content, finite non-negative safe-integer timestamp, and redacted member identity.
-- [ ] Add a source-delegated member-last-message command. It rejects unjoined/untrusted sources before target IO and delegates target resolution to the existing Crew resolver.
-- [ ] Querying a target is read-only and performs no Pi prompt/send/steer/interrupt/wake action.
-- [ ] Return only the latest recorded assistant-text snapshot from current branch, unchanged, or `null` when absent. Never return user/system/tool/reasoning content.
-- [ ] Offline member, unknown member, ambiguous role, self-query, oversized/malformed response, timeout, cancellation, and transport failure have stable distinct codes.
+- [x] Define one strict public observation/result schema using assistant-only role, 1,000,000-byte UTF-8 content, finite non-negative safe-integer timestamp, and redacted member identity.
+- [x] Add a source-delegated member-last-message command. It rejects unjoined/untrusted sources before target IO and delegates target resolution to the existing Crew resolver.
+- [x] Querying a target is read-only and performs no Pi prompt/send/steer/interrupt/wake action.
+- [x] Return only the latest recorded assistant-text snapshot from current branch, unchanged, or `null` when absent. Never return user/system/tool/reasoning content.
+- [x] Offline member, unknown member, ambiguous role, self-query, oversized/malformed response, timeout, cancellation, and transport failure have stable distinct codes.
 
 ### CLI
 
-- [ ] Add `bebop member last-message <member-name-or-unique-role>` with `--session` and `--format text|toon|json`, consistent with `member status`.
-- [ ] Text output is concise and distinguishes an empty history from an error. Structured output preserves identity, content, and timestamp.
-- [ ] Help states that the command is a read-only snapshot and never wakes the member.
+- [x] Add `bebop member last-message <member-name-or-unique-role>` with `--session` and `--format text|toon|json`, consistent with `member status`.
+- [x] Text output is concise and distinguishes an empty history from an error. Structured output preserves identity, content, and timestamp.
+- [x] Help states that the command is a read-only snapshot and never wakes the member.
 
 ### SDK
 
-- [ ] Add typed `getMemberLastMessage(member, options?)` to `BebopSource` without changing the package root or existing SDK methods.
-- [ ] Reuse the SDK's one end-to-end deadline, cancellation, source selection, response validation, and stable `BebopClientError` mapping.
-- [ ] Packed JavaScript and declarations expose the new method and result types to clean JS/TypeScript consumers.
+- [x] Add typed `getMemberLastMessage(member, options?)` to `BebopSource` without changing the package root or existing SDK methods.
+- [x] Reuse the SDK's one end-to-end deadline, cancellation, source selection, response validation, and stable `BebopClientError` mapping.
+- [x] Packed JavaScript and declarations expose the new method and result types to clean JS/TypeScript consumers.
 
 ### Tests and documentation
 
-- [ ] TDD covers latest assistant text, empty history, exclusion of non-assistant/internal content, offline/error mapping, no-wake behavior, malformed peers, timeout, cancellation, and concurrent isolation.
-- [ ] Real local-socket integration covers CLI and SDK delegation through a source into a target session.
-- [ ] README includes concise CLI and SDK examples plus snapshot/privacy caveats.
-- [ ] Full verification and independent QA pass without modifying user Crew files.
+- [x] TDD covers latest assistant text, empty history, exclusion of non-assistant/internal content, offline/error mapping, no-wake behavior, malformed peers, timeout, cancellation, and concurrent isolation.
+- [x] Real local-socket integration covers CLI and SDK delegation through a source into a target session.
+- [x] README includes concise CLI and SDK examples plus snapshot/privacy caveats.
+- [x] Full verification and independent QA pass without modifying user Crew files.
 
 ## Non-goals
 
