@@ -10,9 +10,11 @@ import { createMemberLastMessageFlow } from "../application/member-last-message-
 import { createMemberLastMessageTransport } from "../infra/member-last-message-transport.ts";
 import { handleMemberLastMessageTarget } from "./control-runtime/member-handlers.ts";
 import type { CommandHandlerContext, SocketState } from "./control-runtime/types.ts";
-import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { getSocketPath, CONTROL_DIR } from "../infra/intray-paths.ts";
-import { runMemberLastMessageCommand } from "../cli/commands/member-last-message.ts";
+import {
+	defaultMemberLastMessageCliDependencies,
+	runMemberLastMessageCommand,
+} from "../cli/commands/member-last-message.ts";
 import { createBebopClient } from "../sdk/index.ts";
 
 async function targetServer(
@@ -55,7 +57,6 @@ test("member last-message flow delegates through a real local target socket with
 			},
 		}),
 		isTrusted: () => true,
-		probeEndpoint: transport.probeEndpoint,
 		requestLastMessage: transport.requestLastMessage,
 	});
 
@@ -131,21 +132,8 @@ test("CLI/SDK-shaped RPC traverses source authorization into target get_message 
 		{ command: "member-last-message", member: "developer", format: "json" },
 		{ cwd: root, input: new PassThrough(), signal: new AbortController().signal },
 		{
+			...defaultMemberLastMessageCliDependencies,
 			resolveSource: () => ({ ok: true, kind: "id", idSocketPath: sourcePath, aliasSocketPath: sourcePath }),
-			sendLastMessage: async (sourceResolution, target, signal) => {
-				const result = await sendRpcCommand(
-					sourceResolution.idSocketPath,
-					{
-						type: "member_last_message_target",
-						target,
-					},
-					{ signal },
-				);
-				return result.response.success
-					? { ok: true as const, result: result.response.data as never }
-					: { ok: false as const, code: result.response.error ?? "remote-rejected" };
-			},
-			environmentSession: () => undefined,
 		},
 	);
 	assert.equal(cliOutcome.kind, "result");
