@@ -19,15 +19,6 @@ export interface MemberLastMessageCliOptions {
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
 const MAX_TARGET_BYTES = 256;
 
-function escapeTerminalControls(value: string): string {
-	return Array.from(value, (character) => {
-		const code = character.codePointAt(0) ?? 0;
-		return code <= 0x1f || (code >= 0x7f && code <= 0x9f)
-			? `\\u${code.toString(16).padStart(4, "0").toUpperCase()}`
-			: character;
-	}).join("");
-}
-
 function isCliFormat(value: string): value is CliFormat {
 	return (FORMATS as readonly string[]).includes(value);
 }
@@ -158,7 +149,7 @@ export async function runMemberLastMessageCommand(
 			response:
 				message === null
 					? `${member.name} (${member.role}) — no assistant message recorded`
-					: `${member.name} (${member.role}) — ${escapeTerminalControls(message.content)}`,
+					: `${member.name} (${member.role}) — ${message.content}`,
 			data: outcome.result,
 		},
 		format: options.format,

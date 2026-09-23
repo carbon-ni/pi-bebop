@@ -5,6 +5,7 @@ import {
 	MEMBER_IDLE_WAIT_TIMEOUT_SECONDS,
 	getFirstEntryId,
 	getLastAssistantMessage,
+	inspectLastAssistantMessage,
 	isInterruptResult,
 	isMessagePayload,
 	renderFollowUpModelContent,
@@ -296,12 +297,12 @@ export async function handleGetMessage(
 	command: Extract<RpcInboundCommand, { type: "get_message" }>,
 ): Promise<void> {
 	const { ctx, state, socket, pi, respond, id } = context;
-	const message = getLastAssistantMessage(ctx.sessionManager.getBranch());
-	if (!message) {
-		respond(true, "get_message", { message: null });
+	const inspection = inspectLastAssistantMessage(ctx.sessionManager.getBranch());
+	if (inspection.kind === "malformed") {
+		respond(false, "get_message", undefined, inspection.code);
 		return;
 	}
-	respond(true, "get_message", { message });
+	respond(true, "get_message", { message: inspection.kind === "message" ? inspection.message : null });
 	return;
 }
 

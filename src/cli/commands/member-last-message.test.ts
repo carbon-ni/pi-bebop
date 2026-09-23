@@ -63,7 +63,7 @@ test("last-message CLI escapes terminal controls only in text output", async () 
 	output.setEncoding("utf8");
 	output.on("data", (chunk) => (text += chunk));
 	assert.equal(writeOutcome(output, new PassThrough(), outcome), 0);
-	assert.match(text, /safe\\u001B\[31m\\u0007\\u000D\\u000A\\u0085\\u007F/);
+	assert.match(text, /safe\\u001B\[31m\\u0007\\u000D\n\\u0085\\u007F/);
 	assert.doesNotMatch(text, /\x1b|\x07|\x0d/);
 	assert.deepEqual(outcome.kind === "result" ? outcome.result.data : undefined, {
 		member: { name: "developer", role: "Developer" },

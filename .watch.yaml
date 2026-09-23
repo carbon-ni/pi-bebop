@@ -64,6 +64,16 @@ jobs:
           - package-lock.json
       run_on_init: true
 
+    - name: upstream CI @quick
+      run: node scripts/upstream-ci-check.mjs
+      timeout: 30s
+      parallel: quick
+      change:
+          - src/**/*.ts
+          - scripts/upstream-ci-check.mjs
+          - .watch.yaml
+      run_on_init: true
+
     - name: quality gate @agent-final
       run: make all
       change:

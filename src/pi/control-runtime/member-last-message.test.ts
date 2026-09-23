@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import { handleMemberLastMessageTarget } from "./member-handlers.ts";
+import { handleGetMessage } from "./system-handlers.ts";
+import { MAX_MESSAGE_CONTENT_BYTES } from "../../domain/message-payload.ts";
 import type { CommandHandlerContext, SocketState } from "./types.ts";
 
 function context(
@@ -24,7 +26,6 @@ function context(
 		},
 		context: { isProjectTrusted: () => true },
 		memberLastMessageTransport: {
-			probeEndpoint: async () => true,
 			requestLastMessage: async () => ({ ok: true as const, message: null }),
 		},
 		...overrides,
@@ -52,6 +53,70 @@ test("member.last_message_target delegates read-only empty snapshots through sou
 	]);
 });
 
+test("get_message rejects a malformed newest assistant entry without revealing older text", async () => {
+	const responses: unknown[] = [];
+	const socket = new EventEmitter();
+	await handleGetMessage(
+		{
+			pi: {} as CommandHandlerContext["pi"],
+			state: {} as SocketState,
+			ctx: {
+				sessionManager: {
+					getBranch: () => [
+						{
+							type: "message",
+							message: { role: "assistant", content: [{ type: "text", text: "older" }], timestamp: 1 },
+						},
+						{
+							type: "message",
+							message: { role: "assistant", content: [{ type: "text", text: 7 }], timestamp: 2 },
+						},
+					],
+				},
+			} as never,
+			socket: socket as never,
+			id: "get-message-1",
+			respond: (...args) => responses.push(args),
+		},
+		{ type: "get_message", id: "get-message-1" },
+	);
+	assert.deepEqual(responses[0], [false, "get_message", undefined, "malformed-response"]);
+});
+
+test("get_message rejects an oversized newest assistant entry", async () => {
+	const responses: unknown[] = [];
+	const socket = new EventEmitter();
+	await handleGetMessage(
+		{
+			pi: {} as CommandHandlerContext["pi"],
+			state: {} as SocketState,
+			ctx: {
+				sessionManager: {
+					getBranch: () => [
+						{
+							type: "message",
+							message: { role: "assistant", content: [{ type: "text", text: "older" }], timestamp: 1 },
+						},
+						{
+							type: "message",
+							message: {
+								role: "assistant",
+								content: [{ type: "text", text: "x".repeat(MAX_MESSAGE_CONTENT_BYTES + 1) }],
+								timestamp: 2,
+							},
+						},
+					],
+				},
+			} as never,
+			socket: socket as never,
+			id: "get-message-2",
+			respond: (...args) => responses.push(args),
+		},
+		{ type: "get_message", id: "get-message-2" },
+	);
+	assert.deepEqual(responses[0], [false, "get_message", undefined, "message-too-large"]);
+});
+
 test("member.last_message_target rejects an untrusted source before target IO", async () => {
 	let requests = 0;
 	const responses: unknown[] = [];
@@ -60,11 +125,10 @@ test("member.last_message_target rejects an untrusted source before target IO", 
 			{
 				context: { isProjectTrusted: () => false } as never,
 				memberLastMessageTransport: {
-					probeEndpoint: async () => {
+					requestLastMessage: async () => {
 						requests += 1;
-						return true;
+						return { ok: true as const, message: null };
 					},
-					requestLastMessage: async () => ({ ok: true as const, message: null }),
 				},
 			},
 			(...args) => responses.push(args),
