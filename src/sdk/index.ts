@@ -5,6 +5,7 @@ import {
 	isSafeSessionId,
 	isStatusResult,
 	isMemberStatusResult,
+	isMemberLastMessageResult,
 	isMemberMessageResult,
 	isMemberInboxSendResult,
 	type MemberStatus as WireMemberStatus,
@@ -32,6 +33,8 @@ export type BebopClientErrorCode =
 	| "invalid-session"
 	| "unknown-session"
 	| "offline-session"
+	| "offline-member"
+	| "message-too-large"
 	| "not-joined"
 	| "untrusted"
 	| "unknown-member"
@@ -79,6 +82,17 @@ export interface MemberStatusIdentity {
 	readonly role: string;
 }
 
+export interface MemberLastMessage {
+	readonly role: "assistant";
+	readonly content: string;
+	readonly timestamp: number;
+}
+
+export interface MemberLastMessageResult {
+	readonly member: MemberStatusIdentity;
+	readonly message: MemberLastMessage | null;
+}
+
 export type MemberStatus =
 	| {
 			readonly member: MemberStatusIdentity;
@@ -120,6 +134,7 @@ export interface InboxResult {
 
 export interface BebopSource {
 	getMemberStatus(member: string, options?: BebopOperationOptions): Promise<MemberStatus>;
+	getMemberLastMessage(member: string, options?: BebopOperationOptions): Promise<MemberLastMessageResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
 }
@@ -151,6 +166,8 @@ function defaultErrorMessage(code: BebopClientErrorCode): string {
 			"invalid-session": "Invalid source session",
 			"unknown-session": "Source session was not found",
 			"offline-session": "Source session is offline",
+			"offline-member": "Crew member is offline",
+			"message-too-large": "Crew member's last message is too large",
 			"not-joined": "Source session is not joined to a crew",
 			untrusted: "Source project is not trusted",
 			"unknown-member": "Crew member was not found",
@@ -262,6 +279,8 @@ function normalizeError(error: unknown, budget: Budget): BebopClientError {
 		if (
 			[
 				"not-joined",
+				"offline-member",
+				"message-too-large",
 				"untrusted",
 				"untrusted-project",
 				"unknown-member",
@@ -294,6 +313,8 @@ function mapRemoteError(message: string): BebopClientError {
 	const code = message.trim().split(/[:\s]/u, 1)[0];
 	const known: Partial<Record<string, BebopClientErrorCode>> = {
 		"not-joined": "not-joined",
+		"offline-member": "offline-member",
+		"message-too-large": "message-too-large",
 		untrusted: "untrusted",
 		"untrusted-project": "untrusted",
 		"unknown-member": "unknown-member",
@@ -475,6 +496,13 @@ function sourceClient(endpoint: string): BebopSource {
 			return call({ type: "member_status_target", target: member }, options, (value) => {
 				if (!isMemberStatusResult(value)) throw new BebopClientError("malformed-response");
 				return value.status as WireMemberStatus as unknown as MemberStatus;
+			});
+		},
+		getMemberLastMessage(member, options) {
+			validateMember(member);
+			return call({ type: "member_last_message_target", target: member }, options, (value) => {
+				if (!isMemberLastMessageResult(value)) throw new BebopClientError("malformed-response");
+				return value;
 			});
 		},
 		sendFollowUp(member, input, options) {

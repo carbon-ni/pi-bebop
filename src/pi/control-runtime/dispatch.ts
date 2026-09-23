@@ -15,6 +15,7 @@ import { handleGuestJoin, handleGuestSend, handleGuestLeave, handlePresenceHint 
 import {
 	handleMemberStatus,
 	handleMemberStatusTarget,
+	handleMemberLastMessageTarget,
 	handleMemberFollowUp,
 	handleMemberRedirect,
 	handleMemberInboxSend,
@@ -47,6 +48,7 @@ const COMMAND_HANDLERS: CommandHandlers = {
 	inbox_hint: handleInboxHint,
 	member_status: handleMemberStatus,
 	member_status_target: handleMemberStatusTarget,
+	member_last_message_target: handleMemberLastMessageTarget,
 	member_follow_up: handleMemberFollowUp,
 	member_redirect: handleMemberRedirect,
 	member_inbox_send: handleMemberInboxSend,

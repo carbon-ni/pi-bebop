@@ -30,6 +30,7 @@ import {
 	MemberStatusTargetParamsSchema,
 	MemberStatusTargetRequestSchema,
 	MemberStatusTargetCommandSchema,
+	MemberLastMessageTargetCommandSchema,
 } from "./wire-base.ts";
 import {
 	MemberMessageParamsSchema,

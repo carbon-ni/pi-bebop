@@ -41,7 +41,7 @@ test("packed SDK exposes runnable ESM and TypeScript declarations", async () => 
 		const source = path.join(consumer, "consumer.ts");
 		await writeFile(
 			source,
-			'import { createBebopClient, BebopClientError, type MemberStatus } from "@carbon-ni/pi-bebop/sdk";\nconst client = createBebopClient();\nconst status: Promise<MemberStatus> = client.selectSource({ session: "safe-session" }).then((source) => source.getMemberStatus("developer"));\nvoid status;\nvoid new BebopClientError("timeout");\n',
+			'import { createBebopClient, BebopClientError, type MemberLastMessageResult, type MemberStatus } from "@carbon-ni/pi-bebop/sdk";\nconst client = createBebopClient();\nconst selected = client.selectSource({ session: "safe-session" });\nconst status: Promise<MemberStatus> = selected.then((source) => source.getMemberStatus("developer"));\nconst lastMessage: Promise<MemberLastMessageResult> = selected.then((source) => source.getMemberLastMessage("developer", { timeoutMs: 5000 }));\nvoid status;\nvoid lastMessage;\nvoid new BebopClientError("timeout");\n',
 		);
 		try {
 			await execFile(

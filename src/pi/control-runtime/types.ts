@@ -4,6 +4,7 @@ import type { GuestMembershipRuntime } from "../../infra/guest-membership-runtim
 import type { GuestAdmissionRuntime } from "../../infra/guest-admission-runtime.ts";
 import type { PresenceObserver } from "../../application/presence-observer.ts";
 import type { MemberStatusTransport } from "../../infra/member-status-transport.ts";
+import type { MemberLastMessageTransport } from "../../infra/member-last-message-transport.ts";
 import type { MemberMessageDependencies } from "../../application/member-message.ts";
 import type { MemberInboxMessageDependencies } from "../../application/member-inbox-message.ts";
 import type { MemberRequestFlow } from "../../application/member-request-flow.ts";
@@ -42,6 +43,7 @@ export interface SocketState {
 	presenceObserver?: PresenceObserver;
 	onInboxHint?: () => void;
 	memberStatusTransport?: MemberStatusTransport;
+	memberLastMessageTransport?: MemberLastMessageTransport;
 	memberMessageDependencies?: MemberMessageDependencies;
 	memberInboxMessageDependencies?: MemberInboxMessageDependencies;
 	memberRequestFlow?: MemberRequestFlow;

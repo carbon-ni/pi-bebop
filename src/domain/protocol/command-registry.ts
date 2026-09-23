@@ -22,6 +22,10 @@ const {
 	MemberStatusRequestSchema,
 	MemberStatusTargetParamsSchema,
 	MemberStatusTargetRequestSchema,
+	MemberLastMessageTargetParamsSchema,
+	MemberLastMessageTargetRequestSchema,
+	MemberLastMessageTargetCommandSchema,
+	MemberLastMessageResultSchema,
 	MemberFollowUpParamsSchema,
 	MemberRedirectParamsSchema,
 	MemberFollowUpRequestSchema,
@@ -139,6 +143,21 @@ export const COMMAND_REGISTRY: Record<ProtocolTypes.RpcCommand["type"], CommandD
 			return {
 				type: "member_status_target",
 				target: (params as ProtocolTypes.MemberStatusTargetParams).target,
+				id,
+			};
+		},
+	},
+	member_last_message_target: {
+		method: "member.last_message_target",
+		requestSchema: MemberLastMessageTargetRequestSchema,
+		resultSchema: MemberLastMessageResultSchema,
+		toParams: (command) => ({ target: (command as ProtocolTypes.MemberLastMessageTargetCommand).target }),
+		fromParams: (params, id) => {
+			if (!Value.Check(MemberLastMessageTargetParamsSchema, params))
+				return invalidCommandParams("Invalid member.last_message_target params");
+			return {
+				type: "member_last_message_target",
+				target: (params as ProtocolTypes.MemberLastMessageTargetParams).target,
 				id,
 			};
 		},

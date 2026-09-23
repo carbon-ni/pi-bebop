@@ -30,6 +30,9 @@ export {
 	MemberStatusTargetParamsSchema,
 	MemberStatusTargetRequestSchema,
 	MemberStatusTargetCommandSchema,
+	MemberLastMessageTargetParamsSchema,
+	MemberLastMessageTargetRequestSchema,
+	MemberLastMessageTargetCommandSchema,
 } from "./protocol/wire-base.ts";
 
 export {
@@ -109,6 +112,7 @@ export {
 	StatusResultSchema,
 	SendResultSchema,
 	GetMessageResultSchema,
+	MemberLastMessageResultSchema,
 	ClearResultSchema,
 	SubscribeResultSchema,
 	EmptyResultSchema,
@@ -163,6 +167,8 @@ export type {
 	MemberStatusResult,
 	MemberStatusTargetParams,
 	MemberStatusTargetCommand,
+	MemberLastMessageTargetParams,
+	MemberLastMessageTargetCommand,
 	MemberRequestParams,
 	MemberRequestCommand,
 	MemberRequestStartParams,

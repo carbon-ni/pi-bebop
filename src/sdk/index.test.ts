@@ -33,6 +33,7 @@ async function fakeSource(
 		holdMemberStatus?: boolean;
 		malformedStatus?: boolean;
 		remoteError?: string;
+		lastMessage?: { role: "assistant"; content: string; timestamp: number } | null;
 	} = {},
 ): Promise<FakeSource> {
 	await mkdir(CONTROL_DIR, { recursive: true });
@@ -98,18 +99,23 @@ async function fakeSource(
 										observedAt: "2026-09-22T20:00:00.000Z",
 									},
 								}
-							: request.method === "member.follow_up"
+							: request.method === "member.last_message_target"
 								? {
 										member: { name: "developer", role: "Developer" },
-										deliveryId: "delivery-1",
-										disposition: "queued",
+										message: options.lastMessage ?? null,
 									}
-								: {
-										member: { name: "developer", role: "Developer" },
-										itemId: "item-1",
-										persisted: true,
-										hint: "skipped",
-									};
+								: request.method === "member.follow_up"
+									? {
+											member: { name: "developer", role: "Developer" },
+											deliveryId: "delivery-1",
+											disposition: "queued",
+										}
+									: {
+											member: { name: "developer", role: "Developer" },
+											itemId: "item-1",
+											persisted: true,
+											hint: "skipped",
+										};
 				socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
 			}
 		});
@@ -235,6 +241,30 @@ test("SDK rejects invalid message input without opening the source socket", asyn
 		assert.equal(source.requests.length, 1);
 	} finally {
 		await source.close();
+	}
+});
+
+test("SDK delegates last assistant message snapshots and preserves empty history", async () => {
+	const source = await fakeSource({
+		lastMessage: { role: "assistant", content: "latest recorded text", timestamp: 1790100000000 },
+	});
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		assert.deepEqual(await selected.getMemberLastMessage("developer"), {
+			member: { name: "developer", role: "Developer" },
+			message: { role: "assistant", content: "latest recorded text", timestamp: 1790100000000 },
+		});
+		assert.equal(source.requests.at(-1)?.method, "member.last_message_target");
+	} finally {
+		await source.close();
+	}
+
+	const empty = await fakeSource();
+	try {
+		const selected = await createBebopClient().selectSource({ session: empty.session });
+		assert.deepEqual((await selected.getMemberLastMessage("developer")).message, null);
+	} finally {
+		await empty.close();
 	}
 });
 

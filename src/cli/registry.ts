@@ -59,6 +59,12 @@ import {
 	type MemberStatusCliOptions,
 } from "./commands/member-status.ts";
 import {
+	buildMemberLastMessageCommand,
+	readMemberLastMessageCommand,
+	runMemberLastMessageCommand,
+	type MemberLastMessageCliOptions,
+} from "./commands/member-last-message.ts";
+import {
 	buildMemberIdleWaitCommand,
 	readMemberIdleWaitCommand,
 	runMemberIdleWaitCommand,
@@ -320,6 +326,14 @@ const memberStatusLeaf: CliLeaf = {
 	run: (options, context) => runMemberStatusCommand(options as MemberStatusCliOptions, context),
 };
 
+const memberLastMessageLeaf: CliLeaf = {
+	id: "member-last-message",
+	names: ["member", "last-message"],
+	build: () => buildMemberLastMessageCommand(),
+	read: (command) => readMemberLastMessageCommand(command),
+	run: (options, context) => runMemberLastMessageCommand(options as MemberLastMessageCliOptions, context),
+};
+
 const memberIdleWaitLeaf: CliLeaf = {
 	id: "member-idle-wait",
 	names: ["member", "wait-idle"],
@@ -425,6 +439,7 @@ export function createCliRegistry(): CliRegistry {
 		sessionResumeLeaf,
 		crewRolesLeaf,
 		memberStatusLeaf,
+		memberLastMessageLeaf,
 		memberIdleWaitLeaf,
 		sessionLiveLeaf,
 		memberFollowUpLeaf,

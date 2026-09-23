@@ -161,6 +161,27 @@ export const MemberStatusTargetCommandSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+export const MemberLastMessageTargetParamsSchema = Type.Object(
+	{ target: MemberStatusTargetSchema },
+	{ additionalProperties: false },
+);
+export const MemberLastMessageTargetRequestSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSON_RPC_VERSION),
+		id: RpcIdSchema,
+		method: Type.Literal("member.last_message_target"),
+		params: MemberLastMessageTargetParamsSchema,
+	},
+	{ additionalProperties: false },
+);
+export const MemberLastMessageTargetCommandSchema = Type.Object(
+	{
+		type: Type.Literal("member_last_message_target"),
+		target: MemberStatusTargetSchema,
+		id: Type.Optional(RpcIdSchema),
+	},
+	{ additionalProperties: false },
+);
 
 /**
  * Delegated message delivery (CLI -> source session, TASK-0062): one bounded

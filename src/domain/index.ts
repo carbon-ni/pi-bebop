@@ -7,6 +7,7 @@ export * from "./message-payload.ts";
 export * from "./message-age.ts";
 export * from "./message-renderer.ts";
 export * from "./session-messages.ts";
+export * from "./member-last-message.ts";
 export * from "./branch-alias.ts";
 export * from "./session-filter.ts";
 export * from "./session-name-ownership.ts";

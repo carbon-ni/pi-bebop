@@ -1,5 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { ExtractedMessageSchema } from "../messages.ts";
+import { MemberLastMessageResultSchema } from "../member-last-message.ts";
 import {
 	JSON_RPC_VERSION,
 	RpcIdSchema,
@@ -29,6 +30,9 @@ import {
 	MemberStatusTargetParamsSchema,
 	MemberStatusTargetRequestSchema,
 	MemberStatusTargetCommandSchema,
+	MemberLastMessageTargetRequestSchema,
+	MemberLastMessageTargetCommandSchema,
+	MemberLastMessageTargetParamsSchema,
 	MemberStatusTargetSchema,
 } from "./wire-base.ts";
 import {
@@ -149,6 +153,7 @@ export const KnownRequestSchema = Type.Union([
 	PresenceHintRequestSchema,
 	MemberStatusRequestSchema,
 	MemberStatusTargetRequestSchema,
+	MemberLastMessageTargetRequestSchema,
 	MemberRequestRequestSchema,
 	MemberResponseRequestSchema,
 	MemberFollowUpRequestSchema,
@@ -201,6 +206,7 @@ export const GetMessageResultSchema = Type.Object(
 	{ message: Type.Union([ExtractedMessageSchema, Type.Null()]) },
 	{ additionalProperties: false },
 );
+export { MemberLastMessageResultSchema } from "../member-last-message.ts";
 export const ClearResultSchema = Type.Object(
 	{
 		cleared: Type.Literal(true),
@@ -290,6 +296,7 @@ export const RpcMethodResultSchema = Type.Union([
 	SubscribeResultSchema,
 	PresenceHintResultSchema,
 	MemberStatusResultSchema,
+	MemberLastMessageResultSchema,
 	MemberRequestResultSchema,
 	MemberRequestListResultSchema,
 	MemberRequestWaitResultSchema,

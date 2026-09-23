@@ -1,5 +1,7 @@
 import {
 	createOnlineMemberStatus,
+	isMemberLastMessageResult,
+	MAX_MESSAGE_CONTENT_BYTES,
 	type MemberStatus,
 	type RpcCommand,
 	type RpcInboundCommand,
@@ -9,7 +11,13 @@ import {
 	MemberStatusFlowError,
 	type MemberStatusSurface,
 } from "../../application/member-status-flow.ts";
+import {
+	createMemberLastMessageFlow,
+	MemberLastMessageFlowError,
+	type MemberLastMessageSurface,
+} from "../../application/member-last-message-flow.ts";
 import { createMemberStatusTransport } from "../../infra/member-status-transport.ts";
+import { createMemberLastMessageTransport } from "../../infra/member-last-message-transport.ts";
 import { createMemberMessageCoordinator, sendMemberMessage } from "../../application/member-message.ts";
 import { sendRpcCommand } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
@@ -78,6 +86,55 @@ export async function handleMemberStatusTarget(
 		controller.abort();
 	}
 	return;
+}
+
+export async function handleMemberLastMessageTarget(
+	context: CommandHandlerContext,
+	command: Extract<RpcInboundCommand, { type: "member_last_message_target" }>,
+): Promise<void> {
+	const { state, socket, respond } = context;
+	const transport = state.memberLastMessageTransport ?? createMemberLastMessageTransport(5000);
+	const controller = new AbortController();
+	const onDisconnect = () => controller.abort();
+	socket.once("close", onDisconnect);
+	socket.once("error", onDisconnect);
+	const surface: MemberLastMessageSurface = {
+		getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+		isTrusted: () => state.context?.isProjectTrusted?.() === true,
+		probeEndpoint: transport.probeEndpoint,
+		requestLastMessage: transport.requestLastMessage,
+		signal: controller.signal,
+	};
+	try {
+		const result = await createMemberLastMessageFlow(surface).queryLastMessage(command.target);
+		const rawResult: unknown = result;
+		if (!isMemberLastMessageResult(rawResult)) {
+			const rawMessage =
+				rawResult && typeof rawResult === "object" && "message" in rawResult
+					? (rawResult as { message?: unknown }).message
+					: undefined;
+			const oversized =
+				rawMessage &&
+				typeof rawMessage === "object" &&
+				"content" in rawMessage &&
+				typeof rawMessage.content === "string" &&
+				Buffer.byteLength(rawMessage.content, "utf8") > MAX_MESSAGE_CONTENT_BYTES;
+			respond(
+				false,
+				"member_last_message_target",
+				undefined,
+				oversized ? "message-too-large" : "malformed-response",
+			);
+		} else {
+			respond(true, "member_last_message_target", result);
+		}
+	} catch (error) {
+		if (error instanceof MemberLastMessageFlowError)
+			respond(false, "member_last_message_target", undefined, error.code);
+		else respond(false, "member_last_message_target", undefined, "transport-error");
+	} finally {
+		controller.abort();
+	}
 }
 
 async function handleMemberMessageCommand(
