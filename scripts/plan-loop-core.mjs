@@ -3,8 +3,8 @@
  *
  * No IO: callers supply parsed plan files and mechanically observed worker
  * states. The loop exists because models can misreport; every verdict here is
- * derived from the board on disk and live member sockets, never from what a
- * member says about itself.
+ * derived from the board on disk and the public member-status contract, never
+ * from what a member says about itself.
  *
  * Board rules (folder is truth, frontmatter is detail):
  * - plans/todo/*.md  -> not finished
@@ -46,6 +46,8 @@ export function normalizeTaskId(value) {
 }
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+const MAX_PLAN_TITLE_CHARS = 512;
+const MAX_CONDITION_TEXT_CHARS = 2_000;
 
 function readYamlKey(frontmatter, key) {
 	for (const line of frontmatter.split(/\r?\n/)) {
@@ -90,7 +92,10 @@ function idFromFileName(fileName) {
 export function parsePlanFile(content, fileName = "") {
 	const frontmatter = FRONTMATTER_PATTERN.exec(content)?.[1];
 	const id = frontmatter === undefined ? "" : normalizeTaskId(readYamlKey(frontmatter, "id") ?? "");
-	const title = frontmatter === undefined ? "" : (readYamlKey(frontmatter, "title") ?? "").trim();
+	const title =
+		frontmatter === undefined
+			? ""
+			: (readYamlKey(frontmatter, "title") ?? "").trim().slice(0, MAX_PLAN_TITLE_CHARS);
 	const status = frontmatter === undefined ? "" : (readYamlKey(frontmatter, "status") ?? "").trim();
 	const deps = frontmatter === undefined ? [] : readListValue(frontmatter, "depends_on").map(normalizeTaskId);
 	return {
@@ -121,8 +126,8 @@ export function classifyBoard({ todoPlans, donePlans }) {
  * Mechanically observed worker state. kind:
  * - "idle"       probe succeeded, activity idle
  * - "busy"       probe succeeded, activity busy or compacting
- * - "offline"    no socket or probe transport failure
- * - "error"      probe answered with a remote rejection (e.g. not-joined)
+ * - "offline"    public member status reports the endpoint offline
+ * - "error"      CLI/protocol failure or a remote rejection (e.g. not-joined)
  */
 export function isWorkerBusy(worker) {
 	return worker.state.kind === "busy";
@@ -242,8 +247,8 @@ function planLine(plan, prefix = "") {
 	return `${prefix}${plan.id}${plan.title ? ` - ${plan.title}` : ""}`;
 }
 
-/** Renders a decision as the message the /auto loop feeds back to the driver. */
-export function renderDecision(decision) {
+/** Renders a decision as the generated message the condition loop sends. */
+export function renderDecision(decision, assignment = {}) {
 	const lines = [summaryLine(decision)];
 	switch (decision.tag) {
 		case TAG_ALL_PLANS_DONE:
@@ -253,10 +258,17 @@ export function renderDecision(decision) {
 			lines.push("Fix the board before the crew can continue; do not pick a plan while it is inconsistent.");
 			break;
 		case TAG_NEXT_PLAN:
-			lines.push("Mark it doing, assign it to the crew, and hand them the file path.");
+			if (assignment.owner) lines.push(`Primary worker: ${assignment.owner.name} (${assignment.owner.role}).`);
+			lines.push(
+				assignment.owner
+					? `Mark it doing, send ${assignment.owner.name} the file path, and coordinate the crew through completion.`
+					: "Mark it doing, assign it to the crew, and hand them the file path.",
+			);
 			lines.push(`plans/todo/${decision.plan.fileName}`);
 			break;
 		case TAG_FINALIZE:
+			if (assignment.reviewer)
+				lines.push(`Independent reviewer: ${assignment.reviewer.name} (${assignment.reviewer.role}).`);
 			lines.push("Verify the plan against its definition of done (independent QA verdict), then:");
 			lines.push(`git mv plans/todo/${decision.plan.fileName} plans/done/`);
 			lines.push("commit the code and the board move, then continue the loop.");
@@ -279,4 +291,18 @@ export function renderDecision(decision) {
 	}
 	if (decision.plan) lines.push(`File: plans/todo/${decision.plan.fileName}`);
 	return lines.join("\n");
+}
+
+/** Converts a mechanical decision into pi-auto's typed condition protocol. */
+export function toConditionResult(decision, assignment = {}) {
+	const reason = String(decision.summary).slice(0, MAX_CONDITION_TEXT_CHARS);
+	const base = { version: 1, reason };
+	if (decision.tag === TAG_ALL_PLANS_DONE) return { ...base, action: "complete" };
+	if (decision.tag === TAG_WAIT) return { ...base, action: "wait" };
+	if (decision.tag === TAG_BLOCKED || decision.tag === TAG_NO_WORKERS) return { ...base, action: "blocked" };
+	return {
+		...base,
+		action: "poke",
+		message: renderDecision(decision, assignment).slice(0, MAX_CONDITION_TEXT_CHARS),
+	};
 }

@@ -3,10 +3,13 @@
 /**
  * /auto loop driver for crew plan execution (pi-bebop).
  *
- * One invocation reads one mechanical snapshot and prints the next action for
- * the driving model. Run it repeatedly under /auto until it reports
- * ALL_PLANS_DONE:
+ * One invocation reads one mechanical snapshot and returns one typed condition
+ * action for pi-auto. The script discovers candidate workers from crew.json;
+ * TypeSafe selects the worker whose role fits the current plan.
  *
+ *   /auto decide 20 ./scripts/plan-loop.mjs
+ *
+ * Advanced overrides:
  *   node scripts/plan-loop.mjs [--plans-dir plans] [--crew-dir .pi/bebop]
  *       [--workers dev,qa] [--session <id-or-alias>]
  *       [--timeout-ms 3000] [--debug]
@@ -15,30 +18,32 @@
  * CLI. Nothing here trusts a model's self-report; a worker counts as idle only
  * when its current mechanical status is online, idle, and has no pending
  * messages.
- *
- * Exit codes:
- *   0 ALL_PLANS_DONE   plans/todo is empty; stop the loop
- *   1 usage / IO error
- *   2 FIX_BOARD        board inconsistent (e.g. two plans doing)
- *   3 NEXT_PLAN        mark the listed plan doing and assign it to the crew
- *   4 WAIT             crew busy or a worker unavailable; re-run later
- *   5 FINALIZE         crew idle; verify the doing plan and move it to done
- *   6 BLOCKED          nothing ready; close blocking plans first
- *   7 NO_WORKERS       --workers matches no crew.json member
+ * A valid evaluation exits 0 and prints JSON with action poke, wait, complete,
+ * or blocked. Usage, IO, and TypeSafe failures exit nonzero; observed member
+ * unavailability returns wait so the bounded condition loop can reevaluate.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { classifyBoard, decide, parsePlanFile, renderDecision } from "./plan-loop-core.mjs";
+import {
+	classifyBoard,
+	decide,
+	EXIT_BLOCKED,
+	parsePlanFile,
+	TAG_BLOCKED,
+	TAG_FINALIZE,
+	toConditionResult,
+} from "./plan-loop-core.mjs";
 import { probeMemberStatus } from "./plan-loop-probe.mjs";
+import { selectWorker } from "./plan-loop-typesafe.mjs";
 
 const HELP = `Usage: node scripts/plan-loop.mjs [options]
 
 Options:
   --plans-dir <dir>    board root (default: ./plans; expects todo/ and done/)
   --crew-dir <dir>     crew root containing crew.json (default: .pi/bebop)
-  --workers <list>     worker roles/names to watch, comma separated; '*' = all
-                       members (default: dev,qa)
+  --workers <list>     advanced role/name candidate filter, comma separated
+                       (default: every member except the Intake contact)
   --session <id>       joined source Pi session id or alias (default: PI_SESSION_ID)
   --timeout-ms <ms>    per worker CLI probe timeout (default: 3000)
   --debug              print the mechanical snapshot to stderr
@@ -64,7 +69,7 @@ export function parseArgs(argv) {
 	if (hasFlag(argv, "--help")) return { help: true };
 	const plansDir = readFlagValue(argv, "--plans-dir") ?? "plans";
 	const crewDir = readFlagValue(argv, "--crew-dir") ?? ".pi/bebop";
-	const workersRaw = readFlagValue(argv, "--workers") ?? "dev,qa";
+	const workersRaw = readFlagValue(argv, "--workers");
 	const session = readFlagValue(argv, "--session");
 	const timeoutMs = Number(readFlagValue(argv, "--timeout-ms") ?? "3000");
 	if (!Number.isFinite(timeoutMs) || timeoutMs < 100)
@@ -73,7 +78,7 @@ export function parseArgs(argv) {
 		help: false,
 		plansDir,
 		crewDir,
-		workers: workersRaw === "*" ? null : parseWorkers(workersRaw),
+		workers: workersRaw === undefined ? undefined : workersRaw === "*" ? null : parseWorkers(workersRaw),
 		session,
 		timeoutMs,
 		debug: hasFlag(argv, "--debug"),
@@ -91,18 +96,22 @@ async function readPlanFiles(dir) {
 	return plans;
 }
 
-async function loadRoster(crewDir) {
+async function loadCrew(crewDir) {
 	const raw = await fs.promises.readFile(path.join(crewDir, "crew.json"), "utf8");
 	const manifest = JSON.parse(raw);
 	if (!Array.isArray(manifest.members))
 		throw new Error(`crew.json at ${path.join(crewDir, "crew.json")} has no members array`);
-	return manifest.members;
+	return { roster: manifest.members, intakeContact: manifest.intake?.contact };
 }
 
-function selectWorkers(roster, configured) {
+export function selectWorkers(roster, configured, intakeContact) {
 	if (configured === null) return roster;
-	const selected = roster.filter((member) => configured.includes(member.role) || configured.includes(member.name));
-	return selected;
+	if (configured === undefined) return roster.filter((member) => member.name !== intakeContact);
+	return roster.filter((member) => configured.includes(member.role) || configured.includes(member.name));
+}
+
+export function independentReviewerCandidates(candidates, owner) {
+	return candidates.filter((candidate) => candidate.name !== owner?.name);
 }
 
 export async function probeWorkers(workers, options = {}) {
@@ -134,25 +143,61 @@ async function main() {
 		return;
 	}
 	try {
-		const [todoPlans, donePlans, roster] = await Promise.all([
+		const [todoPlans, donePlans, crew] = await Promise.all([
 			readPlanFiles(path.join(options.plansDir, "todo")),
 			readPlanFiles(path.join(options.plansDir, "done")),
-			loadRoster(options.crewDir),
+			loadCrew(options.crewDir),
 		]);
 		const board = classifyBoard({ todoPlans, donePlans });
-		const workers = selectWorkers(roster, options.workers);
-		const states = await probeWorkers(workers, {
-			session: options.session,
-			timeoutMs: options.timeoutMs,
-		});
-		const decision = decide({ board, workers: states });
+		const candidates = selectWorkers(crew.roster, options.workers, crew.intakeContact);
+		const activePlan =
+			board.doing.length === 1 ? board.doing[0] : board.doing.length === 0 ? board.ready[0] : undefined;
+		const assignment = {};
+		let states = [];
+		if (activePlan && candidates.length > 0) {
+			assignment.owner = await selectWorker({ plan: activePlan, candidates, purpose: "implement" });
+			states = await probeWorkers([assignment.owner], {
+				session: options.session,
+				timeoutMs: options.timeoutMs,
+			});
+		}
+		let decision = decide({ board, workers: states });
+		if (decision.tag === TAG_FINALIZE) {
+			const reviewerCandidates = independentReviewerCandidates(candidates, assignment.owner);
+			if (reviewerCandidates.length === 0) {
+				decision = {
+					tag: TAG_BLOCKED,
+					exitCode: EXIT_BLOCKED,
+					summary: `plan ${decision.plan.id} has no independent reviewer candidate`,
+					blocked: [],
+				};
+			} else {
+				assignment.reviewer = await selectWorker({
+					plan: decision.plan,
+					candidates: reviewerCandidates,
+					purpose: "verify",
+				});
+				states = [
+					...states,
+					...(await probeWorkers([assignment.reviewer], {
+						session: options.session,
+						timeoutMs: options.timeoutMs,
+					})),
+				];
+				decision = decide({ board, workers: states });
+			}
+		}
 		if (options.debug) {
 			process.stderr.write(`plans/todo: ${board.todoCount}, plans/done: ${board.doneCount}\n`);
+			if (assignment.owner)
+				process.stderr.write(`selected owner: ${assignment.owner.name} (${assignment.owner.role})\n`);
+			if (assignment.reviewer)
+				process.stderr.write(`selected reviewer: ${assignment.reviewer.name} (${assignment.reviewer.role})\n`);
 			for (const workerState of states)
 				process.stderr.write(`worker ${workerState.name} (${workerState.role}): ${workerState.state.kind}\n`);
 		}
-		process.stdout.write(`${renderDecision(decision)}\n`);
-		process.exitCode = decision.exitCode;
+		process.stdout.write(`${JSON.stringify(toConditionResult(decision, assignment))}\n`);
+		process.exitCode = 0;
 	} catch (error) {
 		process.stderr.write(`plan-loop: ${error instanceof Error ? error.message : String(error)}\n`);
 		process.exitCode = 1;

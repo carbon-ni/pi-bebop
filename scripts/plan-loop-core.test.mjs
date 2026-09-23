@@ -6,6 +6,7 @@ import {
 	normalizeTaskId,
 	parsePlanFile,
 	renderDecision,
+	toConditionResult,
 	TAG_ALL_PLANS_DONE,
 	TAG_BLOCKED,
 	TAG_FINALIZE,
@@ -179,6 +180,69 @@ test("decide reports blocked plans when nothing is ready", () => {
 	assert.equal(decision.tag, TAG_BLOCKED);
 	assert.equal(decision.exitCode, 6);
 	assert.match(renderDecision(decision), /173 - Do the thing/);
+});
+
+test("condition result generates the next message and chooses no user-authored prompt", () => {
+	const plan = parsePlanFile(FRONTMATTER("TASK-0180", "todo"), "0180.md");
+	const decision = decide({
+		board: { todoCount: 1, doneCount: 10, doing: [], ready: [plan], blocked: [] },
+		workers: [worker("Dave", "idle")],
+	});
+
+	assert.deepEqual(toConditionResult(decision, { owner: { name: "Dave", role: "dev" } }), {
+		version: 1,
+		action: "poke",
+		reason: "work on next plan 180: Do the thing",
+		message: [
+			"NEXT_PLAN: work on next plan 180: Do the thing",
+			"Primary worker: Dave (dev).",
+			"Mark it doing, send Dave the file path, and coordinate the crew through completion.",
+			"plans/todo/0180.md",
+			"File: plans/todo/0180.md",
+		].join("\n"),
+	});
+});
+
+test("condition result pokes the coordinator to repair an inconsistent board", () => {
+	const result = toConditionResult({
+		tag: TAG_FIX_BOARD,
+		summary: "more than one plan is doing",
+		exitCode: 2,
+		planIds: ["1", "2"],
+	});
+
+	assert.equal(result.action, "poke");
+	assert.match(result.message, /Fix the board/);
+});
+
+test("condition result stays within pi-auto's 2,000-character protocol bounds", () => {
+	const result = toConditionResult({
+		tag: TAG_FIX_BOARD,
+		summary: "x".repeat(2_500),
+		exitCode: 2,
+		planIds: [],
+	});
+
+	assert.equal(result.reason.length, 2_000);
+	assert.equal(result.message.length, 2_000);
+});
+
+test("condition result distinguishes wait, completion, and blocked states", () => {
+	assert.deepEqual(toConditionResult({ tag: TAG_WAIT, summary: "crew busy", exitCode: 4 }), {
+		version: 1,
+		action: "wait",
+		reason: "crew busy",
+	});
+	assert.deepEqual(toConditionResult({ tag: TAG_ALL_PLANS_DONE, summary: "all done", exitCode: 0 }), {
+		version: 1,
+		action: "complete",
+		reason: "all done",
+	});
+	assert.deepEqual(toConditionResult({ tag: TAG_BLOCKED, summary: "dependency blocked", exitCode: 6, blocked: [] }), {
+		version: 1,
+		action: "blocked",
+		reason: "dependency blocked",
+	});
 });
 
 test("decide reports a missing worker configuration instead of guessing", () => {
