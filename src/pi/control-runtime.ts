@@ -3,6 +3,7 @@ import { getSocketPath } from "../infra/intray-paths.ts";
 import { ensureControlDir, removeAliasesForSocket, removeSocket } from "../infra/control-store.ts";
 import { closeRpcServer, createRpcServer, writeEvent, writeMemberIdleWaitEvent } from "../infra/rpc-server.ts";
 import { updateProcessSessionEnv } from "../infra/session-env.ts";
+import { watchGitHead } from "../infra/git-head-observer.ts";
 import { AcceptedLocalMessageWakeGate, createMemberIdleWaitResult, getLastAssistantMessage } from "../domain/index.ts";
 import type { Membership } from "../infra/membership-runtime.ts";
 import type { RpcServer } from "../infra/rpc-server.ts";
@@ -77,23 +78,28 @@ async function stopControlServer(state: SocketState): Promise<void> {
 	state.context = null;
 }
 
-function startAliasTimer(state: SocketState): void {
-	if (state.aliasTimer) return;
-	state.aliasTimer = setInterval(() => {
-		if (!state.context) return;
-		void syncAlias(state, state.context);
-	}, 1000);
+async function startAliasObserver(state: SocketState): Promise<void> {
+	if (state.stopAliasObserver) return;
+	const generation = state.aliasObserverGeneration;
+	const stop = await watchGitHead(() => {
+		if (state.context) void syncAlias(state, state.context);
+	});
+	if (!state.server || state.aliasObserverGeneration !== generation) {
+		stop();
+		return;
+	}
+	state.stopAliasObserver = stop;
 }
 
-function stopAliasTimer(state: SocketState): void {
-	if (!state.aliasTimer) return;
-	clearInterval(state.aliasTimer);
-	state.aliasTimer = null;
+function stopAliasObserver(state: SocketState): void {
+	state.aliasObserverGeneration++;
+	state.stopAliasObserver?.();
+	state.stopAliasObserver = null;
 }
 
 export async function ensureControlServer(pi: ExtensionAPI, state: SocketState, ctx: ExtensionContext): Promise<void> {
 	await startControlServer(pi, state, ctx);
-	startAliasTimer(state);
+	await startAliasObserver(state);
 	updateSessionEnv(ctx, true);
 	refreshIntrayStatus(state, ctx);
 }
@@ -107,7 +113,7 @@ export async function disableControlServer(
 	ctx: ExtensionContext | null,
 	pi?: ExtensionAPI,
 ): Promise<void> {
-	stopAliasTimer(state);
+	stopAliasObserver(state);
 	updateStatus(ctx, state, false);
 	updateSessionEnv(ctx, false);
 	await stopControlServer(state);
@@ -163,7 +169,8 @@ export function createSocketState(now?: () => number): SocketState {
 		socketPath: null,
 		context: null,
 		aliases: [],
-		aliasTimer: null,
+		stopAliasObserver: null,
+		aliasObserverGeneration: 0,
 		turnEndSubscriptions: [],
 		idleWaitSubscriptions: [],
 		wakeGate: new AcceptedLocalMessageWakeGate(),

@@ -32,7 +32,8 @@ export interface SocketState {
 	socketPath: string | null;
 	context: ExtensionContext | null;
 	aliases: string[];
-	aliasTimer: ReturnType<typeof setInterval> | null;
+	stopAliasObserver: (() => void) | null;
+	aliasObserverGeneration: number;
 	turnEndSubscriptions: TurnEndSubscription[];
 	idleWaitSubscriptions: IdleWaitSubscription[];
 	wakeGate: AcceptedLocalMessageWakeGate;
