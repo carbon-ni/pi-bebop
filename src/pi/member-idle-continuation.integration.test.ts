@@ -177,9 +177,9 @@ async function createFakeSession(
 	const settings = () =>
 		SettingsManager.inMemory({
 			compaction: {
-			enabled: options.compactionEnabled ?? false,
-			keepRecentTokens: options.compactionEnabled ? 0 : undefined,
-		},
+				enabled: options.compactionEnabled ?? false,
+				keepRecentTokens: options.compactionEnabled ? 0 : undefined,
+			},
 			retry: { enabled: false },
 		});
 	let piRef: ExtensionAPI | undefined;
@@ -505,7 +505,9 @@ test("TASK-0217: Follow-up stays behind a real in-flight tool call without abort
 	const third = harness.contexts[2]!;
 	assert.equal(occurrences(third, WAKE_CONTENT_1), 1);
 	const blocks = textBlocks(third);
-	const toolResultIndex = blocks.findIndex(({ role, text }) => role === "toolResult" && text.includes("blocking done"));
+	const toolResultIndex = blocks.findIndex(
+		({ role, text }) => role === "toolResult" && text.includes("blocking done"),
+	);
 	const wakeIndex = blocks.findIndex(({ text }) => text.includes(WAKE_CONTENT_1));
 	assert.ok(toolResultIndex >= 0);
 	assert.ok(wakeIndex > toolResultIndex, "Follow-up must follow the completed tool result");
