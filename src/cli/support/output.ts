@@ -25,6 +25,15 @@ function withTrailingNewline(text: string): string {
 	return text.endsWith("\n") ? text : `${text}\n`;
 }
 
+function escapeTerminalControls(value: string): string {
+	return Array.from(value, (character) => {
+		const code = character.codePointAt(0) ?? 0;
+		return (code <= 0x1f && code !== 0x09 && code !== 0x0a) || (code >= 0x7f && code <= 0x9f)
+			? `\\u${code.toString(16).padStart(4, "0").toUpperCase()}`
+			: character;
+	}).join("");
+}
+
 /**
  * The single renderer boundary. Streams and exit classes (TASK-0209):
  * help and successful results are written to stdout with exit 0; usage
@@ -46,7 +55,7 @@ export function writeOutcome(
 		stderr.write(withTrailingNewline(message));
 		return outcome.result.status === "usage" ? 2 : 1;
 	}
-	output.write(`${renderCliResult(outcome.result, outcome.format, outcome.full)}\n`);
+	output.write(`${escapeTerminalControls(renderCliResult(outcome.result, outcome.format, outcome.full))}\n`);
 	return 0;
 }
 
@@ -203,7 +212,7 @@ function renderGuestAdmissionText(data: ViewModel): string {
 }
 
 export function renderCliResult(result: CliResult, format: CliFormat, full: boolean): string {
-	if (format === "text") return renderTextResult(result);
+	if (format === "text") return escapeTerminalControls(renderTextResult(result));
 	const output: Record<string, unknown> = { ...result };
 	if (result.response !== undefined) {
 		const response = full ? result.response : result.response.slice(0, MAX_RESPONSE);
@@ -214,5 +223,6 @@ export function renderCliResult(result: CliResult, format: CliFormat, full: bool
 			shownChars: response.length,
 		};
 	}
-	return format === "json" ? JSON.stringify(output) : encode(output);
+	const serialized = format === "json" ? JSON.stringify(output) : encode(output);
+	return escapeTerminalControls(serialized);
 }

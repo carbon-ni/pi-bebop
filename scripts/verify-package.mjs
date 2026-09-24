@@ -21,6 +21,8 @@ const allowedPath = (file) =>
 	file === "package.json" ||
 	file === "dist/cli/main.js" ||
 	file === "dist/extension.js" ||
+	file === "dist/sdk.js" ||
+	file === "dist/sdk.d.ts" ||
 	file.startsWith("src/") ||
 	file.startsWith("docs/");
 try {
@@ -39,7 +41,14 @@ try {
 	const dryFiles = dryManifest.files.map((entry) => entry.path);
 	if (dryFiles.some((file) => !allowedPath(file)))
 		throw new Error(`Unexpected packed file: ${dryFiles.find((file) => !allowedPath(file))}`);
-	for (const required of ["package.json", "dist/extension.js", "dist/cli/main.js", "LICENSE"])
+	for (const required of [
+		"package.json",
+		"dist/extension.js",
+		"dist/cli/main.js",
+		"dist/sdk.js",
+		"dist/sdk.d.ts",
+		"LICENSE",
+	])
 		if (!dryFiles.includes(required)) throw new Error(`Required packed file missing: ${required}`);
 	const cliEntry = dryManifest.files.find((entry) => entry.path === "dist/cli/main.js");
 	if ((cliEntry.mode & 0o111) === 0) throw new Error("Packed CLI is not executable");
@@ -68,6 +77,20 @@ try {
 	if (manifest.publishConfig?.access !== "public")
 		throw new Error("Scoped package is not configured for public access");
 	if (manifest.main !== "./dist/extension.js") throw new Error("Installed extension entrypoint is not configured");
+	if (manifest.exports?.["./sdk"]?.import !== "./dist/sdk.js")
+		throw new Error("Installed SDK import export is not configured");
+	if (manifest.exports?.["./sdk"]?.types !== "./dist/sdk.d.ts")
+		throw new Error("Installed SDK type export is not configured");
+	const sdkCheck = await execFile(
+		process.execPath,
+		[
+			"--input-type=module",
+			"-e",
+			"const sdk = await import('@carbon-ni/pi-bebop/sdk'); if (typeof sdk.createBebopClient !== 'function' || sdk.BebopClientError?.name !== 'BebopClientError') process.exit(1);",
+		],
+		{ cwd: consumerDir, env: environment },
+	);
+	void sdkCheck;
 	const testedTypebox = JSON.parse(
 		await readFile(path.join(consumerDir, "node_modules", "typebox", "package.json")),
 	).version;

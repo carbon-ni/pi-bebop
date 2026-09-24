@@ -574,6 +574,7 @@ test("command registry defines one bidirectional wire entry per command", () => 
 		"inbox_hint",
 		"member_status",
 		"member_status_target",
+		"member_last_message_target",
 		"member_request",
 		"member_request_start",
 		"member_request_list",

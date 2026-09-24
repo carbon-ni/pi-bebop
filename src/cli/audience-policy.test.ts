@@ -11,6 +11,7 @@ test("every canonical command defaults to concise text", () => {
 		"crew-broadcast",
 		"session-live",
 		"member-status",
+		"member-last-message",
 		"member-idle-wait",
 		"member-follow-up",
 		"member-redirect",

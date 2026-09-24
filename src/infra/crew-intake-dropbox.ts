@@ -1,6 +1,6 @@
 import { promises as fs, watch as watchFilesystem, type Dir, type Dirent } from "node:fs";
 import * as path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { MAX_MESSAGE_PAYLOAD_BYTES } from "../domain/message-payload.ts";
 import { isTrustedCrewManifestPath } from "./crew-manifest-store.ts";
 
@@ -583,6 +583,149 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		await atomicWrite(paths.commitsDir, commitIntentPath(intent.idempotencyKey), JSON.stringify(intent));
 	};
 
+	const acquirePublicationLock = async (): Promise<() => Promise<void>> => {
+		const lockPath = path.join(paths.root, LOCK_FILE_NAME);
+		for (let attempt = 0; attempt < 400; attempt += 1) {
+			try {
+				const handle = await fs.open(lockPath, "wx", 0o600);
+				try {
+					await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: Date.now() }), "utf8");
+					await handle.sync();
+				} catch (error) {
+					await closeQuietly(handle);
+					await fs.unlink(lockPath).catch(() => undefined);
+					throw error;
+				}
+				let released = false;
+				return async () => {
+					if (released) return;
+					released = true;
+					await closeQuietly(handle);
+					await fs.unlink(lockPath).catch(() => undefined);
+				};
+			} catch (error) {
+				if (!isCode(error, "EEXIST"))
+					throw new CrewIntakeDropboxError("scan-locked", "intake publication lock could not be acquired", {
+						cause: error,
+					});
+				let stale = false;
+				try {
+					const owner = JSON.parse(await fs.readFile(lockPath, "utf8")) as { pid?: unknown };
+					if (typeof owner.pid !== "number" || owner.pid <= 0 || owner.pid === process.pid)
+						throw new Error("active owner");
+					try {
+						process.kill(owner.pid, 0);
+						throw new Error("active owner");
+					} catch (probeError) {
+						if (probeError instanceof Error && probeError.message === "active owner") throw probeError;
+						if (isCode(probeError, "EPERM")) throw new Error("active owner");
+						if (isCode(probeError, "ESRCH")) stale = true;
+						else throw probeError;
+					}
+				} catch (ownerError) {
+					if (ownerError instanceof Error && ownerError.message === "active owner") stale = false;
+					else {
+						const stat = await fs.stat(lockPath);
+						stale = Date.now() - stat.mtimeMs > STALE_LOCK_MS;
+					}
+				}
+				if (stale) {
+					await fs.unlink(lockPath).catch(() => undefined);
+					continue;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 25));
+			}
+		}
+		throw new CrewIntakeDropboxError("scan-locked", "intake publication is busy; retry shortly");
+	};
+
+	const publish = async (
+		name: string,
+		content: string,
+	): Promise<{
+		readonly state: "published" | "already-published";
+		readonly bytes: number;
+		readonly digest: string;
+	}> => {
+		if (!isSafeCrewIntakeFilename(name))
+			throw new CrewIntakeDropboxError("invalid-filename", "intake filename is unsafe");
+		if (!supportedExtension(name))
+			throw new CrewIntakeDropboxError("unsupported-file", "intake filename must end in .md or .txt");
+		const bytes = Buffer.from(content, "utf8");
+		if (bytes.byteLength === 0 || content.trim().length === 0)
+			throw new CrewIntakeDropboxError("empty-file", "intake message is empty");
+		if (content.includes("\0")) throw new CrewIntakeDropboxError("nul-byte", "intake message contains NUL bytes");
+		if (bytes.byteLength > MAX_CREW_INTAKE_FILE_BYTES)
+			throw new CrewIntakeDropboxError("oversized", `intake message exceeds ${MAX_CREW_INTAKE_FILE_BYTES} bytes`);
+		await prepare();
+		const releasePublicationLock = await acquirePublicationLock();
+		try {
+			const digest = createHash("sha256").update(bytes).digest("hex");
+			const destination = await canonicalContainedPath(paths.newDir, name);
+			const claimed = await canonicalContainedPath(paths.newDir, claimName(name));
+			const processed = await canonicalContainedPath(paths.processedDir, name);
+			const matches = async (candidate: string): Promise<boolean> => {
+				try {
+					const stat = await fs.lstat(candidate);
+					if (!stat.isFile() || stat.isSymbolicLink())
+						throw new CrewIntakeDropboxError(
+							"unsafe-directory",
+							"intake publication destination is not a file",
+						);
+					const existing = await fs.readFile(candidate);
+					return createHash("sha256").update(existing).digest("hex") === digest;
+				} catch (error) {
+					if (isCode(error, "ENOENT")) return false;
+					throw error;
+				}
+			};
+			if ((await matches(destination)) || (await matches(processed)) || (await matches(claimed)))
+				return { state: "already-published", bytes: bytes.byteLength, digest };
+			if ((await exists(destination)) || (await exists(claimed)))
+				throw new CrewIntakeDropboxError("move-conflict", `intake destination exists: ${name}`);
+			// Stage outside `new` so scanners can never observe a partial publication.
+			const temporary = path.join(paths.root, `.draft-${randomUUID()}`);
+			let handle: fs.FileHandle | undefined;
+			try {
+				await assertPreparedDirectory(paths.root);
+				handle = await fs.open(temporary, "wx", 0o600);
+				let offset = 0;
+				while (offset < bytes.byteLength) {
+					const result = await handle.write(bytes, offset, bytes.byteLength - offset, offset);
+					if (result.bytesWritten <= 0)
+						throw new CrewIntakeDropboxError("scan-failed", "intake message write made no progress");
+					offset += result.bytesWritten;
+				}
+				await handle.sync();
+				await handle.close();
+				handle = undefined;
+				await assertPreparedDirectory(paths.newDir);
+				// A hard link publishes the fully fsynced file atomically without replacing
+				// a destination that appeared after the initial collision check.
+				try {
+					await fs.link(temporary, destination);
+				} catch (error) {
+					if (isCode(error, "EEXIST")) {
+						if (await matches(destination))
+							return { state: "already-published", bytes: bytes.byteLength, digest };
+						throw new CrewIntakeDropboxError("move-conflict", `intake destination exists: ${name}`, {
+							cause: error,
+						});
+					}
+					throw new CrewIntakeDropboxError("scan-failed", "intake message could not be published", {
+						cause: error,
+					});
+				}
+				return { state: "published", bytes: bytes.byteLength, digest };
+			} finally {
+				await closeQuietly(handle);
+				await fs.unlink(temporary).catch(() => undefined);
+			}
+		} finally {
+			await releasePublicationLock();
+		}
+	};
+
 	const moveTo = async (item: IntakeDropboxClaim, directory: string): Promise<void> => {
 		if (!isSafeCrewIntakeFilename(item.name))
 			throw new CrewIntakeDropboxError("invalid-filename", "decoded intake claim name is unsafe");
@@ -726,6 +869,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		listWork,
 		claim,
 		read,
+		publish,
 		readReceipt,
 		writeReceipt,
 		moveProcessed,

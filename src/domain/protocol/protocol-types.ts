@@ -30,6 +30,8 @@ import {
 	MemberStatusTargetParamsSchema,
 	MemberStatusTargetRequestSchema,
 	MemberStatusTargetCommandSchema,
+	MemberLastMessageTargetParamsSchema,
+	MemberLastMessageTargetCommandSchema,
 } from "./wire-base.ts";
 import {
 	MemberMessageParamsSchema,
@@ -101,6 +103,7 @@ import {
 	StatusResultSchema,
 	SendResultSchema,
 	GetMessageResultSchema,
+	MemberLastMessageResultSchema,
 	ClearResultSchema,
 	SubscribeResultSchema,
 	EmptyResultSchema,
@@ -148,6 +151,9 @@ export type MemberStatusCommand = Static<typeof MemberStatusCommandSchema>;
 export type MemberStatusResult = Static<typeof MemberStatusResultSchema>;
 export type MemberStatusTargetParams = Static<typeof MemberStatusTargetParamsSchema>;
 export type MemberStatusTargetCommand = Static<typeof MemberStatusTargetCommandSchema>;
+export type MemberLastMessageTargetParams = Static<typeof MemberLastMessageTargetParamsSchema>;
+export type MemberLastMessageTargetCommand = Static<typeof MemberLastMessageTargetCommandSchema>;
+export type MemberLastMessageResult = Static<typeof MemberLastMessageResultSchema>;
 export type MemberRequestParams = Static<typeof MemberRequestParamsSchema>;
 export type MemberRequestCommand = Static<typeof MemberRequestCommandSchema>;
 export type MemberRequestStartParams = Static<typeof MemberRequestStartParamsSchema>;
@@ -236,6 +242,7 @@ export type RpcCommand =
 	| Static<typeof InboxHintCommandSchema>
 	| Static<typeof MemberStatusCommandSchema>
 	| Static<typeof MemberStatusTargetCommandSchema>
+	| Static<typeof MemberLastMessageTargetCommandSchema>
 	| Static<typeof MemberRequestCommandSchema>
 	| Static<typeof MemberRequestStartCommandSchema>
 	| Static<typeof MemberRequestListCommandSchema>
@@ -264,6 +271,7 @@ export type RpcInboundCommand =
 	| RequiredId<Static<typeof InboxHintCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusCommandSchema>>
 	| RequiredId<Static<typeof MemberStatusTargetCommandSchema>>
+	| RequiredId<Static<typeof MemberLastMessageTargetCommandSchema>>
 	| RequiredId<Static<typeof MemberRequestCommandSchema>>
 	| RequiredId<Static<typeof MemberRequestStartCommandSchema>>
 	| RequiredId<Static<typeof MemberRequestListCommandSchema>>

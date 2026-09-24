@@ -86,6 +86,7 @@ test("createCliRegistry composes the ordered built-in leaves with no compatibili
 	assert.deepEqual(
 		registry.leaves.map((leaf) => leaf.id),
 		[
+			"contact",
 			"ask",
 			"crew-init",
 			"crew-list",
@@ -97,6 +98,7 @@ test("createCliRegistry composes the ordered built-in leaves with no compatibili
 			"session-resume",
 			"crew-roles",
 			"member-status",
+			"member-last-message",
 			"member-idle-wait",
 			"session-live",
 			"member-follow-up",
@@ -125,6 +127,7 @@ test("createCliRegistry composes the ordered built-in leaves with no compatibili
 	const member = root.commands.find((command) => command.name() === "member");
 	assert.ok(member, "member group derived from registry");
 	assert.ok(member!.commands.some((command) => command.name() === "status"));
+	assert.ok(member!.commands.some((command) => command.name() === "last-message"));
 	assert.ok(member!.commands.some((command) => command.name() === "follow-up"));
 	assert.ok(member!.commands.some((command) => command.name() === "redirect"));
 	const inbox = member!.commands.find((command) => command.name() === "inbox");
