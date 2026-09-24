@@ -187,6 +187,24 @@ test("publishes atomically, leaves no draft, and is idempotent after processing"
 	assert.equal(repeated.state, "already-published");
 });
 
+test("serializes retries with an in-progress claim instead of duplicating Intake", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	await harness.dropbox.publish("retry.md", "same feedback");
+	const release = await harness.dropbox.lock();
+	const work = (await harness.dropbox.listWork())[0]!;
+	const claim = await harness.dropbox.claim(work);
+	assert.ok(claim);
+	const retry = harness.dropbox.publish("retry.md", "same feedback");
+	setTimeout(() => void release(), 10);
+	const result = await retry;
+	assert.equal(result.state, "already-published");
+	assert.deepEqual(
+		(await harness.dropbox.listWork()).map((entry) => ({ name: entry.name, claimed: entry.claimed })),
+		[{ name: "retry.md", claimed: true }],
+	);
+});
+
 test("rejects oversized content and refuses processed-name collisions", async (t) => {
 	const harness = await fixture();
 	t.after(harness.cleanup);

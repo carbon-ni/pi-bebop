@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { resolveIntakeContact, CrewIntakeError, CrewManifestError, type CrewManifest } from "../domain/index.ts";
+import {
+	createExternalIntakePayload,
+	resolveIntakeContact,
+	CrewIntakeError,
+	CrewManifestError,
+	type CrewManifest,
+} from "../domain/index.ts";
 import {
 	CrewManifestReadError,
 	getTrustedCrewManifestPaths,
@@ -164,6 +170,17 @@ export async function submitContact(
 		);
 	const submissionId = contactSubmissionId(request.content);
 	const filename = `contact-${submissionId}.md`;
+	try {
+		// Validate the serialized message envelope before publishing. Raw file bytes
+		// alone do not bound JSON escaping for control-heavy feedback.
+		createExternalIntakePayload({ label: filename, content: request.content });
+	} catch (error) {
+		throw new ContactError(
+			"invalid-payload",
+			"Feedback exceeds the effective Crew Intake payload limit or is invalid.",
+			{ cause: error },
+		);
+	}
 	try {
 		const dropbox = dependencies.createDropbox({
 			manifestPath,

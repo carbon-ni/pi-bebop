@@ -69,3 +69,14 @@ test("contact enforces UTF-8 size and NUL boundaries before publication", async 
 	);
 	await assert.rejects(fs.access(path.join(harness.layout, "intake", "new")));
 });
+
+test("contact rejects control-heavy content that would overflow the serialized Inbox payload", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	const content = `${"\n".repeat(500_000)}x`;
+	await assert.rejects(
+		submitContact({ projectRoot: harness.root, content }),
+		(error: unknown) => error instanceof ContactError && error.code === "invalid-payload",
+	);
+	await assert.rejects(fs.access(path.join(harness.layout, "intake", "new")));
+});

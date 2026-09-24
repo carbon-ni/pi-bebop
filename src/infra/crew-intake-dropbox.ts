@@ -583,6 +583,29 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		await atomicWrite(paths.commitsDir, commitIntentPath(intent.idempotencyKey), JSON.stringify(intent));
 	};
 
+	const acquirePublicationLock = async (): Promise<() => Promise<void>> => {
+		const lockPath = path.join(paths.root, LOCK_FILE_NAME);
+		for (let attempt = 0; attempt < 400; attempt += 1) {
+			try {
+				const handle = await fs.open(lockPath, "wx", 0o600);
+				let released = false;
+				return async () => {
+					if (released) return;
+					released = true;
+					await closeQuietly(handle);
+					await fs.unlink(lockPath).catch(() => undefined);
+				};
+			} catch (error) {
+				if (!isCode(error, "EEXIST"))
+					throw new CrewIntakeDropboxError("scan-locked", "intake publication lock could not be acquired", {
+						cause: error,
+					});
+				await new Promise((resolve) => setTimeout(resolve, 25));
+			}
+		}
+		throw new CrewIntakeDropboxError("scan-locked", "intake publication is busy; retry shortly");
+	};
+
 	const publish = async (
 		name: string,
 		content: string,
@@ -602,59 +625,71 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		if (bytes.byteLength > MAX_CREW_INTAKE_FILE_BYTES)
 			throw new CrewIntakeDropboxError("oversized", `intake message exceeds ${MAX_CREW_INTAKE_FILE_BYTES} bytes`);
 		await prepare();
-		const digest = createHash("sha256").update(bytes).digest("hex");
-		const destination = await canonicalContainedPath(paths.newDir, name);
-		const processed = await canonicalContainedPath(paths.processedDir, name);
-		const matches = async (candidate: string): Promise<boolean> => {
-			try {
-				const stat = await fs.lstat(candidate);
-				if (!stat.isFile() || stat.isSymbolicLink())
-					throw new CrewIntakeDropboxError(
-						"unsafe-directory",
-						"intake publication destination is not a file",
-					);
-				const existing = await fs.readFile(candidate);
-				return createHash("sha256").update(existing).digest("hex") === digest;
-			} catch (error) {
-				if (isCode(error, "ENOENT")) return false;
-				throw error;
-			}
-		};
-		if ((await matches(destination)) || (await matches(processed)))
-			return { state: "already-published", bytes: bytes.byteLength, digest };
-		if (await exists(destination))
-			throw new CrewIntakeDropboxError("move-conflict", `intake destination exists: ${name}`);
-		// Stage outside `new` so scanners can never observe a partial publication.
-		const temporary = path.join(paths.root, `.draft-${randomUUID()}`);
-		let handle: fs.FileHandle | undefined;
+		const releasePublicationLock = await acquirePublicationLock();
 		try {
-			await assertPreparedDirectory(paths.root);
-			handle = await fs.open(temporary, "wx", 0o600);
-			await handle.write(bytes);
-			await handle.sync();
-			await handle.close();
-			handle = undefined;
-			await assertPreparedDirectory(paths.newDir);
-			// A hard link publishes the fully fsynced file atomically without replacing
-			// a destination that appeared after the initial collision check.
+			const digest = createHash("sha256").update(bytes).digest("hex");
+			const destination = await canonicalContainedPath(paths.newDir, name);
+			const claimed = await canonicalContainedPath(paths.newDir, claimName(name));
+			const processed = await canonicalContainedPath(paths.processedDir, name);
+			const matches = async (candidate: string): Promise<boolean> => {
+				try {
+					const stat = await fs.lstat(candidate);
+					if (!stat.isFile() || stat.isSymbolicLink())
+						throw new CrewIntakeDropboxError(
+							"unsafe-directory",
+							"intake publication destination is not a file",
+						);
+					const existing = await fs.readFile(candidate);
+					return createHash("sha256").update(existing).digest("hex") === digest;
+				} catch (error) {
+					if (isCode(error, "ENOENT")) return false;
+					throw error;
+				}
+			};
+			if ((await matches(destination)) || (await matches(processed)) || (await matches(claimed)))
+				return { state: "already-published", bytes: bytes.byteLength, digest };
+			if ((await exists(destination)) || (await exists(claimed)))
+				throw new CrewIntakeDropboxError("move-conflict", `intake destination exists: ${name}`);
+			// Stage outside `new` so scanners can never observe a partial publication.
+			const temporary = path.join(paths.root, `.draft-${randomUUID()}`);
+			let handle: fs.FileHandle | undefined;
 			try {
-				await fs.link(temporary, destination);
-			} catch (error) {
-				if (isCode(error, "EEXIST")) {
-					if (await matches(destination))
-						return { state: "already-published", bytes: bytes.byteLength, digest };
-					throw new CrewIntakeDropboxError("move-conflict", `intake destination exists: ${name}`, {
+				await assertPreparedDirectory(paths.root);
+				handle = await fs.open(temporary, "wx", 0o600);
+				let offset = 0;
+				while (offset < bytes.byteLength) {
+					const result = await handle.write(bytes, offset, bytes.byteLength - offset, offset);
+					if (result.bytesWritten <= 0)
+						throw new CrewIntakeDropboxError("scan-failed", "intake message write made no progress");
+					offset += result.bytesWritten;
+				}
+				await handle.sync();
+				await handle.close();
+				handle = undefined;
+				await assertPreparedDirectory(paths.newDir);
+				// A hard link publishes the fully fsynced file atomically without replacing
+				// a destination that appeared after the initial collision check.
+				try {
+					await fs.link(temporary, destination);
+				} catch (error) {
+					if (isCode(error, "EEXIST")) {
+						if (await matches(destination))
+							return { state: "already-published", bytes: bytes.byteLength, digest };
+						throw new CrewIntakeDropboxError("move-conflict", `intake destination exists: ${name}`, {
+							cause: error,
+						});
+					}
+					throw new CrewIntakeDropboxError("scan-failed", "intake message could not be published", {
 						cause: error,
 					});
 				}
-				throw new CrewIntakeDropboxError("scan-failed", "intake message could not be published", {
-					cause: error,
-				});
+				return { state: "published", bytes: bytes.byteLength, digest };
+			} finally {
+				await closeQuietly(handle);
+				await fs.unlink(temporary).catch(() => undefined);
 			}
-			return { state: "published", bytes: bytes.byteLength, digest };
 		} finally {
-			await closeQuietly(handle);
-			await fs.unlink(temporary).catch(() => undefined);
+			await releasePublicationLock();
 		}
 	};
 
