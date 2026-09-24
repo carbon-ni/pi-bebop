@@ -8,7 +8,7 @@ import {
 	type ContactCliDependencies,
 	type ContactCliOptions,
 } from "./contact.ts";
-import { ContactError } from "../../application/contact.ts";
+import { ContactError, MAX_CREW_INTAKE_FILE_BYTES } from "../../application/contact.ts";
 import { UsageError } from "../support/arguments.ts";
 import { writeOutcome, type CliOutcome } from "../support/output.ts";
 import type { CliContext } from "../support/context.ts";
@@ -50,12 +50,15 @@ function deps(overrides: Partial<ContactCliDependencies> = {}): ContactCliDepend
 	};
 }
 
-test("contact parses exactly one message source", () => {
+test("contact parses exactly one message source and validates CLI input", () => {
 	assert.equal(parse(["--message", "hello"]).message, "hello");
 	assert.equal(parse(["--stdin"]).stdin, true);
 	assert.throws(() => parse([]), UsageError);
 	assert.throws(() => parse(["--message", "hello", "--stdin"]), UsageError);
 	assert.throws(() => parse(["--message", " "]), UsageError);
+	assert.throws(() => parse(["--message", "hello", "--format", "yaml"]), UsageError);
+	assert.throws(() => parse(["--message", "bad\0feedback"]), UsageError);
+	assert.throws(() => parse(["--message", "x".repeat(MAX_CREW_INTAKE_FILE_BYTES + 1)]), UsageError);
 });
 
 test("contact publishes feedback and reports persistence without delivery claims", async () => {
@@ -90,4 +93,41 @@ test("contact reads bounded stdin and returns stable operational errors", async 
 		assert.equal(outcome.result.error?.code, "not-a-crew-project");
 		assert.equal(outcome.result.status, "error");
 	}
+
+	const readFailure = await runContactCommand(
+		{ command: "contact", stdin: true, format: "text" },
+		context(new PassThrough()),
+		deps({ readStdin: async () => Promise.reject("stdin closed") }),
+	);
+	assert.equal(readFailure.kind, "result");
+	if (readFailure.kind === "result") assert.match(readFailure.result.error?.message ?? "", /stdin closed/);
+});
+
+test("contact reports idempotent publication and maps unexpected storage failures", async () => {
+	const already = await runContactCommand(
+		{ command: "contact", message: "retry", stdin: false, format: "text" },
+		context(),
+		deps({ submit: async () => ({ ...publication, state: "already-published" }) }),
+	);
+	assert.match(render(already).text, /Already published/);
+
+	const unexpected = await runContactCommand(
+		{ command: "contact", message: "retry", stdin: false, format: "json" },
+		context(),
+		deps({ submit: async () => Promise.reject(new Error("disk unavailable")) }),
+	);
+	assert.equal(unexpected.kind, "result");
+	if (unexpected.kind === "result") {
+		assert.equal(unexpected.result.error?.code, "storage-unavailable");
+		assert.match(unexpected.result.error?.message ?? "", /disk unavailable/);
+	}
+
+	await assert.rejects(
+		runContactCommand(
+			{ command: "contact", message: "retry", stdin: false, format: "text" },
+			context(),
+			deps({ submit: async () => Promise.reject(new UsageError("invalid project")) }),
+		),
+		UsageError,
+	);
 });
