@@ -588,6 +588,14 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		for (let attempt = 0; attempt < 400; attempt += 1) {
 			try {
 				const handle = await fs.open(lockPath, "wx", 0o600);
+				try {
+					await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: Date.now() }), "utf8");
+					await handle.sync();
+				} catch (error) {
+					await closeQuietly(handle);
+					await fs.unlink(lockPath).catch(() => undefined);
+					throw error;
+				}
 				let released = false;
 				return async () => {
 					if (released) return;
@@ -600,6 +608,31 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 					throw new CrewIntakeDropboxError("scan-locked", "intake publication lock could not be acquired", {
 						cause: error,
 					});
+				let stale = false;
+				try {
+					const owner = JSON.parse(await fs.readFile(lockPath, "utf8")) as { pid?: unknown };
+					if (typeof owner.pid !== "number" || owner.pid <= 0 || owner.pid === process.pid)
+						throw new Error("active owner");
+					try {
+						process.kill(owner.pid, 0);
+						throw new Error("active owner");
+					} catch (probeError) {
+						if (probeError instanceof Error && probeError.message === "active owner") throw probeError;
+						if (isCode(probeError, "EPERM")) throw new Error("active owner");
+						if (isCode(probeError, "ESRCH")) stale = true;
+						else throw probeError;
+					}
+				} catch (ownerError) {
+					if (ownerError instanceof Error && ownerError.message === "active owner") stale = false;
+					else {
+						const stat = await fs.stat(lockPath);
+						stale = Date.now() - stat.mtimeMs > STALE_LOCK_MS;
+					}
+				}
+				if (stale) {
+					await fs.unlink(lockPath).catch(() => undefined);
+					continue;
+				}
 				await new Promise((resolve) => setTimeout(resolve, 25));
 			}
 		}

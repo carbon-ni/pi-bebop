@@ -187,6 +187,19 @@ test("publishes atomically, leaves no draft, and is idempotent after processing"
 	assert.equal(repeated.state, "already-published");
 });
 
+test("reclaims stale publication locks after a killed publisher", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	await harness.dropbox.prepare();
+	const lockPath = path.join(harness.dropbox.paths.root, ".scan.lock");
+	await fs.writeFile(lockPath, "", { mode: 0o600 });
+	const staleAt = new Date(Date.now() - 11 * 60 * 1000);
+	await fs.utimes(lockPath, staleAt, staleAt);
+	const result = await harness.dropbox.publish("stale.md", "recoverable feedback");
+	assert.equal(result.state, "published");
+	await assert.rejects(fs.access(lockPath));
+});
+
 test("serializes retries with an in-progress claim instead of duplicating Intake", async (t) => {
 	const harness = await fixture();
 	t.after(harness.cleanup);
