@@ -86,6 +86,7 @@ test("createCliRegistry composes the ordered built-in leaves with no compatibili
 	assert.deepEqual(
 		registry.leaves.map((leaf) => leaf.id),
 		[
+			"contact",
 			"ask",
 			"crew-init",
 			"crew-list",

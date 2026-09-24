@@ -1,6 +1,6 @@
 import { promises as fs, watch as watchFilesystem, type Dir, type Dirent } from "node:fs";
 import * as path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { MAX_MESSAGE_PAYLOAD_BYTES } from "../domain/message-payload.ts";
 import { isTrustedCrewManifestPath } from "./crew-manifest-store.ts";
 
@@ -583,6 +583,81 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		await atomicWrite(paths.commitsDir, commitIntentPath(intent.idempotencyKey), JSON.stringify(intent));
 	};
 
+	const publish = async (
+		name: string,
+		content: string,
+	): Promise<{
+		readonly state: "published" | "already-published";
+		readonly bytes: number;
+		readonly digest: string;
+	}> => {
+		if (!isSafeCrewIntakeFilename(name))
+			throw new CrewIntakeDropboxError("invalid-filename", "intake filename is unsafe");
+		if (!supportedExtension(name))
+			throw new CrewIntakeDropboxError("unsupported-file", "intake filename must end in .md or .txt");
+		const bytes = Buffer.from(content, "utf8");
+		if (bytes.byteLength === 0 || content.trim().length === 0)
+			throw new CrewIntakeDropboxError("empty-file", "intake message is empty");
+		if (content.includes("\0")) throw new CrewIntakeDropboxError("nul-byte", "intake message contains NUL bytes");
+		if (bytes.byteLength > MAX_CREW_INTAKE_FILE_BYTES)
+			throw new CrewIntakeDropboxError("oversized", `intake message exceeds ${MAX_CREW_INTAKE_FILE_BYTES} bytes`);
+		await prepare();
+		const digest = createHash("sha256").update(bytes).digest("hex");
+		const destination = await canonicalContainedPath(paths.newDir, name);
+		const processed = await canonicalContainedPath(paths.processedDir, name);
+		const matches = async (candidate: string): Promise<boolean> => {
+			try {
+				const stat = await fs.lstat(candidate);
+				if (!stat.isFile() || stat.isSymbolicLink())
+					throw new CrewIntakeDropboxError(
+						"unsafe-directory",
+						"intake publication destination is not a file",
+					);
+				const existing = await fs.readFile(candidate);
+				return createHash("sha256").update(existing).digest("hex") === digest;
+			} catch (error) {
+				if (isCode(error, "ENOENT")) return false;
+				throw error;
+			}
+		};
+		if ((await matches(destination)) || (await matches(processed)))
+			return { state: "already-published", bytes: bytes.byteLength, digest };
+		if (await exists(destination))
+			throw new CrewIntakeDropboxError("move-conflict", `intake destination exists: ${name}`);
+		// Stage outside `new` so scanners can never observe a partial publication.
+		const temporary = path.join(paths.root, `.draft-${randomUUID()}`);
+		let handle: fs.FileHandle | undefined;
+		try {
+			await assertPreparedDirectory(paths.root);
+			handle = await fs.open(temporary, "wx", 0o600);
+			await handle.write(bytes);
+			await handle.sync();
+			await handle.close();
+			handle = undefined;
+			await assertPreparedDirectory(paths.newDir);
+			// A hard link publishes the fully fsynced file atomically without replacing
+			// a destination that appeared after the initial collision check.
+			try {
+				await fs.link(temporary, destination);
+			} catch (error) {
+				if (isCode(error, "EEXIST")) {
+					if (await matches(destination))
+						return { state: "already-published", bytes: bytes.byteLength, digest };
+					throw new CrewIntakeDropboxError("move-conflict", `intake destination exists: ${name}`, {
+						cause: error,
+					});
+				}
+				throw new CrewIntakeDropboxError("scan-failed", "intake message could not be published", {
+					cause: error,
+				});
+			}
+			return { state: "published", bytes: bytes.byteLength, digest };
+		} finally {
+			await closeQuietly(handle);
+			await fs.unlink(temporary).catch(() => undefined);
+		}
+	};
+
 	const moveTo = async (item: IntakeDropboxClaim, directory: string): Promise<void> => {
 		if (!isSafeCrewIntakeFilename(item.name))
 			throw new CrewIntakeDropboxError("invalid-filename", "decoded intake claim name is unsafe");
@@ -726,6 +801,7 @@ export function createCrewIntakeDropbox(options: CrewIntakeDropboxOptions) {
 		listWork,
 		claim,
 		read,
+		publish,
 		readReceipt,
 		writeReceipt,
 		moveProcessed,

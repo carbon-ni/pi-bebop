@@ -57,7 +57,7 @@ test("root, group, and leaf help stay inside the returned outcome boundary", asy
 
 test("every production leaf owns a Commander reader", () => {
 	const leaves = createCliRegistry().leaves;
-	assert.equal(leaves.length, 27);
+	assert.equal(leaves.length, 28);
 	assert.ok(leaves.every((leaf) => typeof leaf.read === "function"));
 	assert.ok(leaves.every((leaf) => leaf.names.length > 0));
 });

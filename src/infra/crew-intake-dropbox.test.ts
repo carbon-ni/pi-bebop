@@ -150,6 +150,43 @@ test("bounds directory enumeration and retains overflow for later scans", async 
 	assert.equal(work.truncated, true);
 });
 
+test("publishes atomically, leaves no draft, and is idempotent after processing", async (t) => {
+	const harness = await fixture();
+	t.after(harness.cleanup);
+	await assert.rejects(
+		harness.dropbox.publish("feedback.md", ""),
+		(error: unknown) => (error as { code?: string }).code === "empty-file",
+	);
+	await assert.rejects(
+		harness.dropbox.publish("feedback.md", "\0"),
+		(error: unknown) => (error as { code?: string }).code === "nul-byte",
+	);
+	await assert.rejects(
+		harness.dropbox.publish("feedback.md", "x".repeat(MAX_CREW_INTAKE_FILE_BYTES + 1)),
+		(error: unknown) => (error as { code?: string }).code === "oversized",
+	);
+	const published = await harness.dropbox.publish("feedback.md", "durable feedback ✅");
+	assert.equal(published.state, "published");
+	assert.deepEqual(
+		(await harness.dropbox.listWork()).map((entry) => entry.name),
+		["feedback.md"],
+	);
+	assert.deepEqual(
+		(await fs.readdir(harness.dropbox.paths.newDir)).filter((name) => name.startsWith(".draft-")),
+		[],
+	);
+	assert.deepEqual(
+		(await fs.readdir(harness.dropbox.paths.root)).filter((name) => name.startsWith(".draft-")),
+		[],
+	);
+	const claim = (await harness.dropbox.listWork())[0]!;
+	const claimed = await harness.dropbox.claim(claim);
+	assert.ok(claimed);
+	await harness.dropbox.moveProcessed(claimed!);
+	const repeated = await harness.dropbox.publish("feedback.md", "durable feedback ✅");
+	assert.equal(repeated.state, "already-published");
+});
+
 test("rejects oversized content and refuses processed-name collisions", async (t) => {
 	const harness = await fixture();
 	t.after(harness.cleanup);

@@ -65,4 +65,5 @@ test("without explicit or environment source, session-required carries the disco
 	if (resolution.ok) return;
 	assert.equal(resolution.code, "session-required");
 	assert.match(resolution.message, /bebop session live/);
+	assert.match(resolution.message, /bebop contact --help/);
 });

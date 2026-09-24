@@ -63,6 +63,6 @@ export function resolveSourceSession(input: SourceSessionInput): SourceResolutio
 	return {
 		ok: false,
 		code: "session-required",
-		message: `No source session; pass --session <id|alias> or set PI_SESSION_ID, or run ${SESSION_LIST_HINT}`,
+		message: `No source session; pass --session <id|alias> or set PI_SESSION_ID, or run ${SESSION_LIST_HINT}. For outside feedback without a session, run bebop contact --help`,
 	};
 }

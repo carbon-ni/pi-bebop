@@ -2,6 +2,12 @@ import path from "node:path";
 import { Command } from "commander";
 import { buildAskCommand, readAskCommand, runAskCommand, type AskCliOptions } from "./commands/ask.ts";
 import { buildCrewInitCommand, readCrewInitCommand } from "./commands/crew-init.ts";
+import {
+	buildContactCommand,
+	readContactCommand,
+	runContactCommand,
+	type ContactCliOptions,
+} from "./commands/contact.ts";
 import { runCrewInitCommand } from "./commands/crew-init-handler.ts";
 import type { CrewInitCliOptions } from "./support/arguments.ts";
 import {
@@ -172,7 +178,21 @@ function findOrCreate(parent: Command, name: string, description: string | undef
 
 /** Builds the declarative root tree from the ordered leaves (no hardcoded vocabulary). */
 export function buildRootCommand(leaves: readonly CliLeaf[], hooks: CliCommandHooks = {}): Command {
-	const root = new Command("bebop").description("Pi Bebop crew coordination CLI");
+	const root = new Command("bebop")
+		.description("Pi Bebop crew coordination CLI")
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Not joined? Contact this trusted project's local Crew Intake:",
+				'  bebop contact --message "The feedback"',
+				"  printf '%s' \"The feedback\" | bebop contact --stdin",
+				"No session, socket, Crew ID, Guest admission, or remote ingress is used;",
+				"success means Intake-published only. Run from the Crew project directory.",
+				"Setup/recovery: run `bebop crew init`, then `bebop contact --help`.",
+				"",
+			].join("\n"),
+		);
 	hooks.onRoot?.(root);
 	for (const leaf of leaves) {
 		let parent = root;
@@ -202,6 +222,14 @@ export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
 		root: () => buildRootCommand(leaves),
 	};
 }
+
+const contactLeaf: CliLeaf = {
+	id: "contact",
+	names: ["contact"],
+	build: () => buildContactCommand(),
+	read: (command) => readContactCommand(command),
+	run: (options, context) => runContactCommand(options as ContactCliOptions, context),
+};
 
 const askLeaf: CliLeaf = {
 	id: "ask",
@@ -428,6 +456,7 @@ const guestBroadcastLeaf: CliLeaf = {
 
 export function createCliRegistry(): CliRegistry {
 	return composeRegistry([
+		contactLeaf,
 		askLeaf,
 		crewInitLeaf,
 		crewListLeaf,
