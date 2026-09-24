@@ -143,6 +143,8 @@ test("installed node_modules/.bin bebop executes the packed CLI (TASK-0074 regre
 		assert.equal(homeCode, 0, homeOut);
 		assert.match(homeOut, /^Usage: bebop/);
 		assert.match(homeOut, /Commands:/);
+		assert.match(homeOut, /bebop contact --message/);
+		assert.match(homeOut, /local Crew Intake/);
 
 		// Real commands through the bin symlink match direct artifact semantics exactly.
 		const artifact = path.join(packageRoot, "dist/cli/main.js");
@@ -156,6 +158,98 @@ test("installed node_modules/.bin bebop executes the packed CLI (TASK-0074 regre
 			assert.equal(viaBin.stdout, viaArtifact.stdout, args.join(" "));
 			assert.equal(viaBin.stderr, viaArtifact.stderr, args.join(" "));
 		}
+	} finally {
+		await rm(archiveDir, { recursive: true, force: true });
+		await rm(prefix, { recursive: true, force: true });
+	}
+});
+
+test("installed packed CLI discovers, publishes, and diagnoses contact without a session", async () => {
+	const archiveDir = await mkdtemp(path.join(tmpdir(), "bebop-contact-archive-"));
+	const prefix = await mkdtemp(path.join(tmpdir(), "bebop-contact-prefix-"));
+	const project = path.join(prefix, "fixture-project");
+	const disabledProject = path.join(prefix, "disabled-project");
+	const emptyProject = path.join(prefix, "empty-project");
+	try {
+		const packed = await execFile("npm", ["pack", "--pack-destination", archiveDir], { cwd: root });
+		const archive = packed.stdout
+			.trim()
+			.split("\n")
+			.find((line) => line.endsWith(".tgz"))!;
+		const packageRoot = path.join(prefix, "node_modules", "bebop");
+		await mkdir(packageRoot, { recursive: true });
+		await execFile("tar", ["-xzf", path.join(archiveDir, archive), "-C", packageRoot, "--strip-components=1"]);
+		const binDir = path.join(prefix, "node_modules", ".bin");
+		await mkdir(binDir, { recursive: true });
+		const bin = path.join(binDir, "bebop");
+		await symlink(path.join("..", "bebop", "dist", "cli", "main.js"), bin);
+		const environment = { ...process.env, NODE_PATH: "", PI_SESSION_ID: "" };
+		const run = async (cwd: string, args: string[]) => {
+			try {
+				const result = await execFile(process.execPath, [bin, ...args], { cwd, env: environment });
+				return { code: result.status ?? 0, stdout: result.stdout, stderr: result.stderr };
+			} catch (error) {
+				const failure = error as typeof error & { status?: number; stdout?: string; stderr?: string };
+				return { code: failure.status ?? 1, stdout: failure.stdout ?? "", stderr: failure.stderr ?? "" };
+			}
+		};
+
+		await mkdir(path.join(project, ".pi", "bebop"), { recursive: true });
+		await writeFile(
+			path.join(project, ".pi", "bebop", "crew.json"),
+			JSON.stringify({
+				version: 1,
+				presence: { notifications: true },
+				intake: { contact: "Mary" },
+				members: [{ name: "Mary", role: "po", socket: "sockets/Mary.sock" }],
+			}),
+			{ mode: 0o600 },
+		);
+		const rootHelp = await run(prefix, ["--help"]);
+		assert.equal(rootHelp.code, 0, rootHelp.stderr);
+		assert.match(rootHelp.stdout, /bebop contact --message/);
+		assert.match(rootHelp.stdout, /Outsiders must not initialize/);
+		const contactHelp = await run(prefix, ["contact", "--help"]);
+		assert.equal(contactHelp.code, 0, contactHelp.stderr);
+		assert.match(contactHelp.stdout, /intake\.contact/);
+		assert.match(contactHelp.stdout, /Crew-owner prerequisites/);
+		assert.doesNotMatch(contactHelp.stdout, /intake\/AGENTS\.md/);
+
+		const published = await run(project, ["contact", "--message", "packed feedback", "--format", "json"]);
+		assert.equal(published.code, 0, published.stderr);
+		const decoded = JSON.parse(published.stdout) as {
+			ok: boolean;
+			status: string;
+			data: { state: string; contact: { name: string; role: string } };
+		};
+		assert.equal(decoded.ok, true);
+		assert.equal(decoded.status, "published");
+		assert.equal(decoded.data.state, "published");
+		assert.deepEqual(decoded.data.contact, { name: "Mary", role: "po" });
+		const files = await readdir(path.join(project, ".pi", "bebop", "intake", "new"));
+		assert.equal(files.length, 1);
+		assert.equal(
+			await readFile(path.join(project, ".pi", "bebop", "intake", "new", files[0]!), "utf8"),
+			"packed feedback",
+		);
+
+		await mkdir(path.join(disabledProject, ".pi", "bebop"), { recursive: true });
+		await writeFile(
+			path.join(disabledProject, ".pi", "bebop", "crew.json"),
+			JSON.stringify({
+				version: 1,
+				presence: { notifications: true },
+				members: [{ name: "Mary", role: "po", socket: "sockets/Mary.sock" }],
+			}),
+			{ mode: 0o600 },
+		);
+		await mkdir(emptyProject, { recursive: true });
+		const disabled = await run(disabledProject, ["contact", "--message", "feedback"]);
+		assert.equal(disabled.code, 1);
+		assert.match(disabled.stderr, /no configured Intake contact/i);
+		const missing = await run(emptyProject, ["contact", "--message", "feedback"]);
+		assert.equal(missing.code, 1);
+		assert.match(missing.stderr, /No trusted Crew project/i);
 	} finally {
 		await rm(archiveDir, { recursive: true, force: true });
 		await rm(prefix, { recursive: true, force: true });

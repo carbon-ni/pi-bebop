@@ -188,8 +188,10 @@ export function buildRootCommand(leaves: readonly CliLeaf[], hooks: CliCommandHo
 				'  bebop contact --message "The feedback"',
 				"  printf '%s' \"The feedback\" | bebop contact --stdin",
 				"No session, socket, Crew ID, Guest admission, or remote ingress is used;",
-				"success means Intake-published only. Run from the Crew project directory.",
-				"Setup/recovery: run `bebop crew init`, then `bebop contact --help`.",
+				"success means Intake-published only. Run from the existing Crew project.",
+				"Crew-owner setup: the owner runs `bebop crew init` and configures",
+				"intake.contact. Outsiders must not initialize or edit another Crew;",
+				"use `bebop contact --help` for the local workflow and recovery guidance.",
 				"",
 			].join("\n"),
 		);

@@ -54,8 +54,10 @@ export function buildContactCommand(): Command {
 				'  bebop contact --message "The acceptance wording needs clarification."',
 				"  printf '%s' \"Feedback\" | bebop contact --stdin",
 				"",
-				"Setup/recovery: run `bebop crew init`, review intake.contact, and read",
-				"`.pi/bebop/intake/AGENTS.md`. Run from the Crew project directory.",
+				"Crew-owner prerequisites: the Crew owner runs `bebop crew init` and",
+				"configures the manifest-authored `intake.contact`. Outsiders must not",
+				"initialize or edit another Crew; run this command from its existing project.",
+				"If the manifest is missing or Intake is disabled, ask the Crew owner to repair it.",
 			].join("\n"),
 		);
 }
