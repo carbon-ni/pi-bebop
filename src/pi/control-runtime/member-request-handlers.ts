@@ -1,20 +1,54 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderMemberRequestModelContent, SESSION_MESSAGE_TYPE, type RpcInboundCommand } from "../../domain/index.ts";
-import { writeMemberUpdateEvent } from "../../infra/rpc-server.ts";
+import type { GuestAdmissionRuntime } from "../../infra/guest-admission-runtime.ts";
+import type { GuestMembershipRuntime } from "../../infra/guest-membership-runtime.ts";
+import type { Membership } from "../../infra/membership-runtime.ts";
+import { writeMemberUpdateEvent, type RpcSocket } from "../../infra/rpc-server.ts";
+import type { MemberRequestFlow } from "../../application/member-request-flow.ts";
 import type { CommandHandlerContext } from "./types.ts";
 import { notifyAcceptedMessage } from "./utils.ts";
+
+export interface MemberRequestHandlerContext {
+	readonly pi: Pick<ExtensionAPI, "sendMessage">;
+	readonly socket: RpcSocket;
+	readonly respond: CommandHandlerContext["respond"];
+	readonly getMembership: () => Membership | null;
+	readonly getMemberRequestFlow: () => MemberRequestFlow | undefined;
+	readonly isProjectTrusted: () => boolean;
+	readonly getGuestMembershipRuntime: () => GuestMembershipRuntime | undefined;
+	readonly getGuestAdmissionRuntime: () => GuestAdmissionRuntime | undefined;
+	readonly notifyAcceptedMessage: (deliveryId: string) => void;
+	readonly now?: () => number;
+}
+
+export function createMemberRequestHandlerContext(context: CommandHandlerContext): MemberRequestHandlerContext {
+	const { state } = context;
+	return {
+		pi: context.pi,
+		socket: context.socket,
+		respond: context.respond,
+		getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+		getMemberRequestFlow: () => state.memberRequestFlow,
+		isProjectTrusted: () => state.context?.isProjectTrusted?.() === true,
+		getGuestMembershipRuntime: () => state.guestMembershipRuntime,
+		getGuestAdmissionRuntime: () => state.guestAdmissionRuntime,
+		notifyAcceptedMessage: (deliveryId) => notifyAcceptedMessage(state, deliveryId),
+		now: state.now,
+	};
+}
 export async function handleMemberRequest(
-	context: CommandHandlerContext,
+	context: MemberRequestHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_request" }>,
 ): Promise<void> {
-	const { ctx, state, socket, pi, respond, id } = context;
-	const membership = state.membershipRuntime?.getMembership();
-	const flow = state.memberRequestFlow;
+	const { socket, pi, respond } = context;
+	const membership = context.getMembership();
+	const flow = context.getMemberRequestFlow();
 	const origin = command.payload.origin;
 	if (!flow || (!membership && !command.guestAuth)) {
 		respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
 		return;
 	}
-	if (state.context?.isProjectTrusted?.() !== true) {
+	if (!context.isProjectTrusted()) {
 		respond(false, command.type, undefined, "untrusted");
 		return;
 	}
@@ -24,7 +58,7 @@ export async function handleMemberRequest(
 	}
 	if (origin.kind === "guest") {
 		const auth = command.guestAuth;
-		const admission = state.guestAdmissionRuntime;
+		const admission = context.getGuestAdmissionRuntime();
 		if (!membership || !auth || !admission) {
 			respond(false, command.type, undefined, "invalid-origin");
 			return;
@@ -62,9 +96,9 @@ export async function handleMemberRequest(
 		// Registration precedes Pi visibility. Once sendMessage accepts the
 		// request into context, arm idle handling and acknowledge delivery.
 		// TASK-0081: accepted Bebop model delivery wakes a local blocking idle wait.
-		const deliveredAt = state.now?.();
+		const deliveredAt = context.now?.();
 		const message = renderMemberRequestModelContent(command.payload, command.requestId, deliveredAt);
-		notifyAcceptedMessage(state, command.requestId);
+		context.notifyAcceptedMessage(command.requestId);
 		pi.sendMessage(
 			{
 				customType: SESSION_MESSAGE_TYPE,
@@ -92,49 +126,51 @@ export async function handleMemberRequest(
 }
 
 export async function handleMemberRequestStart(
-	context: CommandHandlerContext,
+	context: MemberRequestHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_request_start" }>,
 ): Promise<void> {
-	const { state, respond } = context;
-	const membership = state.membershipRuntime?.getMembership();
-	const flow = state.memberRequestFlow;
-	const guestRuntime = state.guestMembershipRuntime;
+	const { respond } = context;
+	const membership = context.getMembership();
+	const flow = context.getMemberRequestFlow();
+	const guestRuntime = context.getGuestMembershipRuntime();
 	if (!flow || (!membership && (!guestRuntime || !command.crew))) {
 		respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
 		return;
 	}
-	if (state.context?.isProjectTrusted?.() !== true) {
+	if (!context.isProjectTrusted()) {
 		respond(false, command.type, undefined, "untrusted");
 		return;
 	}
 	try {
-		const accepted = membership
-			? await flow.sendMemberRequest({
-					membership,
-					member: command.target,
-					message: command.message,
-					instructions: command.instructions,
-					timeoutSeconds: command.timeoutSeconds,
-					maxWaitSeconds: command.maxWaitSeconds,
-				})
-			: await (async () => {
-					const credentials = guestRuntime!.credentials(command.crew!);
-					const memberSocket = guestRuntime!.getMemberSocket(command.crew!);
-					if (!credentials || !memberSocket) throw new Error("not-approved");
-					return flow.sendGuestMemberRequest({
-						crewId: command.crew!,
-						memberSocket,
-						target: { name: command.target },
-						guestIdentity: credentials.guestIdentity,
-						guestName: credentials.guestName,
-						callbackEndpoint: credentials.callbackEndpoint,
-						capability: credentials.capability,
-						message: command.message,
-						instructions: command.instructions,
-						timeoutSeconds: command.timeoutSeconds,
-						maxWaitSeconds: command.maxWaitSeconds,
-					});
-				})();
+		let accepted: Awaited<ReturnType<MemberRequestFlow["sendMemberRequest"]>>;
+		if (membership) {
+			accepted = await flow.sendMemberRequest({
+				membership,
+				member: command.target,
+				message: command.message,
+				instructions: command.instructions,
+				timeoutSeconds: command.timeoutSeconds,
+				maxWaitSeconds: command.maxWaitSeconds,
+			});
+		} else {
+			if (!guestRuntime || !command.crew) throw new Error("not-approved");
+			const credentials = guestRuntime.credentials(command.crew);
+			const memberSocket = guestRuntime.getMemberSocket(command.crew);
+			if (!credentials || !memberSocket) throw new Error("not-approved");
+			accepted = await flow.sendGuestMemberRequest({
+				crewId: command.crew,
+				memberSocket,
+				target: { name: command.target },
+				guestIdentity: credentials.guestIdentity,
+				guestName: credentials.guestName,
+				callbackEndpoint: credentials.callbackEndpoint,
+				capability: credentials.capability,
+				message: command.message,
+				instructions: command.instructions,
+				timeoutSeconds: command.timeoutSeconds,
+				maxWaitSeconds: command.maxWaitSeconds,
+			});
+		}
 		const member =
 			accepted.member.kind === "member"
 				? { name: accepted.member.name, role: accepted.member.role }
@@ -146,11 +182,11 @@ export async function handleMemberRequestStart(
 }
 
 export async function handleMemberRequestList(
-	context: CommandHandlerContext,
+	context: MemberRequestHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_request_list" }>,
 ): Promise<void> {
-	const membership = context.state.membershipRuntime?.getMembership();
-	const flow = context.state.memberRequestFlow;
+	const membership = context.getMembership();
+	const flow = context.getMemberRequestFlow();
 	if (!membership || !flow) {
 		context.respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
 		return;
@@ -160,11 +196,11 @@ export async function handleMemberRequestList(
 }
 
 export async function handleMemberRequestWait(
-	context: CommandHandlerContext,
+	context: MemberRequestHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_request_wait" }>,
 ): Promise<void> {
-	const membership = context.state.membershipRuntime?.getMembership();
-	const flow = context.state.memberRequestFlow;
+	const membership = context.getMembership();
+	const flow = context.getMemberRequestFlow();
 	if (!membership || !flow) {
 		context.respond(false, command.type, undefined, !membership ? "not-joined" : "coordination-unavailable");
 		return;
@@ -191,12 +227,12 @@ export async function handleMemberRequestWait(
 }
 
 export async function handleMemberResponse(
-	context: CommandHandlerContext,
+	context: MemberRequestHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "member_response" }>,
 ): Promise<void> {
-	const { ctx, state, socket, pi, respond, id } = context;
-	const membership = state.membershipRuntime?.getMembership();
-	const flow = state.memberRequestFlow;
+	const { respond } = context;
+	const membership = context.getMembership();
+	const flow = context.getMemberRequestFlow();
 	if (!membership || !flow) {
 		respond(false, command.type, undefined, !membership ? "not-joined" : "no-pending-request");
 		return;
