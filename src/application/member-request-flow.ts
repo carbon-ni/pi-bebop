@@ -13,6 +13,7 @@ import {
 	type RequestOutcome,
 	type MemberRequestInbound,
 	type MemberRequestMember,
+	type MemberRequestOutbound,
 } from "../domain/index.ts";
 import { resolveTarget, MemberMessageError, type CrewMembership, type MessageTarget } from "./member-message.ts";
 
@@ -51,6 +52,14 @@ export interface SendMemberRequestAccepted {
 	readonly requestId: string;
 	readonly member: MessageTarget;
 }
+export type MemberRequestListDirection = "all" | "inbound" | "outbound";
+export interface MemberRequestSummary {
+	readonly direction: "inbound" | "outbound";
+	readonly requestId: string;
+	readonly member: MemberRequestMember;
+	readonly state: "accepted" | "idle";
+	readonly deadlineAt?: number;
+}
 export interface SendGuestMemberRequestInput {
 	readonly crewId: string;
 	readonly memberSocket: string;
@@ -72,7 +81,7 @@ function defaultRequestId(): string {
 
 /** Application orchestration around the pure request/update registry. */
 export class MemberRequestFlow {
-	readonly registry = new RequestOutcomeRegistry();
+	private readonly registry = new RequestOutcomeRegistry();
 	private readonly channels = new Map<string, MemberRequestResponseChannel>();
 	private readonly closes = new Map<string, () => void>();
 	private readonly completed = new Set<string>();
@@ -180,7 +189,7 @@ export class MemberRequestFlow {
 				this.timers.delete(`grace:${requestId}`);
 				if (error instanceof RpcProtocolError && error.code === "outcome-unknown")
 					this.registry.closeOutcomeUnknown(requestId);
-				else this.registry.failBeforeAcceptance(requestId);
+				else this.failBeforeAcceptance(requestId);
 			}
 			throw error;
 		}
@@ -279,10 +288,54 @@ export class MemberRequestFlow {
 				this.timers.delete(`grace:${requestId}`);
 				if (error instanceof RpcProtocolError && error.code === "outcome-unknown") {
 					this.registry.closeOutcomeUnknown(requestId);
-				} else this.registry.failBeforeAcceptance(requestId);
+				} else this.failBeforeAcceptance(requestId);
 			}
 			throw error;
 		}
+	}
+
+	/** Remove a request that failed before the target accepted delivery. */
+	failBeforeAcceptance(requestId: string): void {
+		this.registry.failBeforeAcceptance(requestId);
+	}
+
+	/** Return one request snapshot for timer and lifecycle coordination. */
+	getOutboundRequest(requestId: string): MemberRequestOutbound | undefined {
+		return this.registry.getOutbound(requestId);
+	}
+
+	/** Summarize active requests in registration order without exposing the registry. */
+	listRequestSummaries(direction: MemberRequestListDirection = "all"): readonly MemberRequestSummary[] {
+		const outboundSummaries = this.registry.outboundSummaries();
+		const inboundSummaries = this.registry.inboundSummaries();
+		const outbound =
+			direction === "inbound"
+				? []
+				: outboundSummaries.map((item) => ({
+						direction: "outbound" as const,
+						requestId: item.requestId,
+						member: item.member,
+						state: item.state,
+						deadlineAt: item.deadlineAt,
+					}));
+		const inbound =
+			direction === "outbound"
+				? []
+				: inboundSummaries.map((item) => ({
+						direction: "inbound" as const,
+						requestId: item.requestId,
+						member: item.requester,
+						state: item.state,
+					}));
+		const orderByRequestId = new Map(
+			[...outboundSummaries, ...inboundSummaries].map((item) => [item.requestId, item.order]),
+		);
+		return [...outbound, ...inbound].sort(
+			(left, right) =>
+				(orderByRequestId.get(left.requestId) ?? Number.MAX_SAFE_INTEGER) -
+					(orderByRequestId.get(right.requestId) ?? Number.MAX_SAFE_INTEGER) ||
+				left.requestId.localeCompare(right.requestId),
+		);
 	}
 
 	/** TASK-0215: grace expiry is a one-shot nonterminal observation. */

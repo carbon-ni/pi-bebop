@@ -139,16 +139,12 @@ test("source wait blocks through a real socket and resolves the same call with t
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(settled, false, "the same tool call remains blocked while the request is active");
 
-	const inbound = server.targetState.memberRequestFlow!.registry.selectInbound("request-real-1");
-	assert.equal(inbound.ok, true);
-	if (inbound.ok) {
-		await server.targetState.memberRequestFlow!.respondToMemberRequest({
-			message: "Evidence attached: 3 findings",
-			instructions: ["review finding 1", "confirm gate"],
-			requestId: "request-real-1",
-			member: { name: "Kelly", role: "qa" },
-		});
-	}
+	await server.targetState.memberRequestFlow!.respondToMemberRequest({
+		message: "Evidence attached: 3 findings",
+		instructions: ["review finding 1", "confirm gate"],
+		requestId: "request-real-1",
+		member: { name: "Kelly", role: "qa" },
+	});
 	const result = (await within(2_000, pending, "source wait did not resolve after Response")) as {
 		content: Array<{ type: string; text: string }>;
 		details: { result: { kind: string; message?: string; instructions?: readonly string[] } };
@@ -167,7 +163,7 @@ test("source wait blocks through a real socket and resolves the same call with t
 	assert.equal((rendered.match(/request request-real-1/g) ?? []).length, 1);
 	assert.match(rendered, /Evidence attached: 3 findings/);
 	assert.match(rendered, /1\. review finding 1\n2\. confirm gate/);
-	assert.equal(flow.registry.outboundCount(), 0);
+	assert.equal(flow.listRequestSummaries("outbound").length, 0);
 
 	// The same real socket path also covers a one-shot pending outcome: idle is
 	// nonterminal, then the exact captured grace callback releases this wait.
@@ -185,7 +181,7 @@ test("source wait blocks through a real socket and resolves the same call with t
 	await within(
 		2_000,
 		(async () => {
-			while (!flow.registry.getOutbound("request-real-2")?.idleArmed)
+			while (!flow.getOutboundRequest("request-real-2")?.idleArmed)
 				await new Promise((resolve) => setImmediate(resolve));
 		})(),
 		"source grace was not armed",

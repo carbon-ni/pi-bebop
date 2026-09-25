@@ -192,7 +192,7 @@ test("TASK-0076 negative: ordinary Follow-up is marked no-correlated-Response an
 		assert.doesNotMatch(inbound.content, /respond_to_member_request|wait_for_request_outcome|\[member request\]/);
 
 		// No request state was created on the target.
-		assert.equal(target.state.memberRequestFlow!.registry.inboundCount(), 0);
+		assert.equal(target.state.memberRequestFlow!.listRequestSummaries("inbound").length, 0);
 
 		// The sender's request-outcome wait fails immediately: ordinary
 		// Follow-up never creates a pending outbound request.
