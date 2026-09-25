@@ -20,6 +20,7 @@ import {
 	type CrewSessionResolutionResult,
 } from "../../application/crew-session-resolution.ts";
 import { getTrustedCrewManifestPaths, isTrustedCrewManifestPath } from "../../infra/crew-layout.ts";
+import { createCrewSessionResolutionDependencies } from "../../infra/crew-session-resolution.ts";
 import { CrewSessionStoreError } from "../../infra/crew-session-store.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
@@ -452,7 +453,10 @@ export interface CrewSessionResolveCliDependencies {
 	) => Promise<CrewSessionResolutionResult>;
 }
 
-const defaultResolveCliDependencies: CrewSessionResolveCliDependencies = { resolve: resolveCrewSessionMember };
+const defaultResolveCliDependencies: CrewSessionResolveCliDependencies = {
+	resolve: (request, overrides = {}) =>
+		resolveCrewSessionMember(request, createCrewSessionResolutionDependencies(overrides)),
+};
 
 export async function runCrewSessionResolveCommand(
 	options: CrewSessionResolveCliOptions,

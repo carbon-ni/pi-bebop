@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CrewManifest, CrewSessionRecord } from "../domain/index.ts";
 import { manifestFingerprint, type CrewSessionStore, type CrewSessionStoreEntry } from "../infra/crew-session-store.ts";
-import { resolveCrewSessionMember, resolutionCommand } from "./crew-session-resolution.ts";
-import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+	resolveCrewSessionMember,
+	resolutionCommand,
+	type CrewSessionResolutionEvidence,
+} from "./crew-session-resolution.ts";
 
 const manifest: CrewManifest = {
 	version: 2,
@@ -39,25 +42,24 @@ const record: CrewSessionRecord = {
 	],
 };
 
-function manager(active = true): SessionManager {
+function evidence(active = true): CrewSessionResolutionEvidence {
 	return {
-		getHeader: () => ({ type: "session", id: "pi-session-secret", timestamp: "", cwd: "/project" }),
-		getSessionDir: () => "/sessions",
-		getBranch: () =>
-			active
-				? [
-						{
-							type: "custom",
-							customType: "intray-membership",
-							data: {
-								active: true,
-								socketPath: "/project/sockets/alice.sock",
-								manifestPath: "/project/.pi/bebop/crew.json",
-							},
+		id: "pi-session-secret",
+		root: "/sessions",
+		membership: active
+			? [
+					{
+						type: "custom",
+						customType: "intray-membership",
+						data: {
+							active: true,
+							socketPath: "/project/sockets/alice.sock",
+							manifestPath: "/project/.pi/bebop/crew.json",
 						},
-					]
-				: [],
-	} as unknown as SessionManager;
+					},
+				]
+			: [],
+	};
 }
 
 function deps(overrides: Partial<Parameters<typeof resolveCrewSessionMember>[1]> = {}) {
@@ -71,11 +73,14 @@ function deps(overrides: Partial<Parameters<typeof resolveCrewSessionMember>[1]>
 	};
 	return {
 		store,
+		isTrustedManifestPath: () => true,
+		manifestFingerprint,
 		readManifest: async () => manifest,
 		access: async () => undefined,
+		resolveEndpoint: async (socketPath) => socketPath,
 		validateSession: async () => undefined,
 		probe: async () => false,
-		openSession: async () => manager(),
+		readSessionEvidence: async () => evidence(),
 		readDirectory: async () => [],
 		...overrides,
 	};
@@ -103,7 +108,7 @@ test("refuses an already-open or inactive exact session", async () => {
 	if (!open.ok) assert.equal(open.code, "already-open");
 	const inactive = await resolveCrewSessionMember(
 		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
-		deps({ openSession: async () => manager(false) }),
+		deps({ readSessionEvidence: async () => evidence(false) }),
 	);
 	assert.equal(inactive.ok, false);
 	if (!inactive.ok) assert.equal(inactive.code, "membership-inactive");
