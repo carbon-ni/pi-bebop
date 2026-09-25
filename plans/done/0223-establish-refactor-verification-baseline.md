@@ -1,7 +1,7 @@
 ---
 id: TASK-0223
 title: Establish refactor verification baseline
-status: doing
+status: done
 depends_on: []
 priority: high
 tags: [refactor, verification, regression]
