@@ -114,6 +114,30 @@ test("refuses an already-open or inactive exact session", async () => {
 	if (!inactive.ok) assert.equal(inactive.code, "membership-inactive");
 });
 
+test("rejects membership evidence that drifts from the captured Crew binding", async () => {
+	const result = await resolveCrewSessionMember(
+		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
+		deps({
+			readSessionEvidence: async () => ({
+				...evidence(),
+				membership: [
+					{
+						type: "custom",
+						customType: "intray-membership",
+						data: {
+							active: true,
+							socketPath: "/project/sockets/alice.sock",
+							manifestPath: "/other/.pi/bebop/crew.json",
+						},
+					},
+				],
+			}),
+		}),
+	);
+	assert.equal(result.ok, false);
+	if (!result.ok) assert.equal(result.code, "membership-drift");
+});
+
 test("requires exact case-sensitive Member and Crew Session identity", async () => {
 	const result = await resolveCrewSessionMember(
 		{ projectRoot: "/project", id: record.id, memberName: "alice" },

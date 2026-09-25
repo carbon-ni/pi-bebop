@@ -26,6 +26,7 @@ test("maps supported Pi sessions to narrow recovery evidence", async () => {
 		assert.equal(evidence.root, root);
 		assert.equal(getLatestMembershipState(evidence.membership)?.active, true);
 		assert.equal(getLatestMembershipState(evidence.membership)?.socketPath, "/project/sockets/alice.sock");
+		assert.equal(getLatestMembershipState(evidence.membership)?.manifestPath, "/project/.pi/bebop/crew.json");
 	} finally {
 		await Promise.all([rm(cwd, { recursive: true, force: true }), rm(root, { recursive: true, force: true })]);
 	}
