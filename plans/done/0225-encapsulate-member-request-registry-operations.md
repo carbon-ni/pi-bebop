@@ -1,7 +1,7 @@
 ---
 id: TASK-0225
 title: Encapsulate Member Request registry operations
-status: doing
+status: done
 depends_on: [TASK-0223]
 priority: high
 tags: [refactor, application, member-request, coupling, tdd]
@@ -26,11 +26,11 @@ Semantic request-flow operations for pre-acceptance failure and ordered request 
 
 ## Acceptance criteria
 
-- [ ] Request handlers call flow operations rather than registry transitions or summary internals.
-- [ ] Summary order, direction filters, response shapes, and failure codes remain unchanged.
-- [ ] Tests cover failure before acceptance, successful acceptance, unknown requests, and disconnect cleanup.
-- [ ] Registration still precedes model visibility; failure, idle settlement, timers, and channel cleanup retain their behavior.
-- [ ] Existing domain registry tests remain meaningful; focused coverage and fresh watcher final gate pass.
+- [x] Request handlers call flow operations rather than registry transitions or summary internals.
+- [x] Summary order, direction filters, response shapes, and failure codes remain unchanged.
+- [x] Tests cover failure before acceptance, successful acceptance, unknown requests, and disconnect cleanup.
+- [x] Registration still precedes model visibility; failure, idle settlement, timers, and channel cleanup retain their behavior.
+- [x] Existing domain registry tests remain meaningful; focused coverage and fresh watcher final gate pass.
 
 ## Non-goals
 
