@@ -1,7 +1,7 @@
 ---
 id: TASK-0227
 title: Extract Crew directory application operation
-status: todo
+status: done
 depends_on: [TASK-0223]
 priority: high
 tags: [refactor, cli, application, discovery, aesthetics, tdd]
@@ -26,11 +26,11 @@ A typed, injected application operation for Crew directory discovery, consumed b
 
 ## Acceptance criteria
 
-- [ ] Application operation has no dependency on CLI context, Commander, output format, or concrete default IO.
-- [ ] CLI remains responsible for options and presentation, with unchanged text/JSON/TOON output and full/truncated behavior.
-- [ ] Tests preserve trusted paths, bounded discovery, concurrent probing, observed/live merging, deterministic ordering, duplicate-selector recovery, malformed candidates, and offline availability.
-- [ ] Cancellation and timeout still return honest partial results and release discovery resources; no locator leakage is introduced.
-- [ ] Operation is testable directly with fake dependencies. Existing CLI tests plus focused coverage and fresh watcher final gate pass.
+- [x] Application operation has no dependency on CLI context, Commander, output format, or concrete default IO.
+- [x] CLI remains responsible for options and presentation, with unchanged text/JSON/TOON output and full/truncated behavior.
+- [x] Tests preserve trusted paths, bounded discovery, concurrent probing, observed/live merging, deterministic ordering, duplicate-selector recovery, malformed candidates, and offline availability.
+- [x] Cancellation and timeout still return honest partial results and release discovery resources; no locator leakage is introduced.
+- [x] Operation is testable directly with fake dependencies. Existing CLI tests plus focused coverage and fresh watcher final gate pass.
 
 ## Non-goals
 
