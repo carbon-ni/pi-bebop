@@ -8,15 +8,30 @@ import type { MemberRequestFlow } from "../../application/member-request-flow.ts
 import type { CommandHandlerContext } from "./types.ts";
 import { notifyAcceptedMessage } from "./utils.ts";
 
+export type MemberRequestFlowCapability = Pick<
+	MemberRequestFlow,
+	| "sendMemberRequest"
+	| "sendGuestMemberRequest"
+	| "failBeforeAcceptance"
+	| "listRequestSummaries"
+	| "waitForRequestOutcomeById"
+	| "registerInboundRequest"
+	| "acceptInboundRequest"
+	| "removeInboundRequest"
+	| "respondToMemberRequest"
+>;
+export type GuestMembershipRequestCapability = Pick<GuestMembershipRuntime, "credentials" | "getMemberSocket">;
+export type GuestAdmissionRequestCapability = Pick<GuestAdmissionRuntime, "authorizeSend">;
+
 export interface MemberRequestHandlerContext {
 	readonly pi: Pick<ExtensionAPI, "sendMessage">;
 	readonly socket: RpcSocket;
 	readonly respond: CommandHandlerContext["respond"];
 	readonly getMembership: () => Membership | null;
-	readonly getMemberRequestFlow: () => MemberRequestFlow | undefined;
+	readonly getMemberRequestFlow: () => MemberRequestFlowCapability | undefined;
 	readonly isProjectTrusted: () => boolean;
-	readonly getGuestMembershipRuntime: () => GuestMembershipRuntime | undefined;
-	readonly getGuestAdmissionRuntime: () => GuestAdmissionRuntime | undefined;
+	readonly getGuestMembershipRuntime: () => GuestMembershipRequestCapability | undefined;
+	readonly getGuestAdmissionRuntime: () => GuestAdmissionRequestCapability | undefined;
 	readonly notifyAcceptedMessage: (deliveryId: string) => void;
 	readonly now?: () => number;
 }
@@ -142,7 +157,7 @@ export async function handleMemberRequestStart(
 		return;
 	}
 	try {
-		let accepted: Awaited<ReturnType<MemberRequestFlow["sendMemberRequest"]>>;
+		let accepted: Awaited<ReturnType<MemberRequestFlowCapability["sendMemberRequest"]>>;
 		if (membership) {
 			accepted = await flow.sendMemberRequest({
 				membership,

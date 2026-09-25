@@ -102,6 +102,99 @@ test("Member Request dispatch capabilities read live membership, trust, and flow
 	assert.equal(context.getMemberRequestFlow(), undefined);
 });
 
+test("Member request start delegates successful joined-member delivery", async () => {
+	const responses: Array<{ success: boolean; data?: unknown; error?: string }> = [];
+	let request: unknown;
+	const context = handlerContext({
+		getMemberRequestFlow: () =>
+			({
+				sendMemberRequest: async (input: unknown) => {
+					request = input;
+					return { requestId: "request-member", member: { kind: "member", name: "Mary", role: "po" } };
+				},
+			}) as never,
+		respond: (success, _command, data, error) => responses.push({ success, data, error }),
+	});
+
+	await handleMemberRequestStart(context, {
+		type: "member_request_start",
+		target: "Mary",
+		message: "Please review this.",
+		id: "start-member",
+	});
+
+	assert.deepEqual(request, {
+		membership: membership(),
+		member: "Mary",
+		message: "Please review this.",
+		instructions: undefined,
+		timeoutSeconds: undefined,
+		maxWaitSeconds: undefined,
+	});
+	assert.deepEqual(responses, [
+		{
+			success: true,
+			data: { accepted: true, requestId: "request-member", member: { name: "Mary", role: "po" } },
+			error: undefined,
+		},
+	]);
+});
+
+test("Guest request start delegates successful approved delivery with narrow guest capabilities", async () => {
+	const responses: Array<{ success: boolean; data?: unknown; error?: string }> = [];
+	let request: unknown;
+	const context = handlerContext({
+		getMembership: () => null,
+		getMemberRequestFlow: () =>
+			({
+				sendGuestMemberRequest: async (input: unknown) => {
+					request = input;
+					return { requestId: "request-guest", member: { kind: "guest", guestName: "Mary" } };
+				},
+			}) as never,
+		getGuestMembershipRuntime: () =>
+			({
+				credentials: () => ({
+					guestIdentity: "guest-id",
+					guestName: "Alex",
+					callbackEndpoint: "/tmp/alex.sock",
+					capability: "capability",
+				}),
+				getMemberSocket: () => "/tmp/mary.sock",
+			}) as never,
+		respond: (success, _command, data, error) => responses.push({ success, data, error }),
+	});
+
+	await handleMemberRequestStart(context, {
+		type: "member_request_start",
+		crew: "crew-1",
+		target: "Mary",
+		message: "Please review this.",
+		id: "start-guest",
+	});
+
+	assert.deepEqual(request, {
+		crewId: "crew-1",
+		memberSocket: "/tmp/mary.sock",
+		target: { name: "Mary" },
+		guestIdentity: "guest-id",
+		guestName: "Alex",
+		callbackEndpoint: "/tmp/alex.sock",
+		capability: "capability",
+		message: "Please review this.",
+		instructions: undefined,
+		timeoutSeconds: undefined,
+		maxWaitSeconds: undefined,
+	});
+	assert.deepEqual(responses, [
+		{
+			success: true,
+			data: { accepted: true, requestId: "request-guest", member: { name: "Mary", role: "guest" } },
+			error: undefined,
+		},
+	]);
+});
+
 test("Guest request start validates approval explicitly before using guest credentials", async () => {
 	const responses: Array<{ success: boolean; error?: string }> = [];
 	const context = handlerContext({
