@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CrewManifest, CrewSessionRecord } from "../domain/index.ts";
 import { manifestFingerprint, type CrewSessionStore, type CrewSessionStoreEntry } from "../infra/crew-session-store.ts";
-import { resolveCrewSessionMember, resolutionCommand } from "./crew-session-resolution.ts";
-import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+	resolveCrewSessionMember,
+	resolutionCommand,
+	type CrewSessionResolutionEvidence,
+} from "./crew-session-resolution.ts";
 
 const manifest: CrewManifest = {
 	version: 2,
@@ -39,25 +42,24 @@ const record: CrewSessionRecord = {
 	],
 };
 
-function manager(active = true): SessionManager {
+function evidence(active = true): CrewSessionResolutionEvidence {
 	return {
-		getHeader: () => ({ type: "session", id: "pi-session-secret", timestamp: "", cwd: "/project" }),
-		getSessionDir: () => "/sessions",
-		getBranch: () =>
-			active
-				? [
-						{
-							type: "custom",
-							customType: "intray-membership",
-							data: {
-								active: true,
-								socketPath: "/project/sockets/alice.sock",
-								manifestPath: "/project/.pi/bebop/crew.json",
-							},
+		id: "pi-session-secret",
+		root: "/sessions",
+		membership: active
+			? [
+					{
+						type: "custom",
+						customType: "intray-membership",
+						data: {
+							active: true,
+							socketPath: "/project/sockets/alice.sock",
+							manifestPath: "/project/.pi/bebop/crew.json",
 						},
-					]
-				: [],
-	} as unknown as SessionManager;
+					},
+				]
+			: [],
+	};
 }
 
 function deps(overrides: Partial<Parameters<typeof resolveCrewSessionMember>[1]> = {}) {
@@ -71,11 +73,14 @@ function deps(overrides: Partial<Parameters<typeof resolveCrewSessionMember>[1]>
 	};
 	return {
 		store,
+		isTrustedManifestPath: () => true,
+		manifestFingerprint,
 		readManifest: async () => manifest,
 		access: async () => undefined,
+		resolveEndpoint: async (socketPath) => socketPath,
 		validateSession: async () => undefined,
 		probe: async () => false,
-		openSession: async () => manager(),
+		readSessionEvidence: async () => evidence(),
 		readDirectory: async () => [],
 		...overrides,
 	};
@@ -94,6 +99,24 @@ test("resolves an exact Member to separate argv and cwd without launching Pi", a
 	}
 });
 
+test("rejects an untrusted current project", async () => {
+	const result = await resolveCrewSessionMember(
+		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
+		deps({ isTrustedManifestPath: () => false }),
+	);
+	assert.equal(result.ok, false);
+	if (!result.ok) assert.equal(result.code, "untrusted-project");
+});
+
+test("rejects a Crew manifest that changed since capture", async () => {
+	const result = await resolveCrewSessionMember(
+		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
+		deps({ manifestFingerprint: () => "changed" }),
+	);
+	assert.equal(result.ok, false);
+	if (!result.ok) assert.equal(result.code, "manifest-drift");
+});
+
 test("refuses an already-open or inactive exact session", async () => {
 	const open = await resolveCrewSessionMember(
 		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
@@ -103,10 +126,75 @@ test("refuses an already-open or inactive exact session", async () => {
 	if (!open.ok) assert.equal(open.code, "already-open");
 	const inactive = await resolveCrewSessionMember(
 		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
-		deps({ openSession: async () => manager(false) }),
+		deps({ readSessionEvidence: async () => evidence(false) }),
 	);
 	assert.equal(inactive.ok, false);
 	if (!inactive.ok) assert.equal(inactive.code, "membership-inactive");
+});
+
+test("rejects membership evidence that drifts from the captured Crew binding", async () => {
+	const result = await resolveCrewSessionMember(
+		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
+		deps({
+			readSessionEvidence: async () => ({
+				...evidence(),
+				membership: [
+					{
+						type: "custom",
+						customType: "intray-membership",
+						data: {
+							active: true,
+							socketPath: "/project/sockets/alice.sock",
+							manifestPath: "/other/.pi/bebop/crew.json",
+						},
+					},
+				],
+			}),
+		}),
+	);
+	assert.equal(result.ok, false);
+	if (!result.ok) assert.equal(result.code, "membership-drift");
+});
+
+test("rejects a malformed supported session", async () => {
+	const result = await resolveCrewSessionMember(
+		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
+		deps({
+			readSessionEvidence: async () => {
+				throw new Error("unsupported session");
+			},
+		}),
+	);
+	assert.equal(result.ok, false);
+	if (!result.ok) assert.equal(result.code, "malformed-session");
+});
+
+test("reports moved and ambiguous session files without guessing", async () => {
+	const moved = await resolveCrewSessionMember(
+		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
+		deps({
+			access: async (target) => {
+				if (target === "/sessions/alice.jsonl") throw new Error("missing session");
+			},
+			readDirectory: async () => ["/sessions/moved.jsonl"],
+			readSessionEvidence: async () => evidence(),
+		}),
+	);
+	assert.equal(moved.ok, false);
+	if (!moved.ok) assert.equal(moved.code, "session-file-moved");
+
+	const ambiguous = await resolveCrewSessionMember(
+		{ projectRoot: "/project", id: record.id, memberName: "Alice" },
+		deps({
+			access: async (target) => {
+				if (target === "/sessions/alice.jsonl") throw new Error("missing session");
+			},
+			readDirectory: async () => ["/sessions/one.jsonl", "/sessions/two.jsonl"],
+			readSessionEvidence: async () => evidence(),
+		}),
+	);
+	assert.equal(ambiguous.ok, false);
+	if (!ambiguous.ok) assert.equal(ambiguous.code, "ambiguous-session-file");
 });
 
 test("requires exact case-sensitive Member and Crew Session identity", async () => {

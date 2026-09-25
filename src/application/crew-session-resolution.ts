@@ -1,14 +1,10 @@
-import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import type { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { CrewSessionMember, CrewSessionRecord } from "../domain/index.ts";
-import { getLatestMembershipState } from "../pi/membership-context.ts";
-import { createCrewSessionStore, manifestFingerprint } from "../infra/crew-session-store.ts";
-import type { CrewSessionStore, CrewSessionStoreEntry } from "../infra/crew-session-store.ts";
-import { isTrustedCrewManifestPath, readTrustedCrewManifestMetadata } from "../infra/crew-manifest-store.ts";
-import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
-import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
-import { validateSessionFileEvidence, type SessionFileValidationCode } from "../infra/session-file-security.ts";
+import {
+	getLatestMembershipState,
+	type CrewManifest,
+	type CrewSessionMember,
+	type CrewSessionRecord,
+} from "../domain/index.ts";
 
 export type CrewSessionResolutionFailureCode =
 	| "record-not-found"
@@ -58,32 +54,36 @@ export interface CrewSessionResolutionFailure {
 
 export type CrewSessionResolutionResult = CrewSessionResolutionSuccess | CrewSessionResolutionFailure;
 
-export interface CrewSessionResolutionDependencies {
-	readonly store: CrewSessionStore;
-	readonly readManifest: typeof readTrustedCrewManifestMetadata;
-	readonly validateSession: typeof validateSessionFileEvidence;
-	readonly access: (target: string) => Promise<void>;
-	readonly probe: (socketPath: string) => Promise<boolean>;
-	readonly openSession: (file: string, root: string) => Promise<SessionManager>;
-	readonly readDirectory: (directory: string) => Promise<readonly string[]>;
+export type CrewSessionResolutionStoreEntry =
+	| { readonly id: string; readonly record: CrewSessionRecord }
+	| { readonly id: string; readonly invalid: true };
+
+export interface CrewSessionResolutionEvidence {
+	readonly id: string;
+	readonly root: string;
+	readonly membership: readonly unknown[];
 }
 
-function defaultDependencies(): CrewSessionResolutionDependencies {
-	return {
-		store: createCrewSessionStore(),
-		readManifest: readTrustedCrewManifestMetadata,
-		validateSession: validateSessionFileEvidence,
-		access: async (target) => fs.access(target),
-		probe: (socketPath) => probeMemberEndpoint(socketPath),
-		openSession: async (file, root) => {
-			const { SessionManager } = await import("@earendil-works/pi-coding-agent");
-			return SessionManager.open(file, root);
-		},
-		readDirectory: async (directory) =>
-			(await fs.readdir(directory, { withFileTypes: true }))
-				.filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-				.map((entry) => path.join(directory, entry.name)),
-	};
+export interface CrewSessionResolutionDependencies {
+	readonly store: { readonly listDetailed: () => Promise<readonly CrewSessionResolutionStoreEntry[]> };
+	readonly isTrustedManifestPath: (manifestPath: string, projectRoot: string) => boolean;
+	readonly manifestFingerprint: (manifest: CrewManifest) => string;
+	readonly readManifest: (
+		manifestPath: string,
+		projectRoot: string,
+		isProjectTrusted: () => boolean,
+	) => Promise<CrewManifest>;
+	readonly validateSession: (evidence: {
+		readonly id: string;
+		readonly file: string;
+		readonly cwd: string;
+		readonly root: string;
+	}) => Promise<void>;
+	readonly access: (target: string) => Promise<void>;
+	readonly resolveEndpoint: (socketPath: string) => Promise<string>;
+	readonly probe: (endpoint: string) => Promise<boolean>;
+	readonly readSessionEvidence: (file: string, root: string) => Promise<CrewSessionResolutionEvidence>;
+	readonly readDirectory: (directory: string) => Promise<readonly string[]>;
 }
 
 function failure(
@@ -125,8 +125,8 @@ async function recoverMovedSessionFile(
 	let matches = 0;
 	for (const file of files) {
 		try {
-			const manager = await deps.openSession(file, root);
-			if (manager.getHeader()?.id === id) matches += 1;
+			const evidence = await deps.readSessionEvidence(file, root);
+			if (evidence.id === id) matches += 1;
 		} catch {
 			/* Unsupported or unrelated files are not recovery candidates. */
 		}
@@ -137,7 +137,7 @@ async function recoverMovedSessionFile(
 async function resolveRecord(
 	id: string,
 	deps: CrewSessionResolutionDependencies,
-): Promise<Extract<CrewSessionStoreEntry, { record: CrewSessionRecord }> | CrewSessionResolutionFailure> {
+): Promise<Extract<CrewSessionResolutionStoreEntry, { record: CrewSessionRecord }> | CrewSessionResolutionFailure> {
 	const entries = await deps.store.listDetailed();
 	const entry = entries.find((candidate) => candidate.id === id);
 	if (!entry)
@@ -157,9 +157,8 @@ async function resolveRecord(
 
 export async function resolveCrewSessionMember(
 	request: { readonly projectRoot: string; readonly id: string; readonly memberName: string },
-	dependencies: Partial<CrewSessionResolutionDependencies> = {},
+	deps: CrewSessionResolutionDependencies,
 ): Promise<CrewSessionResolutionResult> {
-	const deps = { ...defaultDependencies(), ...dependencies };
 	const entry = await resolveRecord(request.id, deps);
 	if (!("record" in entry)) return entry;
 	if (entry.id !== entry.record.id)
@@ -170,7 +169,7 @@ export async function resolveCrewSessionMember(
 		);
 	const record = entry.record;
 	const projectRoot = path.resolve(request.projectRoot);
-	if (!isTrustedCrewManifestPath(record.crew.locator, projectRoot))
+	if (!deps.isTrustedManifestPath(record.crew.locator, projectRoot))
 		return failure(
 			"untrusted-project",
 			"Crew Locator is outside the trusted current project",
@@ -186,7 +185,7 @@ export async function resolveCrewSessionMember(
 			"Restore the trusted manifest or capture a new Crew Session.",
 		);
 	}
-	if (manifestFingerprint(manifest) !== record.crew.manifestFingerprint)
+	if (deps.manifestFingerprint(manifest) !== record.crew.manifestFingerprint)
 		return failure(
 			"manifest-drift",
 			"The Crew manifest changed since capture",
@@ -266,9 +265,9 @@ export async function resolveCrewSessionMember(
 			"Restore the exact session or capture a new Crew Session.",
 		);
 	}
-	let manager: SessionManager;
+	let evidence: CrewSessionResolutionEvidence;
 	try {
-		manager = await deps.openSession(member.persistedSessionFile, member.sessionRoot);
+		evidence = await deps.readSessionEvidence(member.persistedSessionFile, member.sessionRoot);
 	} catch {
 		return failure(
 			"malformed-session",
@@ -276,20 +275,19 @@ export async function resolveCrewSessionMember(
 			"Restore the exact session or capture a new Crew Session.",
 		);
 	}
-	const header = manager.getHeader();
-	if (!header || header.id !== member.piSessionId)
+	if (evidence.id !== member.piSessionId)
 		return failure(
 			"session-id-mismatch",
 			"The stored Pi Session ID does not match its supported header",
 			"Do not guess a replacement session; capture a new Crew Session.",
 		);
-	if (path.resolve(manager.getSessionDir()) !== path.resolve(member.sessionRoot))
+	if (path.resolve(evidence.root) !== path.resolve(member.sessionRoot))
 		return failure(
 			"untrusted-session-root",
 			"Pi reported a different SessionManager root",
 			"Use the reported trusted root or capture a new Crew Session.",
 		);
-	const persisted = getLatestMembershipState(manager.getBranch());
+	const persisted = getLatestMembershipState(evidence.membership);
 	if (!persisted?.active)
 		return failure(
 			"membership-inactive",
@@ -305,7 +303,7 @@ export async function resolveCrewSessionMember(
 			"The stored Pi membership does not match this Crew Member binding",
 			"Do not resume this binding; capture a new Crew Session.",
 		);
-	const endpoint = await resolveMemberEndpoint(configured.socketPath);
+	const endpoint = await deps.resolveEndpoint(configured.socketPath);
 	if (await deps.probe(endpoint))
 		return failure(
 			"already-open",

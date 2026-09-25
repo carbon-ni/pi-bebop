@@ -108,6 +108,7 @@
 		"src/infra/rpc-server.ts",
 		"src/infra/session-env.ts",
 		"src/infra/crew-session-store.ts",
+		"src/infra/crew-session-resolution.ts",
 		"src/infra/session-file-security.ts",
 		"src/infra/pi-launcher.ts",
 		"src/infra/socket-endpoint.ts",
