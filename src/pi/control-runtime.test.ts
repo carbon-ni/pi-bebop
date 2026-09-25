@@ -13,6 +13,7 @@ import {
 	emitIdleSettled,
 	formatIntrayFooter,
 	handleCommand,
+	createMemberRequestHandlerContext,
 	handleMemberRequestList,
 	handleMemberRequestWait,
 	MEMBERSHIP_TOOLS,
@@ -48,8 +49,11 @@ test("Member Request list preserves lifecycle acceptance order across directions
 	} as never;
 	await handleMemberRequestList(
 		{
-			state,
-			socket: { once: () => undefined },
+			...createMemberRequestHandlerContext({
+				state,
+				socket: { once: () => undefined },
+				respond: () => undefined,
+			} as never),
 			respond: (_success: boolean, _command: string, data?: unknown) => {
 				result = data;
 			},
@@ -71,8 +75,11 @@ test("Member Request list and wait require an actively joined source", async () 
 		waitForRequestOutcomeById: () => ({ ok: false, code: "unknown-request" }),
 	} as never;
 	const context = {
-		state,
-		socket: { once: () => undefined },
+		...createMemberRequestHandlerContext({
+			state,
+			socket: { once: () => undefined },
+			respond: () => undefined,
+		} as never),
 		respond: (success: boolean, _command: string, _data?: unknown, error?: string) =>
 			responses.push({ success, ...(error === undefined ? {} : { error }) }),
 	} as never;

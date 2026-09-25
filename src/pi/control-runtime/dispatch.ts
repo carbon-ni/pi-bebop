@@ -5,6 +5,7 @@ import type { RpcSocket } from "../../infra/rpc-server.ts";
 import type { CommandHandlerContext, CommandHandlers, SocketState } from "./types.ts";
 import { syncAlias } from "./aliases.ts";
 import {
+	createMemberRequestHandlerContext,
 	handleMemberRequest,
 	handleMemberRequestStart,
 	handleMemberRequestList,
@@ -36,11 +37,14 @@ import {
 } from "./system-handlers.ts";
 
 const COMMAND_HANDLERS: CommandHandlers = {
-	member_request: handleMemberRequest,
-	member_request_start: handleMemberRequestStart,
-	member_request_list: handleMemberRequestList,
-	member_request_wait: handleMemberRequestWait,
-	member_response: handleMemberResponse,
+	member_request: (context, command) => handleMemberRequest(createMemberRequestHandlerContext(context), command),
+	member_request_start: (context, command) =>
+		handleMemberRequestStart(createMemberRequestHandlerContext(context), command),
+	member_request_list: (context, command) =>
+		handleMemberRequestList(createMemberRequestHandlerContext(context), command),
+	member_request_wait: (context, command) =>
+		handleMemberRequestWait(createMemberRequestHandlerContext(context), command),
+	member_response: (context, command) => handleMemberResponse(createMemberRequestHandlerContext(context), command),
 	guest_join: handleGuestJoin,
 	guest_leave: handleGuestLeave,
 	guest_send: handleGuestSend,
