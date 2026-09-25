@@ -1,7 +1,7 @@
 ---
 id: TASK-0224
 title: Narrow session recovery dependencies
-status: doing
+status: done
 depends_on: [TASK-0223]
 priority: high
 tags: [refactor, application, session, dependency-injection, tdd]
