@@ -30,20 +30,21 @@ test("Member Request list preserves lifecycle acceptance order across directions
 	const state = createSocketState();
 	state.membershipRuntime = { getMembership: () => ({ member: { name: "Alex" } }) } as never;
 	state.memberRequestFlow = {
-		registry: {
-			outboundSummaries: () => [
-				{
-					requestId: "later",
-					member: { name: "Blake", role: "qa" },
-					state: "accepted",
-					deadlineAt: 200,
-					order: 2,
-				},
-			],
-			inboundSummaries: () => [
-				{ requestId: "first", requester: { name: "Casey", role: "dev" }, state: "idle", order: 1 },
-			],
-		},
+		listRequestSummaries: () => [
+			{
+				direction: "inbound",
+				requestId: "first",
+				member: { name: "Casey", role: "dev" },
+				state: "idle",
+			},
+			{
+				direction: "outbound",
+				requestId: "later",
+				member: { name: "Blake", role: "qa" },
+				state: "accepted",
+				deadlineAt: 200,
+			},
+		],
 	} as never;
 	await handleMemberRequestList(
 		{
@@ -66,10 +67,7 @@ test("Member Request list and wait require an actively joined source", async () 
 	const responses: Array<{ success: boolean; error?: string }> = [];
 	const state = createSocketState();
 	state.memberRequestFlow = {
-		registry: {
-			outboundSummaries: () => [],
-			inboundSummaries: () => [],
-		},
+		listRequestSummaries: () => [],
 		waitForRequestOutcomeById: () => ({ ok: false, code: "unknown-request" }),
 	} as never;
 	const context = {

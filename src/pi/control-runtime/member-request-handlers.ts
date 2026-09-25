@@ -85,7 +85,7 @@ export async function handleMemberRequest(
 			member: { name: membership.member.name, role: membership.member.role },
 		});
 	} catch (error) {
-		flow.registry.failBeforeAcceptance(command.requestId);
+		flow.failBeforeAcceptance(command.requestId);
 		respond(false, command.type, undefined, error instanceof Error ? error.message : "delivery-failed");
 	}
 	return;
@@ -156,38 +156,7 @@ export async function handleMemberRequestList(
 		return;
 	}
 	const direction = command.direction ?? "all";
-	const outbound =
-		direction === "inbound"
-			? []
-			: flow.registry.outboundSummaries().map((item) => ({
-					direction: "outbound" as const,
-					requestId: item.requestId,
-					member: item.member,
-					state: item.state,
-					deadlineAt: item.deadlineAt,
-				}));
-	const inbound =
-		direction === "outbound"
-			? []
-			: flow.registry.inboundSummaries().map((item) => ({
-					direction: "inbound" as const,
-					requestId: item.requestId,
-					member: item.requester,
-					state: item.state,
-				}));
-	const orderByRequestId = new Map(
-		[...flow.registry.outboundSummaries(), ...flow.registry.inboundSummaries()].map((item) => [
-			item.requestId,
-			item.order,
-		]),
-	);
-	const ordered = [...outbound, ...inbound].sort(
-		(left, right) =>
-			(orderByRequestId.get(left.requestId) ?? Number.MAX_SAFE_INTEGER) -
-				(orderByRequestId.get(right.requestId) ?? Number.MAX_SAFE_INTEGER) ||
-			left.requestId.localeCompare(right.requestId),
-	);
-	context.respond(true, command.type, { requests: ordered, omitted: 0 });
+	context.respond(true, command.type, { requests: flow.listRequestSummaries(direction), omitted: 0 });
 }
 
 export async function handleMemberRequestWait(

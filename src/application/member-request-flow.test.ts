@@ -47,13 +47,13 @@ test("request registers before endpoint/open and returns accepted without waitin
 	const { flow } = setup({
 		resolveEndpoint: async (socketPath) => {
 			events.push(`resolve:${socketPath}`);
-			assert.equal(flow.registry.outboundCount(), 1);
+			assert.equal(flow.listRequestSummaries("outbound").length, 1);
 			return socketPath;
 		},
 		transport: {
 			open: async (_endpoint, command, options) => {
 				events.push(`open:${command.requestId}`);
-				assert.equal(flow.registry.outboundCount(), 1);
+				assert.equal(flow.listRequestSummaries("outbound").length, 1);
 				options.onUpdate;
 				return { close: () => undefined };
 			},
@@ -69,7 +69,54 @@ test("request registers before endpoint/open and returns accepted without waitin
 	});
 	assert.deepEqual(events, ["resolve:/project/.pi/bebop/sockets/qa.sock", "open:request-1"]);
 	// Close the accepted request channel so this test does not leave its 300s lifecycle timer active.
-	assert.equal(flow.registry.resolveOffline("request-1").ok, true);
+	flow.cancelRequest("request-1");
+});
+
+test("lists active requests in registration order with direction filters", async () => {
+	const { flow } = setup();
+	await flow.sendMemberRequest({ membership, member: "qa", message: "Review" });
+	flow.registerInboundRequest({
+		requestId: "inbound-1",
+		requester: { name: "lead", role: "lead" },
+		message: "Please respond",
+		instructions: [],
+		channel: { send: async () => undefined },
+	});
+	flow.acceptInboundRequest("inbound-1");
+	assert.deepEqual(flow.listRequestSummaries(), [
+		{
+			direction: "outbound",
+			requestId: "request-1",
+			member: { name: "qa", role: "reviewer" },
+			state: "accepted",
+			deadlineAt: 1_801_000,
+		},
+		{
+			direction: "inbound",
+			requestId: "inbound-1",
+			member: { name: "lead", role: "lead" },
+			state: "accepted",
+		},
+	]);
+	assert.deepEqual(flow.listRequestSummaries("outbound"), [
+		{
+			direction: "outbound",
+			requestId: "request-1",
+			member: { name: "qa", role: "reviewer" },
+			state: "accepted",
+			deadlineAt: 1_801_000,
+		},
+	]);
+	assert.deepEqual(flow.listRequestSummaries("inbound"), [
+		{
+			direction: "inbound",
+			requestId: "inbound-1",
+			member: { name: "lead", role: "lead" },
+			state: "accepted",
+		},
+	]);
+	flow.cancelRequest("request-1");
+	flow.removeInboundRequest("inbound-1");
 });
 
 test("approved Guest request preserves guest auth on the existing Member Request wire", async () => {
@@ -119,7 +166,7 @@ test("pre-accept failure cleans request while lost acknowledgement closes as out
 		() => failed.flow.sendMemberRequest({ membership, member: "qa", message: "Review" }),
 		/offline/,
 	);
-	assert.equal(failed.flow.registry.outboundCount(), 0);
+	assert.equal(failed.flow.listRequestSummaries("outbound").length, 0);
 	const lost = setup({
 		transport: {
 			open: async () => {
@@ -132,7 +179,7 @@ test("pre-accept failure cleans request while lost acknowledgement closes as out
 		() => lost.flow.sendMemberRequest({ membership, member: "qa", message: "Review" }),
 		/outcome-unknown/,
 	);
-	assert.equal(lost.flow.registry.outboundCount(), 0);
+	assert.equal(lost.flow.listRequestSummaries("outbound").length, 0);
 });
 
 test("terminal response is buffered exactly once and wait returns it", async () => {
@@ -186,7 +233,7 @@ test("TASK-0080: idle before the wait is nonterminal; post-idle grace expiry is 
 	// The target's internal idle notification arrives BEFORE the source waits.
 	// It is NONTERMINAL: it only arms the post-idle grace.
 	emit({ kind: "idle", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
-	assert.equal(flow.registry.outboundCount(), 1, "idle must be nonterminal");
+	assert.equal(flow.listRequestSummaries("outbound").length, 1, "idle must be nonterminal");
 	// Post-idle grace expires without a Response -> pending, buffered.
 	const graceTimer = captured[captured.length - 1];
 	graceTimer();
@@ -205,12 +252,13 @@ test("TASK-0080: idle before the wait is nonterminal; post-idle grace expiry is 
 	}
 	// The exact Request remains active for a later wait, but repeated idle does
 	// not create another grace timer or another pending notice.
-	assert.equal(flow.registry.outboundCount(), 1);
+	assert.equal(flow.listRequestSummaries("outbound").length, 1);
 	emit({ kind: "idle", requestId: "request-1", member: { name: "qa", role: "reviewer" } });
 	assert.equal(captured.length, 2, "hard timer only; grace must not re-arm after pending");
 	const rewait = flow.waitForRequestOutcomeById("request-1", () => undefined);
 	assert.equal(rewait.ok, true);
-	flow.registry.resolveResponse({
+	emit({
+		kind: "response",
 		requestId: "request-1",
 		member: { name: "qa", role: "reviewer" },
 		message: "answer",
@@ -248,7 +296,7 @@ test("TASK-0075: a broken inbound channel never leaves other settled requests st
 	assert.equal((sent[0] as { requestId: string }).requestId, "in-ok");
 	// TASK-0080: idle is NONTERMINAL - both inbound requests keep their slots
 	// until a real terminal (response/offline/grace/hard) closes them.
-	assert.equal(flow.registry.inboundCount(), 2, "idle must preserve inbound slots");
+	assert.equal(flow.listRequestSummaries("inbound").length, 2, "idle must preserve inbound slots");
 });
 
 function waitForOutcome(flow: MemberRequestFlow): Promise<unknown> {

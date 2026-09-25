@@ -116,7 +116,7 @@ async function untilIdleArmed(flow: MemberRequestFlow, requestId: string): Promi
 	await Promise.race([
 		(async () => {
 			for (;;) {
-				if (flow.registry.getOutbound(requestId)?.idleArmed) return;
+				if (flow.getOutboundRequest(requestId)?.idleArmed) return;
 				await new Promise((resolve) => setTimeout(resolve, 10));
 			}
 		})(),
@@ -141,7 +141,7 @@ test("TASK-0080 G4: pre-request idle never arms grace; first post-context idle a
 	// A settle BEFORE the request exists must not arm anything (no inbound yet).
 	emitIdleSettled(target.state, { isIdle: () => true } as never);
 	await new Promise((resolve) => setImmediate(resolve));
-	assert.equal(flow.registry.getOutbound("request-real")?.idleArmed, undefined);
+	assert.equal(flow.getOutboundRequest("request-real")?.idleArmed, undefined);
 	// Real request + first post-context idle arms the grace once.
 	await flow.sendMemberRequest({
 		membership: sourceMembership,
@@ -151,7 +151,7 @@ test("TASK-0080 G4: pre-request idle never arms grace; first post-context idle a
 	});
 	emitIdleSettled(target.state, { isIdle: () => true } as never);
 	await untilIdleArmed(flow, "request-real");
-	assert.equal(flow.registry.outboundCount(), 1, "idle is nonterminal");
+	assert.equal(flow.listRequestSummaries("outbound").length, 1, "idle is nonterminal");
 	// A later settle does not reset the grace: the one-shot pending notice still
 	// arrives at the original grace deadline (1s from the FIRST idle).
 	await new Promise((resolve) => setTimeout(resolve, 300));
@@ -191,7 +191,11 @@ test("TASK-0080 G5: reminder queued exactly once with the original requestId; in
 	await untilIdleArmed(flow, "request-real");
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.deepEqual(target.reminders, ["request-real:Tony"], "exactly one reminder with the original requestId");
-	assert.equal(target.state.memberRequestFlow!.registry.inboundCount(), 1, "idle preserves the inbound slot");
+	assert.equal(
+		target.state.memberRequestFlow!.listRequestSummaries("inbound").length,
+		1,
+		"idle preserves the inbound slot",
+	);
 	// A second settle does not queue a second reminder.
 	emitIdleSettled(target.state, { isIdle: () => true } as never);
 	await new Promise((resolve) => setImmediate(resolve));
@@ -231,18 +235,14 @@ test("TASK-0080 G6: parked outbound slot survives idle; a Response during the po
 	});
 	emitIdleSettled(target.state, { isIdle: () => true } as never);
 	await untilIdleArmed(flow, "request-real");
-	assert.equal(flow.registry.outboundCount(), 1, "outbound slot is preserved through idle");
+	assert.equal(flow.listRequestSummaries("outbound").length, 1, "outbound slot is preserved through idle");
 	// The responder answers during the grace window.
 	const pending = waitOutcome(flow);
-	const inbound = target.state.memberRequestFlow!.registry.selectInbound("request-real");
-	assert.equal(inbound.ok, true);
-	if (inbound.ok) {
-		await target.state.memberRequestFlow!.respondToMemberRequest({
-			message: "done",
-			requestId: "request-real",
-			member: { name: "Kelly", role: "qa" },
-		});
-	}
+	await target.state.memberRequestFlow!.respondToMemberRequest({
+		message: "done",
+		requestId: "request-real",
+		member: { name: "Kelly", role: "qa" },
+	});
 	const update = await pending;
 	const { requestAgeMs, ...responseWithoutAge } = update;
 	assert.equal(typeof requestAgeMs, "number");
@@ -253,7 +253,7 @@ test("TASK-0080 G6: parked outbound slot survives idle; a Response during the po
 		message: "done",
 		instructions: [],
 	});
-	assert.equal(flow.registry.outboundCount(), 0);
+	assert.equal(flow.listRequestSummaries("outbound").length, 0);
 	await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -303,8 +303,8 @@ test("TASK-0080 G11: mutual idle waits and nested Member requests resolve withou
 	emitIdleSettled(b.state, { isIdle: () => true } as never);
 	await untilIdleArmed(flowA, "request-real");
 	await untilIdleArmed(flowB, "request-real");
-	assert.equal(flowA.registry.outboundCount(), 1);
-	assert.equal(flowB.registry.outboundCount(), 1);
+	assert.equal(flowA.listRequestSummaries("outbound").length, 1);
+	assert.equal(flowB.listRequestSummaries("outbound").length, 1);
 	// Both sides answer each other's inbound request during the grace window.
 	const pendingA = waitOutcome(flowA);
 	const pendingB = waitOutcome(flowB);
@@ -337,7 +337,7 @@ test("TASK-0080 G11: mutual idle waits and nested Member requests resolve withou
 		message: "A answers B",
 		instructions: [],
 	});
-	assert.equal(flowA.registry.outboundCount(), 0);
-	assert.equal(flowB.registry.outboundCount(), 0);
+	assert.equal(flowA.listRequestSummaries("outbound").length, 0);
+	assert.equal(flowB.listRequestSummaries("outbound").length, 0);
 	await fs.rm(root, { recursive: true, force: true });
 });

@@ -206,7 +206,7 @@ test("request transport rejects forged origin before inbound state or Pi visibil
 		(error: unknown) => error instanceof Error && /invalid-origin/.test(error.message),
 	);
 	assert.deepEqual(sessions.targetMessages, []);
-	assert.equal(sessions.targetFlow.registry.inboundCount(), 0);
+	assert.equal(sessions.targetFlow.listRequestSummaries("inbound").length, 0);
 });
 
 test("request flow uses persistent Unix channel and returns one correlated response", async (t) => {
@@ -263,10 +263,10 @@ test("accepted request disconnect removes target inbound channel state", async (
 		member: "Kelly",
 		message: "disconnect me",
 	});
-	assert.equal(sessions.targetFlow.registry.inboundCount(), 1);
+	assert.equal(sessions.targetFlow.listRequestSummaries("inbound").length, 1);
 	sessions.sourceFlow.cancelRequest(accepted.requestId);
 	await new Promise<void>((resolve) => setTimeout(resolve, 25));
-	assert.equal(sessions.targetFlow.registry.inboundCount(), 0);
+	assert.equal(sessions.targetFlow.listRequestSummaries("inbound").length, 0);
 });
 
 test("packaged CLI delivers follow-up and redirect end to end with accepted dispositions", async (t) => {

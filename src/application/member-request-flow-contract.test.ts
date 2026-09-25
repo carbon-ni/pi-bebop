@@ -117,7 +117,7 @@ test("TASK-0080 C1: transport acceptance window is the fixed 5s constant; pre-ac
 	assert.equal(h.acceptedTimeoutMs, MEMBER_REQUEST_ACCEPT_DEADLINE_MS);
 	// Pre-accept failure: transport throws before acceptance -> no slot, no timers.
 	const failed = setup();
-	failed.flow.registry.failBeforeAcceptance("request-1");
+	failed.flow.failBeforeAcceptance("request-1");
 	// Simulate a pre-accept rejection path via a throwing transport.
 	const throwing = new MemberRequestFlow({
 		resolveEndpoint: async (socketPath) => socketPath,
@@ -133,8 +133,8 @@ test("TASK-0080 C1: transport acceptance window is the fixed 5s constant; pre-ac
 		clearTimeout: () => undefined,
 	});
 	await assert.rejects(() => throwing.sendMemberRequest({ membership, member: "qa", message: "Review" }));
-	assert.equal(throwing.registry.outboundCount(), 0);
-	assert.equal(throwing.registry.hasPendingOutcome(), false);
+	assert.equal(throwing.listRequestSummaries("outbound").length, 0);
+	assert.equal(throwing.hasPendingRequestOutcome(), false);
 });
 
 function clockNoop(_cb: () => void): number {
@@ -150,12 +150,12 @@ test("TASK-0080 C2: hard timer starts at accepted (acceptedAt + max_wait_seconds
 	);
 	// Before the hard deadline: nothing terminal.
 	h.clock.advance(120_000);
-	assert.equal(h.flow.registry.hasPendingOutcome(), true);
+	assert.equal(h.flow.hasPendingRequestOutcome(), true);
 	assert.deepEqual(outcomes, []);
 	// At the hard deadline: timeout(max-wait).
 	h.clock.advance(180_000);
 	assert.deepEqual(outcomes, ["timeout:max-wait"]);
-	assert.equal(h.flow.registry.outboundCount(), 0);
+	assert.equal(h.flow.listRequestSummaries("outbound").length, 0);
 	assert.equal(h.clock.remaining(), 0);
 });
 
@@ -177,14 +177,14 @@ test("TASK-0215: grace starts once, reports pending-after-idle, and preserves th
 	// At t=+130s the nonterminal pending notice fires once.
 	h.clock.advance(115_000);
 	assert.deepEqual(outcomes, ["pending:pending-after-idle"]);
-	assert.equal(h.flow.registry.outboundCount(), 1);
+	assert.equal(h.flow.listRequestSummaries("outbound").length, 1);
 
 	// The same Request can be waited again and answered normally.
 	const rewait = h.flow.waitForRequestOutcomeById("request-1", (update) => outcomes.push(update.kind));
 	assert.equal(rewait.ok, true);
 	h.emit({ kind: "response", requestId: "request-1", member: requester, message: "answer", instructions: [] });
 	assert.deepEqual(outcomes, ["pending:pending-after-idle", "response"]);
-	assert.equal(h.flow.registry.outboundCount(), 0);
+	assert.equal(h.flow.listRequestSummaries("outbound").length, 0);
 });
 
 test("TASK-0215: hard max-wait remains terminal after pending-after-idle timing", async () => {
@@ -227,7 +227,7 @@ test("TASK-0080 C5: response beats socket offline in the same handler; first ter
 	});
 	h.emit({ kind: "offline", requestId: "request-1", member: requester });
 	assert.deepEqual(outcomes, ["response"]);
-	assert.equal(h.flow.registry.outboundCount(), 0);
+	assert.equal(h.flow.listRequestSummaries("outbound").length, 0);
 });
 
 test("TASK-0080 C6: reminder queued exactly once at the target's first idle; a broken channel never loses it and never alters the request", async () => {
@@ -273,7 +273,7 @@ test("TASK-0080 C6: reminder queued exactly once at the target's first idle; a b
 	broken.flow.acceptInboundRequest("in-2");
 	await assert.rejects(() => broken.flow.settleInboundIdle("in-2"));
 	assert.deepEqual(broken.reminders, ["in-2:qa"]);
-	assert.equal(broken.flow.registry.inboundCount(), 1);
+	assert.equal(broken.flow.listRequestSummaries("inbound").length, 1);
 });
 
 test("TASK-0080 C7: inbound idle is NONTERMINAL - slot preserved, internal idle notification once, response still possible", async () => {
@@ -294,14 +294,17 @@ test("TASK-0080 C7: inbound idle is NONTERMINAL - slot preserved, internal idle 
 	});
 	h.flow.acceptInboundRequest("in-1");
 	await h.flow.settleInboundIdle("in-1");
-	assert.equal(h.flow.registry.inboundCount(), 1);
+	assert.equal(h.flow.listRequestSummaries("inbound").length, 1);
 	assert.deepEqual(sent, [{ kind: "idle", requestId: "in-1", member: requester }]);
 	// Second settle: no duplicate notification.
 	await h.flow.settleInboundIdle("in-1");
 	assert.equal(sent.length, 1);
 	// Response is still possible after idle (idle is not a terminal).
-	const selected = h.flow.registry.selectInbound("in-1");
-	assert.equal(selected.ok, true);
+	await h.flow.respondToMemberRequest({
+		member: { name: "dev", role: "developer" },
+		message: "response",
+		requestId: "in-1",
+	});
 });
 
 test("TASK-0080 C8: validation errors are stable and deterministic", async () => {

@@ -270,7 +270,11 @@ test("CLI exact wait covers idle timeout, offline outcome, and cancellation with
 	controller.abort();
 	const canceled = await canceledPromise;
 	assert.equal((canceled as any).result.error.code, "aborted");
-	assert.equal(sourceFlow.registry.outboundCount(), 1, "cancelling CLI wait preserves accepted Request");
+	assert.equal(
+		sourceFlow.listRequestSummaries("outbound").length,
+		1,
+		"cancelling CLI wait preserves accepted Request",
+	);
 	sourceFlow.cancelRequest("cli-cancel");
 	const laterWait = await runMemberRequestCommand(
 		readMemberRequestWaitCommand(parseInto(buildMemberRequestWaitCommand, ["cli-cancel"])),
