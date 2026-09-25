@@ -1,6 +1,9 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import type { CrewSessionResolutionDependencies, CrewSessionResolutionEvidence } from "../application/crew-session-resolution.ts";
+import type {
+	CrewSessionResolutionDependencies,
+	CrewSessionResolutionEvidence,
+} from "../application/crew-session-resolution.ts";
 import { readTrustedCrewManifestMetadata } from "./crew-manifest-store.ts";
 import { isTrustedCrewManifestPath } from "./crew-layout.ts";
 import { createCrewSessionStore, manifestFingerprint } from "./crew-session-store.ts";
