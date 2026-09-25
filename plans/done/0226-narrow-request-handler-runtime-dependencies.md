@@ -1,7 +1,7 @@
 ---
 id: TASK-0226
 title: Narrow request-handler runtime dependencies
-status: doing
+status: done
 depends_on: [TASK-0225]
 priority: normal
 tags: [refactor, pi, runtime, dependency-injection, aesthetics, tdd]
@@ -26,11 +26,11 @@ A narrow dependency boundary for the Member Request handler family, demonstratin
 
 ## Acceptance criteria
 
-- [ ] Request handlers no longer receive the entire mutable `SocketState`; capability types expose only needed operations.
-- [ ] Test fixtures can construct the handler without unrelated status, inbox, alias, or server services.
-- [ ] Joined/unjoined, trusted/untrusted, approved/unapproved Guest, unavailable flow, and lifecycle-transition paths retain their outcomes.
-- [ ] No new initialization-order requirement, stale membership snapshot, or altered message acceptance order is introduced.
-- [ ] Focused tests and fresh watcher final gate pass; changed branch coverage is recorded.
+- [x] Request handlers no longer receive the entire mutable `SocketState`; capability types expose only needed operations.
+- [x] Test fixtures can construct the handler without unrelated status, inbox, alias, or server services.
+- [x] Joined/unjoined, trusted/untrusted, approved/unapproved Guest, unavailable flow, and lifecycle-transition paths retain their outcomes.
+- [x] No new initialization-order requirement, stale membership snapshot, or altered message acceptance order is introduced.
+- [x] Focused tests and fresh watcher final gate pass; changed branch coverage is recorded.
 
 ## Non-goals
 
