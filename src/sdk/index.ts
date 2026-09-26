@@ -663,7 +663,7 @@ function sourceClient(endpoint: string): BebopSource {
 				} catch (error) {
 					if (acceptedMember !== undefined) {
 						const normalized = normalizeError(error, budget);
-						if (normalized.code === "timeout" && budget.timedOut())
+						if (normalized.code === "timeout")
 							return {
 								status: "timeout" as const,
 								code: "timeout-total" as const,
@@ -672,8 +672,7 @@ function sourceClient(endpoint: string): BebopSource {
 								safeRetry: false as const,
 								member: acceptedMember,
 							};
-						if (normalized.code === "timeout" || normalized.code === "aborted")
-							throw new BebopClientError("outcome-unknown");
+						if (normalized.code === "aborted") throw new BebopClientError("outcome-unknown");
 						if (
 							normalized.code === "offline-session" ||
 							normalized.code === "unknown-session" ||
