@@ -20,7 +20,7 @@ jobs:
             - name: Run bounded quality gate
               run: |
                   set -o pipefail
-                  if timeout --foreground --signal=TERM --kill-after=30s 4m make all; then
+                  if timeout --signal=TERM --kill-after=30s 4m make all; then
                     exit 0
                   else
                     status=$?
