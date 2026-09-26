@@ -624,6 +624,11 @@ function sourceClient(endpoint: string): BebopSource {
 							{ timeout: budget.remaining(), signal: budget.signal },
 						);
 						const outcome = waited.response.data as MemberRequestWaitResult;
+						if (outcome.requestId !== accepted.requestId)
+							throw new RpcProtocolError(
+								"malformed-response",
+								"Member request response id did not match the Ask",
+							);
 						if (outcome.kind === "pending") continue;
 						if (outcome.kind === "response")
 							return {
@@ -662,6 +667,7 @@ function sourceClient(endpoint: string): BebopSource {
 							throw new BebopClientError("outcome-unknown");
 						if (
 							normalized.code === "offline-session" ||
+							normalized.code === "unknown-session" ||
 							normalized.code === "transport-error" ||
 							normalized.code === "outcome-unknown"
 						)

@@ -34,8 +34,13 @@ async function fakeSource(
 		malformedStatus?: boolean;
 		remoteError?: string;
 		lastMessage?: { role: "assistant"; content: string; timestamp: number } | null;
-		askWait?: (requestId: string, count: number) => "pending" | "response" | "offline" | "timeout" | "malformed";
+		askWait?: (
+			requestId: string,
+			count: number,
+		) => "pending" | "response" | "offline" | "timeout" | "malformed" | "mismatch";
 		dropAskWait?: boolean;
+		holdAskWait?: boolean;
+		removeAskRoute?: boolean;
 	} = {},
 ): Promise<FakeSource> {
 	await mkdir(CONTROL_DIR, { recursive: true });
@@ -100,6 +105,7 @@ async function fakeSource(
 							},
 						})}\n`,
 					);
+					if (options.removeAskRoute) setTimeout(() => void rm(socketPath, { force: true }), 0);
 					continue;
 				}
 				if (request.method === "member.request_wait") {
@@ -107,38 +113,44 @@ async function fakeSource(
 						socket.destroy();
 						return;
 					}
+					if (options.holdAskWait) return;
 					const requestId = String(request.params?.requestId);
 					const count = (askWaitCounts.get(requestId) ?? 0) + 1;
 					askWaitCounts.set(requestId, count);
 					const outcome = options.askWait?.(requestId, count) ?? "response";
+					const resultRequestId = outcome === "mismatch" ? "ask-other" : requestId;
 					const result =
 						outcome === "pending"
 							? {
 									kind: "pending",
-									requestId,
+									requestId: resultRequestId,
 									member: { name: "developer", role: "Developer" },
 									reason: "pending-after-idle",
 								}
 							: outcome === "offline"
-								? { kind: "offline", requestId, member: { name: "developer", role: "Developer" } }
+								? {
+										kind: "offline",
+										requestId: resultRequestId,
+										member: { name: "developer", role: "Developer" },
+									}
 								: outcome === "timeout"
 									? {
 											kind: "timeout",
-											requestId,
+											requestId: resultRequestId,
 											member: { name: "developer", role: "Developer" },
 											reason: "max-wait",
 										}
 									: outcome === "malformed"
 										? {
 												kind: "response",
-												requestId,
+												requestId: resultRequestId,
 												member: { name: "developer", role: "Developer" },
 												message: "bad",
 												instructions: "bad",
 											}
 										: {
 												kind: "response",
-												requestId,
+												requestId: resultRequestId,
 												member: { name: "developer", role: "Developer" },
 												message: `answer-${requestId}`,
 												instructions: ["ordered"],
@@ -242,7 +254,7 @@ test("SDK Ask returns exactly the correlated Response and preserves instructions
 		const result = await selected.ask(
 			"developer",
 			{ question: "Review this", instructions: ["first", "second"] },
-			{ responseGraceSeconds: 1, totalWaitSeconds: 2 },
+			undefined,
 		);
 		assert.deepEqual(result, {
 			status: "answered",
@@ -260,7 +272,8 @@ test("SDK Ask returns exactly the correlated Response and preserves instructions
 		);
 		assert.equal(source.requests[1]?.params?.target, "developer");
 		assert.equal(source.requests[1]?.params?.message, "Review this");
-		assert.equal(source.requests[1]?.params?.maxWaitSeconds, 60);
+		assert.equal(source.requests[1]?.params?.timeoutSeconds, 30);
+		assert.equal(source.requests[1]?.params?.maxWaitSeconds, 120);
 		assert.deepEqual(source.requests[1]?.params?.instructions, ["first", "second"]);
 		assert.equal("requestId" in (source.requests[1]?.params ?? {}), false);
 	} finally {
@@ -330,7 +343,41 @@ test("SDK Ask validates bounded options and input before effect IO", async () =>
 			Promise.resolve().then(() => selected.ask("developer", { question: "   " }, { totalWaitSeconds: 2 })),
 			(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
 		);
-		assert.equal(source.requests.filter((request) => request.method === "member.request_start").length, 0);
+		const boundary = await selected.ask(
+			"developer",
+			{ question: "Boundary" },
+			{ responseGraceSeconds: 600, totalWaitSeconds: 1_800 },
+		);
+		assert.equal(boundary.status, "answered");
+		assert.equal(source.requests.at(-2)?.params?.timeoutSeconds, 600);
+		assert.equal(source.requests.at(-2)?.params?.maxWaitSeconds, 1_800);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Ask rejects a valid but mismatched correlated Request outcome", async () => {
+	const source = await fakeSource({ askWait: () => "mismatch" });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(
+			selected.ask("developer", { question: "Review" }, { responseGraceSeconds: 1, totalWaitSeconds: 2 }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "malformed-response",
+		);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Ask reports unknown outcome when its total budget expires while waiting", async () => {
+	const source = await fakeSource({ holdAskWait: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(
+			selected.ask("developer", { question: "Review" }, { responseGraceSeconds: 1, totalWaitSeconds: 2 }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "outcome-unknown",
+		);
+		assert.equal(source.requests.filter((request) => request.method === "member.request_start").length, 1);
 	} finally {
 		await source.close();
 	}
