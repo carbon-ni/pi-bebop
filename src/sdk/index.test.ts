@@ -367,15 +367,27 @@ test("SDK Ask rejects a valid but mismatched correlated Request outcome", async 
 	}
 });
 
-test("SDK Ask reports unknown outcome when its total budget expires while waiting", async () => {
+test("SDK Ask reports timeout-total when its local budget expires after acceptance", async () => {
 	const source = await fakeSource({ holdAskWait: true });
 	try {
 		const selected = await createBebopClient().selectSource({ session: source.session });
-		await assert.rejects(
-			selected.ask("developer", { question: "Review" }, { responseGraceSeconds: 1, totalWaitSeconds: 2 }),
-			(error: unknown) => error instanceof BebopClientError && error.code === "outcome-unknown",
+		const result = await selected.ask(
+			"developer",
+			{ question: "Review" },
+			{ responseGraceSeconds: 1, totalWaitSeconds: 2 },
 		);
-		assert.equal(source.requests.filter((request) => request.method === "member.request_start").length, 1);
+		assert.deepEqual(result, {
+			status: "timeout",
+			code: "timeout-total",
+			accepted: true,
+			answered: false,
+			safeRetry: false,
+			member: { name: "developer", role: "Developer" },
+		});
+		assert.deepEqual(
+			source.requests.map((request) => request.method),
+			["session.status", "member.request_start", "member.request_wait"],
+		);
 	} finally {
 		await source.close();
 	}

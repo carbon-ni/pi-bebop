@@ -603,8 +603,8 @@ function sourceClient(endpoint: string): BebopSource {
 							...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
 							timeoutSeconds: settings.responseGraceSeconds,
 							// The wire protocol keeps requests alive for at least 60 seconds. The SDK's
-							// shorter local budget still bounds this call and deliberately reports
-							// outcome-unknown if that server-side request outlives the caller.
+							// shorter local budget bounds this call; local expiry returns timeout-total
+							// while the already-accepted server-side request may remain live.
 							maxWaitSeconds: Math.max(60, settings.totalWaitSeconds),
 						},
 						{
@@ -663,6 +663,15 @@ function sourceClient(endpoint: string): BebopSource {
 				} catch (error) {
 					if (acceptedMember !== undefined) {
 						const normalized = normalizeError(error, budget);
+						if (normalized.code === "timeout" && budget.timedOut())
+							return {
+								status: "timeout" as const,
+								code: "timeout-total" as const,
+								accepted: true as const,
+								answered: false as const,
+								safeRetry: false as const,
+								member: acceptedMember,
+							};
 						if (normalized.code === "timeout" || normalized.code === "aborted")
 							throw new BebopClientError("outcome-unknown");
 						if (
