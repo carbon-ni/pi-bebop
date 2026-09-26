@@ -1,7 +1,7 @@
 ---
 id: TASK-0232
 title: Prevent filesystem Intake tests from hanging CI
-status: todo
+status: done
 depends_on: []
 priority: high
 tags: [bug, tests, ci, intake, lifecycle]
@@ -27,12 +27,12 @@ A deterministic lifecycle regression and minimal resource-lifecycle fix, plus a 
 
 ## Acceptance criteria
 
-- [ ] Root cause is identified with reproduction evidence and isolated to the filesystem Intake lifecycle.
-- [ ] A deterministic regression proves no watcher/open handle is created after controller close completes.
-- [ ] Filesystem Intake behavior and durability guarantees remain unchanged.
-- [ ] CI uses a finite timeout with actionable timeout evidence.
-- [ ] Repeated parallel full-suite runs pass without orphan workers.
-- [ ] A fresh exact-head watcher gate and GitHub checks pass.
+- [x] Root cause is identified with reproduction evidence and isolated to the filesystem Intake lifecycle.
+- [x] A deterministic regression proves no watcher/open handle is created after controller close completes.
+- [x] Filesystem Intake behavior and durability guarantees remain unchanged.
+- [x] CI uses a finite timeout with actionable timeout evidence.
+- [x] Repeated parallel full-suite runs pass without orphan workers.
+- [x] A fresh exact-head watcher gate and GitHub checks pass.
 
 ## Non-goals
 
