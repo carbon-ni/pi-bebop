@@ -40,7 +40,6 @@ async function fakeSource(
 		) => "pending" | "response" | "offline" | "timeout" | "malformed" | "mismatch";
 		dropAskWait?: boolean;
 		holdAskWait?: boolean;
-		removeAskRoute?: boolean;
 	} = {},
 ): Promise<FakeSource> {
 	await mkdir(CONTROL_DIR, { recursive: true });
@@ -105,7 +104,6 @@ async function fakeSource(
 							},
 						})}\n`,
 					);
-					if (options.removeAskRoute) setTimeout(() => void rm(socketPath, { force: true }), 0);
 					continue;
 				}
 				if (request.method === "member.request_wait") {
