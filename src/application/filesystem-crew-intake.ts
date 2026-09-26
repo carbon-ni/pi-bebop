@@ -151,6 +151,7 @@ export function createFilesystemCrewIntakeController(
 			readTrustedCrewManifest(manifestPath, projectRoot, dependencies.isProjectTrusted));
 
 	const ensureActive = async (watchForChanges = watchRequested): Promise<Active | null> => {
+		if (closed) return null;
 		const membership = dependencies.getMembership();
 		if (!membership) {
 			invalidate();
@@ -194,7 +195,11 @@ export function createFilesystemCrewIntakeController(
 		});
 		await dropbox.prepare();
 		const next: Active = { generation, membership, manifest, manifestFingerprint: fingerprint, dropbox };
-		if (generation !== next.generation || !isCurrent(next, generation, dependencies.getMembership() ?? membership))
+		if (
+			closed ||
+			generation !== next.generation ||
+			!isCurrent(next, generation, dependencies.getMembership() ?? membership)
+		)
 			return null;
 		active = next;
 		if (watchForChanges) {

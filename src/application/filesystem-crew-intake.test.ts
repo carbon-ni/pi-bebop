@@ -365,6 +365,22 @@ test("close cancels a debounced watcher retry", async (t) => {
 	assert.equal(await (await storeFor(harness)).count(), 0);
 });
 
+test("close prevents a queued scan from resurrecting a filesystem watcher", async (t) => {
+	const harness = await fixture();
+	const intake = controllerFor(harness);
+	t.after(() => intake.controller.close());
+	t.after(harness.cleanup);
+	intake.controller.syncMembership();
+	const queuedScan = intake.controller.scan();
+	await intake.controller.close();
+	assert.equal((await queuedScan).state, "skipped");
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(
+		process._getActiveHandles().some((handle) => handle.constructor?.name === "FSWatcher"),
+		false,
+	);
+});
+
 test("close awaits an in-flight startup scan before filesystem teardown", async (t) => {
 	const harness = await fixture();
 	let openedResolve!: () => void;
