@@ -175,6 +175,7 @@ export type {
 	MemberRequestStartCommand,
 	MemberRequestListCommand,
 	MemberRequestWaitCommand,
+	MemberRequestWaitResult,
 	MemberRequestResult,
 	MemberResponseParams,
 	MemberUpdateResult,
