@@ -1,7 +1,7 @@
 ---
 id: TASK-0233
 title: Add correlated Ask to the Bebop SDK
-status: todo
+status: done
 depends_on: [TASK-0221]
 priority: high
 tags: [sdk, member-request, ask, correlation]
