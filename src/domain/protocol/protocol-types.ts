@@ -160,6 +160,7 @@ export type MemberRequestStartParams = Static<typeof MemberRequestStartParamsSch
 export type MemberRequestStartCommand = Static<typeof MemberRequestStartCommandSchema>;
 export type MemberRequestListCommand = Static<typeof MemberRequestListCommandSchema>;
 export type MemberRequestWaitCommand = Static<typeof MemberRequestWaitCommandSchema>;
+export type MemberRequestWaitResult = Static<typeof MemberRequestWaitResultSchema>;
 export type MemberRequestResult = Static<typeof MemberRequestResultSchema>;
 export type MemberResponseParams = Static<typeof MemberResponseParamsSchema>;
 export type MemberUpdateResult = Static<typeof MemberUpdateResultSchema>;

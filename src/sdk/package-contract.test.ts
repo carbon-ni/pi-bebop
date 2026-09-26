@@ -41,7 +41,7 @@ test("packed SDK exposes runnable ESM and TypeScript declarations", async () => 
 		const source = path.join(consumer, "consumer.ts");
 		await writeFile(
 			source,
-			'import { createBebopClient, BebopClientError, type MemberLastMessageResult, type MemberStatus } from "@carbon-ni/pi-bebop/sdk";\nconst client = createBebopClient();\nconst selected = client.selectSource({ session: "safe-session" });\nconst status: Promise<MemberStatus> = selected.then((source) => source.getMemberStatus("developer"));\nconst lastMessage: Promise<MemberLastMessageResult> = selected.then((source) => source.getMemberLastMessage("developer", { timeoutMs: 5000 }));\nvoid status;\nvoid lastMessage;\nvoid new BebopClientError("timeout");\n',
+			'import { createBebopClient, BebopClientError, type AskResult, type MemberLastMessageResult, type MemberStatus } from "@carbon-ni/pi-bebop/sdk";\nconst client = createBebopClient();\nconst selected = client.selectSource({ session: "safe-session" });\nconst status: Promise<MemberStatus> = selected.then((source) => source.getMemberStatus("developer"));\nconst lastMessage: Promise<MemberLastMessageResult> = selected.then((source) => source.getMemberLastMessage("developer", { timeoutMs: 5000 }));\nconst ask: Promise<AskResult> = selected.then((source) => source.ask("developer", { question: "Review" }, { responseGraceSeconds: 30, totalWaitSeconds: 120 }));\nvoid status;\nvoid lastMessage;\nvoid ask;\nvoid new BebopClientError("timeout");\n',
 		);
 		try {
 			await execFile(

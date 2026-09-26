@@ -85,6 +85,13 @@ const status = await crew.getMemberStatus("developer");
 const snapshot = await crew.getMemberLastMessage("developer", { timeoutMs: 5_000 });
 await crew.sendFollowUp("developer", { message: "Build finished" });
 await crew.sendToInbox("developer", { message: "Durable context for your next startup" });
+const answer = await crew.ask(
+	"developer",
+	{ question: "Review the change and report blockers", instructions: ["Be concise"] },
+	{ responseGraceSeconds: 30, totalWaitSeconds: 120 },
+);
+if (answer.status === "answered") console.log(answer.message, answer.instructions);
+else if (!answer.safeRetry) console.warn(`Ask ended as ${answer.code}; do not send a duplicate`);
 
 const cancellation = new AbortController();
 const pending = crew.sendFollowUp("developer", { message: "Cancel if still pending" }, { signal: cancellation.signal });
@@ -99,7 +106,7 @@ try {
 }
 ```
 
-Select an already-running joined, trusted source session explicitly, or use `PI_SESSION_ID` as the convenience fallback. The SDK never reads a manifest or accepts socket paths; the selected source remains authoritative for membership, trust, target resolution, and storage. `getMemberStatus` reports mechanical observations only. Follow-up means accepted delivery, and Inbox means persistence; neither means read, acted on, or completed. Every operation accepts `AbortSignal` and a finite `timeoutMs`. A lost acknowledgement after a message write throws `BebopClientError` with `code === "outcome-unknown"`; the SDK never retries effects automatically.
+Select an already-running joined, trusted source session explicitly, or use `PI_SESSION_ID` as the convenience fallback. The SDK never reads a manifest or accepts socket paths; the selected source remains authoritative for membership, trust, target resolution, and storage. `getMemberStatus` reports mechanical observations only. Follow-up means accepted delivery, and Inbox means persistence; neither means read, acted on, or completed. `ask` sends exactly one correlated Member Request and hides its Request ID; `answered` is the only Response result, while accepted `offline` and `timeout` results have `safeRetry: false`. Ask defaults to a 30-second post-idle Response grace and a 120-second total wait; `responseGraceSeconds` is bounded to 1..600 and `totalWaitSeconds` to 2..1800, with total strictly greater than grace. Cancellation or timeout after acceptance throws `outcome-unknown`, and route loss throws `route-lost`; neither is safe to retry. Existing operations accept `AbortSignal` and a finite `timeoutMs`; the SDK never retries effects automatically.
 
 Inspect a member without waking it:
 

@@ -8,7 +8,9 @@ import {
 	isMemberLastMessageResult,
 	isMemberMessageResult,
 	isMemberInboxSendResult,
+	isMemberRequestResult,
 	type MemberStatus as WireMemberStatus,
+	type MemberRequestWaitResult,
 } from "../domain/index.ts";
 import {
 	MAX_MESSAGE_CONTENT_BYTES,
@@ -26,6 +28,12 @@ const MAX_TARGET_BYTES = 256;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MIN_TIMEOUT_MS = 50;
 const MAX_TIMEOUT_MS = 60_000;
+const ASK_DELIVERY_TIMEOUT_MS = 5_000;
+const DEFAULT_ASK_RESPONSE_GRACE_SECONDS = 30;
+const MAX_ASK_RESPONSE_GRACE_SECONDS = 600;
+const DEFAULT_ASK_TOTAL_WAIT_SECONDS = 120;
+const MIN_ASK_TOTAL_WAIT_SECONDS = 2;
+const MAX_ASK_TOTAL_WAIT_SECONDS = 1_800;
 
 export type BebopClientErrorCode =
 	| "invalid-input"
@@ -34,6 +42,7 @@ export type BebopClientErrorCode =
 	| "unknown-session"
 	| "offline-session"
 	| "offline-member"
+	| "route-lost"
 	| "message-too-large"
 	| "not-joined"
 	| "untrusted"
@@ -132,7 +141,50 @@ export interface InboxResult {
 	readonly hint: "sent" | "skipped";
 }
 
+export interface AskInput {
+	readonly question: string;
+	readonly instructions?: readonly string[];
+}
+
+export interface AskOptions {
+	readonly signal?: AbortSignal;
+	/** Post-idle grace before a nonterminal pending result is produced. */
+	readonly responseGraceSeconds?: number;
+	/** One end-to-end budget from dispatch through the correlated Response. */
+	readonly totalWaitSeconds?: number;
+}
+
+export type AskResult =
+	| {
+			readonly status: "answered";
+			readonly code: "response";
+			readonly accepted: true;
+			readonly answered: true;
+			readonly safeRetry: false;
+			readonly member: MemberStatusIdentity;
+			readonly message: string;
+			readonly instructions: readonly string[];
+			readonly requestAgeMs?: number;
+	  }
+	| {
+			readonly status: "offline";
+			readonly code: "offline-member";
+			readonly accepted: true;
+			readonly answered: false;
+			readonly safeRetry: false;
+			readonly member: MemberStatusIdentity;
+	  }
+	| {
+			readonly status: "timeout";
+			readonly code: "timeout-after-idle" | "timeout-total";
+			readonly accepted: true;
+			readonly answered: false;
+			readonly safeRetry: false;
+			readonly member: MemberStatusIdentity;
+	  };
+
 export interface BebopSource {
+	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
 	getMemberStatus(member: string, options?: BebopOperationOptions): Promise<MemberStatus>;
 	getMemberLastMessage(member: string, options?: BebopOperationOptions): Promise<MemberLastMessageResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
@@ -167,6 +219,7 @@ function defaultErrorMessage(code: BebopClientErrorCode): string {
 			"unknown-session": "Source session was not found",
 			"offline-session": "Source session is offline",
 			"offline-member": "Crew member is offline",
+			"route-lost": "The route to the Crew member was lost",
 			"message-too-large": "Crew member's last message is too large",
 			"not-joined": "Source session is not joined to a crew",
 			untrusted: "Source project is not trusted",
@@ -197,6 +250,10 @@ function validateTimeout(timeoutMs: number | undefined): number {
 function createBudget(options: BebopOperationOptions | undefined): Budget {
 	if (options?.signal?.aborted) throw new BebopClientError("aborted");
 	const timeoutMs = validateTimeout(options?.timeoutMs);
+	return createDeadlineBudget(options?.signal, timeoutMs);
+}
+
+function createDeadlineBudget(signal: AbortSignal | undefined, timeoutMs: number): Budget {
 	const controller = new AbortController();
 	let expired = false;
 	const startedAt = Date.now();
@@ -204,15 +261,15 @@ function createBudget(options: BebopOperationOptions | undefined): Budget {
 		expired = true;
 		controller.abort(new DeadlineExceeded());
 	}, timeoutMs);
-	const onAbort = () => controller.abort(options?.signal?.reason);
-	options?.signal?.addEventListener("abort", onAbort, { once: true });
+	const onAbort = () => controller.abort(signal?.reason);
+	signal?.addEventListener("abort", onAbort, { once: true });
 	return {
 		signal: controller.signal,
 		remaining: () => Math.max(1, timeoutMs - (Date.now() - startedAt)),
 		timedOut: () => expired,
 		cleanup() {
 			clearTimeout(timer);
-			options?.signal?.removeEventListener("abort", onAbort);
+			signal?.removeEventListener("abort", onAbort);
 		},
 	};
 }
@@ -229,6 +286,42 @@ async function withBudget<T>(
 	} finally {
 		budget.cleanup();
 	}
+}
+
+function validateAskOptions(options: AskOptions | undefined): {
+	readonly responseGraceSeconds: number;
+	readonly totalWaitSeconds: number;
+} {
+	const responseGraceSeconds = options?.responseGraceSeconds ?? DEFAULT_ASK_RESPONSE_GRACE_SECONDS;
+	const totalWaitSeconds = options?.totalWaitSeconds ?? DEFAULT_ASK_TOTAL_WAIT_SECONDS;
+	if (
+		!Number.isInteger(responseGraceSeconds) ||
+		responseGraceSeconds < 1 ||
+		responseGraceSeconds > MAX_ASK_RESPONSE_GRACE_SECONDS
+	)
+		return invalidInput();
+	if (
+		!Number.isInteger(totalWaitSeconds) ||
+		totalWaitSeconds < MIN_ASK_TOTAL_WAIT_SECONDS ||
+		totalWaitSeconds > MAX_ASK_TOTAL_WAIT_SECONDS ||
+		totalWaitSeconds <= responseGraceSeconds
+	)
+		return invalidInput();
+	return { responseGraceSeconds, totalWaitSeconds };
+}
+
+function withAskBudget<T>(
+	options: AskOptions | undefined,
+	settings: { readonly totalWaitSeconds: number },
+	operation: (budget: Budget) => Promise<T>,
+): Promise<T> {
+	if (options?.signal?.aborted) throw new BebopClientError("aborted");
+	const budget = createDeadlineBudget(options?.signal, settings.totalWaitSeconds * 1000);
+	return operation(budget)
+		.catch((error) => {
+			throw normalizeError(error, budget);
+		})
+		.finally(() => budget.cleanup());
 }
 
 function budgetAbortReason(budget: Budget): unknown {
@@ -379,7 +472,7 @@ function validateInstructions(instructions: readonly string[] | undefined): void
 function validateEffectPayload(
 	message: string,
 	instructions: readonly string[] | undefined,
-	kind: "follow-up" | "inbox",
+	kind: "follow-up" | "inbox" | "member request",
 ): void {
 	// Source runtimes add these fields before persistence/delivery. Use valid
 	// one-byte control characters to conservatively model their escaped size.
@@ -491,6 +584,93 @@ function sourceClient(endpoint: string): BebopSource {
 		});
 
 	return {
+		ask(member, input, options) {
+			validateMember(member);
+			if (!input || typeof input !== "object") return invalidInput();
+			validateMessage(input.question);
+			validateInstructions(input.instructions);
+			validateEffectPayload(input.question, input.instructions, "member request");
+			const settings = validateAskOptions(options);
+			return withAskBudget(options, settings, async (budget) => {
+				let acceptedMember: MemberStatusIdentity | undefined;
+				try {
+					const started = await sendRpcCommand(
+						endpoint,
+						{
+							type: "member_request_start",
+							target: member,
+							message: input.question,
+							...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
+							timeoutSeconds: settings.responseGraceSeconds,
+							// The wire protocol keeps requests alive for at least 60 seconds. The SDK's
+							// shorter local budget still bounds this call and deliberately reports
+							// outcome-unknown if that server-side request outlives the caller.
+							maxWaitSeconds: Math.max(60, settings.totalWaitSeconds),
+						},
+						{
+							timeout: Math.min(ASK_DELIVERY_TIMEOUT_MS, budget.remaining()),
+							signal: budget.signal,
+							classifyLostAck: true,
+						},
+					);
+					const accepted = started.response.data;
+					if (!isMemberRequestResult(accepted))
+						throw new RpcProtocolError("malformed-response", "Invalid member request acceptance");
+					acceptedMember = accepted.member;
+					for (;;) {
+						const waited = await sendRpcCommand(
+							endpoint,
+							{ type: "member_request_wait", requestId: accepted.requestId },
+							{ timeout: budget.remaining(), signal: budget.signal },
+						);
+						const outcome = waited.response.data as MemberRequestWaitResult;
+						if (outcome.kind === "pending") continue;
+						if (outcome.kind === "response")
+							return {
+								status: "answered" as const,
+								code: "response" as const,
+								accepted: true as const,
+								answered: true as const,
+								safeRetry: false as const,
+								member: outcome.member,
+								message: outcome.message,
+								instructions: [...outcome.instructions],
+								...(outcome.requestAgeMs === undefined ? {} : { requestAgeMs: outcome.requestAgeMs }),
+							};
+						if (outcome.kind === "offline")
+							return {
+								status: "offline" as const,
+								code: "offline-member" as const,
+								accepted: true as const,
+								answered: false as const,
+								safeRetry: false as const,
+								member: outcome.member,
+							};
+						return {
+							status: "timeout" as const,
+							code: "timeout-total" as const,
+							accepted: true as const,
+							answered: false as const,
+							safeRetry: false as const,
+							member: outcome.member,
+						};
+					}
+				} catch (error) {
+					if (acceptedMember !== undefined) {
+						const normalized = normalizeError(error, budget);
+						if (normalized.code === "timeout" || normalized.code === "aborted")
+							throw new BebopClientError("outcome-unknown");
+						if (
+							normalized.code === "offline-session" ||
+							normalized.code === "transport-error" ||
+							normalized.code === "outcome-unknown"
+						)
+							throw new BebopClientError("route-lost");
+					}
+					throw error;
+				}
+			});
+		},
 		getMemberStatus(member, options) {
 			validateMember(member);
 			return call({ type: "member_status_target", target: member }, options, (value) => {
