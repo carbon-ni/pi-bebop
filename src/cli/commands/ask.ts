@@ -20,6 +20,9 @@ import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, type SourceResolution } from "../support/source-session.ts";
 import { MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS, MAX_MEMBER_REQUEST_TIMEOUT_SECONDS } from "../../domain/index.ts";
 import { parsePositiveDurationMs } from "../support/duration.ts";
+import { BebopClientError } from "../../sdk/errors.ts";
+import { createAskOperation } from "../../sdk/ask-operation.ts";
+import { createRemoteMemberRequestOperation } from "../../sdk/member-request-operation.ts";
 
 const FORMATS = ["toon", "json", "text"] as const;
 const DEFAULT_RESPONSE_GRACE_SECONDS = 30;
@@ -249,6 +252,21 @@ function errorOutcome(options: AskCliOptions, code: string, message: string, dat
 }
 
 function mapError(error: unknown): { code: string; message: string; data?: unknown } {
+	if (error instanceof BebopClientError) {
+		if (error.code === "aborted") return { code: "cancelled", message: "Ask cancelled" };
+		if (error.code === "timeout")
+			return { code: "timeout-total", message: "No Response arrived before the total Ask timeout." };
+		if (error.code === "route-lost")
+			return { code: "route-lost", message: "The target route was lost before a Response." };
+		if (error.code === "malformed-response")
+			return { code: "malformed-response", message: "The Ask outcome was malformed." };
+		if (error.code === "outcome-unknown")
+			return {
+				code: "delivery-timeout-unknown",
+				message: "Delivery acceptance is unknown; do not retry automatically.",
+				data: { acceptance: "unknown", safeRetry: false },
+			};
+	}
 	if (error instanceof CrewRouteResolutionError) return { code: error.code, message: error.recovery };
 	if (error instanceof RpcProtocolError) {
 		if (error.code === "outcome-unknown")
@@ -410,6 +428,80 @@ async function awaitAskOutcome(
 	}
 }
 
+function createCliAskOperation(
+	deps: AskCliDependencies,
+	source: SourceResolution & { ok: true },
+) {
+	const request = createRemoteMemberRequestOperation({
+		sendStart: async (command, operationOptions) => {
+			const result = await deps.send(
+				source,
+				command,
+				Math.min(DELIVERY_TIMEOUT_MS, operationOptions?.timeoutMs ?? DELIVERY_TIMEOUT_MS),
+				operationOptions?.signal,
+			);
+			if (!result.response.success)
+				throw new RpcProtocolError("remote-error", result.response.error ?? "source rejected operation");
+			return result.response.data;
+		},
+		sendWait: async (command, operationOptions) => {
+			const result = await deps.wait(
+				source,
+				command.requestId,
+				operationOptions?.timeoutMs ?? DELIVERY_TIMEOUT_MS,
+				operationOptions?.signal,
+			);
+			if (!result.response.success)
+				throw new RpcProtocolError("remote-error", result.response.error ?? "source rejected operation");
+			return result.response.data;
+		},
+		sendResponse: async () => {
+			throw new RpcProtocolError("transport-error", "Ask does not send a response");
+		},
+	});
+	return createAskOperation({
+		request,
+		policy: { pending: "timeout-after-idle", acceptedAbort: "aborted", maxTotalWaitSeconds: 7_200 },
+	});
+}
+
+function outcomeFromAskResult(
+	options: AskCliOptions,
+	route: ResolvedCrewRoute,
+	result: Awaited<ReturnType<ReturnType<typeof createCliAskOperation>["ask"]>>,
+): CliOutcome {
+	if (result.status === "answered")
+		return {
+			kind: "result",
+			result: {
+				ok: true,
+				target: options.target,
+				status: "response",
+				response: result.message,
+				data: {
+					crew: route.target.crew,
+					member: route.target.member,
+					answer: result.message,
+					instructions: result.instructions,
+					...(result.requestAgeMs === undefined ? {} : { freshness: { requestAgeMs: result.requestAgeMs } }),
+				},
+			},
+			format: options.format,
+			full: false,
+		};
+	if (result.code === "timeout-after-idle")
+		return errorOutcome(options, "timeout-after-idle", "No Response arrived during the post-idle grace period.", {
+			outcome: "timeout-after-idle",
+			safeRetry: false,
+		});
+	if (result.code === "timeout-total")
+		return errorOutcome(options, "timeout-total", "No Response arrived before the total Ask timeout.", {
+			outcome: "timeout-total",
+			safeRetry: false,
+		});
+	return errorOutcome(options, "route-lost", "The target route was lost before a Response.");
+}
+
 export async function runAskCommand(
 	options: AskCliOptions,
 	context: CliContext,
@@ -422,7 +514,23 @@ export async function runAskCommand(
 	if (source.ok === false) throw new UsageError(source.message);
 	const discovered = await discoverAskRoute(options, context, deps, source);
 	if (discovered.ok === false) return discovered.outcome;
-	const delivered = await deliverAsk(options, context, deps, source, discovered.route);
-	if (delivered.ok === false) return delivered.outcome;
-	return await awaitAskOutcome(options, context, deps, source, discovered.route, delivered.requestId);
+	try {
+		const result = await createCliAskOperation(deps, source).ask(
+			discovered.route.target.member.name,
+			{
+				question: options.question,
+				instructions: options.instructions,
+				...(discovered.route.caller.kind === "guest" ? { crew: discovered.route.target.crew.selector } : {}),
+			},
+			{
+				signal: context.signal,
+				responseGraceSeconds: options.responseGraceSeconds,
+				totalWaitSeconds: options.totalWaitSeconds,
+			},
+		);
+		return outcomeFromAskResult(options, discovered.route, result);
+	} catch (error) {
+		const mapped = mapError(error);
+		return errorOutcome(options, mapped.code, mapped.message, mapped.data);
+	}
 }
