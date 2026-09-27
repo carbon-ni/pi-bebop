@@ -130,6 +130,28 @@ test("remote Broadcast maps no recipients, rejects malformed results, and never 
 		code: "no-recipients",
 	});
 
+	const legacyInvalidRequest = createRemoteCrewBroadcastOperation({
+		send: async () => {
+			throw new RpcProtocolError("remote-error", "invalid-request: invalid broadcast payload");
+		},
+	});
+	await assert.rejects(legacyInvalidRequest.broadcastToCrew({ message: "hello" }), (error) => {
+		assert.ok(error instanceof BebopClientError);
+		assert.equal(error.code, "invalid-input");
+		return true;
+	});
+
+	const malformedProtocol = createRemoteCrewBroadcastOperation({
+		send: async () => {
+			throw new RpcProtocolError("mismatched-id", "wrong response id");
+		},
+	});
+	await assert.rejects(malformedProtocol.broadcastToCrew({ message: "hello" }), (error) => {
+		assert.ok(error instanceof BebopClientError);
+		assert.equal(error.code, "malformed-response");
+		return true;
+	});
+
 	const untrusted = createRemoteCrewBroadcastOperation({
 		send: async () => {
 			throw new Error("remote-error: untrusted-project: trust is required");

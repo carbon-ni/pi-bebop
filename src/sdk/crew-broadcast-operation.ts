@@ -139,45 +139,37 @@ function rpcCode(error: RpcProtocolError): string {
 
 function mapRemoteError(error: unknown): BebopClientError {
 	if (error instanceof BebopClientError) return error;
-	const protocolCode =
-		error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : undefined;
+	const known: Record<string, ConstructorParameters<typeof BebopClientError>[0]> = {
+		"not-joined": "not-joined",
+		"untrusted-project": "untrusted",
+		untrusted: "untrusted",
+		"unknown-session": "unknown-session",
+		"offline-session": "offline-session",
+		"offline-member": "offline-member",
+		"unknown-member": "unknown-member",
+		"ambiguous-role": "ambiguous-member",
+		"unknown-sender": "remote-rejected",
+		"invalid-input": "invalid-input",
+		"invalid-request": "invalid-input",
+		aborted: "aborted",
+		timeout: "timeout",
+		"transport-error": "transport-error",
+		"outcome-unknown": "outcome-unknown",
+	};
+	if (error instanceof RpcProtocolError) {
+		if (error.code === "outcome-unknown") return new BebopClientError("outcome-unknown");
+		if (error.code === "malformed-response" || error.code === "invalid-result" || error.code === "mismatched-id")
+			return new BebopClientError("malformed-response");
+		const code = error.code === "remote-error" ? rpcCode(error) : error.code;
+		return new BebopClientError(known[code] ?? "remote-rejected", error.message);
+	}
 	const remoteCodeFromMessage =
 		error instanceof Error ? /^remote-error:\s*([^:\s]+)/u.exec(error.message)?.[1] : undefined;
-	if (
-		error instanceof RpcProtocolError ||
-		remoteCodeFromMessage ||
-		["outcome-unknown", "malformed-response", "invalid-result", "remote-error"].includes(protocolCode ?? "")
-	) {
-		if (protocolCode === "outcome-unknown") return new BebopClientError("outcome-unknown");
-		if (protocolCode === "malformed-response" || protocolCode === "invalid-result")
-			return new BebopClientError("malformed-response");
-		if (protocolCode === "remote-error" || remoteCodeFromMessage) {
-			const code =
-				error instanceof RpcProtocolError
-					? rpcCode(error)
-					: (remoteCodeFromMessage ?? (error as Error).message.trim().split(/[:\s]/u, 1)[0]!);
-			const known: Record<string, ConstructorParameters<typeof BebopClientError>[0]> = {
-				"not-joined": "not-joined",
-				"untrusted-project": "untrusted",
-				untrusted: "untrusted",
-				"unknown-session": "unknown-session",
-				"offline-session": "offline-session",
-				"offline-member": "offline-member",
-				"unknown-member": "unknown-member",
-				"ambiguous-role": "ambiguous-member",
-				"unknown-sender": "remote-rejected",
-				"invalid-request": "invalid-input",
-				aborted: "aborted",
-				timeout: "timeout",
-				"transport-error": "transport-error",
-				"outcome-unknown": "outcome-unknown",
-			};
-			return new BebopClientError(
-				known[code] ?? "remote-rejected",
-				error instanceof Error ? error.message : undefined,
-			);
-		}
-	}
+	if (remoteCodeFromMessage)
+		return new BebopClientError(
+			known[remoteCodeFromMessage] ?? "remote-rejected",
+			error instanceof Error ? error.message : undefined,
+		);
 	if (error instanceof Error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (error.name === "AbortError" || code === "aborted") return new BebopClientError("aborted");

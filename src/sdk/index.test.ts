@@ -321,6 +321,27 @@ test("SDK Broadcast preserves operation-specific remote results on the selected 
 	}
 });
 
+test("SDK Broadcast maps direct RPC authority and validation rejections on the selected source", async (t) => {
+	for (const [remoteCode, expectedCode] of [
+		["not-joined", "not-joined"],
+		["untrusted-project", "untrusted"],
+		["invalid-input", "invalid-input"],
+	] as const) {
+		await t.test(remoteCode, async () => {
+			const source = await fakeSource({ remoteError: remoteCode });
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				await assert.rejects(
+					selected.broadcastToCrew({ message: "crew update" }),
+					(error: unknown) => error instanceof BebopClientError && error.code === expectedCode,
+				);
+			} finally {
+				await source.close();
+			}
+		});
+	}
+});
+
 test("SDK Follow-up preserves its operation-specific rejection mapping on the selected source", async () => {
 	const source = await fakeSource({ remoteError: "self-send" });
 	try {
