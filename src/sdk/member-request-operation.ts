@@ -122,7 +122,7 @@ interface OperationBudget {
 	cleanup(): void;
 }
 
-function createBudget(options: MemberRequestOperationOptions | undefined): OperationBudget {
+function validateOperationOptions(options: MemberRequestOperationOptions | undefined): void {
 	const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	if (
 		!Number.isFinite(timeoutMs) ||
@@ -132,6 +132,11 @@ function createBudget(options: MemberRequestOperationOptions | undefined): Opera
 	)
 		throw new BebopClientError("invalid-input");
 	if (options?.signal?.aborted) throw new BebopClientError("aborted");
+}
+
+function createBudget(options: MemberRequestOperationOptions | undefined): OperationBudget {
+	validateOperationOptions(options);
+	const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const controller = new AbortController();
 	let expired = false;
 	const onAbort = () => controller.abort(options?.signal?.reason);
@@ -184,6 +189,9 @@ function validateStart(member: string, input: MemberRequestStartInput): void {
 		(!Number.isInteger(input.maxWaitSeconds) || input.maxWaitSeconds < 60 || input.maxWaitSeconds > 7200)
 	)
 		throw new BebopClientError("invalid-input");
+	const timeoutSeconds = input.timeoutSeconds ?? 120;
+	const maxWaitSeconds = input.maxWaitSeconds ?? 1800;
+	if (maxWaitSeconds <= timeoutSeconds) throw new BebopClientError("invalid-input");
 	const payload = {
 		content: input.message,
 		...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
@@ -231,6 +239,7 @@ export function createRemoteMemberRequestOperation(
 	return {
 		async startMemberRequest(member, input, options) {
 			validateStart(member, input);
+			validateOperationOptions(options);
 			const result = await runRemote(
 				() =>
 					dependencies.sendStart(
@@ -252,6 +261,7 @@ export function createRemoteMemberRequestOperation(
 		},
 		async waitForRequestOutcome(requestId, options) {
 			validateRequestId(requestId);
+			validateOperationOptions(options);
 			const result = await runRemote(
 				() => dependencies.sendWait({ type: "member_request_wait", requestId }, options),
 				"wait",
@@ -264,6 +274,7 @@ export function createRemoteMemberRequestOperation(
 		async respondToMemberRequest(requestId, input, options) {
 			validateRequestId(requestId);
 			validateResponse(input);
+			validateOperationOptions(options);
 			const result = await runRemote(
 				() =>
 					dependencies.sendResponse(

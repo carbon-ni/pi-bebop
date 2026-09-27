@@ -4,6 +4,7 @@ import { RequestOutcomeRegistry } from "../domain/member-request.ts";
 import { BebopClientError } from "./errors.ts";
 import {
 	createInProcessMemberRequestOperation,
+	createRemoteMemberRequestOperation,
 	type InProcessMemberRequestFlowCapability,
 } from "./member-request-operation.ts";
 
@@ -119,4 +120,95 @@ test("in-process operations read live trust and membership authority", async () 
 		setupResult.operation.startMemberRequest("reviewer", { message: "Review this" }),
 		(error: unknown) => error instanceof BebopClientError && error.code === "not-joined",
 	);
+});
+
+function remoteSetup() {
+	const calls: string[] = [];
+	const operation = createRemoteMemberRequestOperation({
+		sendStart: async () => {
+			calls.push("start");
+			return { accepted: true, requestId: "request-1", member: { name: "reviewer", role: "reviewer" } };
+		},
+		sendWait: async () => {
+			calls.push("wait");
+			return {
+				kind: "pending",
+				requestId: "request-1",
+				member: { name: "reviewer", role: "reviewer" },
+				reason: "pending-after-idle",
+			};
+		},
+		sendResponse: async () => {
+			calls.push("respond");
+			return {};
+		},
+	});
+	return { calls, operation };
+}
+
+const remotePaths = [
+	{
+		name: "start",
+		invoke: (
+			operation: ReturnType<typeof remoteSetup>["operation"],
+			options: { signal?: AbortSignal; timeoutMs?: number },
+		) =>
+			operation.startMemberRequest(
+				"reviewer",
+				{ message: "Review this", timeoutSeconds: 1, maxWaitSeconds: 60 },
+				options,
+			),
+	},
+	{
+		name: "wait",
+		invoke: (
+			operation: ReturnType<typeof remoteSetup>["operation"],
+			options: { signal?: AbortSignal; timeoutMs?: number },
+		) => operation.waitForRequestOutcome("request-1", options),
+	},
+	{
+		name: "respond",
+		invoke: (
+			operation: ReturnType<typeof remoteSetup>["operation"],
+			options: { signal?: AbortSignal; timeoutMs?: number },
+		) => operation.respondToMemberRequest("request-1", { message: "Acknowledged" }, options),
+	},
+] as const;
+
+for (const path of remotePaths) {
+	test(`remote ${path.name} validates aborted options before dispatch`, async () => {
+		const { operation, calls } = remoteSetup();
+		const controller = new AbortController();
+		controller.abort();
+		await assert.rejects(
+			path.invoke(operation, { signal: controller.signal }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "aborted",
+		);
+		assert.deepEqual(calls, []);
+	});
+
+	test(`remote ${path.name} validates timeout options before dispatch`, async () => {
+		const { operation, calls } = remoteSetup();
+		await assert.rejects(
+			path.invoke(operation, { timeoutMs: 49 }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+		);
+		assert.deepEqual(calls, []);
+	});
+
+	test(`remote ${path.name} dispatches valid option bounds`, async () => {
+		const { operation, calls } = remoteSetup();
+		await path.invoke(operation, { timeoutMs: 50 });
+		await path.invoke(operation, { timeoutMs: 7_210_000 });
+		assert.deepEqual(calls, [path.name, path.name]);
+	});
+}
+
+test("remote start validates max wait after the effective request timeout", async () => {
+	const { operation, calls } = remoteSetup();
+	await assert.rejects(
+		operation.startMemberRequest("reviewer", { message: "Review this", timeoutSeconds: 120, maxWaitSeconds: 120 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+	);
+	assert.deepEqual(calls, []);
 });
