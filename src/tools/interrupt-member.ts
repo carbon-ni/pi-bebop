@@ -30,13 +30,17 @@ export function registerInterruptMemberTool(pi: ExtensionAPI, operation: MemberI
 		description:
 			"Hard-interrupt another crew member's active work and deliver recovery guidance before any queued follow-ups. Use ONLY to stop or recover work that is stuck, harmful, or based on invalid assumptions; for normal urgency use redirect_member or send_follow_up. The target must be online. Abort is best-effort and never rolls back filesystem, shell, network, or already-completed side effects.",
 		parameters,
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params, signal) {
 			const targetName = params.member.trim();
 			try {
-				const result = await operation.interruptMember(targetName, {
+				const input = {
 					message: params.message,
 					...(params.instructions === undefined ? {} : { instructions: [...params.instructions] }),
-				});
+				};
+				const result =
+					signal === undefined
+						? await operation.interruptMember(targetName, input)
+						: await operation.interruptMember(targetName, input, { signal });
 				const dispositionText =
 					result.disposition === "interrupt-requested"
 						? "abort requested best-effort; recovery queued ahead of follow-ups"

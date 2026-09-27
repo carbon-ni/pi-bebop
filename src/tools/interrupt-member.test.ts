@@ -1,7 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { BebopClientError, type MemberInterruptOperation } from "../sdk/index.ts";
+import {
+	BebopClientError,
+	createInProcessMemberInterruptOperation,
+	type MemberInterruptOperation,
+} from "../sdk/index.ts";
 import { registerInterruptMemberTool } from "./interrupt-member.ts";
 
 type RegisteredTool = {
@@ -11,6 +15,7 @@ type RegisteredTool = {
 	execute(
 		toolCallId: string,
 		params: Record<string, unknown>,
+		signal?: AbortSignal,
 	): Promise<{
 		content: Array<{ type: "text"; text: string }>;
 		isError?: boolean;
@@ -62,6 +67,37 @@ describe("interrupt_member tool", () => {
 		assert.equal(result.isError, undefined);
 		assert.match(result.content[0]!.text, /abort requested best-effort/);
 		assert.deepEqual(result.details, { interruptId: "interrupt-1", disposition: "interrupt-requested" });
+	});
+
+	test("passes a pre-aborted Pi signal to the SDK before side effects", async () => {
+		let membershipReads = 0;
+		let sends = 0;
+		const operation = createInProcessMemberInterruptOperation({
+			surface: {
+				getMembership: () => {
+					membershipReads += 1;
+					return null;
+				},
+				isTrusted: () => true,
+			},
+			resolveEndpoint: async () => "/project/member.sock",
+			transport: {
+				send: async () => {
+					sends += 1;
+					throw new Error("unexpected dispatch");
+				},
+			},
+		});
+		const tool = setup(operation.interruptMember);
+		const controller = new AbortController();
+		controller.abort();
+
+		const result = await tool.execute("id", { member: "Bob", message: "stop" }, controller.signal);
+
+		assert.equal(result.isError, true);
+		assert.deepEqual(result.details, { error: "aborted" });
+		assert.equal(membershipReads, 0);
+		assert.equal(sends, 0);
 	});
 
 	test("maps SDK authority and malformed-response failures to tool errors", async () => {
