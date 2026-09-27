@@ -23,6 +23,26 @@ import {
 } from "../domain/message-payload.ts";
 import { getAliasPath, getSocketPath, CONTROL_DIR } from "../infra/intray-paths.ts";
 import { RpcProtocolError, sendRpcCommand } from "../infra/rpc-client.ts";
+import { BebopClientError, type BebopClientErrorCode } from "./errors.ts";
+import {
+	createRemoteFollowUpOperation,
+	type FollowUpInput,
+	type FollowUpResult,
+	type RemoteFollowUpCommand,
+} from "./follow-up-operation.ts";
+export { BebopClientError } from "./errors.ts";
+export type { BebopClientErrorCode } from "./errors.ts";
+export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
+export type {
+	FollowUpInput,
+	FollowUpOperation,
+	FollowUpOperationOptions,
+	FollowUpResult,
+	InProcessFollowUpOperationDependencies,
+	InProcessFollowUpSurface,
+	RemoteFollowUpCommand,
+	RemoteFollowUpDependencies,
+} from "./follow-up-operation.ts";
 
 const MAX_DISCOVERY_ENTRIES = 256;
 const MAX_DISCOVERY_SOURCES = 100;
@@ -36,37 +56,6 @@ const MAX_ASK_RESPONSE_GRACE_SECONDS = 600;
 const DEFAULT_ASK_TOTAL_WAIT_SECONDS = 120;
 const MIN_ASK_TOTAL_WAIT_SECONDS = 2;
 const MAX_ASK_TOTAL_WAIT_SECONDS = 1_800;
-
-export type BebopClientErrorCode =
-	| "invalid-input"
-	| "source-required"
-	| "invalid-session"
-	| "unknown-session"
-	| "offline-session"
-	| "offline-member"
-	| "route-lost"
-	| "message-too-large"
-	| "not-joined"
-	| "untrusted"
-	| "unknown-member"
-	| "ambiguous-member"
-	| "self-query"
-	| "remote-rejected"
-	| "malformed-response"
-	| "timeout"
-	| "aborted"
-	| "transport-error"
-	| "outcome-unknown";
-
-export class BebopClientError extends Error {
-	readonly code: BebopClientErrorCode;
-
-	constructor(code: BebopClientErrorCode, message?: string) {
-		super(message ?? defaultErrorMessage(code));
-		this.name = "BebopClientError";
-		this.code = code;
-	}
-}
 
 export interface BebopOperationOptions {
 	readonly signal?: AbortSignal;
@@ -221,17 +210,6 @@ export interface InProcessMemberStatusOperationDependencies {
 	readonly surface: InProcessMemberStatusSurface;
 }
 
-export interface FollowUpInput {
-	readonly message: string;
-	readonly instructions?: readonly string[];
-}
-
-export interface FollowUpResult {
-	readonly member: MemberStatusIdentity;
-	readonly deliveryId: string;
-	readonly disposition: "direct" | "queued" | "steered";
-}
-
 export interface InboxInput {
 	readonly message: string;
 	readonly instructions?: readonly string[];
@@ -309,32 +287,6 @@ class DeadlineExceeded extends Error {
 		super("deadline exceeded");
 		this.name = "DeadlineExceeded";
 	}
-}
-
-function defaultErrorMessage(code: BebopClientErrorCode): string {
-	return (
-		{
-			"invalid-input": "Invalid SDK input",
-			"source-required": "A source session is required",
-			"invalid-session": "Invalid source session",
-			"unknown-session": "Source session was not found",
-			"offline-session": "Source session is offline",
-			"offline-member": "Crew member is offline",
-			"route-lost": "The route to the Crew member was lost",
-			"message-too-large": "Crew member's last message is too large",
-			"not-joined": "Source session is not joined to a crew",
-			untrusted: "Source project is not trusted",
-			"unknown-member": "Crew member was not found",
-			"ambiguous-member": "Crew member selector is ambiguous",
-			"self-query": "Cannot query the source member",
-			"remote-rejected": "Source rejected the operation",
-			"malformed-response": "Source returned a malformed response",
-			timeout: "Bebop operation timed out",
-			aborted: "Bebop operation was aborted",
-			"transport-error": "Bebop transport failed",
-			"outcome-unknown": "The operation may have been accepted but its acknowledgement was lost",
-		} as Record<BebopClientErrorCode, string>
-	)[code];
 }
 
 function invalidInput(): never {
@@ -776,6 +728,9 @@ function sourceClient(endpoint: string): BebopSource {
 
 	const statusOperation = createRemoteMemberStatusOperation(call);
 	const lastMessageOperation = createRemoteMemberLastMessageOperation(call);
+	const followUpOperation = createRemoteFollowUpOperation({
+		send: (command: RemoteFollowUpCommand, options) => call(command, options, (value) => value, true),
+	});
 	return {
 		...statusOperation,
 		...lastMessageOperation,
@@ -881,28 +836,7 @@ function sourceClient(endpoint: string): BebopSource {
 			});
 		},
 		sendFollowUp(member, input, options) {
-			validateMember(member);
-			validateMessage(input.message);
-			validateInstructions(input.instructions);
-			validateEffectPayload(input.message, input.instructions, "follow-up");
-			return call(
-				{
-					type: "member_follow_up",
-					target: member,
-					message: input.message,
-					...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
-				},
-				options,
-				(value) => {
-					if (!isMemberMessageResult(value)) throw new BebopClientError("malformed-response");
-					return {
-						member: value.member,
-						deliveryId: value.deliveryId,
-						disposition: value.disposition,
-					};
-				},
-				true,
-			);
+			return followUpOperation.sendFollowUp(member, input, options);
 		},
 		sendToInbox(member, input, options) {
 			validateMember(member);

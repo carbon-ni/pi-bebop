@@ -324,6 +324,7 @@ test("tool and CLI produce identical wire delivery, disposition, and identity fo
 		} as never;
 		toolState.context = {
 			sessionManager: { getSessionId: () => "s1", getSessionName: () => null },
+			isProjectTrusted: () => true,
 		} as never;
 		registerMemberIntentTool(
 			toolPi,

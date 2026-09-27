@@ -9,6 +9,7 @@ import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
 import { readStdinMessage } from "../support/message-input.ts";
+import { BebopClientError, createRemoteFollowUpOperation } from "../../sdk/index.ts";
 
 /**
  * TASK-0062: `member follow-up <member>` and `member redirect <member>` —
@@ -23,6 +24,10 @@ import { readStdinMessage } from "../support/message-input.ts";
  */
 
 export type MemberMessageIntent = "follow_up" | "redirect";
+
+type MemberMessageWireCommand =
+	| { type: "member_follow_up"; target: string; message: string; instructions: readonly string[] }
+	| { type: "member_redirect"; target: string; message: string; instructions: readonly string[] };
 
 export interface MemberMessageCliOptions {
 	readonly command: "member-follow-up" | "member-redirect";
@@ -168,12 +173,7 @@ export interface MemberMessageCliDependencies {
 	readonly readStdin: typeof readStdinMessage;
 	readonly deliverMessage: (
 		source: SourceResolution & { ok: true },
-		command: {
-			type: "member_follow_up" | "member_redirect";
-			target: string;
-			message: string;
-			instructions: readonly string[];
-		},
+		command: MemberMessageWireCommand,
 		signal: AbortSignal,
 	) => Promise<{ ok: true; result: MemberMessageResult } | { ok: false; code: string }>;
 	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
@@ -192,12 +192,7 @@ function mapTransportError(error: unknown): { ok: false; code: string } {
 
 async function deliverThroughSocket(
 	source: SourceResolution & { ok: true },
-	command: {
-		type: "member_follow_up" | "member_redirect";
-		target: string;
-		message: string;
-		instructions: readonly string[];
-	},
+	command: MemberMessageWireCommand,
 	signal: AbortSignal,
 ): Promise<{ ok: true; result: MemberMessageResult } | { ok: false; code: string }> {
 	const resolved = await resolveMemberEndpoint(source.idSocketPath);
@@ -223,10 +218,60 @@ async function deliverThroughSocket(
 	}
 }
 
+async function deliverFollowUpThroughSdk(
+	source: SourceResolution & { ok: true },
+	command: Extract<MemberMessageWireCommand, { type: "member_follow_up" }>,
+	signal: AbortSignal,
+): Promise<{ ok: true; result: MemberMessageResult } | { ok: false; code: string }> {
+	const deliver = async (candidate: SourceResolution & { ok: true }) => {
+		const endpoint = await resolveMemberEndpoint(candidate.idSocketPath);
+		const operation = createRemoteFollowUpOperation({
+			send: async (request, options) => {
+				const { response } = await sendRpcCommand(endpoint, request, {
+					timeout: options?.timeoutMs ?? 5000,
+					signal: options?.signal,
+					classifyLostAck: true,
+				});
+				if (!response.success)
+					throw new RpcProtocolError("remote-error", response.error ?? "source rejected operation");
+				return response.data;
+			},
+		});
+		const result = await operation.sendFollowUp(
+			command.target,
+			{
+				message: command.message,
+				...(command.instructions.length === 0 ? {} : { instructions: command.instructions }),
+			},
+			{ signal, timeoutMs: 5000 },
+		);
+		return { ok: true as const, result };
+	};
+	try {
+		return await deliver(source);
+	} catch (idError) {
+		if (idError instanceof BebopClientError) {
+			if (idError.code !== "unknown-session")
+				return { ok: false, code: idError.code === "offline-member" ? "offline" : idError.code };
+		} else {
+			const mapped = mapTransportError(idError);
+			if (mapped.code !== "unknown-session") return mapped;
+		}
+		try {
+			return await deliver({ ...source, idSocketPath: source.aliasSocketPath });
+		} catch (aliasError) {
+			return aliasError instanceof BebopClientError
+				? { ok: false, code: aliasError.code === "offline-member" ? "offline" : aliasError.code }
+				: mapTransportError(aliasError);
+		}
+	}
+}
+
 export const defaultMemberMessageCliDependencies: MemberMessageCliDependencies = {
 	resolveSource: (input) => resolveSourceSession(input),
 	readStdin: readStdinMessage,
 	deliverMessage: async (source, command, signal) => {
+		if (command.type === "member_follow_up") return deliverFollowUpThroughSdk(source, command, signal);
 		try {
 			return await deliverThroughSocket(source, command, signal);
 		} catch (idError) {

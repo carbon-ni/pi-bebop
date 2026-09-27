@@ -185,7 +185,10 @@ test("crew lifecycle uses real manifest, symlink, RPC, and shutdown boundaries",
 	} as never;
 	const toolState = {
 		membershipRuntime: restoredRuntime,
-		context: { sessionManager: { getSessionId: () => "orchestrator", getSessionName: () => "lead" } },
+		context: {
+			sessionManager: { getSessionId: () => "orchestrator", getSessionName: () => "lead" },
+			isProjectTrusted: () => true,
+		},
 	} as never;
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
