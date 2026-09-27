@@ -455,7 +455,7 @@ function awaitBudget<T>(operation: PromiseLike<T>, budget: Budget): Promise<T> {
 	});
 }
 
-function preserveInboxRpcErrors(error: unknown, budget: Budget): unknown {
+function preserveOperationRpcErrors(error: unknown, budget: Budget): unknown {
 	if (error instanceof RpcProtocolError) return error;
 	return normalizeError(error, budget);
 }
@@ -788,10 +788,11 @@ function sourceClient(endpoint: string): BebopSource {
 	});
 	const inboxOperation = createRemoteMemberInboxOperation({
 		send: (command: RemoteMemberInboxCommand, options) =>
-			call(command, options, (value) => value, true, preserveInboxRpcErrors),
+			call(command, options, (value) => value, true, preserveOperationRpcErrors),
 	});
 	const crewBroadcastOperation = createRemoteCrewBroadcastOperation({
-		send: (command: RemoteCrewBroadcastCommand, options) => call(command, options, (value) => value, true),
+		send: (command: RemoteCrewBroadcastCommand, options) =>
+			call(command, options, (value) => value, true, preserveOperationRpcErrors),
 	});
 	return {
 		...statusOperation,

@@ -306,6 +306,34 @@ test("SDK Broadcast classifies a lost acknowledgement as unknown without retry",
 	}
 });
 
+test("SDK Broadcast preserves operation-specific remote results on the selected source", async (t) => {
+	for (const code of ["no-recipients", "unknown-sender"] as const) {
+		await t.test(code, async () => {
+			const source = await fakeSource({ remoteError: code });
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				assert.deepEqual(await selected.broadcastToCrew({ message: "crew update" }), { ok: false, code });
+				assert.equal(source.requests.filter((request) => request.method === "crew.broadcast").length, 1);
+			} finally {
+				await source.close();
+			}
+		});
+	}
+});
+
+test("SDK Follow-up preserves its operation-specific rejection mapping on the selected source", async () => {
+	const source = await fakeSource({ remoteError: "self-send" });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(
+			selected.sendFollowUp("developer", { message: "hello" }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "self-query",
+		);
+	} finally {
+		await source.close();
+	}
+});
+
 test("SDK Ask returns exactly the correlated Response and preserves instructions", async () => {
 	const source = await fakeSource();
 	try {

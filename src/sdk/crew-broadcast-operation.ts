@@ -213,8 +213,8 @@ function fromWireResult(result: CrewBroadcastRpcResult): CrewBroadcastResult {
 }
 
 function remoteNoRecipients(error: unknown): CrewBroadcastResult | undefined {
-	if (!(error instanceof RpcProtocolError) || error.code !== "remote-error") return undefined;
-	const code = rpcCode(error);
+	if (!(error instanceof RpcProtocolError)) return undefined;
+	const code = error.code === "remote-error" ? rpcCode(error) : error.code;
 	if (code === "no-recipients" || code === "unknown-sender") return { ok: false, code };
 	return undefined;
 }
