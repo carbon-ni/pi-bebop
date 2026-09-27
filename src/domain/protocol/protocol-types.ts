@@ -131,7 +131,9 @@ import {
 	RPC_ERROR,
 	RpcCommandResponseSchema,
 	RpcTurnEndNotificationSchema,
+	RuntimeCompatibilityCommandSchema,
 } from "./command-schemas.ts";
+import { RuntimeCompatibilityResultSchema } from "./wire-compatibility.ts";
 
 export type RpcId = Static<typeof RpcIdSchema>;
 export type RpcRequest = Static<typeof RpcRequestSchema>;
@@ -232,6 +234,7 @@ export type RpcNotification =
 	| Static<typeof MemberIdleWaitNotificationSchema>
 	| Static<typeof MemberUpdateNotificationSchema>;
 export type RpcCommand =
+	| RuntimeCompatibilityCommand
 	| Static<typeof MessageSendCommandSchema>
 	| Static<typeof InterruptCommandSchema>
 	| Static<typeof SubscribeCommandSchema>
@@ -261,6 +264,7 @@ export type RpcCommand =
 	| Static<typeof SessionCaptureCommandSchema>;
 type RequiredId<T extends { id?: RpcId }> = Omit<T, "id"> & { id: RpcId };
 export type RpcInboundCommand =
+	| RequiredId<RuntimeCompatibilityCommand>
 	| RequiredId<Static<typeof MessageSendCommandSchema>>
 	| RequiredId<Static<typeof InterruptCommandSchema>>
 	| RequiredId<Static<typeof SubscribeCommandSchema>>
@@ -306,5 +310,7 @@ export type MemberIdleWaitSubscribeResult = Static<typeof MemberIdleWaitSubscrib
 export type SessionCaptureCommand = Static<typeof SessionCaptureCommandSchema>;
 export type SessionCaptureRequest = Static<typeof SessionCaptureRequestSchema>;
 export type SessionCaptureResult = Static<typeof SessionCaptureResultSchema>;
+export type RuntimeCompatibilityCommand = Static<typeof RuntimeCompatibilityCommandSchema>;
+export type RuntimeCompatibilityResult = Static<typeof RuntimeCompatibilityResultSchema>;
 export type RpcSendCommand = MessageSendCommand;
 export type RpcSubscribeCommand = SubscribeCommand;

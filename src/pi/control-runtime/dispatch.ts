@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { RpcInboundCommand } from "../../domain/index.ts";
+import { currentRuntimeCompatibility, type RpcInboundCommand } from "../../domain/index.ts";
 import { writeResponse } from "../../infra/rpc-server.ts";
 import type { RpcSocket } from "../../infra/rpc-server.ts";
 import type { CommandHandlerContext, CommandHandlers, SocketState } from "./types.ts";
@@ -37,6 +37,7 @@ import {
 } from "./system-handlers.ts";
 
 const COMMAND_HANDLERS: CommandHandlers = {
+	runtime_compatibility: async () => undefined,
 	member_request: (context, command) => handleMemberRequest(createMemberRequestHandlerContext(context), command),
 	member_request_start: (context, command) =>
 		handleMemberRequestStart(createMemberRequestHandlerContext(context), command),
@@ -87,6 +88,10 @@ export async function handleCommand(
 	socket: RpcSocket,
 ): Promise<void> {
 	const respond = createCommandResponder(state, socket, command.id);
+	if (command.type === "runtime_compatibility") {
+		respond(true, command.type, currentRuntimeCompatibility());
+		return;
+	}
 	const ctx = state.context;
 	if (!ctx) {
 		respond(false, command.type, undefined, "Session not ready");

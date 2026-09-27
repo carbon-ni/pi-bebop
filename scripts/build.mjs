@@ -49,6 +49,10 @@ try {
 		format: "esm",
 		external: ["@earendil-works/*", "@sinclair/typebox", "typebox"],
 		outfile: join(staging, "extension.js"),
+		define: {
+			__PI_BEBOP_PACKAGE_VERSION__: JSON.stringify(packageJson.version),
+			__PI_BEBOP_BUILD_COMMIT__: JSON.stringify(buildCommit),
+		},
 	});
 	await build({
 		entryPoints: [join(projectRoot, "src/sdk/index.ts")],

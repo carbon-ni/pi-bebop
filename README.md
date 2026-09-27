@@ -121,6 +121,8 @@ Use `--help` or the standard `-h` flag for subcommands; both show Commander-gene
 
 CLI results are concise plain text by default. Use `--format toon` for structured agent output or large bounded results, and `--format json` for interoperability; format selection never changes automatically by result size.
 
+Run `bebop doctor` to perform a bounded, read-only compatibility diagnosis. It checks the installed CLI package version/build commit, trusted Crew configuration, and each discoverable Member runtime without sending messages, starting model turns, or mutating state. Package version identifies the installed artifact, build commit identifies its source revision, and runtime protocol/capabilities identify supported actions; SemVer alone does not prove compatibility. The timeout defaults to 2 seconds and is bounded to 1..30 seconds per Member. Default output uses Crew/Member identities and hides sessions, sockets, endpoints, raw protocol methods, capabilities, and credentials. Use `--diagnostic` only when safe protocol evidence is needed. Use `--format toon` or `--format json` for structured output.
+
 ## Start a Crew
 
 ```bash

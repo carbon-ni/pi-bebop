@@ -99,6 +99,13 @@ export {
 } from "./protocol/wire-session.ts";
 
 export {
+	RuntimeCompatibilityParamsSchema,
+	RuntimeCompatibilityRequestSchema,
+	RuntimeCompatibilityCommandSchema,
+	RuntimeCompatibilityResultSchema,
+} from "./protocol/wire-compatibility.ts";
+
+export {
 	MemberIdleWaitParamsSchema,
 	MemberIdleWaitSubscribeResultSchema,
 	MemberIdleWaitRequestSchema,
@@ -242,6 +249,8 @@ export type {
 	SessionCaptureCommand,
 	SessionCaptureRequest,
 	SessionCaptureResult,
+	RuntimeCompatibilityCommand,
+	RuntimeCompatibilityResult,
 	RpcSendCommand,
 	RpcSubscribeCommand,
 } from "./protocol/protocol-types.ts";

@@ -1,6 +1,7 @@
 export * from "./cli.ts";
 export * from "./response-policy.ts";
 export * from "./protocol.ts";
+export * from "./protocol-compatibility.ts";
 export * from "./session-id.ts";
 export * from "./messages.ts";
 export * from "./message-payload.ts";

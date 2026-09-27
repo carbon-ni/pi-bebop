@@ -316,6 +316,19 @@ test("RPC status reports online and joined without legacy fields", async () => {
 	assert.deepEqual(JSON.parse(writes[1]!), { jsonrpc: "2.0", id: "status-2", result: { status: "joined" } });
 });
 
+test("RPC runtime compatibility is read-only and does not require a session context", async () => {
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	const state = createSocketState();
+	await handleCommand({} as never, state, { type: "runtime_compatibility", id: "doctor-1" }, socket);
+	const response = JSON.parse(writes[0]!);
+	assert.equal(response.id, "doctor-1");
+	assert.equal(response.result.product, "pi-bebop");
+	assert.equal(response.result.protocol.name, "pi-bebop");
+	assert.ok(Array.isArray(response.result.capabilities));
+	assert.equal(state.context, null);
+});
+
 test("TASK-0081: inbound Bebop deliveries (send/member_request) notify the accepted-message wake gate before pi.sendMessage", async () => {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
