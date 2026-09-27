@@ -31,7 +31,9 @@ async function fakeSource(
 		hangFollowUp?: boolean;
 		hangInbox?: boolean;
 		holdMemberStatus?: boolean;
+		holdLastMessage?: boolean;
 		malformedStatus?: boolean;
+		malformedLastMessage?: boolean;
 		remoteError?: string;
 		lastMessage?: { role: "assistant"; content: string; timestamp: number } | null;
 		askWait?: (
@@ -79,7 +81,8 @@ async function fakeSource(
 				if (
 					(options.hangFollowUp && request.method === "member.follow_up") ||
 					(options.hangInbox && request.method === "member.inbox_send") ||
-					(options.holdMemberStatus && request.method === "member.status_target")
+					(options.holdMemberStatus && request.method === "member.status_target") ||
+					(options.holdLastMessage && request.method === "member.last_message_target")
 				)
 					return;
 				if (options.remoteError && request.method !== "session.status") {
@@ -172,10 +175,12 @@ async function fakeSource(
 									},
 								}
 							: request.method === "member.last_message_target"
-								? {
-										member: { name: "developer", role: "Developer" },
-										message: options.lastMessage ?? null,
-									}
+								? options.malformedLastMessage
+									? { member: { name: "", role: "Developer" }, message: null }
+									: {
+											member: { name: "developer", role: "Developer" },
+											message: options.lastMessage ?? null,
+										}
 								: request.method === "member.follow_up"
 									? {
 											member: { name: "developer", role: "Developer" },
@@ -588,6 +593,73 @@ test("SDK delegates last assistant message snapshots and preserves empty history
 		assert.deepEqual((await selected.getMemberLastMessage("developer")).message, null);
 	} finally {
 		await empty.close();
+	}
+});
+
+test("SDK maps last-message offline, size, and malformed-identity failures", async () => {
+	for (const [remoteError, expected] of [
+		["offline-member", "offline-member"],
+		["message-too-large", "message-too-large"],
+	] as const) {
+		const source = await fakeSource({ remoteError });
+		try {
+			const selected = await createBebopClient().selectSource({ session: source.session });
+			await assert.rejects(
+				selected.getMemberLastMessage("developer"),
+				(error: unknown) => error instanceof BebopClientError && error.code === expected,
+			);
+		} finally {
+			await source.close();
+		}
+	}
+
+	const malformed = await fakeSource({ malformedLastMessage: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: malformed.session });
+		await assert.rejects(
+			selected.getMemberLastMessage("developer"),
+			(error: unknown) => error instanceof BebopClientError && error.code === "malformed-response",
+		);
+	} finally {
+		await malformed.close();
+	}
+});
+
+test("SDK denies last-message snapshot before target IO when source is untrusted", async () => {
+	const source = await fakeSource({ trusted: false });
+	try {
+		await assert.rejects(
+			createBebopClient().selectSource({ session: source.session }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "untrusted",
+		);
+		assert.deepEqual(
+			source.requests.map((request) => request.method),
+			["session.status"],
+		);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK aborts a last-message snapshot request and closes the target socket", async () => {
+	const source = await fakeSource({ holdLastMessage: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		const closedBefore = source.closedSockets;
+		const controller = new AbortController();
+		const pending = selected.getMemberLastMessage("developer", { signal: controller.signal });
+		await waitForRequest(source, "member.last_message_target");
+		controller.abort();
+		await assert.rejects(
+			pending,
+			(error: unknown) => error instanceof BebopClientError && error.code === "aborted",
+		);
+		const deadline = Date.now() + 1000;
+		while (source.closedSockets <= closedBefore && Date.now() < deadline)
+			await new Promise((resolve) => setTimeout(resolve, 1));
+		assert.ok(source.closedSockets > closedBefore);
+	} finally {
+		await source.close();
 	}
 });
 

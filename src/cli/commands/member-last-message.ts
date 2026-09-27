@@ -1,7 +1,10 @@
 import { Command } from "commander";
-import { isMemberLastMessageResult, type MemberLastMessageResult } from "../../domain/index.ts";
-import { RpcProtocolError, sendRpcCommand } from "../../infra/rpc-client.ts";
-import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
+import {
+	BebopClientError,
+	createBebopClient,
+	type BebopClient,
+	type MemberLastMessageResult,
+} from "../../sdk/index.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import type { CliContext } from "../support/context.ts";
@@ -18,6 +21,7 @@ export interface MemberLastMessageCliOptions {
 
 const FORMATS: readonly CliFormat[] = ["toon", "json", "text"];
 const MAX_TARGET_BYTES = 256;
+const LAST_MESSAGE_DEADLINE_MS = 5_000;
 
 function isCliFormat(value: string): value is CliFormat {
 	return (FORMATS as readonly string[]).includes(value);
@@ -72,52 +76,48 @@ export interface MemberLastMessageCliDependencies {
 		source: SourceResolution & { ok: true },
 		target: string,
 		signal: AbortSignal,
+		session: string,
 	) => Promise<MemberLastMessageOutcome>;
 	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
 }
 
-async function lastMessageThroughSocket(
-	socketPath: string,
+export async function lastMessageThroughSdk(
+	session: string,
 	target: string,
 	signal: AbortSignal,
+	client: BebopClient = createBebopClient(),
+	deadlineMs = LAST_MESSAGE_DEADLINE_MS,
 ): Promise<MemberLastMessageOutcome> {
-	const resolved = await resolveMemberEndpoint(socketPath);
+	if (signal.aborted) return { ok: false, code: "aborted" };
+	const controller = new AbortController();
+	const startedAt = Date.now();
+	let deadlineExpired = false;
+	const timer = setTimeout(() => {
+		deadlineExpired = true;
+		controller.abort();
+	}, deadlineMs);
+	const forwardAbort = () => controller.abort(signal.reason);
+	signal.addEventListener("abort", forwardAbort, { once: true });
+	const options = () => ({
+		signal: controller.signal,
+		timeoutMs: Math.max(50, deadlineMs - (Date.now() - startedAt)),
+	});
 	try {
-		const { response } = await sendRpcCommand(
-			resolved,
-			{ type: "member_last_message_target", target },
-			{ timeout: 5000, signal },
-		);
-		if (!response.success) return { ok: false, code: response.error ?? "remote-rejected" };
-		if (!isMemberLastMessageResult(response.data)) return { ok: false, code: "malformed-response" };
-		return { ok: true, result: response.data };
+		const source = await client.selectSource({ session }, options());
+		return { ok: true, result: await source.getMemberLastMessage(target, options()) };
 	} catch (error) {
-		if (error instanceof RpcProtocolError && error.code === "remote-error")
-			return { ok: false, code: error.message.replace(/^remote-error:\s*/, "") };
-		if (
-			error instanceof RpcProtocolError &&
-			["invalid-result", "malformed-response", "mismatched-id"].includes(error.code)
-		)
-			return { ok: false, code: "malformed-response" };
-		if (signal.aborted || (error instanceof Error && error.name === "AbortError"))
-			return { ok: false, code: "aborted" };
-		const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-		if (code === "ENOENT") return { ok: false, code: "unknown-session" };
-		if (code === "ECONNREFUSED" || code === "ENOTCONN" || code === "ENOTSOCK")
-			return { ok: false, code: "offline-session" };
-		if (error instanceof Error && /timed? ?out|timeout/i.test(error.message)) return { ok: false, code: "timeout" };
+		if (deadlineExpired) return { ok: false, code: "timeout" };
+		if (error instanceof BebopClientError) return { ok: false, code: error.code };
 		return { ok: false, code: "transport-error" };
+	} finally {
+		clearTimeout(timer);
+		signal.removeEventListener("abort", forwardAbort);
 	}
 }
 
 export const defaultMemberLastMessageCliDependencies: MemberLastMessageCliDependencies = {
 	resolveSource: (input) => resolveSourceSession(input),
-	sendLastMessage: async (source, target, signal) => {
-		const first = await lastMessageThroughSocket(source.idSocketPath, target, signal);
-		if (first.ok === false && first.code === "unknown-session")
-			return lastMessageThroughSocket(source.aliasSocketPath, target, signal);
-		return first;
-	},
+	sendLastMessage: async (_source, target, signal, session) => lastMessageThroughSdk(session, target, signal),
 	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 
@@ -126,12 +126,11 @@ export async function runMemberLastMessageCommand(
 	context: CliContext,
 	deps: MemberLastMessageCliDependencies = defaultMemberLastMessageCliDependencies,
 ): Promise<CliOutcome> {
-	const source = deps.resolveSource({
-		explicitSession: options.session,
-		environmentSession: deps.environmentSession(context.environment),
-	});
+	const environmentSession = deps.environmentSession(context.environment);
+	const source = deps.resolveSource({ explicitSession: options.session, environmentSession });
 	if (source.ok === false) throw new UsageError(source.message);
-	const outcome = await deps.sendLastMessage(source, options.member, context.signal);
+	const session = options.session !== undefined && options.session !== "" ? options.session : environmentSession;
+	const outcome = await deps.sendLastMessage(source, options.member, context.signal, session ?? "");
 	if (outcome.ok === false)
 		return {
 			kind: "result",
