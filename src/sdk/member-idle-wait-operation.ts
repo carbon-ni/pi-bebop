@@ -1,10 +1,15 @@
 import { createMemberIdleWaitFlow, MemberIdleWaitFlowError } from "../application/member-idle-wait-flow.ts";
+import {
+	MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS,
+	MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS,
+	MEMBER_IDLE_WAIT_TIMEOUT_SECONDS,
+} from "../domain/index.ts";
 import { sendMemberIdleWait } from "../infra/rpc-client.ts";
 import { BebopClientError, type BebopClientErrorCode } from "./errors.js";
 
-const DEFAULT_MEMBER_IDLE_WAIT_SECONDS = 1_800;
-const MIN_MEMBER_IDLE_WAIT_SECONDS = 1;
-const MAX_MEMBER_IDLE_WAIT_SECONDS = 7_200;
+const DEFAULT_MEMBER_IDLE_WAIT_SECONDS = MEMBER_IDLE_WAIT_TIMEOUT_SECONDS;
+const MIN_MEMBER_IDLE_WAIT_SECONDS = MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS;
+const MAX_MEMBER_IDLE_WAIT_SECONDS = MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS;
 const systemClock: MemberIdleWaitClock = {
 	setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
 	clearTimeout: (handle) => clearTimeout(handle),
@@ -180,11 +185,13 @@ function mapMemberIdleWaitFlowError(error: MemberIdleWaitFlowError): BebopClient
 				? "identity-mismatch"
 				: error.code === "not-a-member"
 					? "remote-rejected"
-					: error.code === "offline"
-						? "offline-member"
-						: error.code === "capacity-exceeded"
-							? "capacity-exceeded"
-							: (error.code as BebopClientErrorCode);
+					: error.code === "self-wait"
+						? "self-query"
+						: error.code === "offline"
+							? "offline-member"
+							: error.code === "capacity-exceeded"
+								? "capacity-exceeded"
+								: (error.code as BebopClientErrorCode);
 	return new BebopClientError(code, error.message);
 }
 
@@ -216,36 +223,41 @@ export function createInProcessMemberIdleWaitOperation(
 	const createFlow = () => createMemberIdleWaitFlow(flowSurface(dependencies.surface));
 	return {
 		resolveMemberIdleWait(input) {
-			return createFlow().resolveMemberIdleWait(input);
+			try {
+				return createFlow().resolveMemberIdleWait(input);
+			} catch (error) {
+				if (error instanceof MemberIdleWaitFlowError) throw mapMemberIdleWaitFlowError(error);
+				throw error;
+			}
 		},
 		waitForMemberIdle(member, options) {
 			if (member.trim() !== member || member.length === 0) throw new BebopClientError("invalid-input");
 			return withMemberIdleWaitBudget(
 				options,
 				async (budget, timeoutSeconds) => {
-					const resolver = createFlow();
-					const resolved = resolver.resolveMemberIdleWait({ member, timeoutSeconds });
-					const flow = createMemberIdleWaitFlow({
-						...flowSurface(dependencies.surface),
-						requestIdleWait: async (endpoint, memberLabel, requestOptions) => {
-							const outcome = await dependencies.surface.requestIdleWait(
-								endpoint,
-								memberLabel,
-								requestOptions,
-							);
-							if (
-								outcome.ok &&
-								(outcome.result.member.name !== resolved.target.name ||
-									outcome.result.member.role !== resolved.target.role)
-							)
-								throw new MemberIdleWaitFlowError(
-									"identity-mismatch",
-									"Member returned an idle wait result for a different identity",
-								);
-							return outcome;
-						},
-					});
 					try {
+						const resolver = createFlow();
+						const resolved = resolver.resolveMemberIdleWait({ member, timeoutSeconds });
+						const flow = createMemberIdleWaitFlow({
+							...flowSurface(dependencies.surface),
+							requestIdleWait: async (endpoint, memberLabel, requestOptions) => {
+								const outcome = await dependencies.surface.requestIdleWait(
+									endpoint,
+									memberLabel,
+									requestOptions,
+								);
+								if (
+									outcome.ok &&
+									(outcome.result.member.name !== resolved.target.name ||
+										outcome.result.member.role !== resolved.target.role)
+								)
+									throw new MemberIdleWaitFlowError(
+										"identity-mismatch",
+										"Member returned an idle wait result for a different identity",
+									);
+								return outcome;
+							},
+						});
 						const signal = options?.signal
 							? AbortSignal.any([budget.signal, options.signal])
 							: budget.signal;

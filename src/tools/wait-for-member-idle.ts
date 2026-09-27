@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { MemberIdleWaitFlowError } from "../application/member-idle-wait-flow.ts";
 import { createMemberIdleWaitResult, formatMemberIdleWaitResult } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
-import { type InProcessMemberIdleWaitOperation, type MemberIdleWaitResult } from "../sdk/index.ts";
+import { BebopClientError, type InProcessMemberIdleWaitOperation, type MemberIdleWaitResult } from "../sdk/index.ts";
 
 const parameters = Type.Object(
 	{
@@ -160,6 +160,8 @@ export function registerWaitForMemberIdleTool(
 				};
 			} catch (error) {
 				if (error instanceof MemberIdleWaitFlowError)
+					return errorResult(memberLabel || "member", error.code, error.message);
+				if (error instanceof BebopClientError)
 					return errorResult(memberLabel || "member", error.code, error.message);
 				const message = error instanceof Error ? error.message : "Member idle wait failed";
 				return errorResult(memberLabel || "member", "transport-error", message);

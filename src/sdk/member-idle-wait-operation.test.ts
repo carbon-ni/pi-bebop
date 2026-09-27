@@ -61,6 +61,72 @@ test("in-process idle operation shares target resolution and subscription flow",
 	assert.equal(requests, 1);
 });
 
+test("in-process idle operation maps pre-IO authority and selector failures", async () => {
+	const notJoined = createInProcessMemberIdleWaitOperation(dependencies({ getMembership: () => null }));
+	assert.throws(
+		() => notJoined.resolveMemberIdleWait({ member: "qa", timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "not-joined",
+	);
+	await assert.rejects(
+		notJoined.waitForMemberIdle("qa", { timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "not-joined",
+	);
+
+	const untrusted = createInProcessMemberIdleWaitOperation(dependencies({ isTrusted: () => false }));
+	assert.throws(
+		() => untrusted.resolveMemberIdleWait({ member: "qa", timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "untrusted",
+	);
+
+	const invalidTarget = createInProcessMemberIdleWaitOperation(dependencies());
+	assert.throws(
+		() => invalidTarget.resolveMemberIdleWait({ member: "missing", timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "unknown-member",
+	);
+	assert.throws(
+		() => invalidTarget.resolveMemberIdleWait({ member: "developer", timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "self-query",
+	);
+});
+
+test("in-process idle operation uses authoritative domain timeout bounds before IO", async () => {
+	let probes = 0;
+	const requestedTimeouts: number[] = [];
+	const delays: number[] = [];
+	let handle = 0;
+	const operation = createInProcessMemberIdleWaitOperation({
+		...dependencies({
+			probeEndpoint: async () => {
+				probes += 1;
+				return true;
+			},
+			requestIdleWait: async (_endpoint, _member, options) => {
+				requestedTimeouts.push(options.timeoutSeconds);
+				return { ok: true, result: idleResult };
+			},
+		}),
+		clock: {
+			setTimeout: (_callback, delayMs) => {
+				delays.push(delayMs);
+				return ++handle as unknown as ReturnType<typeof setTimeout>;
+			},
+			clearTimeout: () => undefined,
+		},
+	});
+
+	for (const timeoutSeconds of [59, 7201])
+		assert.throws(
+			() => operation.waitForMemberIdle("qa", { timeoutSeconds }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+		);
+	assert.equal(probes, 0);
+	await operation.waitForMemberIdle("qa", { timeoutSeconds: 60 });
+	await operation.waitForMemberIdle("qa", { timeoutSeconds: 7200 });
+	assert.deepEqual(requestedTimeouts, [60, 7200]);
+	assert.deepEqual(delays, [60_000, 7_200_000]);
+	assert.equal(probes, 2);
+});
+
 test("in-process idle operation aborts a held probe when its deadline expires", async () => {
 	let fireDeadline!: () => void;
 	let clearCalls = 0;

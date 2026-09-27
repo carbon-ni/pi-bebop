@@ -356,9 +356,9 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		const { tool } = setup(membership);
 		const low = await tool.execute("id", { member: "Bob", timeout_seconds: 59 });
 		assert.equal(low.isError, true);
-		assert.equal((low.details as { error?: string }).error, "invalid-timeout");
+		assert.equal((low.details as { error?: string }).error, "invalid-input");
 		const high = await tool.execute("id", { member: "Bob", timeout_seconds: 7201 });
 		assert.equal(high.isError, true);
-		assert.equal((high.details as { error?: string }).error, "invalid-timeout");
+		assert.equal((high.details as { error?: string }).error, "invalid-input");
 	});
 });

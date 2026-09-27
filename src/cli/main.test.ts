@@ -686,7 +686,7 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		const socketDir = path.join(home, ".pi", "bebop");
 		await mkdir(socketDir, { recursive: true });
 		const socketPath = path.join(socketDir, "packaged-idle.sock");
-		const respond = async (mode: "idle" | "timeout") => {
+		const respond = async (mode: "idle" | "timeout" | "pending") => {
 			const server = net.createServer((socket) => {
 				socket.setEncoding("utf8");
 				let buffer = "";
@@ -719,13 +719,28 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 								},
 							}) + "\n",
 						);
+					} else if (mode === "timeout") {
+						socket.write(
+							JSON.stringify({
+								jsonrpc: "2.0",
+								method: "member.idle_wait",
+								params: {
+									subscriptionId,
+									result: {
+										member: { name: "Bob", role: "developer" },
+										outcome: "timeout",
+										observedAt: "2026-08-24T12:00:00.000Z",
+									},
+								},
+							}) + "\n",
+						);
 					}
 				});
 			});
 			await new Promise<void>((resolve) => server.listen(socketPath, resolve));
 			return server;
 		};
-		const runWait = async (format: "toon" | "json" | "text", timeout = "1s") =>
+		const runWait = async (format: "toon" | "json" | "text", timeout = "60s") =>
 			new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
 				const child = spawn(
 					process.execPath,
@@ -760,13 +775,13 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		}
 		assert.deepEqual(idleByteCounts, { json: 345, text: 68, toon: 343 });
 		const timeoutServer = await respond("timeout");
-		const timeoutResult = await runWait("json", "1s");
-		assert.equal(timeoutResult.code, 1);
-		assert.equal(timeoutResult.stdout, "");
-		assert.match(timeoutResult.stderr, /timeout/);
+		const timeoutResult = await runWait("json", "60s");
+		assert.equal(timeoutResult.code, 0, timeoutResult.stderr);
+		assert.equal(timeoutResult.stderr, "");
+		assert.equal(JSON.parse(timeoutResult.stdout).data.result.outcome, "timeout");
 		await closeRpcServer(timeoutServer);
 
-		const signalServer = await respond("timeout");
+		const signalServer = await respond("pending");
 		const child = spawn(process.execPath, [artifact, "member", "wait-idle", "Bob", "--timeout", "10m"], {
 			env: { ...process.env, HOME: home, PI_SESSION_ID: "packaged-idle", NODE_PATH: "" },
 			cwd: extract,

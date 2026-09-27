@@ -1,5 +1,10 @@
 import { Command } from "commander";
-import { formatMemberIdleWaitResult, isMemberIdleWaitResult } from "../../domain/index.ts";
+import {
+	formatMemberIdleWaitResult,
+	isMemberIdleWaitResult,
+	MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS,
+	MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS,
+} from "../../domain/index.ts";
 import { BebopClientError, createRemoteMemberIdleWaitOperation, type MemberIdleWaitResult } from "../../sdk/index.ts";
 import { parsePositiveDurationMs } from "../support/duration.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
@@ -23,10 +28,18 @@ function parseTimeout(value: string): number {
 	try {
 		milliseconds = parsePositiveDurationMs(value);
 	} catch {
-		throw new UsageError(`Invalid --timeout '${value}'; use a whole-second duration from 1s through 10m`);
+		throw new UsageError(
+			`Invalid --timeout '${value}'; use a whole-second duration from ${MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS}s through ${MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS / 60}s`,
+		);
 	}
-	if (milliseconds % 1000 !== 0 || milliseconds < 1000 || milliseconds > 600_000)
-		throw new UsageError(`Invalid --timeout '${value}'; use a whole-second duration from 1s through 10m`);
+	if (
+		milliseconds % 1000 !== 0 ||
+		milliseconds < MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS * 1000 ||
+		milliseconds > MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS * 1000
+	)
+		throw new UsageError(
+			`Invalid --timeout '${value}'; use a whole-second duration from ${MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS}s through ${MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS / 60}s`,
+		);
 	return milliseconds / 1000;
 }
 
@@ -34,7 +47,11 @@ export function buildMemberIdleWaitCommand(): Command {
 	return new Command("wait-idle")
 		.description("Wait once for a crew member to become idle or go offline")
 		.option("--session <id|alias>", "Source joined Pi session id or alias (default: PI_SESSION_ID)")
-		.option("--timeout <duration>", "Whole-second wait duration from 1s through 10m", "5m")
+		.option(
+			"--timeout <duration>",
+			`Whole-second wait duration from ${MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS}s through ${MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS / 60}m`,
+			"30m",
+		)
 		.option(
 			"--format <format>",
 			"Output format: text (default), toon, or json",
