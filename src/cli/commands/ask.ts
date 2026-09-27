@@ -428,10 +428,7 @@ async function awaitAskOutcome(
 	}
 }
 
-function createCliAskOperation(
-	deps: AskCliDependencies,
-	source: SourceResolution & { ok: true },
-) {
+function createCliAskOperation(deps: AskCliDependencies, source: SourceResolution & { ok: true }) {
 	const request = createRemoteMemberRequestOperation({
 		sendStart: async (command, operationOptions) => {
 			const result = await deps.send(
