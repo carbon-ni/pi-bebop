@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { buildAskCommand, readAskCommand, runAskCommand } from "./ask.ts";
 import { RpcProtocolError } from "../../infra/rpc-client.ts";
 import { CrewRouteResolutionError } from "../../application/crew-target-resolution.ts";
+import { writeOutcome } from "../support/output.ts";
 
 function parse(tokens: readonly string[]): Command {
 	const command = buildAskCommand()
@@ -104,6 +105,27 @@ test("Ask sends exactly one correlated request, waits its opaque ID, and hides t
 	assert.equal((injected.calls[0] as any).target, "Kelly");
 	assert.equal((injected.calls[0] as any).timeoutSeconds, 30);
 	assert.equal((injected.calls[0] as any).maxWaitSeconds, 120);
+});
+
+test("Ask rejects a response that does not match the accepted Request", async () => {
+	const options = readAskCommand(parse(["alpha/Kelly", "What is blocked?"]));
+	const injected = deps({
+		wait: async () => ({
+			response: {
+				success: true,
+				data: {
+					kind: "response",
+					requestId: "different-request",
+					member: route.target.member,
+					message: "wrong response",
+					instructions: [],
+				},
+			},
+		}),
+	});
+	const outcome = await runAskCommand(options, context, injected as never);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") assert.equal(outcome.result.error?.code, "malformed-response");
 });
 
 test("Ask preserves an approved Guest route and sends its exact Crew selector", async () => {
@@ -207,11 +229,14 @@ test("Ask maps terminal pending, timeout, offline, and malformed outcomes", asyn
 	const options = readAskCommand(parse(["alpha", "question"]));
 	for (const [data, code] of [
 		[
-			{ kind: "pending", requestId: "id", member: route.target.member, reason: "pending-after-idle" },
+			{ kind: "pending", requestId: "opaque-request", member: route.target.member, reason: "pending-after-idle" },
 			"timeout-after-idle",
 		],
-		[{ kind: "timeout", requestId: "id", member: route.target.member, reason: "max-wait" }, "timeout-total"],
-		[{ kind: "offline", requestId: "id", member: route.target.member }, "route-lost"],
+		[
+			{ kind: "timeout", requestId: "opaque-request", member: route.target.member, reason: "max-wait" },
+			"timeout-total",
+		],
+		[{ kind: "offline", requestId: "opaque-request", member: route.target.member }, "route-lost"],
 		[{ nope: true }, "malformed-response"],
 	] as const) {
 		const outcome = await runAskCommand(
@@ -221,6 +246,72 @@ test("Ask maps terminal pending, timeout, offline, and malformed outcomes", asyn
 		);
 		assert.equal(outcome.kind, "result");
 		if (outcome.kind === "result") assert.equal(outcome.result.error?.code, code);
+	}
+});
+
+test("Ask timeout failure preserves the same semantic outcome across formats", async () => {
+	const terminal = await runAskCommand(
+		readAskCommand(parse(["alpha", "question"])),
+		context,
+		deps({
+			wait: async () => ({
+				response: {
+					success: true,
+					data: {
+						kind: "timeout",
+						requestId: "opaque-request",
+						member: route.target.member,
+						reason: "max-wait",
+					},
+				},
+			}),
+		}) as never,
+	);
+	const transport = await runAskCommand(
+		readAskCommand(parse(["alpha", "question"])),
+		context,
+		deps({
+			wait: async () => {
+				throw new Error("RPC request timeout /private/socket");
+			},
+		}) as never,
+	);
+	assert.deepEqual((terminal as any).result.data, { outcome: "timeout-total", safeRetry: false });
+	assert.deepEqual((transport as any).result.data, { outcome: "timeout-total", safeRetry: false });
+
+	for (const format of ["text", "json", "toon"] as const) {
+		const options = readAskCommand(parse(["alpha", "question", "--format", format]));
+		const outcome = await runAskCommand(
+			options,
+			context,
+			deps({
+				wait: async () => ({
+					response: {
+						success: true,
+						data: {
+							kind: "timeout",
+							requestId: "opaque-request",
+							member: route.target.member,
+							reason: "max-wait",
+						},
+					},
+				}),
+			}) as never,
+		);
+		const chunks: string[] = [];
+		const stream = { write: (chunk: string | Uint8Array) => (chunks.push(String(chunk)), true) } as never;
+		assert.equal(writeOutcome({ write: () => true } as never, stream, outcome), 1);
+		const rendered = chunks.join("");
+		if (format === "text") assert.match(rendered, /timeout-total/);
+		else {
+			const structured = format === "json" ? JSON.parse(rendered) : rendered;
+			if (format === "json") {
+				assert.equal(structured.outcome, "timeout-total");
+				assert.equal(structured.data.outcome, "timeout-total");
+				assert.equal(structured.data.safeRetry, false);
+			}
+			assert.match(rendered, /timeout-total/);
+		}
 	}
 });
 

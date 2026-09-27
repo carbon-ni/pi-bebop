@@ -18,7 +18,14 @@ export interface CliResult {
  * knowledge.
  */
 export type CliOutcome =
-	| { readonly kind: "result"; readonly result: CliResult; readonly format: CliFormat; readonly full: boolean }
+	| {
+			readonly kind: "result";
+			readonly result: CliResult;
+			readonly format: CliFormat;
+			readonly full: boolean;
+			/** Opt-in for commands whose documented failure contract is structured. */
+			readonly formatFailure?: boolean;
+	  }
 	| { readonly kind: "help"; readonly text: string };
 
 function withTrailingNewline(text: string): string {
@@ -37,9 +44,10 @@ function escapeTerminalControls(value: string): string {
 /**
  * The single renderer boundary. Streams and exit classes (TASK-0209):
  * help and successful results are written to stdout with exit 0; usage
- * failures (status: usage) and operational failures are plain text on
- * stderr with exit 2 and 1 respectively — never TOON/JSON envelopes.
- * --format controls successful result data only.
+ * failures (status: usage) and operational failures are written to stderr
+ * with exit 2 and 1 respectively. Most commands use plain text failures;
+ * commands with an explicit structured-failure contract opt in through
+ * `formatFailure`. --format controls successful result data by default.
  */
 export function writeOutcome(
 	output: NodeJS.WritableStream,
@@ -51,7 +59,9 @@ export function writeOutcome(
 		return 0;
 	}
 	if (!outcome.result.ok) {
-		const message = outcome.result.error?.message ?? "Operation failed";
+		const message = outcome.formatFailure
+			? renderCliFailure(outcome.result, outcome.format)
+			: (outcome.result.error?.message ?? "Operation failed");
 		stderr.write(withTrailingNewline(message));
 		return outcome.result.status === "usage" ? 2 : 1;
 	}
@@ -61,6 +71,20 @@ export function writeOutcome(
 
 const MAX_RESPONSE = 2000;
 type ViewModel = Record<string, unknown>;
+
+function renderCliFailure(result: CliResult, format: CliFormat): string {
+	const code = result.error?.code ?? result.status;
+	if (format === "text") {
+		const data = asViewModel(result.data);
+		const retry = data?.safeRetry === false ? " Safe retry: no." : "";
+		return `${code}: ${result.error?.message ?? "Operation failed"}${retry}`;
+	}
+	const output: Record<string, unknown> = {
+		...result,
+		outcome: asViewModel(result.data)?.outcome ?? code,
+	};
+	return escapeTerminalControls(format === "json" ? JSON.stringify(output) : encode(output));
+}
 
 function asViewModel(value: unknown): ViewModel | undefined {
 	return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as ViewModel) : undefined;
