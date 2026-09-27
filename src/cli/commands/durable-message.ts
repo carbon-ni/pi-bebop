@@ -1,12 +1,7 @@
 import { Command } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
-import {
-	isCrewBroadcastResult,
-	isMemberInboxSendResult,
-	type CrewBroadcastRpcResult,
-	type MemberInboxSendResult,
-} from "../../domain/index.ts";
+import { isCrewBroadcastResult, type CrewBroadcastRpcResult, type MemberInboxSendResult } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult } from "../support/errors.ts";
@@ -14,6 +9,7 @@ import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
 import { readStdinMessage } from "../support/message-input.ts";
+import { BebopClientError, createRemoteMemberInboxOperation } from "../../sdk/index.ts";
 
 export type DurableMessageIntent = "inbox" | "broadcast";
 export interface DurableMessageCliOptions {
@@ -190,6 +186,7 @@ const REMOTE_MESSAGE_CODES = new Set([
 	"no-recipients",
 ]);
 function transportError(error: unknown): { ok: false; code: string } {
+	if (error instanceof BebopClientError) return { ok: false, code: error.code };
 	if (error instanceof RpcProtocolError && (error.code === "outcome-unknown" || REMOTE_MESSAGE_CODES.has(error.code)))
 		return { ok: false, code: error.code };
 	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
@@ -199,9 +196,9 @@ function transportError(error: unknown): { ok: false; code: string } {
 	if (error instanceof Error && /timeout/i.test(error.message)) return { ok: false, code: "timeout" };
 	return { ok: false, code: "transport-error" };
 }
-async function deliverSocket(
+async function deliverBroadcastSocket(
 	source: SourceResolution & { ok: true },
-	command: DurableMessageCommand,
+	command: Extract<DurableMessageCommand, { type: "crew_broadcast" }>,
 	signal: AbortSignal,
 ) {
 	const { response } = await sendRpcCommand(
@@ -210,23 +207,69 @@ async function deliverSocket(
 		{ timeout: 5000, signal, classifyLostAck: true },
 	);
 	if (!response.success) return { ok: false as const, code: response.error ?? "remote-rejected" };
-	if (command.type === "member_inbox_send" && isMemberInboxSendResult(response.data))
-		return { ok: true as const, result: response.data };
-	if (command.type === "crew_broadcast" && isCrewBroadcastResult(response.data))
-		return { ok: true as const, result: response.data };
+	if (isCrewBroadcastResult(response.data)) return { ok: true as const, result: response.data };
 	return { ok: false as const, code: "malformed-response" };
 }
+async function deliverInboxThroughSdk(
+	source: SourceResolution & { ok: true },
+	command: Extract<DurableMessageCommand, { type: "member_inbox_send" }>,
+	signal: AbortSignal,
+): Promise<{ ok: true; result: MemberInboxSendResult } | { ok: false; code: string }> {
+	const deliver = async (candidate: SourceResolution & { ok: true }) => {
+		const endpoint = await resolveMemberEndpoint(candidate.idSocketPath);
+		const operation = createRemoteMemberInboxOperation({
+			send: async (request, options) => {
+				const { response } = await sendRpcCommand(endpoint, request, {
+					timeout: options?.timeoutMs ?? 5000,
+					signal: options?.signal,
+					classifyLostAck: true,
+				});
+				if (!response.success)
+					throw new RpcProtocolError("remote-error", response.error ?? "source rejected Inbox enqueue");
+				return response.data;
+			},
+		});
+		return {
+			ok: true as const,
+			result: await operation.sendToInbox(
+				command.target,
+				{
+					message: command.message,
+					...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+				},
+				{ signal, timeoutMs: 5000 },
+			),
+		};
+	};
+	try {
+		return await deliver(source);
+	} catch (error) {
+		const mapped = transportError(error);
+		if (mapped.code !== "unknown-session" || source.aliasSocketPath === source.idSocketPath) return mapped;
+		try {
+			return await deliver({ ...source, idSocketPath: source.aliasSocketPath });
+		} catch (aliasError) {
+			return transportError(aliasError);
+		}
+	}
+}
+
 export const defaultDurableMessageCliDependencies: DurableMessageCliDependencies = {
 	resolveSource: (input) => resolveSourceSession(input),
 	readStdin: readStdinMessage,
 	deliver: async (source, command, signal) => {
+		if (command.type === "member_inbox_send") return deliverInboxThroughSdk(source, command, signal);
 		try {
-			return await deliverSocket(source, command, signal);
+			return await deliverBroadcastSocket(source, command, signal);
 		} catch (error) {
 			const mapped = transportError(error);
 			if (mapped.code !== "unknown-session" || source.aliasSocketPath === source.idSocketPath) return mapped;
 			try {
-				return await deliverSocket({ ...source, idSocketPath: source.aliasSocketPath }, command, signal);
+				return await deliverBroadcastSocket(
+					{ ...source, idSocketPath: source.aliasSocketPath },
+					command,
+					signal,
+				);
 			} catch (aliasError) {
 				return transportError(aliasError);
 			}

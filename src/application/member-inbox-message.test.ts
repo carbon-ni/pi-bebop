@@ -126,6 +126,23 @@ describe("enqueue happy path", () => {
 		assert.equal(persisted!.now, 1234);
 	});
 
+	test("the enqueue observer runs once at the durable dispatch boundary", async () => {
+		const events: string[] = [];
+		const outcome = await enqueueMemberInboxMessage(
+			makeRequest(),
+			makeDeps({
+				beforeEnqueue: () => events.push("dispatch"),
+				openStore: (async () =>
+					fakeStore([], () => {
+						events.push("enqueue");
+						return { id: "inbox-0-abc", sequence: 0 };
+					})) as never,
+			}),
+		);
+		assert.equal(outcome.persisted, true);
+		assert.deepEqual(events, ["dispatch", "enqueue"]);
+	});
+
 	test("recipient offline never blocks enqueue and no hint transport is required", async () => {
 		let opened = 0;
 		const outcome = await enqueueMemberInboxMessage(

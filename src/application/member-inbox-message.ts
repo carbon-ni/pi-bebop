@@ -71,6 +71,8 @@ export interface MemberInboxMessageDependencies {
 	readonly hintTransport: InboxHintTransport | null;
 	readonly hintTimeoutMs?: number;
 	readonly resolveEndpoint?: (socketPath: string) => Promise<string>;
+	/** Observes the exact point before the durable enqueue call is dispatched. */
+	readonly beforeEnqueue?: () => void;
 }
 
 export interface MemberInboxMessageOutcome {
@@ -147,6 +149,9 @@ export async function enqueueMemberInboxMessage(
 	} catch (error) {
 		throw mapStoreError(error);
 	}
+
+	if (request.signal?.aborted) throw Object.assign(new Error("Operation aborted"), { name: "AbortError" });
+	dependencies.beforeEnqueue?.();
 
 	let item;
 	try {

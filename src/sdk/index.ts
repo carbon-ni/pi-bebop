@@ -7,7 +7,6 @@ import {
 	isMemberStatusResult,
 	isMemberLastMessageResult,
 	isMemberMessageResult,
-	isMemberInboxSendResult,
 	isMemberRequestResult,
 	type MemberStatus as WireMemberStatus,
 	type MemberRequestWaitResult,
@@ -45,6 +44,12 @@ import {
 	type FollowUpResult,
 	type RemoteFollowUpCommand,
 } from "./follow-up-operation.ts";
+import {
+	createRemoteMemberInboxOperation,
+	type InboxInput,
+	type InboxResult,
+	type RemoteMemberInboxCommand,
+} from "./member-inbox-operation.ts";
 export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
 export type {
 	FollowUpInput,
@@ -56,6 +61,17 @@ export type {
 	RemoteFollowUpCommand,
 	RemoteFollowUpDependencies,
 } from "./follow-up-operation.ts";
+export { createInProcessMemberInboxOperation, createRemoteMemberInboxOperation } from "./member-inbox-operation.ts";
+export type {
+	InboxInput,
+	InboxOperationOptions,
+	InboxResult,
+	InProcessMemberInboxOperationDependencies,
+	InProcessMemberInboxSurface,
+	MemberInboxOperation,
+	RemoteMemberInboxCommand,
+	RemoteMemberInboxOperationDependencies,
+} from "./member-inbox-operation.ts";
 
 const MAX_DISCOVERY_ENTRIES = 256;
 const MAX_DISCOVERY_SOURCES = 100;
@@ -223,18 +239,6 @@ export interface InProcessMemberStatusOperationDependencies {
 	readonly surface: InProcessMemberStatusSurface;
 }
 
-export interface InboxInput {
-	readonly message: string;
-	readonly instructions?: readonly string[];
-}
-
-export interface InboxResult {
-	readonly member: MemberStatusIdentity;
-	readonly itemId: string;
-	readonly persisted: true;
-	readonly hint: "sent" | "skipped";
-}
-
 export interface AskInput {
 	readonly question: string;
 	readonly instructions?: readonly string[];
@@ -343,12 +347,13 @@ function createDeadlineBudget(signal: AbortSignal | undefined, timeoutMs: number
 async function withBudget<T>(
 	options: BebopOperationOptions | undefined,
 	operation: (budget: Budget) => Promise<T>,
+	normalize: (error: unknown, budget: Budget) => unknown = normalizeError,
 ): Promise<T> {
 	const budget = createBudget(options);
 	try {
 		return await operation(budget);
 	} catch (error) {
-		throw normalizeError(error, budget);
+		throw normalize(error, budget);
 	} finally {
 		budget.cleanup();
 	}
@@ -423,6 +428,11 @@ function awaitBudget<T>(operation: PromiseLike<T>, budget: Budget): Promise<T> {
 		);
 		if (budget.signal.aborted) onAbort();
 	});
+}
+
+function preserveInboxRpcErrors(error: unknown, budget: Budget): unknown {
+	if (error instanceof RpcProtocolError) return error;
+	return normalizeError(error, budget);
 }
 
 function normalizeError(error: unknown, budget: Budget): BebopClientError {
@@ -695,6 +705,7 @@ type SourceCall = <T>(
 	options: BebopOperationOptions | undefined,
 	parse: (value: unknown) => T,
 	classifyLostAck?: boolean,
+	normalize?: (error: unknown, budget: Budget) => unknown,
 ) => Promise<T>;
 
 function createRemoteMemberStatusOperation(call: SourceCall): MemberStatusOperation {
@@ -727,23 +738,32 @@ function sourceClient(endpoint: string): BebopSource {
 		options: BebopOperationOptions | undefined,
 		parse: (value: unknown) => T,
 		classifyLostAck = false,
+		normalize = normalizeError,
 	): Promise<T> =>
-		withBudget(options, async (budget) => {
-			const { response } = await sendRpcCommand(endpoint, command, {
-				timeout: budget.remaining(),
-				signal: budget.signal,
-				classifyLostAck,
-			});
-			if (!response.success)
-				throw new RpcProtocolError("remote-error", response.error ?? "source rejected operation");
-			return parse(response.data);
-		});
+		withBudget(
+			options,
+			async (budget) => {
+				const { response } = await sendRpcCommand(endpoint, command, {
+					timeout: budget.remaining(),
+					signal: budget.signal,
+					classifyLostAck,
+				});
+				if (!response.success)
+					throw new RpcProtocolError("remote-error", response.error ?? "source rejected operation");
+				return parse(response.data);
+			},
+			normalize,
+		);
 
 	const statusOperation = createRemoteMemberStatusOperation(call);
 	const lastMessageOperation = createRemoteMemberLastMessageOperation(call);
 	const idleWaitOperation = createRemoteMemberIdleWaitOperation(endpoint);
 	const followUpOperation = createRemoteFollowUpOperation({
 		send: (command: RemoteFollowUpCommand, options) => call(command, options, (value) => value, true),
+	});
+	const inboxOperation = createRemoteMemberInboxOperation({
+		send: (command: RemoteMemberInboxCommand, options) =>
+			call(command, options, (value) => value, true, preserveInboxRpcErrors),
 	});
 	return {
 		...statusOperation,
@@ -854,29 +874,7 @@ function sourceClient(endpoint: string): BebopSource {
 			return followUpOperation.sendFollowUp(member, input, options);
 		},
 		sendToInbox(member, input, options) {
-			validateMember(member);
-			validateMessage(input.message);
-			validateInstructions(input.instructions);
-			validateEffectPayload(input.message, input.instructions, "inbox");
-			return call(
-				{
-					type: "member_inbox_send",
-					target: member,
-					message: input.message,
-					...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
-				},
-				options,
-				(value) => {
-					if (!isMemberInboxSendResult(value)) throw new BebopClientError("malformed-response");
-					return {
-						member: value.member,
-						itemId: value.itemId,
-						persisted: true,
-						hint: value.hint,
-					};
-				},
-				true,
-			);
+			return inboxOperation.sendToInbox(member, input, options);
 		},
 	};
 }

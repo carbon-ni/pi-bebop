@@ -687,6 +687,30 @@ test("SDK preserves outcome-unknown for timeout after Follow-up and Inbox dispat
 	}
 });
 
+test("SDK preserves typed Inbox remote rejection codes through the selected public source", async () => {
+	const codes = [
+		"inbox-full",
+		"inbox-untrusted-path",
+		"storage-unavailable",
+		"storage-failed",
+		"invalid-payload",
+		"ambiguous-role",
+		"self-send",
+	] as const;
+	for (const code of codes) {
+		const source = await fakeSource({ remoteError: code });
+		try {
+			const selected = await createBebopClient().selectSource({ session: source.session });
+			await assert.rejects(
+				selected.sendToInbox("developer", { message: "durable" }),
+				(error: unknown) => error instanceof BebopClientError && error.code === code,
+			);
+		} finally {
+			await source.close();
+		}
+	}
+});
+
 test("SDK preserves outcome-unknown for AbortSignal cancellation after effect dispatch", async () => {
 	const followUpSource = await fakeSource({ hangFollowUp: true });
 	try {
