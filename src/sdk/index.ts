@@ -50,6 +50,7 @@ import {
 	type InboxResult,
 	type RemoteMemberInboxCommand,
 } from "./member-inbox-operation.ts";
+import { createRemoteMemberRequestOperation, type MemberRequestOperation } from "./member-request-operation.ts";
 export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
 export type {
 	FollowUpInput,
@@ -72,6 +73,26 @@ export type {
 	RemoteMemberInboxCommand,
 	RemoteMemberInboxOperationDependencies,
 } from "./member-inbox-operation.ts";
+export {
+	createInProcessMemberRequestOperation,
+	createRemoteMemberRequestOperation,
+} from "./member-request-operation.ts";
+export type {
+	InProcessGuestRequest,
+	InProcessMemberRequestFlowCapability,
+	InProcessMemberRequestOperationDependencies,
+	InProcessMemberRequestSurface,
+	MemberRequestOperation,
+	MemberRequestOperationOptions,
+	MemberRequestResponseInput,
+	MemberRequestStartInput,
+	MemberRequestStartResult,
+	MemberRequestWaitResult,
+	RemoteMemberRequestOperationDependencies,
+	RemoteMemberRequestStartCommand,
+	RemoteMemberRequestWaitCommand,
+	RemoteMemberResponseCommand,
+} from "./member-request-operation.ts";
 
 const MAX_DISCOVERY_ENTRIES = 256;
 const MAX_DISCOVERY_SOURCES = 100;
@@ -281,7 +302,11 @@ export type AskResult =
 			readonly member: MemberStatusIdentity;
 	  };
 
-export interface BebopSource extends MemberStatusOperation, MemberLastMessageOperation, MemberIdleWaitOperation {
+export interface BebopSource
+	extends MemberStatusOperation,
+		MemberLastMessageOperation,
+		MemberIdleWaitOperation,
+		MemberRequestOperation {
 	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
@@ -765,7 +790,13 @@ function sourceClient(endpoint: string): BebopSource {
 		send: (command: RemoteMemberInboxCommand, options) =>
 			call(command, options, (value) => value, true, preserveInboxRpcErrors),
 	});
+	const requestOperation = createRemoteMemberRequestOperation({
+		sendStart: (command, options) => call(command, options, (value) => value, true, preserveInboxRpcErrors),
+		sendWait: (command, options) => call(command, options, (value) => value, false, preserveInboxRpcErrors),
+		sendResponse: (command, options) => call(command, options, (value) => value, false, preserveInboxRpcErrors),
+	});
 	return {
+		...requestOperation,
 		...statusOperation,
 		...lastMessageOperation,
 		...idleWaitOperation,

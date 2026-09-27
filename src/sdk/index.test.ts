@@ -160,39 +160,41 @@ async function fakeSource(
 					continue;
 				}
 				const result =
-					request.method === "session.status"
-						? options.malformedStatus
-							? { status: "joined", projectTrusted: false }
-							: { status: "joined", ...(options.trusted === false ? {} : { projectTrusted: true }) }
-						: request.method === "member.status_target"
-							? {
-									status: {
-										member: { name: "developer", role: "Developer" },
-										presence: "online",
-										activity: "idle",
-										hasPendingMessages: false,
-										observedAt: "2026-09-22T20:00:00.000Z",
-									},
-								}
-							: request.method === "member.last_message_target"
-								? options.malformedLastMessage
-									? { member: { name: "", role: "Developer" }, message: null }
-									: {
+					request.method === "member.respond"
+						? {}
+						: request.method === "session.status"
+							? options.malformedStatus
+								? { status: "joined", projectTrusted: false }
+								: { status: "joined", ...(options.trusted === false ? {} : { projectTrusted: true }) }
+							: request.method === "member.status_target"
+								? {
+										status: {
 											member: { name: "developer", role: "Developer" },
-											message: options.lastMessage ?? null,
-										}
-								: request.method === "member.follow_up"
-									? {
-											member: { name: "developer", role: "Developer" },
-											deliveryId: "delivery-1",
-											disposition: "queued",
-										}
-									: {
-											member: { name: "developer", role: "Developer" },
-											itemId: "item-1",
-											persisted: true,
-											hint: "skipped",
-										};
+											presence: "online",
+											activity: "idle",
+											hasPendingMessages: false,
+											observedAt: "2026-09-22T20:00:00.000Z",
+										},
+									}
+								: request.method === "member.last_message_target"
+									? options.malformedLastMessage
+										? { member: { name: "", role: "Developer" }, message: null }
+										: {
+												member: { name: "developer", role: "Developer" },
+												message: options.lastMessage ?? null,
+											}
+									: request.method === "member.follow_up"
+										? {
+												member: { name: "developer", role: "Developer" },
+												deliveryId: "delivery-1",
+												disposition: "queued",
+											}
+										: {
+												member: { name: "developer", role: "Developer" },
+												itemId: "item-1",
+												persisted: true,
+												hint: "skipped",
+											};
 				socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
 			}
 		});
@@ -217,6 +219,41 @@ async function fakeSource(
 		},
 	};
 }
+
+test("SDK selected source exposes real-wire Request start, repeat wait, and respond primitives", async () => {
+	const source = await fakeSource({
+		askWait: (_requestId, count) => (count === 1 ? "pending" : "response"),
+	});
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		const accepted = await selected.startMemberRequest("developer", {
+			message: "Review this change",
+			instructions: ["Check correlation"],
+		});
+		assert.deepEqual(accepted, {
+			accepted: true,
+			requestId: "ask-1",
+			member: { name: "developer", role: "Developer" },
+		});
+		const pending = await selected.waitForRequestOutcome(accepted.requestId);
+		assert.equal(pending.kind, "pending");
+		const response = await selected.waitForRequestOutcome(accepted.requestId);
+		assert.equal(response.kind, "response");
+		if (response.kind === "response") {
+			assert.equal(response.requestId, accepted.requestId);
+			assert.deepEqual(response.instructions, ["ordered"]);
+		}
+		await selected.respondToMemberRequest(accepted.requestId, { message: "Acknowledged" });
+		assert.deepEqual(
+			source.requests
+				.filter((request) => request.method.startsWith("member.request") || request.method === "member.respond")
+				.map((request) => request.method),
+			["member.request_start", "member.request_wait", "member.request_wait", "member.respond"],
+		);
+	} finally {
+		await source.close();
+	}
+});
 
 test("SDK selects a trusted joined source and delegates status, Follow-up, and Inbox", async () => {
 	const source = await fakeSource();

@@ -27,7 +27,19 @@ export type BebopClientErrorCode =
 	| "inbox-full"
 	| "inbox-untrusted-path"
 	| "storage-unavailable"
-	| "storage-failed";
+	| "storage-failed"
+	| "invalid-request-id"
+	| "unknown-request"
+	| "no-pending-request"
+	| "no-pending-requests"
+	| "already-waiting"
+	| "outcome-consumed"
+	| "response-expired"
+	| "ambiguous-request"
+	| "already-terminal"
+	| "duplicate-request"
+	| "invalid-timeout"
+	| "invalid-max-wait";
 
 function defaultErrorMessage(code: BebopClientErrorCode): string {
 	return (
@@ -61,6 +73,18 @@ function defaultErrorMessage(code: BebopClientErrorCode): string {
 			"inbox-untrusted-path": "The Inbox storage path is not trusted",
 			"storage-unavailable": "The member Inbox store is temporarily unavailable",
 			"storage-failed": "The member Inbox store failed",
+			"invalid-request-id": "The Request ID is invalid",
+			"unknown-request": "The Request ID is unknown",
+			"no-pending-request": "No pending Member Request is available",
+			"no-pending-requests": "No pending Member Requests are available",
+			"already-waiting": "Another wait is already active",
+			"outcome-consumed": "The Request outcome was already consumed",
+			"response-expired": "The Request response window expired",
+			"ambiguous-request": "More than one inbound Request matches",
+			"already-terminal": "The Request is already terminal",
+			"duplicate-request": "The Request ID is already in use",
+			"invalid-timeout": "The Request grace timeout is invalid",
+			"invalid-max-wait": "The Request max-wait timeout is invalid",
 		} as Record<BebopClientErrorCode, string>
 	)[code];
 }
