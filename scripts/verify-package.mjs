@@ -25,6 +25,7 @@ const allowedPath = (file) =>
 	file === "dist/cli/main.js" ||
 	file === "dist/extension.js" ||
 	file === "dist/sdk.js" ||
+	file === "dist/sdk.metafile.json" ||
 	file === "dist/sdk.d.ts" ||
 	(file.startsWith("dist/src/") && file.endsWith(".d.ts")) ||
 	file === "dist/errors.d.ts" ||
@@ -52,6 +53,7 @@ try {
 		"dist/extension.js",
 		"dist/cli/main.js",
 		"dist/sdk.js",
+		"dist/sdk.metafile.json",
 		"dist/sdk.d.ts",
 		"dist/errors.d.ts",
 		"dist/member-idle-wait-operation.d.ts",
@@ -89,6 +91,14 @@ try {
 		throw new Error("Installed SDK import export is not configured");
 	if (manifest.exports?.["./sdk"]?.types !== "./dist/sdk.d.ts")
 		throw new Error("Installed SDK type export is not configured");
+	const sdkMetafile = JSON.parse(await readFile(path.join(packageRoot, "dist/sdk.metafile.json"), "utf8"));
+	const sdkInputs = Object.keys(sdkMetafile.inputs ?? {});
+	const forbiddenSdkInput = sdkInputs.find(
+		(input) =>
+			/(^|\/)src\/(?:cli|pi|tools)\//.test(input) ||
+			/(^|\/)node_modules\/(?:commander|@earendil-works\/(?:pi-ai|pi-coding-agent|pi-tui))(?:\/|$)/.test(input),
+	);
+	if (forbiddenSdkInput) throw new Error(`SDK bundle includes forbidden host dependency: ${forbiddenSdkInput}`);
 	const typecheck = path.join(consumerDir, "sdk-typecheck.mts");
 	await writeFile(
 		typecheck,
@@ -155,6 +165,19 @@ const status = sdk.createInProcessMemberStatusOperation({
 await status.getMemberStatus('developer').then(() => { throw new Error('not-joined was not enforced'); }, error => {
   if (error?.code !== 'not-joined') throw error;
 });
+let probes = 0;
+let requests = 0;
+const joinedStatus = sdk.createInProcessMemberStatusOperation({
+  surface: {
+    getMembership: () => ({ member: { name: 'owner', role: 'po', socketPath: '/owner-sentinel.sock' }, socketPath: '/owner-sentinel.sock', manifest: { members: [{ name: 'developer', role: 'Developer', socketPath: '/sentinel.sock' }] } }),
+    isTrusted: () => true, isIdle: () => true, hasPendingMessages: () => false,
+    probeEndpoint: async socketPath => { probes += 1; if (socketPath !== '/sentinel.sock') throw new Error('unexpected endpoint'); return true; },
+    requestStatus: async socketPath => { requests += 1; if (socketPath !== '/sentinel.sock') throw new Error('unexpected endpoint'); return { ok: true, status: { member: { name: 'developer', role: 'Developer' }, presence: 'online', activity: 'idle', hasPendingMessages: false, observedAt: '1970-01-01T00:00:00.000Z' } }; },
+    now: () => new Date(0).toISOString(),
+  },
+});
+const observed = await joinedStatus.getMemberStatus('developer');
+if (observed.presence !== 'online' || probes !== 1 || requests !== 1) throw new Error('joined in-process operation did not use injected authority');
 const followUp = sdk.createRemoteFollowUpOperation({
   send: async () => ({ member: { name: 'developer', role: 'Developer' }, deliveryId: 'delivery-1', disposition: 'queued' }),
 });

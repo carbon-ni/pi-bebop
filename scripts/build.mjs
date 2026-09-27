@@ -50,14 +50,16 @@ try {
 		external: ["@earendil-works/*", "@sinclair/typebox", "typebox"],
 		outfile: join(staging, "extension.js"),
 	});
-	await build({
+	const sdkBuild = await build({
 		entryPoints: [join(projectRoot, "src/sdk/index.ts")],
 		bundle: true,
 		platform: "node",
 		format: "esm",
 		external: ["@sinclair/typebox", "typebox"],
+		metafile: true,
 		outfile: join(staging, "sdk.js"),
 	});
+	await writeFile(join(staging, "sdk.metafile.json"), JSON.stringify(sdkBuild.metafile));
 	const declarationDir = await mkdtemp(join(projectRoot, ".bebop-sdk-types-"));
 	try {
 		execFileSync(
