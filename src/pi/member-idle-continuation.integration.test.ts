@@ -21,7 +21,8 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { createSocketState, emitIdleSettled, handleCommand } from "./control-runtime.ts";
-import { registerWaitForMemberIdleTool, type MemberIdleWaitToolTransport } from "../tools/wait-for-member-idle.ts";
+import { registerWaitForMemberIdleTool } from "../tools/wait-for-member-idle.ts";
+import { createInProcessMemberIdleWaitOperation } from "../sdk/member-idle-wait-operation.ts";
 
 /**
  * TASK-0089 Pi-host continuation characterization.
@@ -79,13 +80,25 @@ interface FakeHarness {
 }
 
 /** Parking transport: alive target, idle subscription parks until aborted. */
-const parkTransport: MemberIdleWaitToolTransport = {
-	probeEndpoint: async () => true,
-	requestIdleWait: (_endpoint, _label, options) =>
+const parkTransport = {
+	probeEndpoint: async (_socketPath: string, _signal?: AbortSignal) => true,
+	requestIdleWait: (_endpoint: string, _label: string, options: { timeoutSeconds: number; signal?: AbortSignal }) =>
 		new Promise<never>(() => {
 			options.signal?.addEventListener("abort", () => undefined, { once: true });
 		}),
 };
+
+function createIdleOperation(state: ReturnType<typeof createSocketState>) {
+	return createInProcessMemberIdleWaitOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			probeEndpoint: parkTransport.probeEndpoint,
+			requestIdleWait: parkTransport.requestIdleWait,
+			now: () => new Date().toISOString(),
+		},
+	});
+}
 
 async function createFakeSession(
 	options: {
@@ -187,7 +200,7 @@ async function createFakeSession(
 		name: "bebop-0089-continuation",
 		factory: (pi: ExtensionAPI) => {
 			piRef = pi;
-			registerWaitForMemberIdleTool(pi, state, parkTransport);
+			registerWaitForMemberIdleTool(pi, state, createIdleOperation(state));
 			options.extraTool?.(pi);
 		},
 	};

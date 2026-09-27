@@ -24,11 +24,10 @@ import { createMemberMessageCoordinator } from "./application/member-message.ts"
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
 import { createMemberStatusTransport } from "./infra/member-status-transport.ts";
-import { createInProcessMemberStatusOperation } from "./sdk/index.ts";
+import { createInProcessMemberIdleWaitOperation, createInProcessMemberStatusOperation } from "./sdk/index.ts";
 import { sendMemberIdleWait, sendRpcCommand, sendMemberRequest } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
-import { type MemberIdleWaitCommand } from "./domain/index.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -192,23 +191,28 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 	registerGetMemberStatusTool(pi, memberStatusOperation);
-	registerWaitForMemberIdleTool(pi, state, {
-		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
-		requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
-			try {
-				const resolved = await resolveMemberEndpoint(endpoint);
-				const command: MemberIdleWaitCommand = {
-					type: "member_idle_wait",
-					member: memberLabel,
-					forwarded: true,
-				};
-				return await sendMemberIdleWait(resolved, command, { timeoutSeconds, signal });
-			} catch (error) {
-				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
-				return { ok: false, code: "transport-error" };
-			}
+	const memberIdleWaitOperation = createInProcessMemberIdleWaitOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			probeEndpoint: (socketPath, signal) => probeMemberEndpoint(socketPath, { signal }),
+			requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
+				try {
+					const resolved = await resolveMemberEndpoint(endpoint);
+					return await sendMemberIdleWait(
+						resolved,
+						{ type: "member_idle_wait", member: memberLabel, forwarded: true },
+						{ timeoutSeconds, signal },
+					);
+				} catch (error) {
+					if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+					return { ok: false, code: "transport-error" };
+				}
+			},
+			now: () => new Date().toISOString(),
 		},
 	});
+	registerWaitForMemberIdleTool(pi, state, memberIdleWaitOperation);
 
 	const presenceComposition = createPresenceComposition({
 		getMembership: () => {

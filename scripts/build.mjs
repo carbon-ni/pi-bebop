@@ -89,6 +89,11 @@ try {
 		);
 		await cp(join(declarationDir, "src"), join(staging, "src"), { recursive: true });
 		await writeFile(join(staging, "sdk.d.ts"), 'export * from "./src/sdk/index.js";\n');
+		await cp(join(declarationDir, "src/sdk/errors.d.ts"), join(staging, "errors.d.ts"));
+		await cp(
+			join(declarationDir, "src/sdk/member-idle-wait-operation.d.ts"),
+			join(staging, "member-idle-wait-operation.d.ts"),
+		);
 	} finally {
 		await rm(declarationDir, { recursive: true, force: true });
 	}

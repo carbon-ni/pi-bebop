@@ -11,6 +11,7 @@ import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, emitIdleSettled, handleCommand } from "./control-runtime.ts";
 import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import { registerWaitForMemberIdleTool } from "../tools/wait-for-member-idle.ts";
+import { createInProcessMemberIdleWaitOperation } from "../sdk/member-idle-wait-operation.ts";
 
 /** TASK-0081 real two-runtime Member Idle Wait round trip. */
 
@@ -57,7 +58,7 @@ function waitForSubscriptions(
 }
 
 const idleTransport = {
-	probeEndpoint: (socketPath: string) => probeMemberEndpoint(socketPath),
+	probeEndpoint: (socketPath: string, signal?: AbortSignal) => probeMemberEndpoint(socketPath, { signal }),
 	requestIdleWait: async (
 		endpoint: string,
 		memberLabel: string,
@@ -71,6 +72,18 @@ const idleTransport = {
 		});
 	},
 };
+
+function createIdleOperation(state: ReturnType<typeof createSocketState>) {
+	return createInProcessMemberIdleWaitOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			probeEndpoint: idleTransport.probeEndpoint,
+			requestIdleWait: idleTransport.requestIdleWait,
+			now: () => new Date().toISOString(),
+		},
+	});
+}
 
 function runtimeServer(
 	socketPath: string,
@@ -136,12 +149,12 @@ test("TASK-0081: mutual member-idle waits BLOCK and each returns became-idle exa
 	registerWaitForMemberIdleTool(
 		{ registerTool: (tool) => toolsA.push(tool as never) } as never,
 		stateA,
-		idleTransport,
+		createIdleOperation(stateA),
 	);
 	registerWaitForMemberIdleTool(
 		{ registerTool: (tool) => toolsB.push(tool as never) } as never,
 		stateB,
-		idleTransport,
+		createIdleOperation(stateB),
 	);
 	const waitA = toolsA.find((tool) => tool.name === "wait_for_member_idle")!;
 	const waitB = toolsB.find((tool) => tool.name === "wait_for_member_idle")!;

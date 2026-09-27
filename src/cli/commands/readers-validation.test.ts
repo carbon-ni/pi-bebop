@@ -205,9 +205,9 @@ test("guest readers require a live member socket target and non-empty routing va
 
 test("member idle wait reader validates duration, format, and member target", () => {
 	const parsed = readMemberIdleWaitCommand(
-		parseInto(() => buildMemberIdleWaitCommand(), ["Mary", "--timeout", "30s", "--format", "json"]),
+		parseInto(() => buildMemberIdleWaitCommand(), ["Mary", "--timeout", "60s", "--format", "json"]),
 	);
-	assert.equal(parsed.timeoutSeconds, 30);
+	assert.equal(parsed.timeoutSeconds, 60);
 	assert.equal(parsed.format, "json");
 	usage(
 		() => readMemberIdleWaitCommand(parseInto(() => buildMemberIdleWaitCommand(), ["--timeout", "x"])),
@@ -218,8 +218,8 @@ test("member idle wait reader validates duration, format, and member target", ()
 		/Invalid --timeout '500ms'/,
 	);
 	usage(
-		() => readMemberIdleWaitCommand(parseInto(() => buildMemberIdleWaitCommand(), ["Mary", "--timeout", "15m"])),
-		/Invalid --timeout '15m'/,
+		() => readMemberIdleWaitCommand(parseInto(() => buildMemberIdleWaitCommand(), ["Mary", "--timeout", "121m"])),
+		/Invalid --timeout '121m'/,
 	);
 	usage(
 		() => readMemberIdleWaitCommand(parseInto(() => buildMemberIdleWaitCommand(), ["Mary", "--format", "xml"])),

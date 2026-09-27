@@ -1,7 +1,11 @@
 import { Command } from "commander";
-import { formatMemberIdleWaitResult, isMemberIdleWaitResult } from "../../domain/index.ts";
-import { sendMemberIdleWait, type MemberIdleWaitClientOutcome } from "../../infra/rpc-client.ts";
-import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
+import {
+	formatMemberIdleWaitResult,
+	isMemberIdleWaitResult,
+	MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS,
+	MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS,
+} from "../../domain/index.ts";
+import { BebopClientError, createRemoteMemberIdleWaitOperation, type MemberIdleWaitResult } from "../../sdk/index.ts";
 import { parsePositiveDurationMs } from "../support/duration.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
@@ -24,10 +28,18 @@ function parseTimeout(value: string): number {
 	try {
 		milliseconds = parsePositiveDurationMs(value);
 	} catch {
-		throw new UsageError(`Invalid --timeout '${value}'; use a whole-second duration from 1s through 10m`);
+		throw new UsageError(
+			`Invalid --timeout '${value}'; use a whole-second duration from ${MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS}s through ${MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS / 60}s`,
+		);
 	}
-	if (milliseconds % 1000 !== 0 || milliseconds < 1000 || milliseconds > 600_000)
-		throw new UsageError(`Invalid --timeout '${value}'; use a whole-second duration from 1s through 10m`);
+	if (
+		milliseconds % 1000 !== 0 ||
+		milliseconds < MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS * 1000 ||
+		milliseconds > MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS * 1000
+	)
+		throw new UsageError(
+			`Invalid --timeout '${value}'; use a whole-second duration from ${MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS}s through ${MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS / 60}s`,
+		);
 	return milliseconds / 1000;
 }
 
@@ -35,7 +47,11 @@ export function buildMemberIdleWaitCommand(): Command {
 	return new Command("wait-idle")
 		.description("Wait once for a crew member to become idle or go offline")
 		.option("--session <id|alias>", "Source joined Pi session id or alias (default: PI_SESSION_ID)")
-		.option("--timeout <duration>", "Whole-second wait duration from 1s through 10m", "5m")
+		.option(
+			"--timeout <duration>",
+			`Whole-second wait duration from ${MEMBER_IDLE_WAIT_TIMEOUT_MIN_SECONDS}s through ${MEMBER_IDLE_WAIT_TIMEOUT_MAX_SECONDS / 60}m`,
+			"30m",
+		)
 		.option(
 			"--format <format>",
 			"Output format: text (default), toon, or json",
@@ -73,9 +89,25 @@ export function readMemberIdleWaitCommand(parsed: Command): MemberIdleWaitCliOpt
 	};
 }
 
+type MemberIdleWaitFailureCode =
+	| "timeout"
+	| "offline"
+	| "aborted"
+	| "malformed-response"
+	| "identity-mismatch"
+	| "remote-rejected"
+	| "capacity-exceeded"
+	| "transport-error"
+	| "unknown-session"
+	| "offline-session";
+
 type MemberIdleWaitCliOutcome =
-	| MemberIdleWaitClientOutcome
-	| { readonly ok: false; readonly code: "unknown-session" | "offline-session" };
+	| { readonly ok: true; readonly result: MemberIdleWaitResult }
+	| {
+			readonly ok: false;
+			readonly code: MemberIdleWaitFailureCode;
+			readonly transportCode?: string;
+	  };
 
 export interface MemberIdleWaitCliDependencies {
 	readonly resolveSource: (input: { explicitSession?: string; environmentSession?: string }) => SourceResolution;
@@ -97,7 +129,7 @@ export function mapIdleWaitTransportError(error: unknown): MemberIdleWaitCliOutc
 	return { ok: false, code: "transport-error" };
 }
 
-export function normalizeIdleWaitTransportOutcome(outcome: MemberIdleWaitClientOutcome): MemberIdleWaitCliOutcome {
+export function normalizeIdleWaitTransportOutcome(outcome: MemberIdleWaitCliOutcome): MemberIdleWaitCliOutcome {
 	if (outcome.ok || !("transportCode" in outcome)) return outcome;
 	if (outcome.transportCode === "ENOENT") return { ok: false, code: "unknown-session" };
 	if (outcome.transportCode === "ECONNREFUSED" || outcome.transportCode === "ENOTCONN")
@@ -112,15 +144,17 @@ async function waitThroughSocket(
 	signal: AbortSignal,
 ): Promise<MemberIdleWaitCliOutcome> {
 	try {
-		const resolved = await resolveMemberEndpoint(socketPath);
-		return normalizeIdleWaitTransportOutcome(
-			await sendMemberIdleWait(
-				resolved,
-				{ type: "member_idle_wait", member: target },
-				{ timeoutSeconds, signal },
-			),
-		);
+		const result = await createRemoteMemberIdleWaitOperation(socketPath).waitForMemberIdle(target, {
+			timeoutSeconds,
+			signal,
+		});
+		return { ok: true, result };
 	} catch (error) {
+		if (error instanceof BebopClientError) {
+			if (error.code === "unknown-session") return { ok: false, code: "unknown-session" };
+			if (error.code === "offline-session") return { ok: false, code: "offline-session" };
+			return { ok: false, code: error.code as MemberIdleWaitFailureCode };
+		}
 		return mapIdleWaitTransportError(error);
 	}
 }

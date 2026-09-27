@@ -1,0 +1,239 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+	BebopClientError,
+	createInProcessMemberIdleWaitOperation,
+	type InProcessMemberIdleWaitOperationDependencies,
+} from "./index.ts";
+
+const target = { name: "Kelly", role: "qa", socketPath: "/project/.pi/bebop/sockets/Kelly.sock" };
+const self = { name: "Dave", role: "developer", socketPath: "/project/.pi/bebop/sockets/Dave.sock" };
+const membership = {
+	member: self,
+	socketPath: self.socketPath,
+	manifest: { members: [self, target] },
+};
+const idleResult = {
+	member: { name: target.name, role: target.role },
+	outcome: "idle" as const,
+	disposition: "became-idle" as const,
+	observedAt: "2026-09-27T12:00:00.000Z",
+};
+
+function dependencies(
+	overrides: Partial<InProcessMemberIdleWaitOperationDependencies["surface"]> = {},
+): InProcessMemberIdleWaitOperationDependencies {
+	return {
+		surface: {
+			getMembership: () => membership,
+			isTrusted: () => true,
+			probeEndpoint: async () => true,
+			requestIdleWait: async () => ({ ok: true, result: idleResult }),
+			now: () => idleResult.observedAt,
+			...overrides,
+		},
+	};
+}
+
+test("in-process idle operation shares target resolution and subscription flow", async () => {
+	let probes = 0;
+	let requests = 0;
+	const operation = createInProcessMemberIdleWaitOperation(
+		dependencies({
+			probeEndpoint: async () => {
+				probes += 1;
+				return true;
+			},
+			requestIdleWait: async () => {
+				requests += 1;
+				return { ok: true, result: idleResult };
+			},
+		}),
+	);
+
+	assert.deepEqual(operation.resolveMemberIdleWait({ member: "qa", timeoutSeconds: 60 }), {
+		kind: "ready",
+		target,
+		timeoutSeconds: 60,
+	});
+	assert.deepEqual(await operation.waitForMemberIdle("qa", { timeoutSeconds: 60 }), idleResult);
+	assert.equal(probes, 1);
+	assert.equal(requests, 1);
+});
+
+test("in-process idle operation maps pre-IO authority and selector failures", async () => {
+	const notJoined = createInProcessMemberIdleWaitOperation(dependencies({ getMembership: () => null }));
+	assert.throws(
+		() => notJoined.resolveMemberIdleWait({ member: "qa", timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "not-joined",
+	);
+	await assert.rejects(
+		notJoined.waitForMemberIdle("qa", { timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "not-joined",
+	);
+
+	const untrusted = createInProcessMemberIdleWaitOperation(dependencies({ isTrusted: () => false }));
+	assert.throws(
+		() => untrusted.resolveMemberIdleWait({ member: "qa", timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "untrusted",
+	);
+
+	const invalidTarget = createInProcessMemberIdleWaitOperation(dependencies());
+	assert.throws(
+		() => invalidTarget.resolveMemberIdleWait({ member: "missing", timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "unknown-member",
+	);
+	assert.throws(
+		() => invalidTarget.resolveMemberIdleWait({ member: "developer", timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "self-query",
+	);
+});
+
+test("in-process idle operation uses authoritative domain timeout bounds before IO", async () => {
+	let probes = 0;
+	const requestedTimeouts: number[] = [];
+	const delays: number[] = [];
+	let handle = 0;
+	const operation = createInProcessMemberIdleWaitOperation({
+		...dependencies({
+			probeEndpoint: async () => {
+				probes += 1;
+				return true;
+			},
+			requestIdleWait: async (_endpoint, _member, options) => {
+				requestedTimeouts.push(options.timeoutSeconds);
+				return { ok: true, result: idleResult };
+			},
+		}),
+		clock: {
+			setTimeout: (_callback, delayMs) => {
+				delays.push(delayMs);
+				return ++handle as unknown as ReturnType<typeof setTimeout>;
+			},
+			clearTimeout: () => undefined,
+		},
+	});
+
+	for (const timeoutSeconds of [59, 7201])
+		assert.throws(
+			() => operation.waitForMemberIdle("qa", { timeoutSeconds }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+		);
+	assert.equal(probes, 0);
+	await operation.waitForMemberIdle("qa", { timeoutSeconds: 60 });
+	await operation.waitForMemberIdle("qa", { timeoutSeconds: 7200 });
+	assert.deepEqual(requestedTimeouts, [60, 7200]);
+	assert.deepEqual(delays, [60_000, 7_200_000]);
+	assert.equal(probes, 2);
+});
+
+test("in-process idle operation aborts a held probe when its deadline expires", async () => {
+	let fireDeadline!: () => void;
+	let clearCalls = 0;
+	let probeAborts = 0;
+	let requests = 0;
+	const operation = createInProcessMemberIdleWaitOperation({
+		surface: {
+			...dependencies().surface,
+			probeEndpoint: async (_socketPath, signal) =>
+				new Promise<boolean>((resolve) => {
+					signal?.addEventListener(
+						"abort",
+						() => {
+							probeAborts += 1;
+							resolve(false);
+						},
+						{ once: true },
+					);
+				}),
+			requestIdleWait: async () => {
+				requests += 1;
+				return { ok: true, result: idleResult };
+			},
+		},
+		clock: {
+			setTimeout: (callback) => {
+				fireDeadline = callback;
+				return setTimeout(() => undefined, 0);
+			},
+			clearTimeout: (handle) => {
+				clearCalls += 1;
+				clearTimeout(handle);
+			},
+		},
+	});
+	const pending = operation.waitForMemberIdle("Kelly", { timeoutSeconds: 60 });
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	fireDeadline();
+	await assert.rejects(pending, (error: unknown) => error instanceof BebopClientError && error.code === "timeout");
+	assert.equal(probeAborts, 1);
+	assert.equal(requests, 0);
+	assert.equal(clearCalls, 1);
+});
+
+test("in-process idle operation returns offline without opening a subscription", async () => {
+	let requests = 0;
+	const operation = createInProcessMemberIdleWaitOperation(
+		dependencies({
+			probeEndpoint: async () => false,
+			requestIdleWait: async () => {
+				requests += 1;
+				return { ok: true, result: idleResult };
+			},
+		}),
+	);
+
+	const result = await operation.waitForMemberIdle("Kelly", { timeoutSeconds: 60 });
+	assert.equal(result.outcome, "offline");
+	assert.equal(requests, 0);
+});
+
+test("in-process idle operation preserves caller cancellation and identity failures", async () => {
+	const controller = new AbortController();
+	let aborted = false;
+	const operation = createInProcessMemberIdleWaitOperation(
+		dependencies({
+			requestIdleWait: async (_endpoint, _member, options) => {
+				if (options.signal?.aborted) {
+					aborted = true;
+					return { ok: false, code: "aborted" };
+				}
+				return new Promise((resolve) => {
+					const onAbort = () => {
+						aborted = true;
+						resolve({ ok: false as const, code: "aborted" as const });
+					};
+					options.signal?.addEventListener("abort", onAbort, { once: true });
+					if (options.signal?.aborted) onAbort();
+				});
+			},
+		}),
+	);
+	const pending = operation.waitForMemberIdle("Kelly", { timeoutSeconds: 60, signal: controller.signal });
+	controller.abort();
+	await assert.rejects(pending, (error: unknown) => error instanceof BebopClientError && error.code === "aborted");
+	assert.equal(aborted, true);
+
+	const mismatched = createInProcessMemberIdleWaitOperation(
+		dependencies({
+			requestIdleWait: async () => ({
+				ok: true,
+				result: { ...idleResult, member: { name: "Mony", role: "lead" } },
+			}),
+		}),
+	);
+	await assert.rejects(
+		mismatched.waitForMemberIdle("Kelly", { timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "identity-mismatch",
+	);
+
+	const capacityExceeded = createInProcessMemberIdleWaitOperation(
+		dependencies({
+			requestIdleWait: async () => ({ ok: false, code: "capacity-exceeded" }),
+		}),
+	);
+	await assert.rejects(
+		capacityExceeded.waitForMemberIdle("Kelly", { timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "capacity-exceeded",
+	);
+});

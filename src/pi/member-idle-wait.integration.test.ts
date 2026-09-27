@@ -218,7 +218,7 @@ test("CLI/RPC wait for Mary never returns the source member Dave", async (t) => 
 
 	const outcome = await runMemberIdleWaitCommand(
 		readMemberIdleWaitCommand(
-			parseInto(buildMemberIdleWaitCommand, ["Mary", "--timeout", "1s", "--format", "json"]),
+			parseInto(buildMemberIdleWaitCommand, ["Mary", "--timeout", "60s", "--format", "json"]),
 		),
 		{ cwd: root, input: process.stdin, signal: new AbortController().signal },
 		{

@@ -1,7 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerWaitForMemberIdleTool, type MemberIdleWaitToolTransport } from "./wait-for-member-idle.ts";
+import { registerWaitForMemberIdleTool } from "./wait-for-member-idle.ts";
+import {
+	createInProcessMemberIdleWaitOperation,
+	type InProcessMemberIdleWaitOperationDependencies,
+} from "../sdk/index.ts";
 import { createSocketState } from "../pi/control-runtime.ts";
 
 type RegisteredTool = {
@@ -23,7 +27,10 @@ type RegisteredTool = {
 /** Deterministic flush of the microtask/macrotask queues (no wall-clock sleep). */
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function setup(membership: unknown | (() => unknown), transport: Partial<MemberIdleWaitToolTransport> = {}) {
+function setup(
+	membership: unknown | (() => unknown),
+	surfaceOverrides: Partial<InProcessMemberIdleWaitOperationDependencies["surface"]> = {},
+) {
 	let registeredTool: RegisteredTool | undefined;
 	const pi = {
 		registerTool(tool: unknown) {
@@ -34,19 +41,25 @@ function setup(membership: unknown | (() => unknown), transport: Partial<MemberI
 	const state = createSocketState();
 	state.membershipRuntime = { getMembership } as never;
 	state.context = { isProjectTrusted: () => true } as never;
-	const defaultTransport: MemberIdleWaitToolTransport = {
-		probeEndpoint: async () => true,
-		requestIdleWait: async () => ({
-			ok: true,
-			result: {
-				member: { name: "Bob", role: "dev" },
-				outcome: "idle",
-				disposition: "became-idle",
-				observedAt: "2026-08-23T12:03:00.000Z",
-			},
-		}),
-	};
-	registerWaitForMemberIdleTool(pi, state, { ...defaultTransport, ...transport });
+	const operation = createInProcessMemberIdleWaitOperation({
+		surface: {
+			getMembership,
+			isTrusted: () => true,
+			probeEndpoint: async () => true,
+			requestIdleWait: async () => ({
+				ok: true,
+				result: {
+					member: { name: "Bob", role: "dev" },
+					outcome: "idle",
+					disposition: "became-idle",
+					observedAt: "2026-08-23T12:03:00.000Z",
+				},
+			}),
+			now: () => "2026-08-23T12:03:00.000Z",
+			...surfaceOverrides,
+		},
+	});
+	registerWaitForMemberIdleTool(pi, state, operation);
 	assert.ok(registeredTool);
 	return { tool: registeredTool!, state };
 }
@@ -228,6 +241,7 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 
 	test("TASK-0081: terminal outcome releases the listener and aborts the subscription", async () => {
 		let aborted = false;
+		let releases = 0;
 		const { tool, state } = setup(membership, {
 			requestIdleWait: async (_endpoint, _label, { signal }) => {
 				if (signal)
@@ -245,11 +259,17 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 				};
 			},
 		});
+		const release = state.wakeGate.release;
+		state.wakeGate.release = ((listener) => {
+			releases += 1;
+			return release.call(state.wakeGate, listener);
+		}) as typeof state.wakeGate.release;
 		const result = await tool.execute("id", { member: "Bob" });
 		await flush();
 		assert.equal(result.isError, undefined);
 		assert.equal(state.wakeGate.notifyAccepted("delivery-x"), false, "no lingering listener after terminal");
 		assert.equal(aborted, true, "subscription aborted after terminal");
+		assert.equal(releases, 1, "terminal cleanup releases the wake listener exactly once");
 	});
 
 	test("TASK-0081: a message accepted BEFORE arm does not wake the new wait (pre-arm outside wake scope)", async () => {
@@ -336,9 +356,9 @@ describe("wait_for_member_idle tool (TASK-0081 blocking)", () => {
 		const { tool } = setup(membership);
 		const low = await tool.execute("id", { member: "Bob", timeout_seconds: 59 });
 		assert.equal(low.isError, true);
-		assert.equal((low.details as { error?: string }).error, "invalid-timeout");
+		assert.equal((low.details as { error?: string }).error, "invalid-input");
 		const high = await tool.execute("id", { member: "Bob", timeout_seconds: 7201 });
 		assert.equal(high.isError, true);
-		assert.equal((high.details as { error?: string }).error, "invalid-timeout");
+		assert.equal((high.details as { error?: string }).error, "invalid-input");
 	});
 });

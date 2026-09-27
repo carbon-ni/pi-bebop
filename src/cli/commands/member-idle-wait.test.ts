@@ -39,17 +39,18 @@ test("idle wait dependencies read explicit environment sessions and process fall
 });
 
 test("idle wait reader validates member, format, and whole-second timeout", () => {
-	assert.deepEqual(waitOptions(["Bob", "--timeout", "10s", "--format", "text"]), {
+	assert.deepEqual(waitOptions(["Bob", "--timeout", "60s", "--format", "text"]), {
 		command: "member-idle-wait",
 		member: "Bob",
-		timeoutSeconds: 10,
+		timeoutSeconds: 60,
 		format: "text",
 	});
 	for (const tokens of [
 		["--format", "yaml", "Bob"],
 		["Bob", "--timeout", "0s"],
+		["Bob", "--timeout", "59s"],
 		["Bob", "--timeout", "1500ms"],
-		["Bob", "--timeout", "11m"],
+		["Bob", "--timeout", "121m"],
 		["Bob", "--timeout", "bad"],
 		[" Bob"],
 		[],
@@ -134,7 +135,7 @@ test("default wait transport falls back from stale id socket to a valid alias", 
 		const outcome = await defaultMemberIdleWaitCliDependencies.sendWait(
 			{ ...source, idSocketPath, aliasSocketPath },
 			"Bob",
-			1,
+			60,
 			new AbortController().signal,
 		);
 		assert.equal(outcome.ok, true);
@@ -142,7 +143,7 @@ test("default wait transport falls back from stale id socket to a valid alias", 
 		const primary = await defaultMemberIdleWaitCliDependencies.sendWait(
 			{ ...source, idSocketPath: aliasSocketPath, aliasSocketPath },
 			"Bob",
-			1,
+			60,
 			new AbortController().signal,
 		);
 		assert.equal(primary.ok, true);
@@ -159,7 +160,7 @@ test("default wait transport maps unavailable source errors without rejecting", 
 			aliasSocketPath: "/tmp/pi-bebop-missing-alias.sock",
 		},
 		"Bob",
-		1,
+		60,
 		new AbortController().signal,
 	);
 	assert.equal(outcome.ok, false);

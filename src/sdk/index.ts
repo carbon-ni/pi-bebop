@@ -14,6 +14,22 @@ import {
 } from "../domain/index.ts";
 import { createMemberStatusFlow, MemberStatusFlowError } from "../application/member-status-flow.ts";
 import { createMemberLastMessageFlow, MemberLastMessageFlowError } from "../application/member-last-message-flow.ts";
+import { BebopClientError, type BebopClientErrorCode } from "./errors.js";
+import { createRemoteMemberIdleWaitOperation, type MemberIdleWaitOperation } from "./member-idle-wait-operation.js";
+
+export {
+	createInProcessMemberIdleWaitOperation,
+	createRemoteMemberIdleWaitOperation,
+	type InProcessMemberIdleWaitOperation,
+	type InProcessMemberIdleWaitOperationDependencies,
+	type InProcessMemberIdleWaitSurface,
+	type MemberIdleWaitIdentity,
+	type MemberIdleWaitOperation,
+	type MemberIdleWaitOptions,
+	type MemberIdleWaitResult,
+	type MemberIdleWaitTransportResult,
+} from "./member-idle-wait-operation.js";
+export { BebopClientError, type BebopClientErrorCode } from "./errors.js";
 import {
 	MAX_MESSAGE_CONTENT_BYTES,
 	MAX_MESSAGE_INSTRUCTION_BYTES,
@@ -23,15 +39,12 @@ import {
 } from "../domain/message-payload.ts";
 import { getAliasPath, getSocketPath, CONTROL_DIR } from "../infra/intray-paths.ts";
 import { RpcProtocolError, sendRpcCommand } from "../infra/rpc-client.ts";
-import { BebopClientError, type BebopClientErrorCode } from "./errors.ts";
 import {
 	createRemoteFollowUpOperation,
 	type FollowUpInput,
 	type FollowUpResult,
 	type RemoteFollowUpCommand,
 } from "./follow-up-operation.ts";
-export { BebopClientError } from "./errors.ts";
-export type { BebopClientErrorCode } from "./errors.ts";
 export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
 export type {
 	FollowUpInput,
@@ -264,7 +277,7 @@ export type AskResult =
 			readonly member: MemberStatusIdentity;
 	  };
 
-export interface BebopSource extends MemberStatusOperation, MemberLastMessageOperation {
+export interface BebopSource extends MemberStatusOperation, MemberLastMessageOperation, MemberIdleWaitOperation {
 	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
@@ -728,12 +741,14 @@ function sourceClient(endpoint: string): BebopSource {
 
 	const statusOperation = createRemoteMemberStatusOperation(call);
 	const lastMessageOperation = createRemoteMemberLastMessageOperation(call);
+	const idleWaitOperation = createRemoteMemberIdleWaitOperation(endpoint);
 	const followUpOperation = createRemoteFollowUpOperation({
 		send: (command: RemoteFollowUpCommand, options) => call(command, options, (value) => value, true),
 	});
 	return {
 		...statusOperation,
 		...lastMessageOperation,
+		...idleWaitOperation,
 		ask(member, input, options) {
 			validateMember(member);
 			if (!input || typeof input !== "object") return invalidInput();
