@@ -622,7 +622,7 @@ test("matrix input decisions stay aligned with the seven current tool schemas", 
 	registerSendToInboxTool(pi as never, state as never, { hintTransport: null });
 	registerBroadcastToCrewTool(pi as never, state as never, { isProjectTrusted: () => true });
 	registerInterruptMemberTool(pi as never, state as never);
-	registerGetMemberStatusTool(pi as never, state as never, {} as never);
+	registerGetMemberStatusTool(pi as never, { getMemberStatus: async () => ({}) } as never);
 	registerWaitForMemberIdleTool(pi as never, state as never, {} as never, {} as never);
 
 	assert.deepEqual(
