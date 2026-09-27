@@ -169,6 +169,7 @@ test("full chain rejects malformed newest assistant content without revealing ol
 		{
 			...defaultMemberLastMessageCliDependencies,
 			resolveSource: () => ({ ok: true, kind: "id", idSocketPath: sourcePath, aliasSocketPath: sourcePath }),
+			environmentSession: () => sourceSession,
 		},
 	);
 	assert.equal(cliOutcome.kind, "result");
@@ -265,6 +266,7 @@ test("CLI/SDK-shaped RPC traverses source authorization into target get_message 
 		{
 			...defaultMemberLastMessageCliDependencies,
 			resolveSource: () => ({ ok: true, kind: "id", idSocketPath: sourcePath, aliasSocketPath: sourcePath }),
+			environmentSession: () => sourceSession,
 		},
 	);
 	assert.equal(cliOutcome.kind, "result");

@@ -13,6 +13,7 @@ import {
 	type MemberRequestWaitResult,
 } from "../domain/index.ts";
 import { createMemberStatusFlow, MemberStatusFlowError } from "../application/member-status-flow.ts";
+import { createMemberLastMessageFlow, MemberLastMessageFlowError } from "../application/member-last-message-flow.ts";
 import {
 	MAX_MESSAGE_CONTENT_BYTES,
 	MAX_MESSAGE_INSTRUCTION_BYTES,
@@ -130,6 +131,55 @@ export interface MemberStatusOperation {
 	getMemberStatus(member: string, options?: BebopOperationOptions): Promise<MemberStatus>;
 }
 
+/** Read-only snapshot of the latest recorded assistant text for a Crew member. */
+export interface MemberLastMessageOperation {
+	getMemberLastMessage(member: string, options?: BebopOperationOptions): Promise<MemberLastMessageResult>;
+}
+
+export type InProcessMemberLastMessageFlowErrorCode = Extract<
+	BebopClientErrorCode,
+	| "not-joined"
+	| "untrusted"
+	| "unknown-member"
+	| "ambiguous-member"
+	| "self-query"
+	| "remote-rejected"
+	| "offline-member"
+	| "message-too-large"
+	| "malformed-response"
+	| "timeout"
+	| "aborted"
+	| "transport-error"
+>;
+
+export interface InProcessCrewMember {
+	readonly name: string;
+	readonly role: string;
+	readonly socketPath: string;
+}
+
+export interface InProcessMemberLastMessageSurface {
+	readonly getMembership: () => {
+		readonly member: InProcessCrewMember;
+		readonly socketPath: string;
+		readonly manifest: { readonly members: readonly InProcessCrewMember[] };
+	} | null;
+	readonly isTrusted: () => boolean;
+	readonly requestLastMessage: (
+		socketPath: string,
+		signal?: AbortSignal,
+	) => Promise<
+		| { readonly ok: true; readonly message: MemberLastMessageResult["message"] }
+		| { readonly ok: false; readonly code: InProcessMemberLastMessageFlowErrorCode }
+	>;
+	readonly signal?: AbortSignal;
+}
+
+export interface InProcessMemberLastMessageOperationDependencies {
+	/** Trusted composition supplies live authority and the existing snapshot flow dependencies. */
+	readonly surface: InProcessMemberLastMessageSurface;
+}
+
 export type MemberStatusOperationErrorCode = Extract<
 	BebopClientErrorCode,
 	| "not-joined"
@@ -236,9 +286,8 @@ export type AskResult =
 			readonly member: MemberStatusIdentity;
 	  };
 
-export interface BebopSource extends MemberStatusOperation {
+export interface BebopSource extends MemberStatusOperation, MemberLastMessageOperation {
 	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
-	getMemberLastMessage(member: string, options?: BebopOperationOptions): Promise<MemberLastMessageResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
 }
@@ -484,6 +533,32 @@ export function createInProcessMemberStatusOperation(
 	};
 }
 
+/** Reuse the application snapshot flow with live authority supplied by trusted composition. */
+export function createInProcessMemberLastMessageOperation(
+	dependencies: InProcessMemberLastMessageOperationDependencies,
+): MemberLastMessageOperation {
+	return {
+		getMemberLastMessage(member, options) {
+			validateMember(member);
+			return withBudget(options, async (budget) => {
+				const flow = createMemberLastMessageFlow({
+					...dependencies.surface,
+					signal: budget.signal,
+				});
+				try {
+					const result = await awaitBudget(flow.queryLastMessage(member), budget);
+					if (!isMemberLastMessageResult(result)) throw new BebopClientError("malformed-response");
+					return result;
+				} catch (error) {
+					if (error instanceof MemberLastMessageFlowError)
+						throw new BebopClientError(error.code, error.message);
+					throw error;
+				}
+			});
+		},
+	};
+}
+
 function mapRemoteError(message: string): BebopClientError {
 	const code = message.trim().split(/[:\s]/u, 1)[0];
 	const known: Partial<Record<string, BebopClientErrorCode>> = {
@@ -669,6 +744,18 @@ function createRemoteMemberStatusOperation(call: SourceCall): MemberStatusOperat
 	};
 }
 
+function createRemoteMemberLastMessageOperation(call: SourceCall): MemberLastMessageOperation {
+	return {
+		getMemberLastMessage(member, options) {
+			validateMember(member);
+			return call({ type: "member_last_message_target", target: member }, options, (value) => {
+				if (!isMemberLastMessageResult(value)) throw new BebopClientError("malformed-response");
+				return value;
+			});
+		},
+	};
+}
+
 function sourceClient(endpoint: string): BebopSource {
 	const call: SourceCall = async <T>(
 		command: Parameters<typeof sendRpcCommand>[1],
@@ -688,8 +775,10 @@ function sourceClient(endpoint: string): BebopSource {
 		});
 
 	const statusOperation = createRemoteMemberStatusOperation(call);
+	const lastMessageOperation = createRemoteMemberLastMessageOperation(call);
 	return {
 		...statusOperation,
+		...lastMessageOperation,
 		ask(member, input, options) {
 			validateMember(member);
 			if (!input || typeof input !== "object") return invalidInput();
@@ -789,13 +878,6 @@ function sourceClient(endpoint: string): BebopSource {
 					}
 					throw error;
 				}
-			});
-		},
-		getMemberLastMessage(member, options) {
-			validateMember(member);
-			return call({ type: "member_last_message_target", target: member }, options, (value) => {
-				if (!isMemberLastMessageResult(value)) throw new BebopClientError("malformed-response");
-				return value;
 			});
 		},
 		sendFollowUp(member, input, options) {
