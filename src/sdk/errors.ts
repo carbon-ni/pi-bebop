@@ -19,7 +19,15 @@ export type BebopClientErrorCode =
 	| "timeout"
 	| "aborted"
 	| "transport-error"
-	| "outcome-unknown";
+	| "outcome-unknown"
+	| "ambiguous-role"
+	| "self-send"
+	| "invalid-payload"
+	| "untrusted-project"
+	| "inbox-full"
+	| "inbox-untrusted-path"
+	| "storage-unavailable"
+	| "storage-failed";
 
 function defaultErrorMessage(code: BebopClientErrorCode): string {
 	return (
@@ -45,6 +53,14 @@ function defaultErrorMessage(code: BebopClientErrorCode): string {
 			aborted: "Bebop operation was aborted",
 			"transport-error": "Bebop transport failed",
 			"outcome-unknown": "The operation may have been accepted but its acknowledgement was lost",
+			"ambiguous-role": "The Inbox target role is ambiguous",
+			"self-send": "Cannot enqueue an Inbox item for the source member",
+			"invalid-payload": "The Inbox payload is invalid",
+			"untrusted-project": "The project is not trusted for Inbox storage",
+			"inbox-full": "The member Inbox is full",
+			"inbox-untrusted-path": "The Inbox storage path is not trusted",
+			"storage-unavailable": "The member Inbox store is temporarily unavailable",
+			"storage-failed": "The member Inbox store failed",
 		} as Record<BebopClientErrorCode, string>
 	)[code];
 }

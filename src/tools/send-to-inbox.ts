@@ -2,11 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { MessagePayloadSchema } from "../domain/index.ts";
 import { openTrustedMemberInboxStore } from "../infra/member-inbox-store.ts";
-import {
-	enqueueMemberInboxMessage,
-	MemberInboxMessageError,
-	type InboxHintTransport,
-} from "../application/member-inbox-message.ts";
+import type { InboxHintTransport } from "../application/member-inbox-message.ts";
+import { BebopClientError, createInProcessMemberInboxOperation } from "../sdk/index.ts";
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
@@ -44,6 +41,24 @@ export function registerSendToInboxTool(
 				}
 			: dependencies.hintTransport;
 
+	const operation = createInProcessMemberInboxOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: isProjectTrusted,
+		},
+		message: {
+			openStore: (options) =>
+				openStore({
+					manifestPath: options.manifestPath,
+					projectRoot: options.projectRoot,
+					isProjectTrusted: options.isProjectTrusted,
+					member: options.member,
+				}),
+			hintTransport,
+			resolveEndpoint: resolveMemberEndpoint,
+		},
+	});
+
 	pi.registerTool({
 		name: "send_to_inbox",
 		label: "Send To Inbox",
@@ -51,45 +66,27 @@ export function registerSendToInboxTool(
 			"Persist a durable inbox message for a crew member. Unlike send_follow_up (delivered when the peer finishes current work) or redirect_member (redirects active work), this stores the message durably; the recipient reads it after startup, restore, or explicit rejoin, even if offline now. Success means persisted, never delivered or completed. Requires joined membership; the recipient may be offline.",
 		parameters,
 		async execute(_toolCallId, params) {
-			const membership = state.membershipRuntime?.getMembership() ?? null;
 			const target = params.member.trim();
 			try {
-				const outcome = await enqueueMemberInboxMessage(
-					{
-						membership: membership as never,
-						member: target,
-						message: params.message,
-						instructions: params.instructions,
-						now: Date.now(),
-					},
-					{
-						isProjectTrusted,
-						openStore: (options) =>
-							openStore({
-								manifestPath: options.manifestPath,
-								projectRoot: options.projectRoot,
-								isProjectTrusted: options.isProjectTrusted,
-								member: options.member,
-							}),
-						hintTransport,
-						resolveEndpoint: resolveMemberEndpoint,
-					},
-				);
+				const outcome = await operation.sendToInbox(target, {
+					message: params.message,
+					instructions: params.instructions,
+				});
 				return {
 					content: [
 						{
 							type: "text",
-							text: `[${outcome.target.name} (${outcome.target.role})] Inbox item persisted (${outcome.itemId})`,
+							text: `[${outcome.member.name} (${outcome.member.role})] Inbox item persisted (${outcome.itemId})`,
 						},
 					],
 					details: {
 						itemId: outcome.itemId,
 						persisted: true,
-						target: outcome.target.name,
+						target: outcome.member.name,
 					},
 				} satisfies ToolResult;
 			} catch (error) {
-				if (error instanceof MemberInboxMessageError) return errorResult(target, error.code, error.message);
+				if (error instanceof BebopClientError) return errorResult(target, error.code, error.message);
 				const message = error instanceof Error ? error.message : "Inbox enqueue failed";
 				return errorResult(target, "inbox-failed", message);
 			}

@@ -7,7 +7,6 @@ import {
 	isMemberStatusResult,
 	isMemberLastMessageResult,
 	isMemberMessageResult,
-	isMemberInboxSendResult,
 	isMemberRequestResult,
 	type MemberStatus as WireMemberStatus,
 	type MemberRequestWaitResult,
@@ -45,6 +44,12 @@ import {
 	type FollowUpResult,
 	type RemoteFollowUpCommand,
 } from "./follow-up-operation.ts";
+import {
+	createRemoteMemberInboxOperation,
+	type InboxInput,
+	type InboxResult,
+	type RemoteMemberInboxCommand,
+} from "./member-inbox-operation.ts";
 export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
 export type {
 	FollowUpInput,
@@ -56,6 +61,17 @@ export type {
 	RemoteFollowUpCommand,
 	RemoteFollowUpDependencies,
 } from "./follow-up-operation.ts";
+export { createInProcessMemberInboxOperation, createRemoteMemberInboxOperation } from "./member-inbox-operation.ts";
+export type {
+	InboxInput,
+	InboxOperationOptions,
+	InboxResult,
+	InProcessMemberInboxOperationDependencies,
+	InProcessMemberInboxSurface,
+	MemberInboxOperation,
+	RemoteMemberInboxCommand,
+	RemoteMemberInboxOperationDependencies,
+} from "./member-inbox-operation.ts";
 
 const MAX_DISCOVERY_ENTRIES = 256;
 const MAX_DISCOVERY_SOURCES = 100;
@@ -221,18 +237,6 @@ export interface InProcessMemberStatusSurface {
 export interface InProcessMemberStatusOperationDependencies {
 	/** Trusted composition supplies the live application surface; no socket is needed. */
 	readonly surface: InProcessMemberStatusSurface;
-}
-
-export interface InboxInput {
-	readonly message: string;
-	readonly instructions?: readonly string[];
-}
-
-export interface InboxResult {
-	readonly member: MemberStatusIdentity;
-	readonly itemId: string;
-	readonly persisted: true;
-	readonly hint: "sent" | "skipped";
 }
 
 export interface AskInput {
@@ -745,6 +749,9 @@ function sourceClient(endpoint: string): BebopSource {
 	const followUpOperation = createRemoteFollowUpOperation({
 		send: (command: RemoteFollowUpCommand, options) => call(command, options, (value) => value, true),
 	});
+	const inboxOperation = createRemoteMemberInboxOperation({
+		send: (command: RemoteMemberInboxCommand, options) => call(command, options, (value) => value, true),
+	});
 	return {
 		...statusOperation,
 		...lastMessageOperation,
@@ -854,29 +861,7 @@ function sourceClient(endpoint: string): BebopSource {
 			return followUpOperation.sendFollowUp(member, input, options);
 		},
 		sendToInbox(member, input, options) {
-			validateMember(member);
-			validateMessage(input.message);
-			validateInstructions(input.instructions);
-			validateEffectPayload(input.message, input.instructions, "inbox");
-			return call(
-				{
-					type: "member_inbox_send",
-					target: member,
-					message: input.message,
-					...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
-				},
-				options,
-				(value) => {
-					if (!isMemberInboxSendResult(value)) throw new BebopClientError("malformed-response");
-					return {
-						member: value.member,
-						itemId: value.itemId,
-						persisted: true,
-						hint: value.hint,
-					};
-				},
-				true,
-			);
+			return inboxOperation.sendToInbox(member, input, options);
 		},
 	};
 }
