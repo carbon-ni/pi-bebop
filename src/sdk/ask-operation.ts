@@ -239,7 +239,8 @@ export function createAskOperation(dependencies: {
 				}
 				if (clientError.code === "outcome-unknown" || clientError.code === "timeout")
 					throw new BebopClientError("outcome-unknown");
-				throw routeLost(clientError);
+				// Before acceptance, preserve source/session errors: no route exists yet.
+				throw clientError;
 			} finally {
 				budget.cleanup();
 			}

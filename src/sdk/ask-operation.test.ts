@@ -8,7 +8,7 @@ const member = { name: "Kelly", role: "qa" };
 
 function requestStub(
 	waits: Array<"pending" | "response" | "timeout" | "offline"> = ["response"],
-	start: "accepted" | "timeout" | "reject" = "accepted",
+	start: "accepted" | "timeout" | "reject" | "unknown-session" | "offline-session" = "accepted",
 ) {
 	const calls: Array<{ method: string; requestId?: string; timeoutMs?: number }> = [];
 	let waitIndex = 0;
@@ -17,6 +17,7 @@ function requestStub(
 			calls.push({ method: "start", timeoutMs: options?.timeoutMs });
 			if (start === "timeout") throw new BebopClientError("timeout");
 			if (start === "reject") throw new BebopClientError("untrusted");
+			if (start === "unknown-session" || start === "offline-session") throw new BebopClientError(start);
 			return { accepted: true, requestId: "request-1", member };
 		},
 		async waitForRequestOutcome(requestId, options) {
@@ -78,17 +79,30 @@ test("Ask keeps delivery bounded separately from its total budget", async () => 
 	assert.equal(stub.calls[0]?.timeoutMs, 5_000);
 });
 
-test("Ask reports pre-acceptance timeout as uncertain and preserves source rejection", async () => {
+test("Ask preserves pre-acceptance source errors and marks timeout uncertain", async () => {
+	for (const code of ["unknown-session", "offline-session", "untrusted"] as const)
+		await assert.rejects(
+			createAskOperation({
+				request: requestStub([], code === "untrusted" ? "reject" : code).request,
+				policy: policy(),
+			}).ask("Kelly", { question: "Review" }),
+			(error: unknown) => error instanceof BebopClientError && error.code === code,
+		);
 	await assert.rejects(
 		createAskOperation({ request: requestStub([], "timeout").request, policy: policy() }).ask("Kelly", {
 			question: "Review",
 		}),
 		(error: unknown) => error instanceof BebopClientError && error.code === "outcome-unknown",
 	);
+});
+
+test("Ask converts a post-acceptance session failure into route-lost", async () => {
+	const request = requestStub().request;
+	request.waitForRequestOutcome = async () => {
+		throw new BebopClientError("offline-session");
+	};
 	await assert.rejects(
-		createAskOperation({ request: requestStub([], "reject").request, policy: policy() }).ask("Kelly", {
-			question: "Review",
-		}),
-		(error: unknown) => error instanceof BebopClientError && error.code === "untrusted",
+		createAskOperation({ request, policy: policy() }).ask("Kelly", { question: "Review" }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "route-lost",
 	);
 });
