@@ -137,7 +137,7 @@
 		"dist/sdk.d.ts",
 		"dist/src",
 		"dist/errors.d.ts",
-		"dist/member-idle-wait-operation.d.ts"
+		"dist/member-idle-wait-operation.d.ts",
 		"README.md",
 		"docs",
 		"LICENSE"
