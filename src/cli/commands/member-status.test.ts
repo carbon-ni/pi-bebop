@@ -6,6 +6,7 @@ import {
 	defaultMemberStatusCliDependencies,
 	readMemberStatusCommand,
 	runMemberStatusCommand,
+	statusThroughSdk,
 	type MemberStatusCliDependencies,
 } from "./member-status.ts";
 import { Command } from "commander";
@@ -186,6 +187,26 @@ test("member status run: toon and text formats render observed state", async () 
 	);
 	assert.match(render(textOutcome).text, /Kelly/);
 	assert.match(render(textOutcome).text, /pending messages/);
+});
+
+test("member status SDK boundary maps unexpected adapter failures without leaking details", async () => {
+	const outcome = await statusThroughSdk("safe-session", "Kelly", new AbortController().signal, {
+		listSources: async () => [],
+		selectSource: async () => {
+			throw new Error("internal socket detail");
+		},
+	});
+	assert.deepEqual(outcome, { ok: false, code: "transport-error" });
+});
+
+test("member status SDK boundary maps pre-aborted SIGINT before source selection", async () => {
+	const outcome = await defaultMemberStatusCliDependencies.sendStatus(
+		okSource(),
+		"Kelly",
+		AbortSignal.abort(),
+		"safe-session",
+	);
+	assert.deepEqual(outcome, { ok: false, code: "aborted" });
 });
 
 test("member status run forwards SIGINT cancellation to the SDK boundary", async () => {

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { formatMemberStatus, type MemberStatus } from "../../domain/index.ts";
-import { BebopClientError, createBebopClient } from "../../sdk/index.ts";
+import { BebopClientError, createBebopClient, type BebopClient } from "../../sdk/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult } from "../support/errors.ts";
@@ -105,10 +105,11 @@ function mapSdkError(error: unknown): { ok: false; code: string } {
 	return { ok: false, code: "transport-error" };
 }
 
-async function statusThroughSdk(
+export async function statusThroughSdk(
 	session: string,
 	target: string,
 	signal: AbortSignal,
+	client: BebopClient = createBebopClient(),
 ): Promise<{ ok: true; status: MemberStatus } | { ok: false; code: string }> {
 	if (signal.aborted) return { ok: false, code: "aborted" };
 	const controller = new AbortController();
@@ -125,7 +126,7 @@ async function statusThroughSdk(
 		timeoutMs: Math.max(50, STATUS_DEADLINE_MS - (Date.now() - startedAt)),
 	});
 	try {
-		const source = await createBebopClient().selectSource({ session }, options());
+		const source = await client.selectSource({ session }, options());
 		return { ok: true, status: await source.getMemberStatus(target, options()) };
 	} catch (error) {
 		if (deadlineExpired) return { ok: false, code: "timeout" };
