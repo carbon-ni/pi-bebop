@@ -24,6 +24,8 @@ const allowedPath = (file) =>
 	file === "dist/sdk.js" ||
 	file === "dist/sdk.d.ts" ||
 	(file.startsWith("dist/src/") && file.endsWith(".d.ts")) ||
+	file === "dist/errors.d.ts" ||
+	file === "dist/member-idle-wait-operation.d.ts" ||
 	file.startsWith("src/") ||
 	file.startsWith("docs/");
 try {
@@ -48,6 +50,8 @@ try {
 		"dist/cli/main.js",
 		"dist/sdk.js",
 		"dist/sdk.d.ts",
+		"dist/errors.d.ts",
+		"dist/member-idle-wait-operation.d.ts",
 		"LICENSE",
 	])
 		if (!dryFiles.includes(required)) throw new Error(`Required packed file missing: ${required}`);
