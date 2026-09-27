@@ -6,6 +6,7 @@ import * as path from "node:path";
 import * as net from "node:net";
 import { PassThrough } from "node:stream";
 import { createRpcServer, closeRpcServer, writeResponse } from "../infra/rpc-server.ts";
+import { RpcProtocolError, sendRpcCommand } from "../infra/rpc-client.ts";
 import { createOnlineMemberStatus, createOfflineMemberStatus, type MemberStatus } from "../domain/index.ts";
 import {
 	defaultMemberStatusCliDependencies,
@@ -48,6 +49,30 @@ function respondOnline(socket: net.Socket, id: string | undefined, member: { nam
 	writeResponse(socket, { type: "response", command: "member_status_target", success: true, data: { status }, id });
 }
 
+async function sendStatusThroughTestWire(
+	source: SourceResolution & { ok: true },
+	target: string,
+	signal: AbortSignal,
+): Promise<{ ok: true; status: MemberStatus } | { ok: false; code: string }> {
+	for (const socketPath of [source.idSocketPath, source.aliasSocketPath]) {
+		try {
+			const { response } = await sendRpcCommand(
+				socketPath,
+				{ type: "member_status_target", target },
+				{ timeout: 5000, signal },
+			);
+			if (!response.success) return { ok: false, code: response.error ?? "remote-rejected" };
+			return { ok: true, status: (response.data as { status: MemberStatus }).status };
+		} catch (error) {
+			if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") continue;
+			if (error instanceof RpcProtocolError && error.code === "remote-error")
+				return { ok: false, code: error.message.replace(/^remote-error:\s*/, "") };
+			throw error;
+		}
+	}
+	return { ok: false, code: "unknown-session" };
+}
+
 test("member status CLI round-trips over a real socket and falls back from missing id socket to alias symlink", async (t) => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "bebop-cli-status-"));
 	const targetPath = path.join(root, "real.sock");
@@ -69,6 +94,8 @@ test("member status CLI round-trips over a real socket and falls back from missi
 			idSocketPath: path.join(root, "missing.sock"),
 			aliasSocketPath: targetPath,
 		}),
+		sendStatus: sendStatusThroughTestWire,
+		environmentSession: () => undefined,
 	};
 
 	const outcome = await runMemberStatusCommand(
@@ -115,6 +142,8 @@ test("member status CLI maps a remote rejection over the real wire to exit 1 wit
 			idSocketPath: targetPath,
 			aliasSocketPath: targetPath,
 		}),
+		sendStatus: sendStatusThroughTestWire,
+		environmentSession: () => undefined,
 	};
 	const outcome = await runMemberStatusCommand(
 		{ command: "member-status", member: "nobody", format: "json" },
@@ -154,6 +183,8 @@ test("member status CLI renders an offline presence result over the real wire as
 			idSocketPath: targetPath,
 			aliasSocketPath: targetPath,
 		}),
+		sendStatus: sendStatusThroughTestWire,
+		environmentSession: () => undefined,
 	};
 	const outcome = await runMemberStatusCommand(
 		{ command: "member-status", member: "Dimmy", format: "json" },

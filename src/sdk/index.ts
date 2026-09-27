@@ -585,7 +585,7 @@ async function controlledSocket(candidate: string, budget: Budget): Promise<stri
 			!isSafeSessionId(base.slice(0, -5))
 		)
 			return invalidControlledSocket();
-		return resolved;
+		return candidate;
 	} catch (error) {
 		throw error;
 	}
@@ -611,7 +611,7 @@ async function aliasSocket(alias: string, budget: Budget): Promise<string> {
 		!isSafeSessionId(base.slice(0, -5))
 	)
 		return invalidControlledSocket();
-	return resolved;
+	return aliasPath;
 }
 
 async function sourceCandidates(session: string, budget: Budget): Promise<string[]> {

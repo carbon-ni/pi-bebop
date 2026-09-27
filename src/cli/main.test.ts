@@ -3,7 +3,7 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -507,7 +507,7 @@ async function packagedMemberStatusQuery(options: {
 	sessionId: string;
 	target: string;
 	format?: string;
-}): Promise<{ code: number; stdout: string }> {
+}): Promise<{ code: number; stdout: string; stderr: string }> {
 	const artifact = path.resolve("dist/cli/main.js");
 	const args = [
 		artifact,
@@ -523,12 +523,17 @@ async function packagedMemberStatusQuery(options: {
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let stdout = "";
+	let stderr = "";
 	child.stdout.setEncoding("utf8");
+	child.stderr.setEncoding("utf8");
 	child.stdout.on("data", (chunk) => {
 		stdout += chunk;
 	});
+	child.stderr.on("data", (chunk) => {
+		stderr += chunk;
+	});
 	const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
-	return { code, stdout };
+	return { code, stdout, stderr };
 }
 
 function joinedRuntimeState(socketPath: string, roster: Array<{ name: string; role: string; socketPath: string }>) {
@@ -541,6 +546,7 @@ function joinedRuntimeState(socketPath: string, roster: Array<{ name: string; ro
 			manifest: { members: roster },
 		}),
 	} as never;
+	state.server = {} as never;
 	state.context = {
 		hasUI: false,
 		sessionManager: {
@@ -557,8 +563,9 @@ function joinedRuntimeState(socketPath: string, roster: Array<{ name: string; ro
 }
 
 test("packaged CLI proves a real end-to-end status query with online then offline target", async (t) => {
-	const root = await mkdtemp(path.join(tmpdir(), "bebop-packaged-"));
-	const controlDir = path.join(root, ".pi", "bebop");
+	const root = await mkdtemp(path.join("/tmp", "b23-"));
+	const canonicalRoot = await realpath(root);
+	const controlDir = path.join(canonicalRoot, ".pi", "bebop");
 	await mkdir(controlDir, { recursive: true });
 	const sourceSocket = path.join(controlDir, "source-session-1.sock");
 	const targetSocket = path.join(controlDir, "target.sock");
@@ -586,12 +593,12 @@ test("packaged CLI proves a real end-to-end status query with online then offlin
 
 	// Online: the target answers through its own real dispatcher; exit 0.
 	const online = await packagedMemberStatusQuery({
-		envHome: root,
+		envHome: canonicalRoot,
 		sessionId: "source-session-1",
 		target: "Kelly",
 		format: "json",
 	});
-	assert.equal(online.code, 0, online.stdout);
+	assert.equal(online.code, 0, `${online.stdout}${online.stderr}`);
 	const onlineDecoded = JSON.parse(online.stdout);
 	assert.equal(onlineDecoded.status, "observed");
 	assert.equal(onlineDecoded.data.status.presence, "online");
@@ -602,7 +609,7 @@ test("packaged CLI proves a real end-to-end status query with online then offlin
 	// own observation time; still a successful exit 0 result.
 	await closeRpcServer(targetServer);
 	const offline = await packagedMemberStatusQuery({
-		envHome: root,
+		envHome: canonicalRoot,
 		sessionId: "source-session-1",
 		target: "Kelly",
 		format: "json",
