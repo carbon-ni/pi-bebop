@@ -110,6 +110,7 @@ export async function statusThroughSdk(
 	target: string,
 	signal: AbortSignal,
 	client: BebopClient = createBebopClient(),
+	deadlineMs = STATUS_DEADLINE_MS,
 ): Promise<{ ok: true; status: MemberStatus } | { ok: false; code: string }> {
 	if (signal.aborted) return { ok: false, code: "aborted" };
 	const controller = new AbortController();
@@ -118,12 +119,12 @@ export async function statusThroughSdk(
 	const timer = setTimeout(() => {
 		deadlineExpired = true;
 		controller.abort();
-	}, STATUS_DEADLINE_MS);
+	}, deadlineMs);
 	const forwardAbort = () => controller.abort(signal.reason);
 	signal.addEventListener("abort", forwardAbort, { once: true });
 	const options = () => ({
 		signal: controller.signal,
-		timeoutMs: Math.max(50, STATUS_DEADLINE_MS - (Date.now() - startedAt)),
+		timeoutMs: Math.max(50, deadlineMs - (Date.now() - startedAt)),
 	});
 	try {
 		const source = await client.selectSource({ session }, options());

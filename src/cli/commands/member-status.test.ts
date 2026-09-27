@@ -199,6 +199,25 @@ test("member status SDK boundary maps unexpected adapter failures without leakin
 	assert.deepEqual(outcome, { ok: false, code: "transport-error" });
 });
 
+test("member status SDK boundary maps its end-to-end deadline", async () => {
+	const outcome = await statusThroughSdk(
+		"safe-session",
+		"Kelly",
+		new AbortController().signal,
+		{
+			listSources: async () => [],
+			selectSource: async (_selector, options) =>
+				new Promise((_resolve, reject) =>
+					options?.signal?.addEventListener("abort", () => reject(new Error("selection stopped")), {
+						once: true,
+					}),
+				),
+		},
+		1,
+	);
+	assert.deepEqual(outcome, { ok: false, code: "timeout" });
+});
+
 test("member status SDK boundary maps pre-aborted SIGINT before source selection", async () => {
 	const outcome = await defaultMemberStatusCliDependencies.sendStatus(
 		okSource(),
