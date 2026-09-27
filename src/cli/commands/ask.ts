@@ -235,11 +235,16 @@ function errorOutcome(options: AskCliOptions, code: string, message: string, dat
 	const status = ["unknown-crew", "unknown-member", "ambiguous-crew", "self-target"].includes(code)
 		? "usage"
 		: result.status;
+	const outcomeData =
+		data !== null && typeof data === "object" && !Array.isArray(data)
+			? { outcome: code, ...(data as Record<string, unknown>) }
+			: { outcome: code };
 	return {
 		kind: "result",
-		result: { ...result, status, ...(data === undefined ? {} : { data }) },
+		result: { ...result, status, data: outcomeData },
 		format: options.format,
 		full: false,
+		formatFailure: true,
 	};
 }
 
@@ -395,11 +400,12 @@ async function awaitAskOutcome(
 		return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
 	} catch (error) {
 		const mapped = mapError(error);
+		const code = mapped.code === "timeout" ? "timeout-total" : mapped.code;
 		return errorOutcome(
 			options,
-			mapped.code === "timeout" ? "timeout-total" : mapped.code,
+			code,
 			mapped.message,
-			mapped.data,
+			mapped.data ?? (code === "timeout-total" ? { safeRetry: false } : undefined),
 		);
 	}
 }
