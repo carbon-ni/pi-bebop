@@ -14,6 +14,7 @@ function setup() {
 		registerTool: (tool: unknown) => tools.set((tool as Tool).name, tool as Tool),
 	} as unknown as ExtensionAPI;
 	const state = createSocketState();
+	state.context = { isProjectTrusted: () => true } as never;
 	state.memberRequestFlow = new MemberRequestFlow({
 		resolveEndpoint: async (path) => path,
 		createRequestId: () => "request-1",
@@ -57,6 +58,14 @@ test("request outcome waiting is blocking and distinct from accepted-only follow
 	assert.match(wait.description, /wait is cancellable/i);
 	assert.match(wait.description, /accepted inbound Bebop message releases/i);
 	assert.doesNotMatch(wait.description, /crew-wait-resume|yields the run/i);
+});
+
+test("request tools fail closed when project trust context is unavailable", async () => {
+	const { tools, state } = setup();
+	state.context = null;
+	const result = await tools.get("send_member_request")!.execute("id", { member: "qa", message: "Review" });
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error, "untrusted");
 });
 
 test("TASK-0215: missing Request ID is rejected instead of selecting the oldest request", async () => {

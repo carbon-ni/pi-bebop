@@ -9,7 +9,11 @@ import {
 } from "../domain/index.ts";
 import { MemberMessageError } from "../application/member-message.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
-import { BebopClientError, createInProcessMemberRequestOperation, type MemberRequestOperation } from "../sdk/index.ts";
+import {
+	BebopClientError,
+	createInProcessMemberRequestOperation,
+	type InProcessMemberRequestOperation,
+} from "../sdk/index.ts";
 import { RequestOutcomeRequestIdSchema } from "../domain/protocol/wire-members.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
@@ -64,11 +68,11 @@ function success(text: string, details: unknown): ToolResult {
 function failure(code: string, message: string): ToolResult {
 	return { content: [{ type: "text", text: `${code}: ${message}` }], isError: true, details: { error: code } };
 }
-export function createMemberRequestOperation(state: SocketState): MemberRequestOperation {
+export function createMemberRequestOperation(state: SocketState): InProcessMemberRequestOperation {
 	return createInProcessMemberRequestOperation({
 		surface: {
 			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
-			isTrusted: () => state.context === null || state.context?.isProjectTrusted?.() === true,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
 			getMemberRequestFlow: () => state.memberRequestFlow,
 			getGuestRequest: (crew, target) => {
 				const runtime = state.guestMembershipRuntime;
@@ -112,14 +116,13 @@ type RequestOutcomeWait =
  * coordination wait.
  */
 function waitForRequestOutcome(
-	operation: MemberRequestOperation,
+	operation: InProcessMemberRequestOperation,
 	wakeGate: AcceptedLocalMessageWakeGate,
 	requestId: string,
 	signal?: AbortSignal,
 ): Promise<RequestOutcomeWait> {
 	return new Promise((resolve) => {
 		let active = true;
-		const waiter = new AbortController();
 		let cancel: (() => void) | undefined;
 		const cleanup = () => {
 			cancel?.();
@@ -132,67 +135,32 @@ function waitForRequestOutcome(
 			cleanup();
 			resolve(result);
 		};
-		const onAbort = () => {
-			waiter.abort();
-			finish({ ok: false, code: "aborted" });
-		};
-		const onAcceptedMessage = () => {
-			waiter.abort();
-			finish({ ok: true, wake: "message-received" });
-		};
-		const registration = operation.beginRequestOutcomeWait?.(requestId, (outcome) => finish({ ok: true, outcome }));
-		if (registration !== undefined) {
-			if (registration.ok === false) {
-				const code = registration.code;
-				const mapped =
-					code === "already-waiting" ||
-					code === "no-pending-requests" ||
-					code === "unknown-request" ||
-					code === "invalid-request-id" ||
-					code === "outcome-consumed"
-						? code
-						: "wait-failed";
-				finish({ ok: false, code: mapped });
-				return;
-			}
-			if (registration.kind === "update") {
-				finish({ ok: true, outcome: registration.update });
-				return;
-			}
-			cancel = registration.cancel;
-			const armed = wakeGate.arm(onAcceptedMessage);
-			if (armed.ok === false) {
-				finish({ ok: false, code: "wait-in-progress" });
-				return;
-			}
-			if (signal?.aborted) onAbort();
-			else signal?.addEventListener("abort", onAbort, { once: true });
+		const onAbort = () => finish({ ok: false, code: "aborted" });
+		const onAcceptedMessage = () => finish({ ok: true, wake: "message-received" });
+		const registration = operation.beginRequestOutcomeWait(requestId, (outcome) => finish({ ok: true, outcome }));
+		if (registration.ok === false) {
+			const code = registration.code;
+			const mapped =
+				code === "already-waiting" ||
+				code === "no-pending-requests" ||
+				code === "unknown-request" ||
+				code === "invalid-request-id" ||
+				code === "outcome-consumed"
+					? code
+					: "wait-failed";
+			finish({ ok: false, code: mapped });
 			return;
 		}
-		const waiting = operation.waitForRequestOutcome(requestId, { signal: waiter.signal });
-		void waiting.then(
-			(outcome) => finish({ ok: true, outcome }),
-			(error) => {
-				const code = error instanceof BebopClientError ? error.code : undefined;
-				const mapped =
-					code === "already-waiting" ||
-					code === "no-pending-requests" ||
-					code === "unknown-request" ||
-					code === "invalid-request-id" ||
-					code === "outcome-consumed"
-						? code
-						: "wait-failed";
-				finish({ ok: false, code: mapped });
-			},
-		);
-		queueMicrotask(() => {
-			if (!active) return;
-			const armed = wakeGate.arm(onAcceptedMessage);
-			if (armed.ok === false) {
-				waiter.abort();
-				finish({ ok: false, code: "wait-in-progress" });
-			}
-		});
+		if (registration.kind === "update") {
+			finish({ ok: true, outcome: registration.update });
+			return;
+		}
+		cancel = registration.cancel;
+		const armed = wakeGate.arm(onAcceptedMessage);
+		if (armed.ok === false) {
+			finish({ ok: false, code: "wait-in-progress" });
+			return;
+		}
 		if (signal?.aborted) onAbort();
 		else signal?.addEventListener("abort", onAbort, { once: true });
 	});
@@ -201,7 +169,7 @@ function waitForRequestOutcome(
 export function registerSendMemberRequestTool(
 	pi: ExtensionAPI,
 	state: SocketState,
-	operation: MemberRequestOperation = createMemberRequestOperation(state),
+	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
 	pi.registerTool({
 		name: "send_member_request",
@@ -247,7 +215,7 @@ export function registerSendMemberRequestTool(
 export function registerRespondToMemberRequestTool(
 	pi: ExtensionAPI,
 	state: SocketState,
-	operation: MemberRequestOperation = createMemberRequestOperation(state),
+	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
 	pi.registerTool({
 		name: "respond_to_member_request",
@@ -279,7 +247,7 @@ export function registerRespondToMemberRequestTool(
 export function registerWaitForRequestOutcomeTool(
 	pi: ExtensionAPI,
 	state: SocketState,
-	operation: MemberRequestOperation = createMemberRequestOperation(state),
+	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
 	pi.registerTool({
 		name: "wait_for_request_outcome",

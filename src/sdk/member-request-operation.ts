@@ -59,8 +59,11 @@ export interface MemberRequestOperation {
 		input: MemberRequestResponseInput,
 		options?: MemberRequestOperationOptions,
 	): Promise<void>;
-	/** Pi-only wake integration seam; it delegates to the same runtime registry. */
-	readonly beginRequestOutcomeWait?: (
+}
+
+/** In-process-only extension used by the Pi edge to arm the shared wake gate synchronously. */
+export interface InProcessMemberRequestOperation extends MemberRequestOperation {
+	readonly beginRequestOutcomeWait: (
 		requestId: string,
 		onUpdate: (outcome: RequestOutcome) => void,
 	) => MemberRequestWaitRegistration;
@@ -350,7 +353,7 @@ function mapRequestCode(value: string, kind?: "start" | "wait" | "respond"): Beb
 
 export function createInProcessMemberRequestOperation(
 	dependencies: InProcessMemberRequestOperationDependencies,
-): MemberRequestOperation {
+): InProcessMemberRequestOperation {
 	return {
 		beginRequestOutcomeWait(requestId, onUpdate) {
 			const flow = dependencies.surface.getMemberRequestFlow();

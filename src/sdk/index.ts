@@ -80,6 +80,7 @@ export {
 export type {
 	InProcessGuestRequest,
 	InProcessMemberRequestFlowCapability,
+	InProcessMemberRequestOperation,
 	InProcessMemberRequestOperationDependencies,
 	InProcessMemberRequestSurface,
 	MemberRequestOperation,
