@@ -28,6 +28,6 @@ The SDK shares typed capabilities, not runtime state or generic RPC.
 4. Reuse the existing application/domain flow for in-process authority. Read membership/trust/Guest approval on every call.
 5. Adapt the existing source RPC only in the remote factory; preserve lost-ack and malformed-result semantics.
 6. Add shared contract tests for happy, rejection, identity, cancellation, deadline, offline, and dispatch-uncertainty paths.
-7. Integrate CLI or Pi at its edge, then prove the packed SDK import and in-process no-host-context path with `npm run verify:sdk-independence`.
+7. Integrate CLI or Pi at its edge, then prove the packed SDK import, type surface, dependency graph, and in-process no-host-context path with `npm run verify:package` (also included by `npm run verify:cli`).
 
 Intentional differences must be documented in the operation contract: for example, SDK Ask re-waits a pending Request while CLI Ask reports `timeout-after-idle`; neither path claims that acceptance means a response or completed work.

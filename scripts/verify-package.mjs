@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, cp, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, cp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(root, "package-fixtures", "release-consumer");
 const archiveDir = await mkdtemp(path.join(tmpdir(), "pi-bebop-package-"));
 const consumerDir = await mkdtemp(path.join(tmpdir(), "pi-bebop-consumer-"));
-const environment = { ...process.env, NODE_PATH: "" };
+const environment = {
+	...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PI_"))),
+	NODE_PATH: "",
+};
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const packageName = packageJson.name;
 const packageVersion = packageJson.version;
@@ -86,16 +89,81 @@ try {
 		throw new Error("Installed SDK import export is not configured");
 	if (manifest.exports?.["./sdk"]?.types !== "./dist/sdk.d.ts")
 		throw new Error("Installed SDK type export is not configured");
-	const sdkCheck = await execFile(
-		process.execPath,
+	const typecheck = path.join(consumerDir, "sdk-typecheck.mts");
+	await writeFile(
+		typecheck,
+		`import { createBebopClient, createInProcessMemberStatusOperation, type MemberStatus } from "@carbon-ni/pi-bebop/sdk";
+const client = createBebopClient();
+const status: Promise<MemberStatus> = createInProcessMemberStatusOperation({
+  surface: {
+    getMembership: () => null,
+    isTrusted: () => true,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    probeEndpoint: async () => false,
+    requestStatus: async () => ({ ok: false, code: "not-joined" as const }),
+    now: () => new Date(0).toISOString(),
+  },
+}).getMemberStatus("developer");
+void client; void status;
+`,
+	);
+	await execFile(
+		path.join(root, "node_modules/typescript/bin/tsc"),
 		[
-			"--input-type=module",
-			"-e",
-			"const sdk = await import('@carbon-ni/pi-bebop/sdk'); if (typeof sdk.createBebopClient !== 'function' || sdk.BebopClientError?.name !== 'BebopClientError') process.exit(1);",
+			"--noEmit",
+			"--strict",
+			"--skipLibCheck",
+			"--target",
+			"ES2022",
+			"--module",
+			"NodeNext",
+			"--moduleResolution",
+			"NodeNext",
+			typecheck,
 		],
 		{ cwd: consumerDir, env: environment },
 	);
-	void sdkCheck;
+	const loader = path.join(archiveDir, "sdk-dependency-guard.mjs");
+	await writeFile(
+		loader,
+		`const forbidden = /(?:^|\\/)commander(?:\\/|$)|pi-(?:ai|coding-agent|tui)|(?:^|\\/)dist\\/(?:extension|cli)/;
+export async function resolve(specifier, context, nextResolve) {
+  if (forbidden.test(specifier)) throw new Error("SDK imported forbidden host dependency: " + specifier);
+  return nextResolve(specifier, context);
+}
+`,
+	);
+	await execFile(
+		process.execPath,
+		[
+			"--experimental-loader",
+			loader,
+			"--input-type=module",
+			"-e",
+			`
+const sdk = await import('@carbon-ni/pi-bebop/sdk');
+if (typeof sdk.createBebopClient !== 'function' || sdk.BebopClientError?.name !== 'BebopClientError') throw new Error('SDK exports missing');
+const status = sdk.createInProcessMemberStatusOperation({
+  surface: {
+    getMembership: () => null, isTrusted: () => true, isIdle: () => true,
+    hasPendingMessages: () => false, probeEndpoint: async () => false,
+    requestStatus: async () => { throw new Error('in-process status transport ran'); },
+    now: () => new Date(0).toISOString(),
+  },
+});
+await status.getMemberStatus('developer').then(() => { throw new Error('not-joined was not enforced'); }, error => {
+  if (error?.code !== 'not-joined') throw error;
+});
+const followUp = sdk.createRemoteFollowUpOperation({
+  send: async () => ({ member: { name: 'developer', role: 'Developer' }, deliveryId: 'delivery-1', disposition: 'queued' }),
+});
+const delivered = await followUp.sendFollowUp('developer', { message: 'proof' });
+if (delivered.deliveryId !== 'delivery-1') throw new Error('remote operation did not run');
+`,
+		],
+		{ cwd: consumerDir, env: environment },
+	);
 	const testedTypebox = JSON.parse(
 		await readFile(path.join(consumerDir, "node_modules", "typebox", "package.json")),
 	).version;
