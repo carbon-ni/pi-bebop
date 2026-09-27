@@ -45,6 +45,12 @@ import {
 	type RemoteFollowUpCommand,
 } from "./follow-up-operation.ts";
 import {
+	createRemoteRedirectOperation,
+	type RedirectInput,
+	type RedirectResult,
+	type RemoteRedirectCommand,
+} from "./redirect-operation.ts";
+import {
 	createRemoteMemberInboxOperation,
 	type InboxInput,
 	type InboxResult,
@@ -68,6 +74,17 @@ export type {
 	RemoteFollowUpCommand,
 	RemoteFollowUpDependencies,
 } from "./follow-up-operation.ts";
+export { createInProcessRedirectOperation, createRemoteRedirectOperation } from "./redirect-operation.ts";
+export type {
+	InProcessRedirectOperationDependencies,
+	InProcessRedirectSurface,
+	RedirectInput,
+	RedirectOperation,
+	RedirectOperationOptions,
+	RedirectResult,
+	RemoteRedirectCommand,
+	RemoteRedirectDependencies,
+} from "./redirect-operation.ts";
 export { createInProcessMemberInboxOperation, createRemoteMemberInboxOperation } from "./member-inbox-operation.ts";
 export type {
 	InboxInput,
@@ -333,6 +350,7 @@ export interface BebopSource
 		CrewBroadcastOperation {
 	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
+	redirectMember(member: string, input: RedirectInput, options?: BebopOperationOptions): Promise<RedirectResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
 }
 
@@ -814,6 +832,9 @@ function sourceClient(endpoint: string): BebopSource {
 	const followUpOperation = createRemoteFollowUpOperation({
 		send: (command: RemoteFollowUpCommand, options) => call(command, options, (value) => value, true),
 	});
+	const redirectOperation = createRemoteRedirectOperation({
+		send: (command: RemoteRedirectCommand, options) => call(command, options, (value) => value, true),
+	});
 	const inboxOperation = createRemoteMemberInboxOperation({
 		send: (command: RemoteMemberInboxCommand, options) =>
 			call(command, options, (value) => value, true, preserveOperationRpcErrors),
@@ -938,6 +959,9 @@ function sourceClient(endpoint: string): BebopSource {
 		},
 		sendFollowUp(member, input, options) {
 			return followUpOperation.sendFollowUp(member, input, options);
+		},
+		redirectMember(member, input, options) {
+			return redirectOperation.redirectMember(member, input, options);
 		},
 		broadcastToCrew(input, options) {
 			return crewBroadcastOperation.broadcastToCrew(input, options);

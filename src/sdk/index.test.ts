@@ -27,9 +27,12 @@ async function fakeSource(
 	options: {
 		trusted?: boolean;
 		dropFollowUp?: boolean;
+		dropRedirect?: boolean;
+		mismatchRedirect?: boolean;
 		dropInbox?: boolean;
 		dropBroadcast?: boolean;
 		hangFollowUp?: boolean;
+		hangRedirect?: boolean;
 		hangInbox?: boolean;
 		hangBroadcast?: boolean;
 		holdMemberStatus?: boolean;
@@ -37,6 +40,7 @@ async function fakeSource(
 		malformedStatus?: boolean;
 		malformedLastMessage?: boolean;
 		remoteError?: string;
+		remoteErrorEnvelope?: "data-code" | "message-only";
 		lastMessage?: { role: "assistant"; content: string; timestamp: number } | null;
 		askWait?: (
 			requestId: string,
@@ -75,6 +79,7 @@ async function fakeSource(
 				requests.push({ method: request.method, params: request.params });
 				if (
 					(options.dropFollowUp && request.method === "member.follow_up") ||
+					(options.dropRedirect && request.method === "member.redirect") ||
 					(options.dropInbox && request.method === "member.inbox_send") ||
 					(options.dropBroadcast && request.method === "crew.broadcast")
 				) {
@@ -83,6 +88,7 @@ async function fakeSource(
 				}
 				if (
 					(options.hangFollowUp && request.method === "member.follow_up") ||
+					(options.hangRedirect && request.method === "member.redirect") ||
 					(options.hangInbox && request.method === "member.inbox_send") ||
 					(options.hangBroadcast && request.method === "crew.broadcast") ||
 					(options.holdMemberStatus && request.method === "member.status_target") ||
@@ -90,13 +96,18 @@ async function fakeSource(
 				)
 					return;
 				if (options.remoteError && request.method !== "session.status") {
-					socket.write(
-						`${JSON.stringify({
-							jsonrpc: "2.0",
-							id: request.id,
-							error: { code: -32000, message: options.remoteError, data: { code: options.remoteError } },
-						})}\n`,
-					);
+					const error =
+						options.remoteErrorEnvelope === "message-only"
+							? { code: -32000, message: options.remoteError }
+							: {
+									code: -32000,
+									message:
+										options.remoteErrorEnvelope === "data-code"
+											? "source rejected"
+											: options.remoteError,
+									data: { code: options.remoteError },
+								};
+					socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error })}\n`);
 					return;
 				}
 				if (request.method === "member.request_start") {
@@ -193,30 +204,40 @@ async function fakeSource(
 												deliveryId: "delivery-1",
 												disposition: "queued",
 											}
-										: request.method === "crew.broadcast"
+										: request.method === "member.redirect"
 											? {
-													dispositions: [
-														{
-															member: "developer",
-															role: "Developer",
-															disposition: "delivered",
-															deliveryId: "broadcast-1",
-														},
-														{
-															member: "reviewer",
-															role: "Reviewer",
-															disposition: "failed",
-															code: "offline",
-														},
-													],
-													summary: { delivered: 1, failed: 1, total: 2 },
-												}
-											: {
 													member: { name: "developer", role: "Developer" },
-													itemId: "item-1",
-													persisted: true,
-													hint: "skipped",
-												};
+													deliveryId: "delivery-redirect",
+													disposition: "steered",
+												}
+											: request.method === "crew.broadcast"
+												? {
+														dispositions: [
+															{
+																member: "developer",
+																role: "Developer",
+																disposition: "delivered",
+																deliveryId: "broadcast-1",
+															},
+															{
+																member: "reviewer",
+																role: "Reviewer",
+																disposition: "failed",
+																code: "offline",
+															},
+														],
+														summary: { delivered: 1, failed: 1, total: 2 },
+													}
+												: {
+														member: { name: "developer", role: "Developer" },
+														itemId: "item-1",
+														persisted: true,
+														hint: "skipped",
+													};
+				if (options.mismatchRedirect && request.method === "member.redirect") {
+					socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: "wrong-request-id", result })}\n`);
+					continue;
+				}
 				socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
 			}
 		});
@@ -277,7 +298,7 @@ test("SDK selected source exposes real-wire Request start, repeat wait, and resp
 	}
 });
 
-test("SDK selects a trusted joined source and delegates status, Follow-up, Broadcast, and Inbox", async () => {
+test("SDK selects a trusted joined source and delegates status, Follow-up, Redirect, Broadcast, and Inbox", async () => {
 	const source = await fakeSource();
 	try {
 		const selected = await createBebopClient().selectSource({ session: source.session });
@@ -292,6 +313,11 @@ test("SDK selects a trusted joined source and delegates status, Follow-up, Broad
 			member: { name: "developer", role: "Developer" },
 			deliveryId: "delivery-1",
 			disposition: "queued",
+		});
+		assert.deepEqual(await selected.redirectMember("developer", { message: "change direction" }), {
+			member: { name: "developer", role: "Developer" },
+			deliveryId: "delivery-redirect",
+			disposition: "steered",
 		});
 		assert.deepEqual(await selected.broadcastToCrew({ message: "crew update" }), {
 			ok: true,
@@ -319,12 +345,104 @@ test("SDK selects a trusted joined source and delegates status, Follow-up, Broad
 		});
 		assert.deepEqual(
 			source.requests.map((request) => request.method),
-			["session.status", "member.status_target", "member.follow_up", "crew.broadcast", "member.inbox_send"],
+			[
+				"session.status",
+				"member.status_target",
+				"member.follow_up",
+				"member.redirect",
+				"crew.broadcast",
+				"member.inbox_send",
+			],
 		);
 		assert.equal(source.requests[2]?.params?.target, "developer");
-		assert.deepEqual(source.requests[3]?.params, { message: "crew update" });
+		assert.deepEqual(source.requests[3]?.params, { target: "developer", message: "change direction" });
+		assert.deepEqual(source.requests[4]?.params, { message: "crew update" });
 	} finally {
 		await source.close();
+	}
+});
+
+test("SDK Redirect classifies a lost acknowledgement as unknown without retry", async () => {
+	const source = await fakeSource({ dropRedirect: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(selected.redirectMember("developer", { message: "once" }), (error) => {
+			assert.ok(error instanceof BebopClientError);
+			assert.equal(error.code, "outcome-unknown");
+			return true;
+		});
+		assert.equal(source.requests.filter((request) => request.method === "member.redirect").length, 1);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Redirect preserves source rejection and validation behavior", async (t) => {
+	for (const [remoteCode, expectedCode] of [
+		["unknown-member", "unknown-member"],
+		["offline-member", "offline-member"],
+		["untrusted-project", "untrusted"],
+	] as const) {
+		await t.test(remoteCode, async () => {
+			const source = await fakeSource({ remoteError: remoteCode });
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				await assert.rejects(
+					selected.redirectMember("developer", { message: "change direction" }),
+					(error: unknown) => error instanceof BebopClientError && error.code === expectedCode,
+				);
+			} finally {
+				await source.close();
+			}
+		});
+	}
+	const source = await fakeSource();
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(
+			selected.redirectMember("developer", { message: "  " }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+		);
+		assert.deepEqual(
+			source.requests.map((request) => request.method),
+			["session.status"],
+		);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Redirect maps a real-wire mismatched RPC id to malformed-response", async () => {
+	const source = await fakeSource({ mismatchRedirect: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(
+			selected.redirectMember("developer", { message: "change direction" }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "malformed-response",
+		);
+		assert.equal(source.requests.filter((request) => request.method === "member.redirect").length, 1);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Redirect maps direct data.code and generic RPC remote-error envelopes", async (t) => {
+	for (const [envelope, remoteCode, expectedCode] of [
+		["data-code", "offline-member", "offline-member"],
+		["message-only", "unknown-member", "unknown-member"],
+	] as const) {
+		await t.test(envelope, async () => {
+			const source = await fakeSource({ remoteError: remoteCode, remoteErrorEnvelope: envelope });
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				await assert.rejects(
+					selected.redirectMember("developer", { message: "change direction" }),
+					(error: unknown) => error instanceof BebopClientError && error.code === expectedCode,
+				);
+			} finally {
+				await source.close();
+			}
+		});
 	}
 });
 
