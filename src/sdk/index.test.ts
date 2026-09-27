@@ -39,6 +39,7 @@ async function fakeSource(
 		malformedStatus?: boolean;
 		malformedLastMessage?: boolean;
 		remoteError?: string;
+		remoteErrorEnvelope?: "data-code" | "message-only";
 		lastMessage?: { role: "assistant"; content: string; timestamp: number } | null;
 		askWait?: (
 			requestId: string,
@@ -94,13 +95,18 @@ async function fakeSource(
 				)
 					return;
 				if (options.remoteError && request.method !== "session.status") {
-					socket.write(
-						`${JSON.stringify({
-							jsonrpc: "2.0",
-							id: request.id,
-							error: { code: -32000, message: options.remoteError, data: { code: options.remoteError } },
-						})}\n`,
-					);
+					const error =
+						options.remoteErrorEnvelope === "message-only"
+							? { code: -32000, message: options.remoteError }
+							: {
+									code: -32000,
+									message:
+										options.remoteErrorEnvelope === "data-code"
+											? "source rejected"
+											: options.remoteError,
+									data: { code: options.remoteError },
+								};
+					socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error })}\n`);
 					return;
 				}
 				if (request.method === "member.request_start") {
@@ -361,6 +367,26 @@ test("SDK Redirect preserves source rejection and validation behavior", async (t
 		);
 	} finally {
 		await source.close();
+	}
+});
+
+test("SDK Redirect maps direct data.code and generic RPC remote-error envelopes", async (t) => {
+	for (const [envelope, remoteCode, expectedCode] of [
+		["data-code", "offline-member", "offline-member"],
+		["message-only", "unknown-member", "unknown-member"],
+	] as const) {
+		await t.test(envelope, async () => {
+			const source = await fakeSource({ remoteError: remoteCode, remoteErrorEnvelope: envelope });
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				await assert.rejects(
+					selected.redirectMember("developer", { message: "change direction" }),
+					(error: unknown) => error instanceof BebopClientError && error.code === expectedCode,
+				);
+			} finally {
+				await source.close();
+			}
+		});
 	}
 });
 
