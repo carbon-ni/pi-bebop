@@ -28,8 +28,10 @@ async function fakeSource(
 		trusted?: boolean;
 		dropFollowUp?: boolean;
 		dropInbox?: boolean;
+		dropBroadcast?: boolean;
 		hangFollowUp?: boolean;
 		hangInbox?: boolean;
+		hangBroadcast?: boolean;
 		holdMemberStatus?: boolean;
 		holdLastMessage?: boolean;
 		malformedStatus?: boolean;
@@ -73,7 +75,8 @@ async function fakeSource(
 				requests.push({ method: request.method, params: request.params });
 				if (
 					(options.dropFollowUp && request.method === "member.follow_up") ||
-					(options.dropInbox && request.method === "member.inbox_send")
+					(options.dropInbox && request.method === "member.inbox_send") ||
+					(options.dropBroadcast && request.method === "crew.broadcast")
 				) {
 					socket.destroy();
 					return;
@@ -81,6 +84,7 @@ async function fakeSource(
 				if (
 					(options.hangFollowUp && request.method === "member.follow_up") ||
 					(options.hangInbox && request.method === "member.inbox_send") ||
+					(options.hangBroadcast && request.method === "crew.broadcast") ||
 					(options.holdMemberStatus && request.method === "member.status_target") ||
 					(options.holdLastMessage && request.method === "member.last_message_target")
 				)
@@ -187,12 +191,30 @@ async function fakeSource(
 											deliveryId: "delivery-1",
 											disposition: "queued",
 										}
-									: {
-											member: { name: "developer", role: "Developer" },
-											itemId: "item-1",
-											persisted: true,
-											hint: "skipped",
-										};
+									: request.method === "crew.broadcast"
+										? {
+												dispositions: [
+													{
+														member: "developer",
+														role: "Developer",
+														disposition: "delivered",
+														deliveryId: "broadcast-1",
+													},
+													{
+														member: "reviewer",
+														role: "Reviewer",
+														disposition: "failed",
+														code: "offline",
+													},
+												],
+												summary: { delivered: 1, failed: 1, total: 2 },
+											}
+										: {
+												member: { name: "developer", role: "Developer" },
+												itemId: "item-1",
+												persisted: true,
+												hint: "skipped",
+											};
 				socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
 			}
 		});
@@ -218,7 +240,7 @@ async function fakeSource(
 	};
 }
 
-test("SDK selects a trusted joined source and delegates status, Follow-up, and Inbox", async () => {
+test("SDK selects a trusted joined source and delegates status, Follow-up, Broadcast, and Inbox", async () => {
 	const source = await fakeSource();
 	try {
 		const selected = await createBebopClient().selectSource({ session: source.session });
@@ -234,6 +256,24 @@ test("SDK selects a trusted joined source and delegates status, Follow-up, and I
 			deliveryId: "delivery-1",
 			disposition: "queued",
 		});
+		assert.deepEqual(await selected.broadcastToCrew({ message: "crew update" }), {
+			ok: true,
+			dispositions: [
+				{
+					recipientName: "developer",
+					recipientRole: "Developer",
+					disposition: "delivered",
+					deliveryId: "broadcast-1",
+				},
+				{
+					recipientName: "reviewer",
+					recipientRole: "Reviewer",
+					disposition: "failed",
+					code: "offline",
+				},
+			],
+			summary: { delivered: 1, failed: 1, total: 2 },
+		});
 		assert.deepEqual(await selected.sendToInbox("developer", { message: "remember" }), {
 			member: { name: "developer", role: "Developer" },
 			itemId: "item-1",
@@ -242,9 +282,74 @@ test("SDK selects a trusted joined source and delegates status, Follow-up, and I
 		});
 		assert.deepEqual(
 			source.requests.map((request) => request.method),
-			["session.status", "member.status_target", "member.follow_up", "member.inbox_send"],
+			["session.status", "member.status_target", "member.follow_up", "crew.broadcast", "member.inbox_send"],
 		);
 		assert.equal(source.requests[2]?.params?.target, "developer");
+		assert.deepEqual(source.requests[3]?.params, { message: "crew update" });
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Broadcast classifies a lost acknowledgement as unknown without retry", async () => {
+	const source = await fakeSource({ dropBroadcast: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(selected.broadcastToCrew({ message: "once" }), (error) => {
+			assert.ok(error instanceof BebopClientError);
+			assert.equal(error.code, "outcome-unknown");
+			return true;
+		});
+		assert.equal(source.requests.filter((request) => request.method === "crew.broadcast").length, 1);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Broadcast preserves operation-specific remote results on the selected source", async (t) => {
+	for (const code of ["no-recipients", "unknown-sender"] as const) {
+		await t.test(code, async () => {
+			const source = await fakeSource({ remoteError: code });
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				assert.deepEqual(await selected.broadcastToCrew({ message: "crew update" }), { ok: false, code });
+				assert.equal(source.requests.filter((request) => request.method === "crew.broadcast").length, 1);
+			} finally {
+				await source.close();
+			}
+		});
+	}
+});
+
+test("SDK Broadcast maps direct RPC authority and validation rejections on the selected source", async (t) => {
+	for (const [remoteCode, expectedCode] of [
+		["not-joined", "not-joined"],
+		["untrusted-project", "untrusted"],
+		["invalid-input", "invalid-input"],
+	] as const) {
+		await t.test(remoteCode, async () => {
+			const source = await fakeSource({ remoteError: remoteCode });
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				await assert.rejects(
+					selected.broadcastToCrew({ message: "crew update" }),
+					(error: unknown) => error instanceof BebopClientError && error.code === expectedCode,
+				);
+			} finally {
+				await source.close();
+			}
+		});
+	}
+});
+
+test("SDK Follow-up preserves its operation-specific rejection mapping on the selected source", async () => {
+	const source = await fakeSource({ remoteError: "self-send" });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(
+			selected.sendFollowUp("developer", { message: "hello" }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "self-query",
+		);
 	} finally {
 		await source.close();
 	}
