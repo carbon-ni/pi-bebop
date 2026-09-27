@@ -157,6 +157,7 @@
 		"lint": "npm run typecheck && npm run typecheck:presence-tests",
 		"prepack": "npm run build",
 		"verify:package": "node scripts/verify-package.mjs",
+		"verify:sdk-independence": "node scripts/verify-sdk-independence.mjs",
 		"pretest": "npm run build",
 		"test": "node scripts/run-tests.mjs",
 		"test:coverage": "node --test --experimental-test-coverage --import tsx src/**/*.test.ts",

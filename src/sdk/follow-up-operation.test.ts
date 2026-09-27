@@ -214,6 +214,28 @@ test("remote Follow-up sends one typed command and returns the acknowledged resu
 	});
 });
 
+test("remote Follow-up validates timeout and pre-aborted calls before dispatch", async () => {
+	let sends = 0;
+	const operation = createRemoteFollowUpOperation({
+		send: async () => {
+			sends += 1;
+			return { member: { name: "Kelly", role: "qa" }, deliveryId: "delivery", disposition: "queued" };
+		},
+	});
+	for (const timeoutMs of [49, 60_001, 1.5, Number.NaN])
+		await assert.rejects(
+			operation.sendFollowUp("Kelly", { message: "hello" }, { timeoutMs }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+		);
+	const controller = new AbortController();
+	controller.abort();
+	await assert.rejects(
+		operation.sendFollowUp("Kelly", { message: "hello" }, { signal: controller.signal, timeoutMs: 5_000 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "aborted",
+	);
+	assert.equal(sends, 0);
+});
+
 test("in-process Follow-up reads membership and trust for every call", async () => {
 	let membershipReads = 0;
 	let trustReads = 0;
