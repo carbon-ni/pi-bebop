@@ -585,7 +585,7 @@ async function controlledSocket(candidate: string, budget: Budget): Promise<stri
 			!isSafeSessionId(base.slice(0, -5))
 		)
 			return invalidControlledSocket();
-		return candidate;
+		return resolved;
 	} catch (error) {
 		throw error;
 	}
@@ -611,7 +611,7 @@ async function aliasSocket(alias: string, budget: Budget): Promise<string> {
 		!isSafeSessionId(base.slice(0, -5))
 	)
 		return invalidControlledSocket();
-	return aliasPath;
+	return resolved;
 }
 
 async function sourceCandidates(session: string, budget: Budget): Promise<string[]> {
@@ -628,7 +628,10 @@ async function sourceCandidates(session: string, budget: Budget): Promise<string
 	return [...new Set(candidates)];
 }
 
-async function querySource(endpoint: string, budget: Budget): Promise<ReturnType<typeof parseStatus>> {
+async function querySource(
+	endpoint: string,
+	budget: Budget,
+): Promise<{ readonly status: ReturnType<typeof parseStatus>; readonly endpoint: string }> {
 	const resolved = await controlledSocket(endpoint, budget);
 	const { response } = await sendRpcCommand(
 		resolved,
@@ -637,7 +640,7 @@ async function querySource(endpoint: string, budget: Budget): Promise<ReturnType
 	);
 	if (!response.success) throw new RpcProtocolError("remote-error", response.error ?? "source rejected status query");
 	if (!isStatusResult(response.data)) throw new RpcProtocolError("malformed-response", "invalid status response");
-	return parseStatus(response.data);
+	return { status: parseStatus(response.data), endpoint: resolved };
 }
 
 function parseStatus(value: { status: "stopped" | "online" | "joined"; projectTrusted?: true }) {
@@ -928,7 +931,7 @@ async function discover(options: BebopOperationOptions | undefined): Promise<rea
 		const sources = await Promise.all(
 			ids.map(async (session): Promise<BebopSourceInfo> => {
 				try {
-					const status = await querySource(getSocketPath(session), budget);
+					const { status } = await querySource(getSocketPath(session), budget);
 					return {
 						session,
 						aliases: (aliases.get(session) ?? []).sort(compareNames),
@@ -963,10 +966,10 @@ async function select(
 		let last: BebopClientError | undefined;
 		for (const candidate of candidates) {
 			try {
-				const status = await querySource(candidate, budget);
-				if (status.state !== "joined") throw new BebopClientError("not-joined");
-				if (!status.trusted) throw new BebopClientError("untrusted");
-				return sourceClient(await controlledSocket(candidate, budget));
+				const selected = await querySource(candidate, budget);
+				if (selected.status.state !== "joined") throw new BebopClientError("not-joined");
+				if (!selected.status.trusted) throw new BebopClientError("untrusted");
+				return sourceClient(selected.endpoint);
 			} catch (error) {
 				const mapped = normalizeError(error, budget);
 				last = mapped;
