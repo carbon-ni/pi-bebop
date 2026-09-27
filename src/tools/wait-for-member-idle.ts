@@ -3,11 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { MemberIdleWaitFlowError } from "../application/member-idle-wait-flow.ts";
 import { createMemberIdleWaitResult, formatMemberIdleWaitResult } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
-import {
-	createInProcessMemberIdleWaitOperation,
-	type InProcessMemberIdleWaitOperation,
-	type MemberIdleWaitResult,
-} from "../sdk/index.ts";
+import { type InProcessMemberIdleWaitOperation, type MemberIdleWaitResult } from "../sdk/index.ts";
 
 const parameters = Type.Object(
 	{
@@ -40,15 +36,6 @@ type ToolResult = {
 	terminate?: boolean;
 };
 
-export interface MemberIdleWaitToolTransport {
-	readonly probeEndpoint: (socketPath: string) => Promise<boolean>;
-	readonly requestIdleWait: (
-		endpoint: string,
-		memberLabel: string,
-		options: { timeoutSeconds: number; signal?: AbortSignal },
-	) => Promise<import("../application/member-idle-wait-flow.ts").MemberIdleWaitTransportResult>;
-}
-
 function errorResult(target: string, code: string, message: string): ToolResult {
 	return {
 		content: [{ type: "text", text: `[${target}] ${message.slice(0, MAX_OUTPUT)}` }],
@@ -60,20 +47,8 @@ function errorResult(target: string, code: string, message: string): ToolResult 
 export function registerWaitForMemberIdleTool(
 	pi: ExtensionAPI,
 	state: SocketState,
-	operationOrTransport: InProcessMemberIdleWaitOperation | MemberIdleWaitToolTransport,
+	operation: InProcessMemberIdleWaitOperation,
 ): void {
-	const operation: InProcessMemberIdleWaitOperation =
-		"resolveMemberIdleWait" in operationOrTransport
-			? operationOrTransport
-			: createInProcessMemberIdleWaitOperation({
-					surface: {
-						getMembership: () => state.membershipRuntime?.getMembership() ?? null,
-						isTrusted: () => state.context?.isProjectTrusted?.() === true,
-						probeEndpoint: operationOrTransport.probeEndpoint,
-						requestIdleWait: operationOrTransport.requestIdleWait,
-						now: () => new Date().toISOString(),
-					},
-				});
 	pi.registerTool({
 		name: "wait_for_member_idle",
 		label: "Wait for Member Idle",

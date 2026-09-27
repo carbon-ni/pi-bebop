@@ -5,6 +5,10 @@ import { BebopClientError, type BebopClientErrorCode } from "./errors.js";
 const DEFAULT_MEMBER_IDLE_WAIT_SECONDS = 1_800;
 const MIN_MEMBER_IDLE_WAIT_SECONDS = 1;
 const MAX_MEMBER_IDLE_WAIT_SECONDS = 7_200;
+const systemClock: MemberIdleWaitClock = {
+	setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+	clearTimeout: (handle) => clearTimeout(handle),
+};
 
 export interface MemberIdleWaitIdentity {
 	readonly name: string;
@@ -66,7 +70,7 @@ export interface InProcessMemberIdleWaitSurface {
 		readonly manifest: { readonly members: readonly (MemberIdleWaitIdentity & { readonly socketPath: string })[] };
 	} | null;
 	readonly isTrusted: () => boolean;
-	readonly probeEndpoint: (socketPath: string) => Promise<boolean>;
+	readonly probeEndpoint: (socketPath: string, signal?: AbortSignal) => Promise<boolean>;
 	readonly requestIdleWait: (
 		endpoint: string,
 		memberLabel: string,
@@ -75,9 +79,16 @@ export interface InProcessMemberIdleWaitSurface {
 	readonly now: () => string;
 }
 
+export interface MemberIdleWaitClock {
+	readonly setTimeout: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+	readonly clearTimeout: (handle: ReturnType<typeof setTimeout>) => void;
+}
+
 export interface InProcessMemberIdleWaitOperationDependencies {
 	/** Trusted composition supplies the live application surface and target transport. */
 	readonly surface: InProcessMemberIdleWaitSurface;
+	/** Optional deterministic clock for bounded-wait tests. */
+	readonly clock?: MemberIdleWaitClock;
 }
 
 type IdleBudget = {
@@ -93,10 +104,10 @@ class DeadlineExceeded extends Error {
 	}
 }
 
-function createIdleBudget(signal: AbortSignal | undefined, timeoutMs: number): IdleBudget {
+function createIdleBudget(signal: AbortSignal | undefined, timeoutMs: number, clock: MemberIdleWaitClock): IdleBudget {
 	const controller = new AbortController();
 	let expired = false;
-	const timer = setTimeout(() => {
+	const timer = clock.setTimeout(() => {
 		expired = true;
 		controller.abort(new DeadlineExceeded());
 	}, timeoutMs);
@@ -106,7 +117,7 @@ function createIdleBudget(signal: AbortSignal | undefined, timeoutMs: number): I
 		signal: controller.signal,
 		timedOut: () => expired,
 		cleanup() {
-			clearTimeout(timer);
+			clock.clearTimeout(timer);
 			signal?.removeEventListener("abort", onAbort);
 		},
 	};
@@ -180,10 +191,11 @@ function mapMemberIdleWaitFlowError(error: MemberIdleWaitFlowError): BebopClient
 function withMemberIdleWaitBudget<T>(
 	options: MemberIdleWaitOptions | undefined,
 	operation: (budget: IdleBudget, timeoutSeconds: number) => Promise<T>,
+	clock: MemberIdleWaitClock,
 ): Promise<T> {
 	if (options?.signal?.aborted) throw new BebopClientError("aborted");
 	const timeoutSeconds = validateMemberIdleWaitSeconds(options?.timeoutSeconds);
-	const budget = createIdleBudget(options?.signal, timeoutSeconds * 1000);
+	const budget = createIdleBudget(options?.signal, timeoutSeconds * 1000, clock);
 	return operation(budget, timeoutSeconds)
 		.catch((error) => {
 			throw normalizeIdleError(error, budget);
@@ -200,6 +212,7 @@ function flowSurface(surface: InProcessMemberIdleWaitSurface): FlowSurface {
 export function createInProcessMemberIdleWaitOperation(
 	dependencies: InProcessMemberIdleWaitOperationDependencies,
 ): InProcessMemberIdleWaitOperation {
+	const clock = dependencies.clock ?? systemClock;
 	const createFlow = () => createMemberIdleWaitFlow(flowSurface(dependencies.surface));
 	return {
 		resolveMemberIdleWait(input) {
@@ -207,39 +220,46 @@ export function createInProcessMemberIdleWaitOperation(
 		},
 		waitForMemberIdle(member, options) {
 			if (member.trim() !== member || member.length === 0) throw new BebopClientError("invalid-input");
-			return withMemberIdleWaitBudget(options, async (budget, timeoutSeconds) => {
-				const resolver = createFlow();
-				const resolved = resolver.resolveMemberIdleWait({ member, timeoutSeconds });
-				const flow = createMemberIdleWaitFlow({
-					...flowSurface(dependencies.surface),
-					requestIdleWait: async (endpoint, memberLabel, requestOptions) => {
-						const outcome = await dependencies.surface.requestIdleWait(
-							endpoint,
-							memberLabel,
-							requestOptions,
-						);
-						if (
-							outcome.ok &&
-							(outcome.result.member.name !== resolved.target.name ||
-								outcome.result.member.role !== resolved.target.role)
-						)
-							throw new MemberIdleWaitFlowError(
-								"identity-mismatch",
-								"Member returned an idle wait result for a different identity",
+			return withMemberIdleWaitBudget(
+				options,
+				async (budget, timeoutSeconds) => {
+					const resolver = createFlow();
+					const resolved = resolver.resolveMemberIdleWait({ member, timeoutSeconds });
+					const flow = createMemberIdleWaitFlow({
+						...flowSurface(dependencies.surface),
+						requestIdleWait: async (endpoint, memberLabel, requestOptions) => {
+							const outcome = await dependencies.surface.requestIdleWait(
+								endpoint,
+								memberLabel,
+								requestOptions,
 							);
-						return outcome;
-					},
-				});
-				try {
-					return await awaitIdleBudget(
-						flow.waitForMemberIdle({ member, timeoutSeconds, signal: options?.signal }),
-						budget,
-					);
-				} catch (error) {
-					if (error instanceof MemberIdleWaitFlowError) throw mapMemberIdleWaitFlowError(error);
-					throw error;
-				}
-			});
+							if (
+								outcome.ok &&
+								(outcome.result.member.name !== resolved.target.name ||
+									outcome.result.member.role !== resolved.target.role)
+							)
+								throw new MemberIdleWaitFlowError(
+									"identity-mismatch",
+									"Member returned an idle wait result for a different identity",
+								);
+							return outcome;
+						},
+					});
+					try {
+						const signal = options?.signal
+							? AbortSignal.any([budget.signal, options.signal])
+							: budget.signal;
+						return await awaitIdleBudget(
+							flow.waitForMemberIdle({ member, timeoutSeconds, signal }),
+							budget,
+						);
+					} catch (error) {
+						if (error instanceof MemberIdleWaitFlowError) throw mapMemberIdleWaitFlowError(error);
+						throw error;
+					}
+				},
+				clock,
+			);
 		},
 	};
 }
@@ -248,35 +268,39 @@ export function createRemoteMemberIdleWaitOperation(endpoint: string): MemberIdl
 	return {
 		waitForMemberIdle(member, options) {
 			if (member.trim() !== member || member.length === 0) throw new BebopClientError("invalid-input");
-			return withMemberIdleWaitBudget(options, async (budget, timeoutSeconds) => {
-				const outcome = await sendMemberIdleWait(
-					endpoint,
-					{ type: "member_idle_wait", member },
-					{ timeoutSeconds, signal: budget.signal },
-				);
-				if (outcome.ok === true) return outcome.result;
-				switch (outcome.code) {
-					case "timeout":
-						throw new DeadlineExceeded();
-					case "aborted":
-						if (budget.timedOut()) throw new DeadlineExceeded();
-						throw new BebopClientError("aborted");
-					case "offline":
-						throw new BebopClientError("offline-member");
-					case "capacity-exceeded":
-						throw new BebopClientError("capacity-exceeded");
-					case "remote-rejected":
-						throw new BebopClientError("remote-rejected");
-					case "identity-mismatch":
-						throw new BebopClientError("identity-mismatch");
-					case "malformed-response":
-						throw new BebopClientError("malformed-response");
-					case "transport-error":
-						throw new BebopClientError(
-							outcome.transportCode === "ENOENT" ? "unknown-session" : "offline-session",
-						);
-				}
-			});
+			return withMemberIdleWaitBudget(
+				options,
+				async (budget, timeoutSeconds) => {
+					const outcome = await sendMemberIdleWait(
+						endpoint,
+						{ type: "member_idle_wait", member },
+						{ timeoutSeconds, signal: budget.signal },
+					);
+					if (outcome.ok === true) return outcome.result;
+					switch (outcome.code) {
+						case "timeout":
+							throw new DeadlineExceeded();
+						case "aborted":
+							if (budget.timedOut()) throw new DeadlineExceeded();
+							throw new BebopClientError("aborted");
+						case "offline":
+							throw new BebopClientError("offline-member");
+						case "capacity-exceeded":
+							throw new BebopClientError("capacity-exceeded");
+						case "remote-rejected":
+							throw new BebopClientError("remote-rejected");
+						case "identity-mismatch":
+							throw new BebopClientError("identity-mismatch");
+						case "malformed-response":
+							throw new BebopClientError("malformed-response");
+						case "transport-error":
+							throw new BebopClientError(
+								outcome.transportCode === "ENOENT" ? "unknown-session" : "offline-session",
+							);
+					}
+				},
+				systemClock,
+			);
 		},
 	};
 }

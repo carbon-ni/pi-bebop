@@ -61,6 +61,50 @@ test("in-process idle operation shares target resolution and subscription flow",
 	assert.equal(requests, 1);
 });
 
+test("in-process idle operation aborts a held probe when its deadline expires", async () => {
+	let fireDeadline!: () => void;
+	let clearCalls = 0;
+	let probeAborts = 0;
+	let requests = 0;
+	const operation = createInProcessMemberIdleWaitOperation({
+		surface: {
+			...dependencies().surface,
+			probeEndpoint: async (_socketPath, signal) =>
+				new Promise<boolean>((resolve) => {
+					signal?.addEventListener(
+						"abort",
+						() => {
+							probeAborts += 1;
+							resolve(false);
+						},
+						{ once: true },
+					);
+				}),
+			requestIdleWait: async () => {
+				requests += 1;
+				return { ok: true, result: idleResult };
+			},
+		},
+		clock: {
+			setTimeout: (callback) => {
+				fireDeadline = callback;
+				return setTimeout(() => undefined, 0);
+			},
+			clearTimeout: (handle) => {
+				clearCalls += 1;
+				clearTimeout(handle);
+			},
+		},
+	});
+	const pending = operation.waitForMemberIdle("Kelly", { timeoutSeconds: 60 });
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	fireDeadline();
+	await assert.rejects(pending, (error: unknown) => error instanceof BebopClientError && error.code === "timeout");
+	assert.equal(probeAborts, 1);
+	assert.equal(requests, 0);
+	assert.equal(clearCalls, 1);
+});
+
 test("in-process idle operation returns offline without opening a subscription", async () => {
 	let requests = 0;
 	const operation = createInProcessMemberIdleWaitOperation(

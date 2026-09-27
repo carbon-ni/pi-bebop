@@ -72,7 +72,7 @@ export interface MemberIdleWaitSurface {
 	readonly getMembership: () => CrewMembership | null;
 	readonly isTrusted: () => boolean;
 	/** Finite-time endpoint reachability; failure is a compact offline result, never an error. */
-	readonly probeEndpoint: (socketPath: string) => Promise<boolean>;
+	readonly probeEndpoint: (socketPath: string, signal?: AbortSignal) => Promise<boolean>;
 	/** Open the one-shot idle subscription and block until a terminal outcome or transport code. */
 	readonly requestIdleWait: (
 		endpoint: string,
@@ -134,12 +134,13 @@ export function createMemberIdleWaitFlow(surface: MemberIdleWaitSurface) {
 	const prepareMemberIdleWait = async (input: {
 		member: string;
 		timeoutSeconds?: number;
+		signal?: AbortSignal;
 	}): Promise<PreparedMemberIdleWait> => {
 		const resolved = resolveMemberIdleWait(input);
 		const target = resolved.target;
 
 		// Reachability is the offline boundary: failure is a compact offline result.
-		const alive = await surface.probeEndpoint(target.socketPath);
+		const alive = await surface.probeEndpoint(target.socketPath, input.signal);
 		if (!alive) return { kind: "offline", target };
 		return { kind: "ready", target, timeoutSeconds: resolved.timeoutSeconds };
 	};

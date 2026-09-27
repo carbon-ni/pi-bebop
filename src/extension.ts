@@ -195,7 +195,7 @@ export default function (pi: ExtensionAPI) {
 		surface: {
 			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
 			isTrusted: () => state.context?.isProjectTrusted?.() === true,
-			probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
+			probeEndpoint: (socketPath, signal) => probeMemberEndpoint(socketPath, { signal }),
 			requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
 				try {
 					const resolved = await resolveMemberEndpoint(endpoint);
