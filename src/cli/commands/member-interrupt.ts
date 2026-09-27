@@ -1,7 +1,12 @@
 import { Command } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
-import { isMemberInterruptResult, type MemberInterruptResult } from "../../domain/index.ts";
+import type { MemberInterruptResult } from "../../domain/index.ts";
+import {
+	BebopClientError,
+	createRemoteMemberInterruptOperation,
+	type RemoteMemberInterruptCommand,
+} from "../../sdk/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult } from "../support/errors.ts";
@@ -64,12 +69,7 @@ export function readMemberInterruptCommand(command: Command): MemberInterruptCli
 	};
 }
 
-interface InterruptCommand {
-	readonly type: "member_interrupt";
-	readonly target: string;
-	readonly message: string;
-	readonly instructions?: string[];
-}
+type InterruptCommand = RemoteMemberInterruptCommand;
 
 export interface MemberInterruptCliDependencies {
 	readonly resolveSource: (input: { explicitSession?: string; environmentSession?: string }) => SourceResolution;
@@ -95,18 +95,44 @@ export function mapInterruptTransportError(error: unknown): { ok: false; code: s
 	return { ok: false, code: "transport-error" };
 }
 
-async function deliverThroughSocket(
+async function deliverThroughSdk(
 	source: SourceResolution & { ok: true },
 	command: InterruptCommand,
 	signal: AbortSignal,
 ): Promise<{ ok: true; result: MemberInterruptResult } | { ok: false; code: string }> {
-	const endpoint = await resolveMemberEndpoint(source.idSocketPath);
+	let endpoint: string;
 	try {
-		const { response } = await sendRpcCommand(endpoint, command, { timeout: 5000, signal, classifyLostAck: true });
-		if (!response.success) return { ok: false, code: response.error ?? "remote-rejected" };
-		if (!isMemberInterruptResult(response.data)) return { ok: false, code: "invalid-ack" };
-		return { ok: true, result: response.data };
+		endpoint = await resolveMemberEndpoint(source.idSocketPath);
 	} catch (error) {
+		return mapInterruptTransportError(error);
+	}
+	try {
+		const operation = createRemoteMemberInterruptOperation({
+			send: async (request, options) => {
+				try {
+					const { response } = await sendRpcCommand(endpoint, request, {
+						timeout: options?.timeoutMs ?? 5000,
+						signal: options?.signal,
+						classifyLostAck: true,
+					});
+					return response.data;
+				} catch (error) {
+					if (error instanceof RpcProtocolError) throw error;
+					const mapped = mapInterruptTransportError(error);
+					throw new RpcProtocolError("remote-error", mapped.code);
+				}
+			},
+		});
+		const { target, message, instructions } = command;
+		const result = await operation.interruptMember(
+			target,
+			{ message, ...(instructions === undefined ? {} : { instructions }) },
+			{ signal, timeoutMs: 5000 },
+		);
+		return { ok: true, result };
+	} catch (error) {
+		if (error instanceof BebopClientError)
+			return { ok: false, code: error.code === "offline-member" ? "offline-session" : error.code };
 		return mapInterruptTransportError(error);
 	}
 }
@@ -114,7 +140,7 @@ async function deliverThroughSocket(
 export const defaultMemberInterruptCliDependencies: MemberInterruptCliDependencies = {
 	resolveSource: (input) => resolveSourceSession(input),
 	readStdin: readStdinMessage,
-	deliverInterrupt: deliverThroughSocket,
+	deliverInterrupt: deliverThroughSdk,
 	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 

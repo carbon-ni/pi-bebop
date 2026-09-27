@@ -28,7 +28,10 @@ async function fakeSource(
 		trusted?: boolean;
 		dropFollowUp?: boolean;
 		dropRedirect?: boolean;
+		dropInterrupt?: boolean;
 		mismatchRedirect?: boolean;
+		mismatchInterrupt?: boolean;
+		interruptIdentity?: { name: string; role: string };
 		dropInbox?: boolean;
 		dropBroadcast?: boolean;
 		hangFollowUp?: boolean;
@@ -80,6 +83,7 @@ async function fakeSource(
 				if (
 					(options.dropFollowUp && request.method === "member.follow_up") ||
 					(options.dropRedirect && request.method === "member.redirect") ||
+					(options.dropInterrupt && request.method === "member.interrupt") ||
 					(options.dropInbox && request.method === "member.inbox_send") ||
 					(options.dropBroadcast && request.method === "crew.broadcast")
 				) {
@@ -210,31 +214,43 @@ async function fakeSource(
 													deliveryId: "delivery-redirect",
 													disposition: "steered",
 												}
-											: request.method === "crew.broadcast"
+											: request.method === "member.interrupt"
 												? {
-														dispositions: [
-															{
-																member: "developer",
-																role: "Developer",
-																disposition: "delivered",
-																deliveryId: "broadcast-1",
-															},
-															{
-																member: "reviewer",
-																role: "Reviewer",
-																disposition: "failed",
-																code: "offline",
-															},
-														],
-														summary: { delivered: 1, failed: 1, total: 2 },
+														member: options.interruptIdentity ?? {
+															name: "developer",
+															role: "Developer",
+														},
+														interruptId: "interrupt-1",
+														disposition: "interrupt-requested",
 													}
-												: {
-														member: { name: "developer", role: "Developer" },
-														itemId: "item-1",
-														persisted: true,
-														hint: "skipped",
-													};
-				if (options.mismatchRedirect && request.method === "member.redirect") {
+												: request.method === "crew.broadcast"
+													? {
+															dispositions: [
+																{
+																	member: "developer",
+																	role: "Developer",
+																	disposition: "delivered",
+																	deliveryId: "broadcast-1",
+																},
+																{
+																	member: "reviewer",
+																	role: "Reviewer",
+																	disposition: "failed",
+																	code: "offline",
+																},
+															],
+															summary: { delivered: 1, failed: 1, total: 2 },
+														}
+													: {
+															member: { name: "developer", role: "Developer" },
+															itemId: "item-1",
+															persisted: true,
+															hint: "skipped",
+														};
+				if (
+					(options.mismatchRedirect && request.method === "member.redirect") ||
+					(options.mismatchInterrupt && request.method === "member.interrupt")
+				) {
 					socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: "wrong-request-id", result })}\n`);
 					continue;
 				}
@@ -298,7 +314,7 @@ test("SDK selected source exposes real-wire Request start, repeat wait, and resp
 	}
 });
 
-test("SDK selects a trusted joined source and delegates status, Follow-up, Redirect, Broadcast, and Inbox", async () => {
+test("SDK selects a trusted joined source and delegates status, Follow-up, Redirect, Interrupt, Broadcast, and Inbox", async () => {
 	const source = await fakeSource();
 	try {
 		const selected = await createBebopClient().selectSource({ session: source.session });
@@ -318,6 +334,11 @@ test("SDK selects a trusted joined source and delegates status, Follow-up, Redir
 			member: { name: "developer", role: "Developer" },
 			deliveryId: "delivery-redirect",
 			disposition: "steered",
+		});
+		assert.deepEqual(await selected.interruptMember("developer", { message: "stop and recover" }), {
+			member: { name: "developer", role: "Developer" },
+			interruptId: "interrupt-1",
+			disposition: "interrupt-requested",
 		});
 		assert.deepEqual(await selected.broadcastToCrew({ message: "crew update" }), {
 			ok: true,
@@ -350,13 +371,15 @@ test("SDK selects a trusted joined source and delegates status, Follow-up, Redir
 				"member.status_target",
 				"member.follow_up",
 				"member.redirect",
+				"member.interrupt",
 				"crew.broadcast",
 				"member.inbox_send",
 			],
 		);
 		assert.equal(source.requests[2]?.params?.target, "developer");
 		assert.deepEqual(source.requests[3]?.params, { target: "developer", message: "change direction" });
-		assert.deepEqual(source.requests[4]?.params, { message: "crew update" });
+		assert.deepEqual(source.requests[4]?.params, { target: "developer", message: "stop and recover" });
+		assert.deepEqual(source.requests[5]?.params, { message: "crew update" });
 	} finally {
 		await source.close();
 	}
@@ -437,6 +460,61 @@ test("SDK Redirect maps direct data.code and generic RPC remote-error envelopes"
 				const selected = await createBebopClient().selectSource({ session: source.session });
 				await assert.rejects(
 					selected.redirectMember("developer", { message: "change direction" }),
+					(error: unknown) => error instanceof BebopClientError && error.code === expectedCode,
+				);
+			} finally {
+				await source.close();
+			}
+		});
+	}
+});
+
+test("SDK Interrupt classifies a lost acknowledgement as unknown without retry", async () => {
+	const source = await fakeSource({ dropInterrupt: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(selected.interruptMember("developer", { message: "once" }), (error) => {
+			assert.ok(error instanceof BebopClientError);
+			assert.equal(error.code, "outcome-unknown");
+			return true;
+		});
+		assert.equal(source.requests.filter((request) => request.method === "member.interrupt").length, 1);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Interrupt rejects malformed and mismatched target identities", async (t) => {
+	for (const [options, code] of [
+		[{ mismatchInterrupt: true }, "malformed-response"],
+		[{ interruptIdentity: { name: "someone-else", role: "reviewer" } }, "identity-mismatch"],
+	] as const) {
+		await t.test(code, async () => {
+			const source = await fakeSource(options);
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				await assert.rejects(
+					selected.interruptMember("developer", { message: "stop" }),
+					(error: unknown) => error instanceof BebopClientError && error.code === code,
+				);
+			} finally {
+				await source.close();
+			}
+		});
+	}
+});
+
+test("SDK Interrupt maps direct data.code and generic RPC remote-error envelopes", async (t) => {
+	for (const [envelope, remoteCode, expectedCode] of [
+		["data-code", "abort-failed", "abort-failed"],
+		["message-only", "unknown-member", "unknown-member"],
+	] as const) {
+		await t.test(envelope, async () => {
+			const source = await fakeSource({ remoteError: remoteCode, remoteErrorEnvelope: envelope });
+			try {
+				const selected = await createBebopClient().selectSource({ session: source.session });
+				await assert.rejects(
+					selected.interruptMember("developer", { message: "stop" }),
 					(error: unknown) => error instanceof BebopClientError && error.code === expectedCode,
 				);
 			} finally {
