@@ -686,9 +686,18 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		const socketDir = path.join(home, ".pi", "bebop");
 		await mkdir(socketDir, { recursive: true });
 		const socketPath = path.join(socketDir, "packaged-idle.sock");
-		const respond = async (mode: "idle" | "timeout" | "pending") => {
+		type IdleServer = net.Server & { socketClosed: Promise<void> };
+		const respond = async (mode: "idle" | "timeout" | "pending"): Promise<IdleServer> => {
+			let resolveSocketClosed!: () => void;
+			const socketClosed = new Promise<void>((resolve) => {
+				resolveSocketClosed = resolve;
+			});
 			const server = net.createServer((socket) => {
 				socket.setEncoding("utf8");
+				socket.once("close", resolveSocketClosed);
+				socket.on("error", (error: NodeJS.ErrnoException) => {
+					if (error.code !== "ECONNRESET") throw error;
+				});
 				let buffer = "";
 				socket.on("data", (chunk) => {
 					buffer += chunk;
@@ -738,7 +747,7 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 				});
 			});
 			await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-			return server;
+			return Object.assign(server, { socketClosed });
 		};
 		const runWait = async (format: "toon" | "json" | "text", timeout = "60s") =>
 			new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
@@ -790,6 +799,7 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		setTimeout(() => child.kill("SIGINT"), 100);
 		const signalCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
 		assert.notEqual(signalCode, 0);
+		await signalServer.socketClosed;
 		await closeRpcServer(signalServer);
 		t.after(async () => {
 			for (const server of idleServers) await closeRpcServer(server).catch(() => undefined);
