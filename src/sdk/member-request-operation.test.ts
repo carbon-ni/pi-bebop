@@ -100,7 +100,10 @@ test("in-process response observes cancellation while delivery is pending", asyn
 		{ signal: controller.signal, timeoutMs: 80 },
 	);
 	setTimeout(() => controller.abort(), 10);
-	await assert.rejects(responding, (error: unknown) => error instanceof BebopClientError && error.code === "aborted");
+	await assert.rejects(
+		responding,
+		(error: unknown) => error instanceof BebopClientError && error.code === "outcome-unknown",
+	);
 });
 
 test("in-process operations read live trust and membership authority", async () => {

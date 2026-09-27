@@ -428,6 +428,7 @@ export function createInProcessMemberRequestOperation(
 						member: { name: membership.member.name, role: membership.member.role },
 					}),
 					budget,
+					"outcome-unknown",
 				);
 			} catch (error) {
 				throw mapInProcessError(error, budget);
@@ -455,7 +456,11 @@ async function startGuest(
 	});
 }
 
-function awaitWithBudget<T>(promise: Promise<T>, budget: OperationBudget): Promise<T> {
+function awaitWithBudget<T>(
+	promise: Promise<T>,
+	budget: OperationBudget,
+	abortCode: BebopClientErrorCode = budget.timedOut() ? "timeout" : "aborted",
+): Promise<T> {
 	return new Promise<T>((resolve, reject) => {
 		let settled = false;
 		const cleanup = () => budget.signal.removeEventListener("abort", onAbort);
@@ -463,7 +468,7 @@ function awaitWithBudget<T>(promise: Promise<T>, budget: OperationBudget): Promi
 			if (settled) return;
 			settled = true;
 			cleanup();
-			reject(new BebopClientError(budget.timedOut() ? "timeout" : "aborted"));
+			reject(new BebopClientError(abortCode));
 		};
 		promise.then(
 			(value) => {
