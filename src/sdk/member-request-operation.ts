@@ -73,7 +73,7 @@ export type RemoteMemberRequestStartCommand = Extract<RpcCommand, { type: "membe
 export type RemoteMemberRequestWaitCommand = Extract<RpcCommand, { type: "member_request_wait" }>;
 export type RemoteMemberResponseCommand = Extract<RpcCommand, { type: "member_response" }>;
 
-export interface RemoteMemberRequestOperationDependencies {
+export interface RemoteMemberRequestStartWaitDependencies {
 	readonly sendStart: (
 		command: RemoteMemberRequestStartCommand,
 		options?: MemberRequestOperationOptions,
@@ -82,6 +82,9 @@ export interface RemoteMemberRequestOperationDependencies {
 		command: RemoteMemberRequestWaitCommand,
 		options?: MemberRequestOperationOptions,
 	) => Promise<unknown>;
+}
+
+export interface RemoteMemberRequestOperationDependencies extends RemoteMemberRequestStartWaitDependencies {
 	readonly sendResponse: (
 		command: RemoteMemberResponseCommand,
 		options?: MemberRequestOperationOptions,
@@ -233,9 +236,9 @@ function validateResponse(input: MemberRequestResponseInput): void {
 	validateInstructions(input.instructions);
 }
 
-export function createRemoteMemberRequestOperation(
-	dependencies: RemoteMemberRequestOperationDependencies,
-): MemberRequestOperation {
+export function createRemoteMemberRequestStartWaitOperation(
+	dependencies: RemoteMemberRequestStartWaitDependencies,
+): Pick<MemberRequestOperation, "startMemberRequest" | "waitForRequestOutcome"> {
 	return {
 		async startMemberRequest(member, input, options) {
 			validateStart(member, input);
@@ -271,6 +274,15 @@ export function createRemoteMemberRequestOperation(
 			if (outcome.requestId !== requestId) throw new BebopClientError("malformed-response");
 			return outcome;
 		},
+	};
+}
+
+export function createRemoteMemberRequestOperation(
+	dependencies: RemoteMemberRequestOperationDependencies,
+): MemberRequestOperation {
+	const startWait = createRemoteMemberRequestStartWaitOperation(dependencies);
+	return {
+		...startWait,
 		async respondToMemberRequest(requestId, input, options) {
 			validateRequestId(requestId);
 			validateResponse(input);
@@ -354,6 +366,7 @@ function mapRequestCode(value: string, kind?: "start" | "wait" | "respond"): Beb
 		"ambiguous-member": "ambiguous-member",
 		"self-send": "self-send",
 		"invalid-payload": "invalid-payload",
+		"invalid-input": "invalid-input",
 		"coordination-unavailable": "remote-rejected",
 		"delivery-failed": "remote-rejected",
 		"request-failed": "remote-rejected",

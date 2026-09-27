@@ -20,6 +20,9 @@ import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, type SourceResolution } from "../support/source-session.ts";
 import { MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS, MAX_MEMBER_REQUEST_TIMEOUT_SECONDS } from "../../domain/index.ts";
 import { parsePositiveDurationMs } from "../support/duration.ts";
+import { BebopClientError } from "../../sdk/errors.ts";
+import { createAskOperation } from "../../sdk/ask-operation.ts";
+import { createRemoteMemberRequestStartWaitOperation } from "../../sdk/member-request-operation.ts";
 
 const FORMATS = ["toon", "json", "text"] as const;
 const DEFAULT_RESPONSE_GRACE_SECONDS = 30;
@@ -249,6 +252,38 @@ function errorOutcome(options: AskCliOptions, code: string, message: string, dat
 }
 
 function mapError(error: unknown): { code: string; message: string; data?: unknown } {
+	if (error instanceof BebopClientError) {
+		if (error.code === "aborted") return { code: "cancelled", message: "Ask cancelled" };
+		if (error.code === "timeout")
+			return { code: "timeout-total", message: "No Response arrived before the total Ask timeout." };
+		if (error.code === "route-lost")
+			return { code: "route-lost", message: "The target route was lost before a Response." };
+		if (error.code === "malformed-response")
+			return { code: "malformed-response", message: "The Ask outcome was malformed." };
+		if (error.code === "outcome-unknown")
+			return {
+				code: "delivery-timeout-unknown",
+				message: "Delivery acceptance is unknown; do not retry automatically.",
+				data: { acceptance: "unknown", safeRetry: false },
+			};
+		if (
+			[
+				"invalid-input",
+				"not-joined",
+				"untrusted",
+				"untrusted-project",
+				"unknown-member",
+				"ambiguous-member",
+				"self-send",
+				"offline-member",
+				"identity-mismatch",
+				"capacity-exceeded",
+			].includes(error.code)
+		)
+			return { code: error.code, message: "The source rejected the Ask." };
+		if (error.code === "remote-rejected")
+			return { code: "delivery-rejected", message: "The Member Request was rejected." };
+	}
 	if (error instanceof CrewRouteResolutionError) return { code: error.code, message: error.recovery };
 	if (error instanceof RpcProtocolError) {
 		if (error.code === "outcome-unknown")
@@ -293,121 +328,77 @@ async function discoverAskRoute(
 	}
 }
 
-async function deliverAsk(
-	options: AskCliOptions,
-	context: CliContext,
-	deps: AskCliDependencies,
-	source: SourceResolution & { ok: true },
-	route: ResolvedCrewRoute,
-): Promise<{ ok: true; requestId: string } | { ok: false; outcome: CliOutcome }> {
-	const command = {
-		type: "member_request_start",
-		target: route.target.member.name,
-		message: options.question,
-		...(options.instructions.length === 0 ? {} : { instructions: options.instructions }),
-		timeoutSeconds: options.responseGraceSeconds,
-		maxWaitSeconds: options.totalWaitSeconds,
-		...(route.caller.kind === "guest" ? { crew: route.target.crew.selector } : {}),
-	};
-	try {
-		const result = await deps.send(source, command, DELIVERY_TIMEOUT_MS, context.signal);
-		if (!result.response.success || !isMethodResult("member.request_start", result.response.data))
-			return {
-				ok: false,
-				outcome: errorOutcome(
-					options,
-					"delivery-rejected",
-					"The Member Request was rejected before acceptance.",
-				),
-			};
-		const data = result.response.data as { accepted?: boolean; requestId?: string };
-		if (data.accepted !== true || typeof data.requestId !== "string")
-			return {
-				ok: false,
-				outcome: errorOutcome(options, "malformed-response", "The Member Request acceptance was malformed."),
-			};
-		return { ok: true, requestId: data.requestId };
-	} catch (error) {
-		const mapped = mapError(error);
-		if (!["timeout", "delivery-timeout-unknown", "cancelled"].includes(mapped.code))
-			return { ok: false, outcome: errorOutcome(options, mapped.code, mapped.message, mapped.data) };
-		const code = mapped.code === "timeout" ? "delivery-timeout-unknown" : mapped.code;
-		const message =
-			mapped.code === "cancelled"
-				? "Ask cancelled during delivery."
-				: "Delivery acceptance is unknown; do not retry automatically.";
-		return {
-			ok: false,
-			outcome: errorOutcome(options, code, message, { acceptance: "unknown", safeRetry: false }),
-		};
-	}
+function createCliAskOperation(deps: AskCliDependencies, source: SourceResolution & { ok: true }) {
+	const request = createRemoteMemberRequestStartWaitOperation({
+		sendStart: async (command, operationOptions) => {
+			const result = await deps.send(
+				source,
+				command,
+				Math.min(DELIVERY_TIMEOUT_MS, operationOptions?.timeoutMs ?? DELIVERY_TIMEOUT_MS),
+				operationOptions?.signal,
+			);
+			if (!result.response.success)
+				throw new RpcProtocolError("remote-error", result.response.error ?? "source rejected operation");
+			return result.response.data;
+		},
+		sendWait: async (command, operationOptions) => {
+			const result = await deps.wait(
+				source,
+				command.requestId,
+				operationOptions?.timeoutMs ?? DELIVERY_TIMEOUT_MS,
+				operationOptions?.signal,
+			);
+			if (!result.response.success)
+				throw new RpcProtocolError("remote-error", result.response.error ?? "source rejected operation");
+			return result.response.data;
+		},
+	});
+	return createAskOperation({
+		request,
+		policy: {
+			pending: "timeout-after-idle",
+			acceptedAbort: "aborted",
+			maxTotalWaitSeconds: 7_200,
+			deliveryTimeoutMs: DELIVERY_TIMEOUT_MS,
+		},
+	});
 }
 
-async function awaitAskOutcome(
+function outcomeFromAskResult(
 	options: AskCliOptions,
-	context: CliContext,
-	deps: AskCliDependencies,
-	source: SourceResolution & { ok: true },
 	route: ResolvedCrewRoute,
-	requestId: string,
-): Promise<CliOutcome> {
-	try {
-		const result = await deps.wait(source, requestId, options.totalWaitSeconds * 1000, context.signal);
-		if (!result.response.success || !isMethodResult("member.request_wait", result.response.data))
-			return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
-		const data = result.response.data as {
-			kind?: string;
-			requestId?: string;
-			message?: string;
-			instructions?: readonly string[];
-			requestAgeMs?: number;
-		};
-		if (data.requestId !== requestId)
-			return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
-		if (data.kind === "response" && typeof data.message === "string")
-			return {
-				kind: "result",
-				result: {
-					ok: true,
-					target: options.target,
-					status: "response",
-					response: data.message,
-					data: {
-						crew: route.target.crew,
-						member: route.target.member,
-						answer: data.message,
-						...(data.instructions === undefined ? {} : { instructions: data.instructions }),
-						...(data.requestAgeMs === undefined ? {} : { freshness: { requestAgeMs: data.requestAgeMs } }),
-					},
+	result: Awaited<ReturnType<ReturnType<typeof createCliAskOperation>["ask"]>>,
+): CliOutcome {
+	if (result.status === "answered")
+		return {
+			kind: "result",
+			result: {
+				ok: true,
+				target: options.target,
+				status: "response",
+				response: result.message,
+				data: {
+					crew: route.target.crew,
+					member: route.target.member,
+					answer: result.message,
+					instructions: result.instructions,
+					...(result.requestAgeMs === undefined ? {} : { freshness: { requestAgeMs: result.requestAgeMs } }),
 				},
-				format: options.format,
-				full: false,
-			};
-		if (data.kind === "pending")
-			return errorOutcome(
-				options,
-				"timeout-after-idle",
-				"No Response arrived during the post-idle grace period.",
-				{ outcome: "timeout-after-idle", safeRetry: false },
-			);
-		if (data.kind === "timeout")
-			return errorOutcome(options, "timeout-total", "No Response arrived before the total Ask timeout.", {
-				outcome: "timeout-total",
-				safeRetry: false,
-			});
-		if (data.kind === "offline")
-			return errorOutcome(options, "route-lost", "The target route was lost before a Response.");
-		return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
-	} catch (error) {
-		const mapped = mapError(error);
-		const code = mapped.code === "timeout" ? "timeout-total" : mapped.code;
-		return errorOutcome(
-			options,
-			code,
-			mapped.message,
-			mapped.data ?? (code === "timeout-total" ? { safeRetry: false } : undefined),
-		);
-	}
+			},
+			format: options.format,
+			full: false,
+		};
+	if (result.code === "timeout-after-idle")
+		return errorOutcome(options, "timeout-after-idle", "No Response arrived during the post-idle grace period.", {
+			outcome: "timeout-after-idle",
+			safeRetry: false,
+		});
+	if (result.code === "timeout-total")
+		return errorOutcome(options, "timeout-total", "No Response arrived before the total Ask timeout.", {
+			outcome: "timeout-total",
+			safeRetry: false,
+		});
+	return errorOutcome(options, "route-lost", "The target route was lost before a Response.");
 }
 
 export async function runAskCommand(
@@ -422,7 +413,23 @@ export async function runAskCommand(
 	if (source.ok === false) throw new UsageError(source.message);
 	const discovered = await discoverAskRoute(options, context, deps, source);
 	if (discovered.ok === false) return discovered.outcome;
-	const delivered = await deliverAsk(options, context, deps, source, discovered.route);
-	if (delivered.ok === false) return delivered.outcome;
-	return await awaitAskOutcome(options, context, deps, source, discovered.route, delivered.requestId);
+	try {
+		const result = await createCliAskOperation(deps, source).ask(
+			discovered.route.target.member.name,
+			{
+				question: options.question,
+				instructions: options.instructions,
+				...(discovered.route.caller.kind === "guest" ? { crew: discovered.route.target.crew.selector } : {}),
+			},
+			{
+				signal: context.signal,
+				responseGraceSeconds: options.responseGraceSeconds,
+				totalWaitSeconds: options.totalWaitSeconds,
+			},
+		);
+		return outcomeFromAskResult(options, discovered.route, result);
+	} catch (error) {
+		const mapped = mapError(error);
+		return errorOutcome(options, mapped.code, mapped.message, mapped.data);
+	}
 }

@@ -7,9 +7,7 @@ import {
 	isMemberStatusResult,
 	isMemberLastMessageResult,
 	isMemberMessageResult,
-	isMemberRequestResult,
 	type MemberStatus as WireMemberStatus,
-	type MemberRequestWaitResult,
 } from "../domain/index.ts";
 import { createMemberStatusFlow, MemberStatusFlowError } from "../application/member-status-flow.ts";
 import { createMemberLastMessageFlow, MemberLastMessageFlowError } from "../application/member-last-message-flow.ts";
@@ -58,6 +56,7 @@ import {
 	type RemoteMemberInboxCommand,
 } from "./member-inbox-operation.ts";
 import { createRemoteMemberRequestOperation, type MemberRequestOperation } from "./member-request-operation.ts";
+import { createAskOperation } from "./ask-operation.ts";
 import {
 	createRemoteCrewBroadcastOperation,
 	type CrewBroadcastOperation,
@@ -99,6 +98,7 @@ export type {
 export {
 	createInProcessMemberRequestOperation,
 	createRemoteMemberRequestOperation,
+	createRemoteMemberRequestStartWaitOperation,
 } from "./member-request-operation.ts";
 export type {
 	InProcessGuestRequest,
@@ -113,6 +113,7 @@ export type {
 	MemberRequestStartResult,
 	MemberRequestWaitResult,
 	RemoteMemberRequestOperationDependencies,
+	RemoteMemberRequestStartWaitDependencies,
 	RemoteMemberRequestStartCommand,
 	RemoteMemberRequestWaitCommand,
 	RemoteMemberResponseCommand,
@@ -139,12 +140,6 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const MIN_TIMEOUT_MS = 50;
 const MAX_TIMEOUT_MS = 60_000;
 const MAX_MEMBER_REQUEST_TIMEOUT_MS = 7_210_000;
-const ASK_DELIVERY_TIMEOUT_MS = 5_000;
-const DEFAULT_ASK_RESPONSE_GRACE_SECONDS = 30;
-const MAX_ASK_RESPONSE_GRACE_SECONDS = 600;
-const DEFAULT_ASK_TOTAL_WAIT_SECONDS = 120;
-const MIN_ASK_TOTAL_WAIT_SECONDS = 2;
-const MAX_ASK_TOTAL_WAIT_SECONDS = 1_800;
 
 export interface BebopOperationOptions {
 	readonly signal?: AbortSignal;
@@ -302,6 +297,8 @@ export interface InProcessMemberStatusOperationDependencies {
 export interface AskInput {
 	readonly question: string;
 	readonly instructions?: readonly string[];
+	/** Required when the selected source uses an approved Guest route. */
+	readonly crew?: string;
 }
 
 export interface AskOptions {
@@ -425,42 +422,6 @@ async function withBudget<T>(
 	} finally {
 		budget.cleanup();
 	}
-}
-
-function validateAskOptions(options: AskOptions | undefined): {
-	readonly responseGraceSeconds: number;
-	readonly totalWaitSeconds: number;
-} {
-	const responseGraceSeconds = options?.responseGraceSeconds ?? DEFAULT_ASK_RESPONSE_GRACE_SECONDS;
-	const totalWaitSeconds = options?.totalWaitSeconds ?? DEFAULT_ASK_TOTAL_WAIT_SECONDS;
-	if (
-		!Number.isInteger(responseGraceSeconds) ||
-		responseGraceSeconds < 1 ||
-		responseGraceSeconds > MAX_ASK_RESPONSE_GRACE_SECONDS
-	)
-		return invalidInput();
-	if (
-		!Number.isInteger(totalWaitSeconds) ||
-		totalWaitSeconds < MIN_ASK_TOTAL_WAIT_SECONDS ||
-		totalWaitSeconds > MAX_ASK_TOTAL_WAIT_SECONDS ||
-		totalWaitSeconds <= responseGraceSeconds
-	)
-		return invalidInput();
-	return { responseGraceSeconds, totalWaitSeconds };
-}
-
-function withAskBudget<T>(
-	options: AskOptions | undefined,
-	settings: { readonly totalWaitSeconds: number },
-	operation: (budget: Budget) => Promise<T>,
-): Promise<T> {
-	if (options?.signal?.aborted) throw new BebopClientError("aborted");
-	const budget = createDeadlineBudget(options?.signal, settings.totalWaitSeconds * 1000);
-	return operation(budget)
-		.catch((error) => {
-			throw normalizeError(error, budget);
-		})
-		.finally(() => budget.cleanup());
 }
 
 function budgetAbortReason(budget: Budget): unknown {
@@ -851,111 +812,17 @@ function sourceClient(endpoint: string): BebopSource {
 		sendResponse: (command, options) =>
 			call(command, options, (value) => value, true, preserveOperationRpcErrors, MAX_MEMBER_REQUEST_TIMEOUT_MS),
 	});
+	const askOperation = createAskOperation({
+		request: requestOperation,
+		policy: { pending: "rewait", acceptedAbort: "outcome-unknown", deliveryTimeoutMs: 5_000 },
+	});
 	return {
 		...requestOperation,
 		...statusOperation,
 		...lastMessageOperation,
 		...idleWaitOperation,
 		ask(member, input, options) {
-			validateMember(member);
-			if (!input || typeof input !== "object") return invalidInput();
-			validateMessage(input.question);
-			validateInstructions(input.instructions);
-			validateEffectPayload(input.question, input.instructions, "member request");
-			const settings = validateAskOptions(options);
-			return withAskBudget(options, settings, async (budget) => {
-				let acceptedMember: MemberStatusIdentity | undefined;
-				try {
-					const started = await sendRpcCommand(
-						endpoint,
-						{
-							type: "member_request_start",
-							target: member,
-							message: input.question,
-							...(input.instructions === undefined ? {} : { instructions: [...input.instructions] }),
-							timeoutSeconds: settings.responseGraceSeconds,
-							// The wire protocol keeps requests alive for at least 60 seconds. The SDK's
-							// shorter local budget bounds this call; local expiry returns timeout-total
-							// while the already-accepted server-side request may remain live.
-							maxWaitSeconds: Math.max(60, settings.totalWaitSeconds),
-						},
-						{
-							timeout: Math.min(ASK_DELIVERY_TIMEOUT_MS, budget.remaining()),
-							signal: budget.signal,
-							classifyLostAck: true,
-						},
-					);
-					const accepted = started.response.data;
-					if (!isMemberRequestResult(accepted))
-						throw new RpcProtocolError("malformed-response", "Invalid member request acceptance");
-					acceptedMember = accepted.member;
-					for (;;) {
-						const waited = await sendRpcCommand(
-							endpoint,
-							{ type: "member_request_wait", requestId: accepted.requestId },
-							{ timeout: budget.remaining(), signal: budget.signal },
-						);
-						const outcome = waited.response.data as MemberRequestWaitResult;
-						if (outcome.requestId !== accepted.requestId)
-							throw new RpcProtocolError(
-								"malformed-response",
-								"Member request response id did not match the Ask",
-							);
-						if (outcome.kind === "pending") continue;
-						if (outcome.kind === "response")
-							return {
-								status: "answered" as const,
-								code: "response" as const,
-								accepted: true as const,
-								answered: true as const,
-								safeRetry: false as const,
-								member: outcome.member,
-								message: outcome.message,
-								instructions: [...outcome.instructions],
-								...(outcome.requestAgeMs === undefined ? {} : { requestAgeMs: outcome.requestAgeMs }),
-							};
-						if (outcome.kind === "offline")
-							return {
-								status: "offline" as const,
-								code: "offline-member" as const,
-								accepted: true as const,
-								answered: false as const,
-								safeRetry: false as const,
-								member: outcome.member,
-							};
-						return {
-							status: "timeout" as const,
-							code: "timeout-total" as const,
-							accepted: true as const,
-							answered: false as const,
-							safeRetry: false as const,
-							member: outcome.member,
-						};
-					}
-				} catch (error) {
-					if (acceptedMember !== undefined) {
-						const normalized = normalizeError(error, budget);
-						if (normalized.code === "timeout")
-							return {
-								status: "timeout" as const,
-								code: "timeout-total" as const,
-								accepted: true as const,
-								answered: false as const,
-								safeRetry: false as const,
-								member: acceptedMember,
-							};
-						if (normalized.code === "aborted") throw new BebopClientError("outcome-unknown");
-						if (
-							normalized.code === "offline-session" ||
-							normalized.code === "unknown-session" ||
-							normalized.code === "transport-error" ||
-							normalized.code === "outcome-unknown"
-						)
-							throw new BebopClientError("route-lost");
-					}
-					throw error;
-				}
-			});
+			return askOperation.ask(member, input, options);
 		},
 		sendFollowUp(member, input, options) {
 			return followUpOperation.sendFollowUp(member, input, options);
