@@ -1,4 +1,4 @@
-import { promises as fs, type Dirent } from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
 	isSafeAlias,
@@ -12,6 +12,14 @@ import {
 import { createMemberStatusFlow, MemberStatusFlowError } from "../application/member-status-flow.ts";
 import { createMemberLastMessageFlow, MemberLastMessageFlowError } from "../application/member-last-message-flow.ts";
 import { BebopClientError, type BebopClientErrorCode } from "./errors.js";
+import {
+	createSourceDiscovery,
+	type BebopOperationOptions,
+	type BebopSourceInfo,
+	type SourceSelector,
+	type SourceState,
+} from "./source-discovery.ts";
+export type { BebopOperationOptions, BebopSourceInfo, SourceSelector, SourceState } from "./source-discovery.ts";
 import { createRemoteMemberIdleWaitOperation, type MemberIdleWaitOperation } from "./member-idle-wait-operation.js";
 
 export {
@@ -34,7 +42,7 @@ import {
 	MAX_MESSAGE_ORIGIN_FIELD_BYTES,
 	MAX_MESSAGE_PAYLOAD_BYTES,
 } from "../domain/message-payload.ts";
-import { getAliasPath, getSocketPath, CONTROL_DIR } from "../infra/intray-paths.ts";
+import { getSocketPath, CONTROL_DIR } from "../infra/intray-paths.ts";
 import { RpcProtocolError, sendRpcCommand } from "../infra/rpc-client.ts";
 import {
 	createRemoteFollowUpOperation,
@@ -133,33 +141,11 @@ export type {
 	RemoteCrewBroadcastDependencies,
 } from "./crew-broadcast-operation.ts";
 
-const MAX_DISCOVERY_ENTRIES = 256;
-const MAX_DISCOVERY_SOURCES = 100;
 const MAX_TARGET_BYTES = 256;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MIN_TIMEOUT_MS = 50;
 const MAX_TIMEOUT_MS = 60_000;
 const MAX_MEMBER_REQUEST_TIMEOUT_MS = 7_210_000;
-
-export interface BebopOperationOptions {
-	readonly signal?: AbortSignal;
-	/** One end-to-end budget for discovery, selection, or one member operation. */
-	readonly timeoutMs?: number;
-}
-
-export interface SourceSelector {
-	/** Session id or safe alias. When omitted, PI_SESSION_ID is used. */
-	readonly session?: string;
-}
-
-export type SourceState = "joined" | "online" | "unknown";
-
-export interface BebopSourceInfo {
-	readonly session: string;
-	readonly aliases: readonly string[];
-	readonly state: SourceState;
-	readonly trusted: boolean;
-}
 
 export interface MemberStatusIdentity {
 	readonly name: string;
@@ -674,39 +660,6 @@ function invalidControlledSocket(): never {
 	throw new BebopClientError("unknown-session");
 }
 
-async function aliasSocket(alias: string, budget: Budget): Promise<string> {
-	const aliasPath = getAliasPath(alias);
-	const [root, resolved] = await Promise.all([
-		awaitBudget(fs.realpath(CONTROL_DIR), budget),
-		awaitBudget(fs.realpath(aliasPath), budget),
-	]);
-	const relative = path.relative(root, resolved);
-	const base = path.basename(resolved);
-	if (
-		!relative ||
-		relative.startsWith(`..${path.sep}`) ||
-		path.isAbsolute(relative) ||
-		!base.endsWith(".sock") ||
-		!isSafeSessionId(base.slice(0, -5))
-	)
-		return invalidControlledSocket();
-	return resolved;
-}
-
-async function sourceCandidates(session: string, budget: Budget): Promise<string[]> {
-	const candidates: string[] = [];
-	if (isSafeSessionId(session)) candidates.push(getSocketPath(session));
-	if (isSafeAlias(session)) {
-		try {
-			candidates.push(await aliasSocket(session, budget));
-		} catch (error) {
-			if (budget.signal.aborted) throw error;
-			// A malformed or stale alias cannot override a valid session-id candidate.
-		}
-	}
-	return [...new Set(candidates)];
-}
-
 async function querySource(
 	endpoint: string,
 	budget: Budget,
@@ -839,139 +792,16 @@ function sourceClient(endpoint: string): BebopSource {
 	};
 }
 
-function compareNames(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function retainDiscoveryEntry(entries: Map<string, Dirent>, entry: Dirent): void {
-	if (entries.has(entry.name)) return;
-	if (entries.size < MAX_DISCOVERY_ENTRIES) {
-		entries.set(entry.name, entry);
-		return;
-	}
-	let largest: string | undefined;
-	for (const name of entries.keys()) {
-		if (largest === undefined || compareNames(name, largest) > 0) largest = name;
-	}
-	if (largest !== undefined && compareNames(entry.name, largest) < 0) {
-		entries.delete(largest);
-		entries.set(entry.name, entry);
-	}
-}
-
-async function closeDirectory(directory: Awaited<ReturnType<typeof fs.opendir>>): Promise<void> {
-	try {
-		await directory.close();
-	} catch {
-		// The async iterator may already have closed the directory.
-	}
-}
-
-async function discover(options: BebopOperationOptions | undefined): Promise<readonly BebopSourceInfo[]> {
-	return withBudget(options, async (budget) => {
-		const entries = new Map<string, Dirent>();
-		let directory: Awaited<ReturnType<typeof fs.opendir>> | undefined;
-		let opening: Promise<Awaited<ReturnType<typeof fs.opendir>>> | undefined;
-		try {
-			opening = fs.opendir(CONTROL_DIR);
-			try {
-				directory = await awaitBudget(opening, budget);
-			} catch (error) {
-				void opening.then(closeDirectory, () => undefined);
-				throw error;
-			}
-			const iterator = directory[Symbol.asyncIterator]();
-			for (;;) {
-				const result = await awaitBudget(iterator.next(), budget);
-				if (result.done) break;
-				if (budget.signal.aborted) throw budgetAbortReason(budget);
-				retainDiscoveryEntry(entries, result.value);
-			}
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-			throw error;
-		} finally {
-			if (directory !== undefined) {
-				const closing = closeDirectory(directory);
-				if (!budget.signal.aborted) await awaitBudget(closing, budget);
-			}
-		}
-		const bounded = [...entries.values()].sort((left, right) => compareNames(left.name, right.name));
-		const ids = bounded
-			.filter((entry) => !entry.isDirectory() && entry.name.endsWith(".sock"))
-			.map((entry) => entry.name.slice(0, -5))
-			.filter(isSafeSessionId)
-			.sort(compareNames)
-			.slice(0, MAX_DISCOVERY_SOURCES);
-		const aliases = new Map<string, string[]>();
-		for (const entry of bounded) {
-			if (!entry.isSymbolicLink() || !entry.name.endsWith(".alias")) continue;
-			const alias = entry.name.slice(0, -6);
-			if (!isSafeAlias(alias)) continue;
-			try {
-				const endpoint = await aliasSocket(alias, budget);
-				const session = path.basename(endpoint).slice(0, -5);
-				if (ids.includes(session)) aliases.set(session, [...(aliases.get(session) ?? []), alias]);
-			} catch (error) {
-				if (budget.signal.aborted) throw error;
-				// Stale or unsafe aliases are omitted from public discovery.
-			}
-		}
-		const sources = await Promise.all(
-			ids.map(async (session): Promise<BebopSourceInfo> => {
-				try {
-					const { status } = await querySource(getSocketPath(session), budget);
-					return {
-						session,
-						aliases: (aliases.get(session) ?? []).sort(compareNames),
-						state: status.state,
-						trusted: status.trusted,
-					};
-				} catch (error) {
-					if (budget.signal.aborted) throw error;
-					return {
-						session,
-						aliases: (aliases.get(session) ?? []).sort(compareNames),
-						state: "unknown",
-						trusted: false,
-					};
-				}
-			}),
-		);
-		return sources.sort((left, right) => compareNames(left.session, right.session));
-	});
-}
-
-async function select(
-	selector: SourceSelector | undefined,
-	options: BebopOperationOptions | undefined,
-): Promise<BebopSource> {
-	const session = selector?.session ?? process.env.PI_SESSION_ID;
-	if (session === undefined || session === "") throw new BebopClientError("source-required");
-	validateSession(session);
-	return withBudget(options, async (budget) => {
-		const candidates = await sourceCandidates(session, budget);
-		if (candidates.length === 0) throw new BebopClientError("unknown-session");
-		let last: BebopClientError | undefined;
-		for (const candidate of candidates) {
-			try {
-				const selected = await querySource(candidate, budget);
-				if (selected.status.state !== "joined") throw new BebopClientError("not-joined");
-				if (!selected.status.trusted) throw new BebopClientError("untrusted");
-				return sourceClient(selected.endpoint);
-			} catch (error) {
-				const mapped = normalizeError(error, budget);
-				last = mapped;
-				if (mapped.code !== "unknown-session" && mapped.code !== "offline-session") throw mapped;
-			}
-		}
-		throw last ?? new BebopClientError("unknown-session");
-	});
-}
-
 export function createBebopClient(): BebopClient {
+	const discovery = createSourceDiscovery<BebopSource>({
+		withBudget: (options, operation) => withBudget(options, operation),
+		querySource,
+		createSource: sourceClient,
+		normalizeError,
+		environmentSession: () => process.env.PI_SESSION_ID,
+	});
 	return {
-		listSources: discover,
-		selectSource: select,
+		listSources: discovery.listSources,
+		selectSource: discovery.selectSource,
 	};
 }
