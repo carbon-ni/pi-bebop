@@ -419,7 +419,7 @@ test("packaged CLI interrupt proves idle direct and busy best-effort recovery di
 		"--format",
 		"json",
 	]);
-	assert.equal(idle.code, 0, idle.stdout);
+	assert.equal(idle.code, 0, `${idle.stdout}\n${idle.stderr}`);
 	assert.equal(JSON.parse(idle.stdout).data.disposition, "direct");
 	assert.equal(sessions.getTargetAbortCount(), 0);
 	assert.deepEqual(

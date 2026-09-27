@@ -39,7 +39,11 @@ export type BebopClientErrorCode =
 	| "already-terminal"
 	| "duplicate-request"
 	| "invalid-timeout"
-	| "invalid-max-wait";
+	| "invalid-max-wait"
+	| "already-pending"
+	| "abort-failed"
+	| "no-context"
+	| "handoff-failed";
 
 function defaultErrorMessage(code: BebopClientErrorCode): string {
 	return (
@@ -85,6 +89,10 @@ function defaultErrorMessage(code: BebopClientErrorCode): string {
 			"duplicate-request": "The Request ID is already in use",
 			"invalid-timeout": "The Request grace timeout is invalid",
 			"invalid-max-wait": "The Request max-wait timeout is invalid",
+			"already-pending": "A recovery Interrupt is already pending for this target",
+			"abort-failed": "The target could not abort its active work; recovery was not handed off",
+			"no-context": "The target Pi runtime is not available for recovery",
+			"handoff-failed": "The target could not hand off recovery guidance",
 		} as Record<BebopClientErrorCode, string>
 	)[code];
 }

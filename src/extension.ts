@@ -25,7 +25,11 @@ import { createMemberMessageCoordinator } from "./application/member-message.ts"
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
 import { createMemberStatusTransport } from "./infra/member-status-transport.ts";
-import { createInProcessMemberIdleWaitOperation, createInProcessMemberStatusOperation } from "./sdk/index.ts";
+import {
+	createInProcessMemberIdleWaitOperation,
+	createInProcessMemberInterruptOperation,
+	createInProcessMemberStatusOperation,
+} from "./sdk/index.ts";
 import { sendMemberIdleWait, sendRpcCommand, sendMemberRequest } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
@@ -179,7 +183,23 @@ export default function (pi: ExtensionAPI) {
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);
 	registerSendToInboxTool(pi, state);
 	registerBroadcastToCrewTool(pi, state, memberMessageDependencies);
-	registerInterruptMemberTool(pi, state);
+	const memberInterruptOperation = createInProcessMemberInterruptOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+		},
+		resolveEndpoint: resolveMemberEndpoint,
+		transport: {
+			send: (endpoint, command, options) =>
+				sendRpcCommand(endpoint, command, {
+					timeout: options.timeoutMs,
+					signal: options.signal,
+					classifyLostAck: options.classifyLostAck,
+				}),
+		},
+		now: state.now,
+	});
+	registerInterruptMemberTool(pi, memberInterruptOperation);
 	const memberStatusTransport = createMemberStatusTransport();
 	const memberStatusOperation = createInProcessMemberStatusOperation({
 		surface: {

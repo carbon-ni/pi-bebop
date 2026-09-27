@@ -1,8 +1,8 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { BebopClientError, type MemberInterruptOperation } from "../sdk/index.ts";
 import { registerInterruptMemberTool } from "./interrupt-member.ts";
-import type { SocketState } from "../pi/control-runtime.ts";
 
 type RegisteredTool = {
 	name: string;
@@ -18,52 +18,27 @@ type RegisteredTool = {
 	}>;
 };
 
-function setup(membership: unknown | (() => unknown)): RegisteredTool {
+function setup(interruptMember: MemberInterruptOperation["interruptMember"]): RegisteredTool {
 	let registeredTool: RegisteredTool | undefined;
 	const pi = {
 		registerTool(tool: unknown) {
 			registeredTool = tool as RegisteredTool;
 		},
 	} as unknown as ExtensionAPI;
-	const getMembership = typeof membership === "function" ? (membership as () => unknown) : () => membership;
-	const state = { membershipRuntime: { getMembership } } as never as SocketState;
-	registerInterruptMemberTool(pi, state);
+	registerInterruptMemberTool(pi, { interruptMember });
 	assert.ok(registeredTool);
 	return registeredTool!;
 }
 
-const membership = {
-	manifestPath: "/project/.pi/bebop/crew.json",
-	socketPath: "/project/.pi/bebop/sockets/Tony.sock",
-	member: {
-		name: "Tony",
-		role: "lead",
-		socket: "sockets/Tony.sock",
-		socketPath: "/project/.pi/bebop/sockets/Tony.sock",
-	},
-	manifest: {
-		version: 1,
-		presence: { notifications: true },
-		members: [
-			{
-				name: "Tony",
-				role: "lead",
-				socket: "sockets/Tony.sock",
-				socketPath: "/project/.pi/bebop/sockets/Tony.sock",
-			},
-			{
-				name: "Bob",
-				role: "dev",
-				socket: "sockets/Bob.sock",
-				socketPath: "/project/.pi/bebop/sockets/Bob.sock",
-			},
-		],
-	},
+const success = {
+	member: { name: "Bob", role: "dev" },
+	interruptId: "interrupt-1",
+	disposition: "interrupt-requested" as const,
 };
 
 describe("interrupt_member tool", () => {
-	test("registers with only member, message, and instructions plus an honest description", () => {
-		const tool = setup(membership);
+	test("registers only the recovery inputs and describes best-effort semantics", () => {
+		const tool = setup(async () => success);
 		assert.equal(tool.name, "interrupt_member");
 		const properties = Object.keys((tool.parameters as { properties: Record<string, unknown> }).properties);
 		assert.deepEqual(properties.sort(), ["instructions", "member", "message"]);
@@ -72,27 +47,41 @@ describe("interrupt_member tool", () => {
 		assert.match(tool.description, /never rolls back/);
 	});
 
-	test("unjoined execution resolves to a not-joined error", async () => {
-		const tool = setup(() => null);
+	test("delegates exact recovery input and reports the actual disposition", async () => {
+		const calls: unknown[] = [];
+		const tool = setup(async (...args) => {
+			calls.push(args);
+			return success;
+		});
+		const result = await tool.execute("id", {
+			member: " Bob ",
+			message: "stop now",
+			instructions: ["preserve logs", "report blockers"],
+		});
+		assert.deepEqual(calls, [["Bob", { message: "stop now", instructions: ["preserve logs", "report blockers"] }]]);
+		assert.equal(result.isError, undefined);
+		assert.match(result.content[0]!.text, /abort requested best-effort/);
+		assert.deepEqual(result.details, { interruptId: "interrupt-1", disposition: "interrupt-requested" });
+	});
+
+	test("maps SDK authority and malformed-response failures to tool errors", async () => {
+		for (const code of ["not-joined", "untrusted", "unknown-member", "malformed-response"] as const) {
+			const tool = setup(async () => {
+				throw new BebopClientError(code);
+			});
+			const result = await tool.execute("id", { member: "Bob", message: "stop" });
+			assert.equal(result.isError, true);
+			assert.deepEqual(result.details, { error: code });
+		}
+	});
+
+	test("does not expose raw transport details", async () => {
+		const tool = setup(async () => {
+			throw new Error("socket path /private/path was reset");
+		});
 		const result = await tool.execute("id", { member: "Bob", message: "stop" });
 		assert.equal(result.isError, true);
-		const details = result.details as { error?: string };
-		assert.equal(details.error, "not-joined");
-	});
-
-	test("unknown member resolves to an error", async () => {
-		const tool = setup(membership);
-		const result = await tool.execute("id", { member: "nobody", message: "stop" });
-		assert.equal(result.isError, true);
-		const details = result.details as { error?: string };
-		assert.equal(details.error, "unknown-member");
-	});
-
-	test("self-interrupt is rejected", async () => {
-		const tool = setup(membership);
-		const result = await tool.execute("id", { member: "Tony", message: "stop" });
-		assert.equal(result.isError, true);
-		const details = result.details as { error?: string };
-		assert.equal(details.error, "self-send");
+		assert.deepEqual(result.details, { error: "transport-error" });
+		assert.doesNotMatch(result.content[0]!.text, /private\/path/);
 	});
 });

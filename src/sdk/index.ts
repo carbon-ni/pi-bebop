@@ -70,6 +70,13 @@ import {
 	type CrewBroadcastOperation,
 	type RemoteCrewBroadcastCommand,
 } from "./crew-broadcast-operation.ts";
+import {
+	createRemoteMemberInterruptOperation,
+	type InterruptInput,
+	type InterruptResult,
+	type MemberInterruptOperation,
+	type RemoteMemberInterruptCommand,
+} from "./member-interrupt-operation.ts";
 export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
 export type {
 	FollowUpInput,
@@ -126,6 +133,22 @@ export type {
 	RemoteMemberRequestWaitCommand,
 	RemoteMemberResponseCommand,
 } from "./member-request-operation.ts";
+export {
+	createInProcessMemberInterruptOperation,
+	createRemoteMemberInterruptOperation,
+} from "./member-interrupt-operation.ts";
+export type {
+	InProcessMemberInterruptMembership,
+	InProcessMemberInterruptOperationDependencies,
+	InProcessMemberInterruptSurface,
+	InProcessMemberInterruptTransport,
+	InterruptInput,
+	InterruptOperationOptions,
+	InterruptResult,
+	MemberInterruptOperation,
+	RemoteMemberInterruptCommand,
+	RemoteMemberInterruptOperationDependencies,
+} from "./member-interrupt-operation.ts";
 export {
 	createInProcessCrewBroadcastOperation,
 	createRemoteCrewBroadcastOperation,
@@ -330,10 +353,12 @@ export interface BebopSource
 		MemberIdleWaitOperation,
 		MemberRequestOperation,
 		MemberInboxOperation,
-		CrewBroadcastOperation {
+		CrewBroadcastOperation,
+		MemberInterruptOperation {
 	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
 	redirectMember(member: string, input: RedirectInput, options?: BebopOperationOptions): Promise<RedirectResult>;
+	interruptMember(member: string, input: InterruptInput, options?: BebopOperationOptions): Promise<InterruptResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
 }
 
@@ -749,6 +774,10 @@ function sourceClient(endpoint: string): BebopSource {
 	const redirectOperation = createRemoteRedirectOperation({
 		send: (command: RemoteRedirectCommand, options) => call(command, options, (value) => value, true),
 	});
+	const interruptOperation = createRemoteMemberInterruptOperation({
+		send: (command: RemoteMemberInterruptCommand, options) =>
+			call(command, options, (value) => value, true, preserveOperationRpcErrors),
+	});
 	const inboxOperation = createRemoteMemberInboxOperation({
 		send: (command: RemoteMemberInboxCommand, options) =>
 			call(command, options, (value) => value, true, preserveOperationRpcErrors),
@@ -782,6 +811,9 @@ function sourceClient(endpoint: string): BebopSource {
 		},
 		redirectMember(member, input, options) {
 			return redirectOperation.redirectMember(member, input, options);
+		},
+		interruptMember(member, input, options) {
+			return interruptOperation.interruptMember(member, input, options);
 		},
 		broadcastToCrew(input, options) {
 			return crewBroadcastOperation.broadcastToCrew(input, options);
