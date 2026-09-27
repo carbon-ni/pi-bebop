@@ -19,6 +19,7 @@ import {
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
 	registerWaitForRequestOutcomeTool,
+	createMemberRequestOperation,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
@@ -162,9 +163,10 @@ export default function (pi: ExtensionAPI) {
 			);
 		},
 	});
-	registerSendMemberRequestTool(pi, state);
-	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForRequestOutcomeTool(pi, state);
+	const memberRequestOperation = createMemberRequestOperation(state);
+	registerSendMemberRequestTool(pi, state, memberRequestOperation);
+	registerRespondToMemberRequestTool(pi, state, memberRequestOperation);
+	registerWaitForRequestOutcomeTool(pi, state, memberRequestOperation);
 
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },

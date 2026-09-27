@@ -6,6 +6,8 @@ import { errorResult } from "../support/errors.ts";
 import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
+import { BebopClientError } from "../../sdk/errors.ts";
+import { createRemoteMemberRequestOperation, type MemberRequestOperation } from "../../sdk/member-request-operation.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
 import { readStdinMessage } from "../support/message-input.ts";
 import {
@@ -214,6 +216,7 @@ export interface MemberRequestCliDependencies {
 	) => Promise<{ response: RpcCommandResponse }>;
 	readonly readStdin: typeof readStdinMessage;
 	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
+	readonly requestOperation?: (source: SourceResolution & { ok: true }) => MemberRequestOperation;
 }
 function sourceOrError(
 	options: MemberRequestCliOptions,
@@ -250,18 +253,56 @@ export const defaultMemberRequestCliDependencies: MemberRequestCliDependencies =
 	},
 	readStdin: readStdinMessage,
 	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
+	requestOperation: (source) =>
+		createRemoteMemberRequestOperation({
+			sendStart: async (command, options) => sendRequestOperation(source, command, options, true),
+			sendWait: async (command, options) => sendRequestOperation(source, command, options, false),
+			sendResponse: async (command, options) => sendRequestOperation(source, command, options, true),
+		}),
 };
+async function rpcWithSessionFallback<T>(
+	source: SourceResolution & { ok: true },
+	operation: (socketPath: string) => Promise<T>,
+): Promise<T> {
+	try {
+		return await operation(source.idSocketPath);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		return operation(source.aliasSocketPath);
+	}
+}
+
+async function sendRequestOperation(
+	source: SourceResolution & { ok: true },
+	command: unknown,
+	options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } | undefined,
+	classifyLostAck: boolean,
+): Promise<unknown> {
+	return rpcWithSessionFallback(source, async (socket) => {
+		const result = await sendRpcCommand(socket, command as never, {
+			timeout: options?.timeoutMs ?? 10_000,
+			signal: options?.signal,
+			classifyLostAck,
+		});
+		if (!result.response.success)
+			throw new RpcProtocolError("remote-error", result.response.error ?? "source rejected operation");
+		return result.response.data;
+	});
+}
+
 function failure(options: MemberRequestCliOptions, target: string, error: unknown): CliOutcome {
 	const code =
-		error instanceof RpcProtocolError
-			? error.code === "remote-error"
-				? error.message.replace(/^remote-error:\s*/, "")
-				: error.code
-			: error instanceof Error && error.name === "AbortError"
-				? "aborted"
-				: error instanceof Error && /timeout/i.test(error.message)
-					? "timeout"
-					: "offline";
+		error instanceof BebopClientError
+			? error.code
+			: error instanceof RpcProtocolError
+				? error.code === "remote-error"
+					? error.message.replace(/^remote-error:\s*/, "")
+					: error.code
+				: error instanceof Error && error.name === "AbortError"
+					? "aborted"
+					: error instanceof Error && /timeout/i.test(error.message)
+						? "timeout"
+						: "offline";
 	const base = errorResult(
 		`Member Request failed: ${error instanceof Error ? error.message : String(error)}`,
 		target,
@@ -325,6 +366,66 @@ async function runWithSource(
 		return failure(options, options.requestId ?? options.member ?? "member-request", error);
 	}
 }
+async function runWithRequestOperation(
+	options: MemberRequestCliOptions,
+	context: CliContext,
+	deps: MemberRequestCliDependencies,
+	input?: string,
+): Promise<CliOutcome> {
+	const source = sourceOrError(options, deps, context.environment);
+	if (source.ok === false) {
+		const base = errorResult(source.message, options.session ?? "", source.code);
+		return { kind: "result", result: base, format: options.format, full: false };
+	}
+	const operation = deps.requestOperation?.(source);
+	if (!operation) return runWithSource(options, context, deps, {}, 10_000);
+	try {
+		if (options.command === "member-request-send") {
+			const accepted = await operation.startMemberRequest(
+				options.member!,
+				{
+					message: input!,
+					instructions: options.instructions,
+					timeoutSeconds: options.responseGraceSeconds,
+					maxWaitSeconds: options.maxWaitSeconds,
+				},
+				{ signal: context.signal },
+			);
+			return {
+				kind: "result",
+				result: { ok: true, target: options.member!, status: "accepted", data: accepted },
+				format: options.format,
+				full: false,
+			};
+		}
+		if (options.command === "member-request-respond") {
+			await operation.respondToMemberRequest(
+				options.requestId!,
+				{ message: input!, instructions: options.instructions },
+				{ signal: context.signal },
+			);
+			return {
+				kind: "result",
+				result: { ok: true, target: options.requestId!, status: "response-accepted", data: {} },
+				format: options.format,
+				full: false,
+			};
+		}
+		const outcome = await operation.waitForRequestOutcome(options.requestId!, {
+			signal: context.signal,
+			timeoutMs: (MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS + MAX_MEMBER_REQUEST_TIMEOUT_SECONDS + 10) * 1000,
+		});
+		return {
+			kind: "result",
+			result: { ok: true, target: options.requestId!, status: outcome.kind, data: outcome },
+			format: options.format,
+			full: false,
+		};
+	} catch (error) {
+		return failure(options, options.requestId ?? options.member ?? "member-request", error);
+	}
+}
+
 export async function runMemberRequestCommand(
 	options: MemberRequestCliOptions,
 	context: CliContext,
@@ -337,6 +438,7 @@ export async function runMemberRequestCommand(
 		} catch (error) {
 			return failure(options, options.member ?? "member-request", error);
 		}
+		if (deps.requestOperation) return runWithRequestOperation(options, context, deps, message);
 		return runWithSource(
 			options,
 			context,
@@ -367,6 +469,7 @@ export async function runMemberRequestCommand(
 		} catch (error) {
 			return failure(options, options.requestId ?? "member-request", error);
 		}
+		if (deps.requestOperation) return runWithRequestOperation(options, context, deps, message);
 		return runWithSource(
 			options,
 			context,
@@ -384,6 +487,7 @@ export async function runMemberRequestCommand(
 	// wait command. Use the protocol maximum so a valid non-default Request
 	// cannot outlive this CLI transport deadline.
 	const exactWaitTimeoutMs = (MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS + MAX_MEMBER_REQUEST_TIMEOUT_SECONDS + 10) * 1000;
+	if (deps.requestOperation) return runWithRequestOperation(options, context, deps);
 	return runWithSource(
 		options,
 		context,
