@@ -130,6 +130,20 @@ export interface MemberStatusOperation {
 	getMemberStatus(member: string, options?: BebopOperationOptions): Promise<MemberStatus>;
 }
 
+export type MemberStatusOperationErrorCode = Extract<
+	BebopClientErrorCode,
+	| "not-joined"
+	| "untrusted"
+	| "unknown-member"
+	| "ambiguous-member"
+	| "self-query"
+	| "remote-rejected"
+	| "malformed-response"
+	| "timeout"
+	| "aborted"
+	| "transport-error"
+>;
+
 export interface InProcessMemberStatusSurface {
 	readonly getMembership: () => {
 		readonly member: MemberStatusIdentity & { readonly socketPath: string };
@@ -147,7 +161,7 @@ export interface InProcessMemberStatusSurface {
 		signal?: AbortSignal,
 	) => Promise<
 		| { readonly ok: true; readonly status: MemberStatus }
-		| { readonly ok: false; readonly code: BebopClientErrorCode }
+		| { readonly ok: false; readonly code: MemberStatusOperationErrorCode }
 	>;
 	readonly now: () => string;
 }
@@ -454,8 +468,8 @@ export function createInProcessMemberStatusOperation(
 			return withBudget(options, async (budget) => {
 				const flow = createMemberStatusFlow({
 					...dependencies.surface,
-					requestStatus: async (socketPath, memberLabel, signal) =>
-						(await dependencies.surface.requestStatus(socketPath, memberLabel, signal)) as never,
+					requestStatus: (socketPath, memberLabel, signal) =>
+						dependencies.surface.requestStatus(socketPath, memberLabel, signal),
 					signal: budget.signal,
 				});
 				try {
