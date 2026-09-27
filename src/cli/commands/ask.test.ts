@@ -106,6 +106,27 @@ test("Ask sends exactly one correlated request, waits its opaque ID, and hides t
 	assert.equal((injected.calls[0] as any).maxWaitSeconds, 120);
 });
 
+test("Ask rejects a response that does not match the accepted Request", async () => {
+	const options = readAskCommand(parse(["alpha/Kelly", "What is blocked?"]));
+	const injected = deps({
+		wait: async () => ({
+			response: {
+				success: true,
+				data: {
+					kind: "response",
+					requestId: "different-request",
+					member: route.target.member,
+					message: "wrong response",
+					instructions: [],
+				},
+			},
+		}),
+	});
+	const outcome = await runAskCommand(options, context, injected as never);
+	assert.equal(outcome.kind, "result");
+	if (outcome.kind === "result") assert.equal(outcome.result.error?.code, "malformed-response");
+});
+
 test("Ask preserves an approved Guest route and sends its exact Crew selector", async () => {
 	const options = readAskCommand(parse(["alpha/Kelly", "What is blocked?"]));
 	const injected = deps({
@@ -207,11 +228,14 @@ test("Ask maps terminal pending, timeout, offline, and malformed outcomes", asyn
 	const options = readAskCommand(parse(["alpha", "question"]));
 	for (const [data, code] of [
 		[
-			{ kind: "pending", requestId: "id", member: route.target.member, reason: "pending-after-idle" },
+			{ kind: "pending", requestId: "opaque-request", member: route.target.member, reason: "pending-after-idle" },
 			"timeout-after-idle",
 		],
-		[{ kind: "timeout", requestId: "id", member: route.target.member, reason: "max-wait" }, "timeout-total"],
-		[{ kind: "offline", requestId: "id", member: route.target.member }, "route-lost"],
+		[
+			{ kind: "timeout", requestId: "opaque-request", member: route.target.member, reason: "max-wait" },
+			"timeout-total",
+		],
+		[{ kind: "offline", requestId: "opaque-request", member: route.target.member }, "route-lost"],
 		[{ nope: true }, "malformed-response"],
 	] as const) {
 		const outcome = await runAskCommand(

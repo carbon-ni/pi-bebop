@@ -352,10 +352,13 @@ async function awaitAskOutcome(
 			return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
 		const data = result.response.data as {
 			kind?: string;
+			requestId?: string;
 			message?: string;
 			instructions?: readonly string[];
 			requestAgeMs?: number;
 		};
+		if (data.requestId !== requestId)
+			return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
 		if (data.kind === "response" && typeof data.message === "string")
 			return {
 				kind: "result",
