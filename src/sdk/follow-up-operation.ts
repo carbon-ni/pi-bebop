@@ -73,7 +73,7 @@ interface InProcessBudget {
 	cleanup(): void;
 }
 
-function createInProcessBudget(options: FollowUpOperationOptions | undefined): InProcessBudget {
+function validateFollowUpTimeout(options: FollowUpOperationOptions | undefined): number {
 	const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	if (
 		!Number.isFinite(timeoutMs) ||
@@ -82,6 +82,11 @@ function createInProcessBudget(options: FollowUpOperationOptions | undefined): I
 		timeoutMs > MAX_TIMEOUT_MS
 	)
 		throw new BebopClientError("invalid-input");
+	return timeoutMs;
+}
+
+function createInProcessBudget(options: FollowUpOperationOptions | undefined): InProcessBudget {
+	const timeoutMs = validateFollowUpTimeout(options);
 	if (options?.signal?.aborted) throw new BebopClientError("aborted");
 	const controller = new AbortController();
 	let expired = false;
@@ -104,6 +109,7 @@ function createInProcessBudget(options: FollowUpOperationOptions | undefined): I
 export function createRemoteFollowUpOperation(dependencies: RemoteFollowUpDependencies): FollowUpOperation {
 	return {
 		async sendFollowUp(member, input, options) {
+			validateFollowUpTimeout(options);
 			validateFollowUpInput(member, input);
 			if (options?.signal?.aborted) throw new BebopClientError("aborted");
 			const command: RemoteFollowUpCommand = {

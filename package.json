@@ -137,6 +137,7 @@
 		"dist/cli/main.js",
 		"dist/extension.js",
 		"dist/sdk.js",
+		"dist/sdk.metafile.json",
 		"dist/sdk.d.ts",
 		"dist/src",
 		"dist/errors.d.ts",
