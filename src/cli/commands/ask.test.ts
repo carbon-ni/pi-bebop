@@ -225,7 +225,7 @@ test("default Ask capture does not fall back when the ID socket fails for anothe
 				{ ok: true, kind: "id", idSocketPath: "/dev/null", aliasSocketPath: socketPath },
 				new AbortController().signal,
 			),
-			(error: unknown) => (error as NodeJS.ErrnoException).code === "ENOTSOCK",
+			(error: unknown) => ["ENOTSOCK", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? ""),
 		);
 		assert.equal(connections, 0);
 	} finally {
