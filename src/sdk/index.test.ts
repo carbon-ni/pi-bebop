@@ -485,6 +485,30 @@ test("SDK follows a managed alias without exposing its socket path", async () =>
 	}
 });
 
+test("SDK pins the validated canonical source when a managed alias is retargeted", async () => {
+	const source = await fakeSource();
+	const replacement = await fakeSource();
+	const alias = `sdk-retarget-alias-${process.pid}-${Date.now()}`;
+	const aliasPath = getAliasPath(alias);
+	await symlink(`${source.session}.sock`, aliasPath);
+	try {
+		const selected = await createBebopClient().selectSource({ session: alias });
+		await unlink(aliasPath);
+		await symlink(`${replacement.session}.sock`, aliasPath);
+		await selected.getMemberStatus("developer");
+		assert.deepEqual(
+			source.requests.map((request) => request.method),
+			["session.status", "member.status_target"],
+			"the selected source remains the canonical endpoint validated during selection",
+		);
+		assert.deepEqual(replacement.requests, [], "retargeted aliases cannot redirect an existing source client");
+	} finally {
+		await unlink(aliasPath).catch(() => undefined);
+		await source.close();
+		await replacement.close();
+	}
+});
+
 test("SDK uses PI_SESSION_ID only as the explicit-selection convenience fallback", async () => {
 	const source = await fakeSource();
 	const previous = process.env.PI_SESSION_ID;

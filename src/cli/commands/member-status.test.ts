@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
-import net from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import {
 	buildMemberStatusCommand,
 	defaultMemberStatusCliDependencies,
-	mapTransportError,
 	readMemberStatusCommand,
 	runMemberStatusCommand,
+	statusThroughSdk,
 	type MemberStatusCliDependencies,
 } from "./member-status.ts";
 import { Command } from "commander";
@@ -80,120 +76,6 @@ test("member status reader validates target and format", () => {
 		else if (tokens[0] !== "Kelly") assert.throws(() => parseInto(tokens), UsageError);
 	}
 	assert.throws(() => parseInto(["x".repeat(257)]), /at most 256/);
-});
-
-test("member status default transport maps unavailable endpoints", async () => {
-	const result = await defaultMemberStatusCliDependencies.sendStatus(
-		{
-			ok: true,
-			kind: "id",
-			idSocketPath: "/tmp/missing-status.sock",
-			aliasSocketPath: "/tmp/missing-status.alias",
-		},
-		"Kelly",
-		new AbortController().signal,
-	);
-	assert.equal(result.ok, false);
-	if (!result.ok) assert.equal(result.code, "unknown-session");
-});
-
-test("member status default transport covers valid, rejected, and malformed peers", async () => {
-	for (const mode of ["valid", "rejected", "remote", "malformed"] as const) {
-		const dir = await mkdtemp(path.join(tmpdir(), "bebop-status-cli-"));
-		const socketPath = path.join(dir, "member.sock");
-		const server = net.createServer((socket) => {
-			socket.setEncoding("utf8");
-			socket.on("data", (chunk) => {
-				const request = JSON.parse(String(chunk)) as { id: string | number };
-				const wire =
-					mode === "valid"
-						? { jsonrpc: "2.0", id: request.id, result: { status: ONLINE_STATUS } }
-						: mode === "rejected"
-							? { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "not-joined" } }
-							: mode === "remote"
-								? {
-										jsonrpc: "2.0",
-										id: request.id,
-										error: { code: -32000, message: "remote", data: { code: "unknown-member" } },
-									}
-								: { jsonrpc: "2.0", id: request.id, result: {} };
-				socket.write(JSON.stringify(wire) + "\n");
-			});
-		});
-		await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-		try {
-			const outcome = await defaultMemberStatusCliDependencies.sendStatus(
-				{ ok: true, kind: "id", idSocketPath: socketPath, aliasSocketPath: socketPath },
-				"Kelly",
-				new AbortController().signal,
-			);
-			assert.equal(outcome.ok, mode === "valid");
-		} finally {
-			await new Promise<void>((resolve) => server.close(() => resolve()));
-			await rm(dir, { recursive: true, force: true });
-		}
-	}
-});
-
-test("member status default transport reports unknown when both id and alias are stale", async () => {
-	const result = await defaultMemberStatusCliDependencies.sendStatus(
-		{
-			ok: true,
-			kind: "id",
-			idSocketPath: "/tmp/missing-status-id.sock",
-			aliasSocketPath: "/tmp/missing-status-alias.sock",
-		},
-		"Kelly",
-		new AbortController().signal,
-	);
-	assert.deepEqual(result, { ok: false, code: "unknown-session" });
-});
-
-test("member status default transport falls back from stale id to alias", async () => {
-	const dir = await mkdtemp(path.join(tmpdir(), "bebop-status-alias-"));
-	const aliasPath = path.join(dir, "alias.sock");
-	const server = net.createServer((socket) => {
-		socket.setEncoding("utf8");
-		socket.on("data", (chunk) => {
-			const request = JSON.parse(String(chunk)) as { id: string | number };
-			socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { status: ONLINE_STATUS } }) + "\n");
-		});
-	});
-	await new Promise<void>((resolve) => server.listen(aliasPath, resolve));
-	try {
-		const result = await defaultMemberStatusCliDependencies.sendStatus(
-			{ ok: true, kind: "id", idSocketPath: path.join(dir, "missing.sock"), aliasSocketPath: aliasPath },
-			"Kelly",
-			new AbortController().signal,
-		);
-		assert.equal(result.ok, true);
-	} finally {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		await rm(dir, { recursive: true, force: true });
-	}
-});
-
-test("status transport mapper covers abort, socket, timeout, and fallback errors", () => {
-	assert.deepEqual(mapTransportError(Object.assign(new Error("abort"), { name: "AbortError" })), {
-		ok: false,
-		code: "aborted",
-	});
-	assert.deepEqual(mapTransportError(Object.assign(new Error("missing"), { code: "ENOENT" })), {
-		ok: false,
-		code: "unknown-session",
-	});
-	assert.deepEqual(mapTransportError(Object.assign(new Error("refused"), { code: "ECONNREFUSED" })), {
-		ok: false,
-		code: "offline-session",
-	});
-	assert.deepEqual(mapTransportError(Object.assign(new Error("not connected"), { code: "ENOTCONN" })), {
-		ok: false,
-		code: "offline-session",
-	});
-	assert.deepEqual(mapTransportError(new Error("RPC timeout")), { ok: false, code: "timeout" });
-	assert.deepEqual(mapTransportError(new Error("other")), { ok: false, code: "transport-error" });
-	assert.deepEqual(mapTransportError(undefined), { ok: false, code: "transport-error" });
-	assert.deepEqual(mapTransportError("other"), { ok: false, code: "transport-error" });
 });
 
 // --- run: source selection ---
@@ -305,6 +187,63 @@ test("member status run: toon and text formats render observed state", async () 
 	);
 	assert.match(render(textOutcome).text, /Kelly/);
 	assert.match(render(textOutcome).text, /pending messages/);
+});
+
+test("member status SDK boundary maps unexpected adapter failures without leaking details", async () => {
+	const outcome = await statusThroughSdk("safe-session", "Kelly", new AbortController().signal, {
+		listSources: async () => [],
+		selectSource: async () => {
+			throw new Error("internal socket detail");
+		},
+	});
+	assert.deepEqual(outcome, { ok: false, code: "transport-error" });
+});
+
+test("member status SDK boundary maps its end-to-end deadline", async () => {
+	const outcome = await statusThroughSdk(
+		"safe-session",
+		"Kelly",
+		new AbortController().signal,
+		{
+			listSources: async () => [],
+			selectSource: async (_selector, options) =>
+				new Promise((_resolve, reject) =>
+					options?.signal?.addEventListener("abort", () => reject(new Error("selection stopped")), {
+						once: true,
+					}),
+				),
+		},
+		1,
+	);
+	assert.deepEqual(outcome, { ok: false, code: "timeout" });
+});
+
+test("member status SDK boundary maps pre-aborted SIGINT before source selection", async () => {
+	const outcome = await defaultMemberStatusCliDependencies.sendStatus(
+		okSource(),
+		"Kelly",
+		AbortSignal.abort(),
+		"safe-session",
+	);
+	assert.deepEqual(outcome, { ok: false, code: "aborted" });
+});
+
+test("member status run forwards SIGINT cancellation to the SDK boundary", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	let observedSignal: AbortSignal | undefined;
+	const outcome = await runMemberStatusCommand(
+		{ command: "member-status", member: "Kelly", format: "json" },
+		{ ...context(), signal: controller.signal },
+		deps({
+			sendStatus: async (_source, _target, signal) => {
+				observedSignal = signal;
+				return { ok: false, code: "aborted" };
+			},
+		}),
+	);
+	assert.equal(observedSignal?.aborted, true);
+	assert.equal(render(outcome).exit, 1);
 });
 
 test("member status run: operational failures exit 1 with stable codes", async () => {
