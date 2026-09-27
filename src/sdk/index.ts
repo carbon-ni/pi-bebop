@@ -48,8 +48,14 @@ import {
 	createRemoteMemberInboxOperation,
 	type InboxInput,
 	type InboxResult,
+	type MemberInboxOperation,
 	type RemoteMemberInboxCommand,
 } from "./member-inbox-operation.ts";
+import {
+	createRemoteCrewBroadcastOperation,
+	type CrewBroadcastOperation,
+	type RemoteCrewBroadcastCommand,
+} from "./crew-broadcast-operation.js";
 export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
 export type {
 	FollowUpInput,
@@ -72,6 +78,20 @@ export type {
 	RemoteMemberInboxCommand,
 	RemoteMemberInboxOperationDependencies,
 } from "./member-inbox-operation.ts";
+export {
+	createInProcessCrewBroadcastOperation,
+	createRemoteCrewBroadcastOperation,
+} from "./crew-broadcast-operation.ts";
+export type {
+	CrewBroadcastInput,
+	CrewBroadcastOperation,
+	CrewBroadcastOperationOptions,
+	CrewBroadcastResult,
+	InProcessCrewBroadcastOperationDependencies,
+	InProcessCrewBroadcastSurface,
+	RemoteCrewBroadcastCommand,
+	RemoteCrewBroadcastDependencies,
+} from "./crew-broadcast-operation.ts";
 
 const MAX_DISCOVERY_ENTRIES = 256;
 const MAX_DISCOVERY_SOURCES = 100;
@@ -281,7 +301,12 @@ export type AskResult =
 			readonly member: MemberStatusIdentity;
 	  };
 
-export interface BebopSource extends MemberStatusOperation, MemberLastMessageOperation, MemberIdleWaitOperation {
+export interface BebopSource
+	extends MemberStatusOperation,
+		MemberLastMessageOperation,
+		MemberIdleWaitOperation,
+		MemberInboxOperation,
+		CrewBroadcastOperation {
 	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
@@ -765,6 +790,9 @@ function sourceClient(endpoint: string): BebopSource {
 		send: (command: RemoteMemberInboxCommand, options) =>
 			call(command, options, (value) => value, true, preserveInboxRpcErrors),
 	});
+	const crewBroadcastOperation = createRemoteCrewBroadcastOperation({
+		send: (command: RemoteCrewBroadcastCommand, options) => call(command, options, (value) => value, true),
+	});
 	return {
 		...statusOperation,
 		...lastMessageOperation,
@@ -872,6 +900,9 @@ function sourceClient(endpoint: string): BebopSource {
 		},
 		sendFollowUp(member, input, options) {
 			return followUpOperation.sendFollowUp(member, input, options);
+		},
+		broadcastToCrew(input, options) {
+			return crewBroadcastOperation.broadcastToCrew(input, options);
 		},
 		sendToInbox(member, input, options) {
 			return inboxOperation.sendToInbox(member, input, options);
