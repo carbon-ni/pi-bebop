@@ -1,7 +1,7 @@
 ---
 id: TASK-0246
 title: Share SDK explicit Redirect capability
-status: todo
+status: doing
 depends_on: [TASK-0240]
 priority: normal
 tags: [sdk, redirect, tdd]
