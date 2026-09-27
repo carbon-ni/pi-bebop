@@ -28,6 +28,7 @@ async function fakeSource(
 		trusted?: boolean;
 		dropFollowUp?: boolean;
 		dropRedirect?: boolean;
+		mismatchRedirect?: boolean;
 		dropInbox?: boolean;
 		dropBroadcast?: boolean;
 		hangFollowUp?: boolean;
@@ -231,6 +232,10 @@ async function fakeSource(
 													persisted: true,
 													hint: "skipped",
 												};
+				if (options.mismatchRedirect && request.method === "member.redirect") {
+					socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: "wrong-request-id", result })}\n`);
+					continue;
+				}
 				socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
 			}
 		});
@@ -365,6 +370,20 @@ test("SDK Redirect preserves source rejection and validation behavior", async (t
 			source.requests.map((request) => request.method),
 			["session.status"],
 		);
+	} finally {
+		await source.close();
+	}
+});
+
+test("SDK Redirect maps a real-wire mismatched RPC id to malformed-response", async () => {
+	const source = await fakeSource({ mismatchRedirect: true });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		await assert.rejects(
+			selected.redirectMember("developer", { message: "change direction" }),
+			(error: unknown) => error instanceof BebopClientError && error.code === "malformed-response",
+		);
+		assert.equal(source.requests.filter((request) => request.method === "member.redirect").length, 1);
 	} finally {
 		await source.close();
 	}

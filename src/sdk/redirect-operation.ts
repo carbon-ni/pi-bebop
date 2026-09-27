@@ -73,7 +73,7 @@ interface InProcessBudget {
 	cleanup(): void;
 }
 
-function createInProcessBudget(options: RedirectOperationOptions | undefined): InProcessBudget {
+function validateRedirectTimeout(options: RedirectOperationOptions | undefined): number {
 	const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	if (
 		!Number.isFinite(timeoutMs) ||
@@ -82,6 +82,11 @@ function createInProcessBudget(options: RedirectOperationOptions | undefined): I
 		timeoutMs > MAX_TIMEOUT_MS
 	)
 		throw new BebopClientError("invalid-input");
+	return timeoutMs;
+}
+
+function createInProcessBudget(options: RedirectOperationOptions | undefined): InProcessBudget {
+	const timeoutMs = validateRedirectTimeout(options);
 	if (options?.signal?.aborted) throw new BebopClientError("aborted");
 	const controller = new AbortController();
 	let expired = false;
@@ -104,6 +109,7 @@ function createInProcessBudget(options: RedirectOperationOptions | undefined): I
 export function createRemoteRedirectOperation(dependencies: RemoteRedirectDependencies): RedirectOperation {
 	return {
 		async redirectMember(member, input, options) {
+			validateRedirectTimeout(options);
 			validateRedirectInput(member, input);
 			if (options?.signal?.aborted) throw new BebopClientError("aborted");
 			const command: RemoteRedirectCommand = {
@@ -226,7 +232,7 @@ function mapRemoteRedirectError(error: unknown): BebopClientError {
 	if (error instanceof BebopClientError) return error;
 	if (error instanceof RpcProtocolError) {
 		if (error.code === "remote-error") return mapRemoteCode(error.message.replace(/^remote-error:\s*/, ""));
-		if (error.code === "malformed-response" || error.code === "invalid-result")
+		if (error.code === "malformed-response" || error.code === "invalid-result" || error.code === "mismatched-id")
 			return new BebopClientError("malformed-response");
 		if (error.code === "outcome-unknown") return new BebopClientError("outcome-unknown");
 		return mapRemoteCode(error.code);

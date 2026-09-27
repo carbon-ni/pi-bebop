@@ -144,6 +144,84 @@ test("remote Redirect sends one typed member.redirect command", async () => {
 	]);
 });
 
+test("remote and in-process Redirect reject timeout bounds before dispatch", async (t) => {
+	const invalidTimeouts = [0, 49, 60_001, Number.NaN, Number.POSITIVE_INFINITY, 50.5];
+	for (const timeoutMs of invalidTimeouts) {
+		await t.test(`timeout ${String(timeoutMs)}`, async () => {
+			let remoteSends = 0;
+			let localSends = 0;
+			const remote = createRemoteRedirectOperation({
+				send: async () => {
+					remoteSends += 1;
+					throw new Error("unexpected remote dispatch");
+				},
+			});
+			const local = createInProcessRedirectOperation(
+				dependencies(
+					{},
+					{
+						transport: {
+							send: async () => {
+								localSends += 1;
+								throw new Error("unexpected local dispatch");
+							},
+						},
+					},
+				),
+			);
+			for (const operation of [remote, local])
+				await assert.rejects(
+					operation.redirectMember("Kelly", { message: "urgent" }, { timeoutMs }),
+					(error: unknown) => error instanceof BebopClientError && error.code === "invalid-input",
+				);
+			assert.equal(remoteSends, 0);
+			assert.equal(localSends, 0);
+		});
+	}
+
+	for (const timeoutMs of [50, 60_000]) {
+		await t.test(`accepts boundary timeout ${timeoutMs}`, async () => {
+			let remoteSends = 0;
+			let localSends = 0;
+			const remote = createRemoteRedirectOperation({
+				send: async () => {
+					remoteSends += 1;
+					return {
+						member: { name: "Kelly", role: "qa" },
+						deliveryId: "remote-delivery",
+						disposition: "steered",
+					};
+				},
+			});
+			const local = createInProcessRedirectOperation(
+				dependencies(
+					{},
+					{
+						transport: {
+							send: async () => {
+								localSends += 1;
+								return {
+									response: {
+										type: "response",
+										command: "send",
+										success: true,
+										id: "request-1",
+										data: { deliveryId: "local-delivery", disposition: "steered" },
+									},
+								};
+							},
+						},
+					},
+				),
+			);
+			await remote.redirectMember("Kelly", { message: "urgent" }, { timeoutMs });
+			await local.redirectMember("Kelly", { message: "urgent" }, { timeoutMs });
+			assert.equal(remoteSends, 1);
+			assert.equal(localSends, 1);
+		});
+	}
+});
+
 test("in-process Redirect reads authority each call and rejects missing or untrusted membership before dispatch", async () => {
 	for (const [overrides, code] of [
 		[{ getMembership: () => null }, "not-joined"],
@@ -172,6 +250,10 @@ test("Redirect maps remote rejection, offline transport, cancellation, and uncer
 	const cases: Array<{ error: unknown; code: string }> = [
 		{ error: new RpcProtocolError("remote-error", "unknown-member"), code: "unknown-member" },
 		{ error: new RpcProtocolError("remote-error", "offline-member"), code: "offline-member" },
+		{
+			error: new RpcProtocolError("mismatched-id", "response id did not match request"),
+			code: "malformed-response",
+		},
 		{ error: Object.assign(new Error("cancelled"), { name: "AbortError", code: "aborted" }), code: "aborted" },
 		{ error: Object.assign(new Error("ack lost"), { code: "outcome-unknown" }), code: "outcome-unknown" },
 	];
