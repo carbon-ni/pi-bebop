@@ -116,4 +116,14 @@ test("in-process idle operation preserves caller cancellation and identity failu
 		mismatched.waitForMemberIdle("Kelly", { timeoutSeconds: 60 }),
 		(error: unknown) => error instanceof BebopClientError && error.code === "identity-mismatch",
 	);
+
+	const capacityExceeded = createInProcessMemberIdleWaitOperation(
+		dependencies({
+			requestIdleWait: async () => ({ ok: false, code: "capacity-exceeded" }),
+		}),
+	);
+	await assert.rejects(
+		capacityExceeded.waitForMemberIdle("Kelly", { timeoutSeconds: 60 }),
+		(error: unknown) => error instanceof BebopClientError && error.code === "capacity-exceeded",
+	);
 });

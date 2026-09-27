@@ -12,22 +12,14 @@ export type BebopClientErrorCode =
 	| "unknown-member"
 	| "ambiguous-member"
 	| "self-query"
+	| "identity-mismatch"
+	| "capacity-exceeded"
 	| "remote-rejected"
 	| "malformed-response"
 	| "timeout"
 	| "aborted"
 	| "transport-error"
 	| "outcome-unknown";
-
-export class BebopClientError extends Error {
-	readonly code: BebopClientErrorCode;
-
-	constructor(code: BebopClientErrorCode, message?: string) {
-		super(message ?? defaultErrorMessage(code));
-		this.name = "BebopClientError";
-		this.code = code;
-	}
-}
 
 function defaultErrorMessage(code: BebopClientErrorCode): string {
 	return (
@@ -45,6 +37,8 @@ function defaultErrorMessage(code: BebopClientErrorCode): string {
 			"unknown-member": "Crew member was not found",
 			"ambiguous-member": "Crew member selector is ambiguous",
 			"self-query": "Cannot query the source member",
+			"identity-mismatch": "Member returned a different identity",
+			"capacity-exceeded": "Member idle-wait capacity was exceeded",
 			"remote-rejected": "Source rejected the operation",
 			"malformed-response": "Source returned a malformed response",
 			timeout: "Bebop operation timed out",
@@ -53,4 +47,14 @@ function defaultErrorMessage(code: BebopClientErrorCode): string {
 			"outcome-unknown": "The operation may have been accepted but its acknowledgement was lost",
 		} as Record<BebopClientErrorCode, string>
 	)[code];
+}
+
+export class BebopClientError extends Error {
+	readonly code: BebopClientErrorCode;
+
+	constructor(code: BebopClientErrorCode, message?: string) {
+		super(message ?? defaultErrorMessage(code));
+		this.name = "BebopClientError";
+		this.code = code;
+	}
 }

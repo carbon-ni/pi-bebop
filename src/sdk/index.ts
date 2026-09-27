@@ -14,7 +14,22 @@ import {
 } from "../domain/index.ts";
 import { createMemberStatusFlow, MemberStatusFlowError } from "../application/member-status-flow.ts";
 import { createMemberLastMessageFlow, MemberLastMessageFlowError } from "../application/member-last-message-flow.ts";
-import { createMemberIdleWaitFlow, MemberIdleWaitFlowError } from "../application/member-idle-wait-flow.ts";
+import { BebopClientError, type BebopClientErrorCode } from "./errors.js";
+import { createRemoteMemberIdleWaitOperation, type MemberIdleWaitOperation } from "./member-idle-wait-operation.js";
+
+export {
+	createInProcessMemberIdleWaitOperation,
+	createRemoteMemberIdleWaitOperation,
+	type InProcessMemberIdleWaitOperation,
+	type InProcessMemberIdleWaitOperationDependencies,
+	type InProcessMemberIdleWaitSurface,
+	type MemberIdleWaitIdentity,
+	type MemberIdleWaitOperation,
+	type MemberIdleWaitOptions,
+	type MemberIdleWaitResult,
+	type MemberIdleWaitTransportResult,
+} from "./member-idle-wait-operation.js";
+export { BebopClientError, type BebopClientErrorCode } from "./errors.js";
 import {
 	MAX_MESSAGE_CONTENT_BYTES,
 	MAX_MESSAGE_INSTRUCTION_BYTES,
@@ -23,16 +38,13 @@ import {
 	MAX_MESSAGE_PAYLOAD_BYTES,
 } from "../domain/message-payload.ts";
 import { getAliasPath, getSocketPath, CONTROL_DIR } from "../infra/intray-paths.ts";
-import { RpcProtocolError, sendMemberIdleWait, sendRpcCommand } from "../infra/rpc-client.ts";
-import { BebopClientError, type BebopClientErrorCode } from "./errors.ts";
+import { RpcProtocolError, sendRpcCommand } from "../infra/rpc-client.ts";
 import {
 	createRemoteFollowUpOperation,
 	type FollowUpInput,
 	type FollowUpResult,
 	type RemoteFollowUpCommand,
 } from "./follow-up-operation.ts";
-export { BebopClientError } from "./errors.ts";
-export type { BebopClientErrorCode } from "./errors.ts";
 export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
 export type {
 	FollowUpInput,
@@ -57,9 +69,6 @@ const MAX_ASK_RESPONSE_GRACE_SECONDS = 600;
 const DEFAULT_ASK_TOTAL_WAIT_SECONDS = 120;
 const MIN_ASK_TOTAL_WAIT_SECONDS = 2;
 const MAX_ASK_TOTAL_WAIT_SECONDS = 1_800;
-const DEFAULT_MEMBER_IDLE_WAIT_SECONDS = 1_800;
-const MIN_MEMBER_IDLE_WAIT_SECONDS = 1;
-const MAX_MEMBER_IDLE_WAIT_SECONDS = 7_200;
 
 export interface BebopOperationOptions {
 	readonly signal?: AbortSignal;
@@ -214,76 +223,7 @@ export interface InProcessMemberStatusOperationDependencies {
 	readonly surface: InProcessMemberStatusSurface;
 }
 
-export interface MemberIdleWaitIdentity {
-	readonly name: string;
-	readonly role: string;
-}
 
-export type MemberIdleWaitResult =
-	| {
-			readonly member: MemberIdleWaitIdentity;
-			readonly outcome: "idle";
-			readonly disposition: "already-idle" | "became-idle";
-			readonly observedAt: string;
-	  }
-	| {
-			readonly member: MemberIdleWaitIdentity;
-			readonly outcome: "offline" | "timeout" | "message-received";
-			readonly observedAt: string;
-	  };
-
-export interface MemberIdleWaitOptions {
-	readonly signal?: AbortSignal;
-	readonly timeoutSeconds?: number;
-}
-
-export interface MemberIdleWaitOperation {
-	waitForMemberIdle(member: string, options?: MemberIdleWaitOptions): Promise<MemberIdleWaitResult>;
-}
-
-export interface InProcessMemberIdleWaitOperation extends MemberIdleWaitOperation {
-	resolveMemberIdleWait(input: { member: string; timeoutSeconds?: number }): {
-		readonly kind: "ready";
-		readonly target: MemberIdleWaitIdentity & { readonly socketPath: string };
-		readonly timeoutSeconds: number;
-	};
-}
-
-export type MemberIdleWaitTransportResult =
-	| { readonly ok: true; readonly result: MemberIdleWaitResult }
-	| {
-			readonly ok: false;
-			readonly code:
-				| "timeout"
-				| "offline"
-				| "aborted"
-				| "malformed-response"
-				| "identity-mismatch"
-				| "remote-rejected"
-				| "capacity-exceeded"
-				| "wait-in-progress"
-				| "transport-error";
-	  };
-
-export interface InProcessMemberIdleWaitSurface {
-	readonly getMembership: () => {
-		readonly member: MemberIdleWaitIdentity & { readonly socketPath: string };
-		readonly socketPath: string;
-		readonly manifest: { readonly members: readonly (MemberIdleWaitIdentity & { readonly socketPath: string })[] };
-	} | null;
-	readonly isTrusted: () => boolean;
-	readonly probeEndpoint: (socketPath: string) => Promise<boolean>;
-	readonly requestIdleWait: (
-		endpoint: string,
-		memberLabel: string,
-		options: { readonly timeoutSeconds: number; readonly signal?: AbortSignal },
-	) => Promise<MemberIdleWaitTransportResult>;
-	readonly now: () => string;
-}
-
-export interface InProcessMemberIdleWaitOperationDependencies {
-	readonly surface: InProcessMemberIdleWaitSurface;
-}
 
 export interface InboxInput {
 	readonly message: string;
@@ -438,41 +378,6 @@ function validateAskOptions(options: AskOptions | undefined): {
 	return { responseGraceSeconds, totalWaitSeconds };
 }
 
-function validateMemberIdleWaitSeconds(timeoutSeconds: number | undefined): number {
-	const value = timeoutSeconds ?? DEFAULT_MEMBER_IDLE_WAIT_SECONDS;
-	if (!Number.isInteger(value) || value < MIN_MEMBER_IDLE_WAIT_SECONDS || value > MAX_MEMBER_IDLE_WAIT_SECONDS)
-		return invalidInput();
-	return value;
-}
-
-function withMemberIdleWaitBudget<T>(
-	options: MemberIdleWaitOptions | undefined,
-	operation: (budget: Budget, timeoutSeconds: number) => Promise<T>,
-): Promise<T> {
-	if (options?.signal?.aborted) throw new BebopClientError("aborted");
-	const timeoutSeconds = validateMemberIdleWaitSeconds(options?.timeoutSeconds);
-	const budget = createDeadlineBudget(options?.signal, timeoutSeconds * 1000);
-	return operation(budget, timeoutSeconds)
-		.catch((error) => {
-			throw normalizeError(error, budget);
-		})
-		.finally(() => budget.cleanup());
-}
-
-function mapMemberIdleWaitFlowError(error: MemberIdleWaitFlowError): BebopClientError {
-	const code: BebopClientErrorCode =
-		error.code === "invalid-timeout"
-			? "invalid-input"
-			: error.code === "identity-mismatch"
-				? "identity-mismatch"
-				: error.code === "not-a-member"
-					? "remote-rejected"
-					: error.code === "offline"
-						? "offline-member"
-						: (error.code as BebopClientErrorCode);
-	return new BebopClientError(code, error.message);
-}
-
 function withAskBudget<T>(
 	options: AskOptions | undefined,
 	settings: { readonly totalWaitSeconds: number },
@@ -563,54 +468,6 @@ function normalizeError(error: unknown, budget: Budget): BebopClientError {
 		return new BebopClientError("offline-session");
 	if (error instanceof Error && /timeout|timed? ?out/i.test(error.message)) return new BebopClientError("timeout");
 	return new BebopClientError("transport-error");
-}
-
-/**
- * Build the in-process idle-wait adapter without introducing another policy layer.
- * The existing application flow remains the owner of membership, trust, target
- * resolution, self-query and identity validation decisions.
- */
-export function createInProcessMemberIdleWaitOperation(
-	dependencies: InProcessMemberIdleWaitOperationDependencies,
-): InProcessMemberIdleWaitOperation {
-	const createFlow = () => createMemberIdleWaitFlow(dependencies.surface as never);
-	return {
-		resolveMemberIdleWait(input) {
-			return createFlow().resolveMemberIdleWait(input);
-		},
-		waitForMemberIdle(member, options) {
-			validateMember(member);
-			return withMemberIdleWaitBudget(options, async (budget, timeoutSeconds) => {
-				const resolver = createFlow();
-				const resolved = resolver.resolveMemberIdleWait({ member, timeoutSeconds });
-				const flow = createMemberIdleWaitFlow({
-					...dependencies.surface,
-					requestIdleWait: async (endpoint, memberLabel, requestOptions) => {
-						const outcome = await dependencies.surface.requestIdleWait(endpoint, memberLabel, requestOptions);
-						if (
-							outcome.ok &&
-							(outcome.result.member.name !== resolved.target.name ||
-								outcome.result.member.role !== resolved.target.role)
-						)
-							throw new MemberIdleWaitFlowError(
-								"identity-mismatch",
-								"Member returned an idle wait result for a different identity",
-							);
-						return outcome;
-					},
-				} as never);
-				try {
-					return await awaitBudget(
-						flow.waitForMemberIdle({ member, timeoutSeconds, signal: options?.signal }),
-						budget,
-					);
-				} catch (error) {
-					if (error instanceof MemberIdleWaitFlowError) throw mapMemberIdleWaitFlowError(error);
-					throw error;
-				}
-			});
-		},
-	};
 }
 
 /**
@@ -841,42 +698,6 @@ type SourceCall = <T>(
 	parse: (value: unknown) => T,
 	classifyLostAck?: boolean,
 ) => Promise<T>;
-
-export function createRemoteMemberIdleWaitOperation(endpoint: string): MemberIdleWaitOperation {
-	return {
-		waitForMemberIdle(member, options) {
-			validateMember(member);
-			return withMemberIdleWaitBudget(options, async (budget, timeoutSeconds) => {
-				const outcome = await sendMemberIdleWait(
-					endpoint,
-					{ type: "member_idle_wait", member },
-					{ timeoutSeconds, signal: budget.signal },
-				);
-				if (outcome.ok === true) return outcome.result;
-				switch (outcome.code) {
-					case "timeout":
-						throw new DeadlineExceeded();
-					case "aborted":
-						if (budget.timedOut()) throw new DeadlineExceeded();
-						throw new BebopClientError("aborted");
-					case "offline":
-						throw new BebopClientError("offline-member");
-					case "capacity-exceeded":
-					case "remote-rejected":
-						throw new BebopClientError("remote-rejected");
-					case "identity-mismatch":
-						throw new BebopClientError("identity-mismatch");
-					case "malformed-response":
-						throw new BebopClientError("malformed-response");
-					case "transport-error":
-						throw new BebopClientError(
-							outcome.transportCode === "ENOENT" ? "unknown-session" : "offline-session",
-						);
-				}
-			});
-		},
-	};
-}
 
 function createRemoteMemberStatusOperation(call: SourceCall): MemberStatusOperation {
 	return {
