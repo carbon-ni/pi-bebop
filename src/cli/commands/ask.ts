@@ -22,7 +22,7 @@ import { MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS, MAX_MEMBER_REQUEST_TIMEOUT_SECONDS
 import { parsePositiveDurationMs } from "../support/duration.ts";
 import { BebopClientError } from "../../sdk/errors.ts";
 import { createAskOperation } from "../../sdk/ask-operation.ts";
-import { createRemoteMemberRequestOperation } from "../../sdk/member-request-operation.ts";
+import { createRemoteMemberRequestStartWaitOperation } from "../../sdk/member-request-operation.ts";
 
 const FORMATS = ["toon", "json", "text"] as const;
 const DEFAULT_RESPONSE_GRACE_SECONDS = 30;
@@ -266,6 +266,23 @@ function mapError(error: unknown): { code: string; message: string; data?: unkno
 				message: "Delivery acceptance is unknown; do not retry automatically.",
 				data: { acceptance: "unknown", safeRetry: false },
 			};
+		if (
+			[
+				"invalid-input",
+				"not-joined",
+				"untrusted",
+				"untrusted-project",
+				"unknown-member",
+				"ambiguous-member",
+				"self-send",
+				"offline-member",
+				"identity-mismatch",
+				"capacity-exceeded",
+			].includes(error.code)
+		)
+			return { code: error.code, message: "The source rejected the Ask." };
+		if (error.code === "remote-rejected")
+			return { code: "delivery-rejected", message: "The Member Request was rejected." };
 	}
 	if (error instanceof CrewRouteResolutionError) return { code: error.code, message: error.recovery };
 	if (error instanceof RpcProtocolError) {
@@ -311,125 +328,8 @@ async function discoverAskRoute(
 	}
 }
 
-async function deliverAsk(
-	options: AskCliOptions,
-	context: CliContext,
-	deps: AskCliDependencies,
-	source: SourceResolution & { ok: true },
-	route: ResolvedCrewRoute,
-): Promise<{ ok: true; requestId: string } | { ok: false; outcome: CliOutcome }> {
-	const command = {
-		type: "member_request_start",
-		target: route.target.member.name,
-		message: options.question,
-		...(options.instructions.length === 0 ? {} : { instructions: options.instructions }),
-		timeoutSeconds: options.responseGraceSeconds,
-		maxWaitSeconds: options.totalWaitSeconds,
-		...(route.caller.kind === "guest" ? { crew: route.target.crew.selector } : {}),
-	};
-	try {
-		const result = await deps.send(source, command, DELIVERY_TIMEOUT_MS, context.signal);
-		if (!result.response.success || !isMethodResult("member.request_start", result.response.data))
-			return {
-				ok: false,
-				outcome: errorOutcome(
-					options,
-					"delivery-rejected",
-					"The Member Request was rejected before acceptance.",
-				),
-			};
-		const data = result.response.data as { accepted?: boolean; requestId?: string };
-		if (data.accepted !== true || typeof data.requestId !== "string")
-			return {
-				ok: false,
-				outcome: errorOutcome(options, "malformed-response", "The Member Request acceptance was malformed."),
-			};
-		return { ok: true, requestId: data.requestId };
-	} catch (error) {
-		const mapped = mapError(error);
-		if (!["timeout", "delivery-timeout-unknown", "cancelled"].includes(mapped.code))
-			return { ok: false, outcome: errorOutcome(options, mapped.code, mapped.message, mapped.data) };
-		const code = mapped.code === "timeout" ? "delivery-timeout-unknown" : mapped.code;
-		const message =
-			mapped.code === "cancelled"
-				? "Ask cancelled during delivery."
-				: "Delivery acceptance is unknown; do not retry automatically.";
-		return {
-			ok: false,
-			outcome: errorOutcome(options, code, message, { acceptance: "unknown", safeRetry: false }),
-		};
-	}
-}
-
-async function awaitAskOutcome(
-	options: AskCliOptions,
-	context: CliContext,
-	deps: AskCliDependencies,
-	source: SourceResolution & { ok: true },
-	route: ResolvedCrewRoute,
-	requestId: string,
-): Promise<CliOutcome> {
-	try {
-		const result = await deps.wait(source, requestId, options.totalWaitSeconds * 1000, context.signal);
-		if (!result.response.success || !isMethodResult("member.request_wait", result.response.data))
-			return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
-		const data = result.response.data as {
-			kind?: string;
-			requestId?: string;
-			message?: string;
-			instructions?: readonly string[];
-			requestAgeMs?: number;
-		};
-		if (data.requestId !== requestId)
-			return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
-		if (data.kind === "response" && typeof data.message === "string")
-			return {
-				kind: "result",
-				result: {
-					ok: true,
-					target: options.target,
-					status: "response",
-					response: data.message,
-					data: {
-						crew: route.target.crew,
-						member: route.target.member,
-						answer: data.message,
-						...(data.instructions === undefined ? {} : { instructions: data.instructions }),
-						...(data.requestAgeMs === undefined ? {} : { freshness: { requestAgeMs: data.requestAgeMs } }),
-					},
-				},
-				format: options.format,
-				full: false,
-			};
-		if (data.kind === "pending")
-			return errorOutcome(
-				options,
-				"timeout-after-idle",
-				"No Response arrived during the post-idle grace period.",
-				{ outcome: "timeout-after-idle", safeRetry: false },
-			);
-		if (data.kind === "timeout")
-			return errorOutcome(options, "timeout-total", "No Response arrived before the total Ask timeout.", {
-				outcome: "timeout-total",
-				safeRetry: false,
-			});
-		if (data.kind === "offline")
-			return errorOutcome(options, "route-lost", "The target route was lost before a Response.");
-		return errorOutcome(options, "malformed-response", "The Ask outcome was malformed.");
-	} catch (error) {
-		const mapped = mapError(error);
-		const code = mapped.code === "timeout" ? "timeout-total" : mapped.code;
-		return errorOutcome(
-			options,
-			code,
-			mapped.message,
-			mapped.data ?? (code === "timeout-total" ? { safeRetry: false } : undefined),
-		);
-	}
-}
-
 function createCliAskOperation(deps: AskCliDependencies, source: SourceResolution & { ok: true }) {
-	const request = createRemoteMemberRequestOperation({
+	const request = createRemoteMemberRequestStartWaitOperation({
 		sendStart: async (command, operationOptions) => {
 			const result = await deps.send(
 				source,
@@ -452,13 +352,15 @@ function createCliAskOperation(deps: AskCliDependencies, source: SourceResolutio
 				throw new RpcProtocolError("remote-error", result.response.error ?? "source rejected operation");
 			return result.response.data;
 		},
-		sendResponse: async () => {
-			throw new RpcProtocolError("transport-error", "Ask does not send a response");
-		},
 	});
 	return createAskOperation({
 		request,
-		policy: { pending: "timeout-after-idle", acceptedAbort: "aborted", maxTotalWaitSeconds: 7_200 },
+		policy: {
+			pending: "timeout-after-idle",
+			acceptedAbort: "aborted",
+			maxTotalWaitSeconds: 7_200,
+			deliveryTimeoutMs: DELIVERY_TIMEOUT_MS,
+		},
 	});
 }
 

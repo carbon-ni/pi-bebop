@@ -1,13 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { MessagePayloadSchema } from "../domain/index.ts";
-import { BebopClientError, createInProcessFollowUpOperation } from "../sdk/index.ts";
-import {
-	sendMemberMessage,
-	type MemberDeliveryIntent,
-	type MemberMessageDependencies,
-	MemberMessageError,
-} from "../application/member-message.ts";
+import { BebopClientError, createInProcessFollowUpOperation, createInProcessRedirectOperation } from "../sdk/index.ts";
+import type { MemberDeliveryIntent, MemberMessageDependencies } from "../application/member-message.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
 const parameters = Type.Object(
@@ -54,27 +49,22 @@ export function registerMemberIntentTool(
 ): void {
 	const name = intent === "follow_up" ? "send_follow_up" : "redirect_member";
 	const label = intent === "follow_up" ? "Send Follow-up" : "Redirect Member";
-	const followUpOperation =
-		intent === "follow_up"
-			? createInProcessFollowUpOperation({
-					surface: {
-						getMembership: () => state.membershipRuntime?.getMembership() ?? null,
-						isTrusted: () => state.context?.isProjectTrusted?.() === true,
-						approvedGuests: () => dependencies.approvedGuests?.() ?? [],
-						sender: () => {
-							const sessionId = state.context?.sessionManager.getSessionId();
-							return sessionId
-								? {
-										sessionId,
-										sessionName:
-											state.context?.sessionManager.getSessionName()?.trim() || undefined,
-									}
-								: undefined;
-						},
-					},
-					message: dependencies,
-				})
-			: undefined;
+	const surface = {
+		getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+		isTrusted: () => state.context?.isProjectTrusted?.() === true,
+		approvedGuests: () => dependencies.approvedGuests?.() ?? [],
+		sender: () => {
+			const sessionId = state.context?.sessionManager.getSessionId();
+			return sessionId
+				? {
+						sessionId,
+						sessionName: state.context?.sessionManager.getSessionName()?.trim() || undefined,
+					}
+				: undefined;
+		},
+	};
+	const followUpOperation = createInProcessFollowUpOperation({ surface, message: dependencies });
+	const redirectOperation = createInProcessRedirectOperation({ surface, message: dependencies });
 	const description =
 		intent === "follow_up"
 			? "Send a non-interrupting informational Follow-up to a joined crew member. It reaches Pi as triggerTurn=true with deliverAs=followUp and waits behind streaming, tool execution, and compaction. Accepted means queued or submitted only; no correlated Response is expected. Use send_member_request when you require exactly one answer, report, verdict, or evidence response."
@@ -86,79 +76,33 @@ export function registerMemberIntentTool(
 		parameters,
 		async execute(_toolCallId, params, signal) {
 			const target = params.member.trim();
-			if (followUpOperation) {
-				if (params.wait_for === "response")
-					return errorText(
-						target || "member",
-						"response-wait-requires-member-request",
-						"wait_for=response is unavailable on ordinary member messages; use send_member_request for a correlated Response",
-					);
-				try {
-					const outcome = await followUpOperation.sendFollowUp(
-						target,
-						{ message: params.message, instructions: params.instructions },
-						{ signal },
-					);
-					return resultText(`${outcome.member.name} (${outcome.member.role})`, outcome);
-				} catch (error) {
-					if (error instanceof BebopClientError) {
-						if (error.code === "aborted")
-							return errorText(target || "member", "aborted", "Member request aborted");
-						if (
-							["offline-member", "offline-session", "unknown-session", "transport-error"].includes(
-								error.code,
-							)
-						)
-							return errorText(
-								target || "member",
-								"offline",
-								`Member endpoint offline: ${error.message}`,
-							);
-						if (error.code === "malformed-response")
-							return errorText(target || "member", "invalid-ack", error.message);
-						if (error.code === "not-joined")
-							return errorText(target || "member", "not-joined", "Not joined to a crew");
-						return errorText(target || "member", error.code, error.message);
-					}
-					const message = error instanceof Error ? error.message : "Member endpoint offline";
-					const aborted = signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
-					return errorText(
-						target || "member",
-						aborted ? "aborted" : "offline",
-						aborted ? "Member request aborted" : `Member endpoint offline: ${message}`,
-					);
-				}
-			}
-			const membership = state.membershipRuntime?.getMembership() ?? null;
-			const senderSessionId = state.context?.sessionManager.getSessionId();
-			try {
-				const outcome = await sendMemberMessage(
-					{
-						membership,
-						member: target,
-						approvedGuests: dependencies.approvedGuests?.(),
-						message: params.message,
-						instructions: params.instructions,
-						intent,
-						waitFor: params.wait_for,
-						signal,
-						sender: senderSessionId
-							? {
-									sessionId: senderSessionId,
-									sessionName: state.context?.sessionManager.getSessionName()?.trim() || undefined,
-								}
-							: undefined,
-					},
-					dependencies,
+			if (params.wait_for === "response")
+				return errorText(
+					target || "member",
+					"response-wait-requires-member-request",
+					"wait_for=response is unavailable on ordinary member messages; use send_member_request for a correlated Response",
 				);
-				const label =
-					outcome.target.kind === "member"
-						? `${outcome.target.name} (${outcome.target.role})`
-						: `${outcome.target.guestName} (guest)`;
-				return resultText(label, outcome);
+			try {
+				const input = { message: params.message, instructions: params.instructions };
+				const outcome =
+					intent === "follow_up"
+						? await followUpOperation.sendFollowUp(target, input, { signal })
+						: await redirectOperation.redirectMember(target, input, { signal });
+				return resultText(`${outcome.member.name} (${outcome.member.role})`, outcome);
 			} catch (error) {
-				if (error instanceof MemberMessageError)
+				if (error instanceof BebopClientError) {
+					if (error.code === "aborted")
+						return errorText(target || "member", "aborted", "Member request aborted");
+					if (
+						["offline-member", "offline-session", "unknown-session", "transport-error"].includes(error.code)
+					)
+						return errorText(target || "member", "offline", `Member endpoint offline: ${error.message}`);
+					if (error.code === "malformed-response")
+						return errorText(target || "member", "invalid-ack", error.message);
+					if (error.code === "not-joined")
+						return errorText(target || "member", "not-joined", "Not joined to a crew");
 					return errorText(target || "member", error.code, error.message);
+				}
 				const message = error instanceof Error ? error.message : "Member endpoint offline";
 				const aborted = signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
 				return errorText(

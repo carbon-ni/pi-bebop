@@ -2,6 +2,8 @@ import type { MemberStatusIdentity } from "./index.ts";
 import { BebopClientError } from "./errors.ts";
 import type { MemberRequestOperation } from "./member-request-operation.ts";
 
+type AskRequestOperation = Pick<MemberRequestOperation, "startMemberRequest" | "waitForRequestOutcome">;
+
 const DEFAULT_RESPONSE_GRACE_SECONDS = 30;
 const MAX_RESPONSE_GRACE_SECONDS = 600;
 const DEFAULT_TOTAL_WAIT_SECONDS = 120;
@@ -16,6 +18,8 @@ export interface AskOperationPolicy {
 	readonly pending: AskPendingPolicy;
 	readonly acceptedAbort: AskAcceptedAbortPolicy;
 	readonly maxTotalWaitSeconds?: number;
+	/** Bounds start/acceptance delivery separately from the end-to-end budget. */
+	readonly deliveryTimeoutMs?: number;
 }
 
 export interface AskOperation {
@@ -160,7 +164,7 @@ function routeLost(error: BebopClientError): BebopClientError {
 }
 
 export function createAskOperation(dependencies: {
-	readonly request: MemberRequestOperation;
+	readonly request: AskRequestOperation;
 	readonly policy: AskOperationPolicy;
 }): AskOperation {
 	return {
@@ -179,7 +183,13 @@ export function createAskOperation(dependencies: {
 						maxWaitSeconds: Math.max(60, settings.totalWaitSeconds),
 						...(input.crew === undefined ? {} : { crew: input.crew }),
 					},
-					{ signal: budget.signal, timeoutMs: requestTimeout(budget) },
+					{
+						signal: budget.signal,
+						timeoutMs: Math.min(
+							dependencies.policy.deliveryTimeoutMs ?? requestTimeout(budget),
+							requestTimeout(budget),
+						),
+					},
 				);
 				acceptedMember = started.member;
 				for (;;) {

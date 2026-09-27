@@ -225,6 +225,29 @@ test("Ask maps source, discovery, delivery, and wait failures without leaking pr
 	}
 });
 
+test("Ask maps source authority and target rejections through the default Request adapter", async () => {
+	for (const [wireCode, cliCode] of [
+		["not-joined", "not-joined"],
+		["untrusted-project", "untrusted"],
+		["unknown-member", "unknown-member"],
+		["invalid-input", "invalid-input"],
+		["request-failed", "delivery-rejected"],
+	] as const) {
+		const outcome = await runAskCommand(
+			readAskCommand(parse(["alpha", "question"])),
+			context,
+			deps({
+				send: async () => ({ response: { success: false, error: `${wireCode}: private detail` } }),
+			}) as never,
+		);
+		assert.equal(outcome.kind, "result");
+		if (outcome.kind === "result") {
+			assert.equal(outcome.result.error?.code, cliCode);
+			assert.doesNotMatch(JSON.stringify(outcome.result), /private detail/);
+		}
+	}
+});
+
 test("Ask maps terminal pending, timeout, offline, and malformed outcomes", async () => {
 	const options = readAskCommand(parse(["alpha", "question"]));
 	for (const [data, code] of [
