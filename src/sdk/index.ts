@@ -347,12 +347,13 @@ function createDeadlineBudget(signal: AbortSignal | undefined, timeoutMs: number
 async function withBudget<T>(
 	options: BebopOperationOptions | undefined,
 	operation: (budget: Budget) => Promise<T>,
+	normalize: (error: unknown, budget: Budget) => unknown = normalizeError,
 ): Promise<T> {
 	const budget = createBudget(options);
 	try {
 		return await operation(budget);
 	} catch (error) {
-		throw normalizeError(error, budget);
+		throw normalize(error, budget);
 	} finally {
 		budget.cleanup();
 	}
@@ -427,6 +428,11 @@ function awaitBudget<T>(operation: PromiseLike<T>, budget: Budget): Promise<T> {
 		);
 		if (budget.signal.aborted) onAbort();
 	});
+}
+
+function preserveInboxRpcErrors(error: unknown, budget: Budget): unknown {
+	if (error instanceof RpcProtocolError) return error;
+	return normalizeError(error, budget);
 }
 
 function normalizeError(error: unknown, budget: Budget): BebopClientError {
@@ -699,6 +705,7 @@ type SourceCall = <T>(
 	options: BebopOperationOptions | undefined,
 	parse: (value: unknown) => T,
 	classifyLostAck?: boolean,
+	normalize?: (error: unknown, budget: Budget) => unknown,
 ) => Promise<T>;
 
 function createRemoteMemberStatusOperation(call: SourceCall): MemberStatusOperation {
@@ -731,17 +738,22 @@ function sourceClient(endpoint: string): BebopSource {
 		options: BebopOperationOptions | undefined,
 		parse: (value: unknown) => T,
 		classifyLostAck = false,
+		normalize = normalizeError,
 	): Promise<T> =>
-		withBudget(options, async (budget) => {
-			const { response } = await sendRpcCommand(endpoint, command, {
-				timeout: budget.remaining(),
-				signal: budget.signal,
-				classifyLostAck,
-			});
-			if (!response.success)
-				throw new RpcProtocolError("remote-error", response.error ?? "source rejected operation");
-			return parse(response.data);
-		});
+		withBudget(
+			options,
+			async (budget) => {
+				const { response } = await sendRpcCommand(endpoint, command, {
+					timeout: budget.remaining(),
+					signal: budget.signal,
+					classifyLostAck,
+				});
+				if (!response.success)
+					throw new RpcProtocolError("remote-error", response.error ?? "source rejected operation");
+				return parse(response.data);
+			},
+			normalize,
+		);
 
 	const statusOperation = createRemoteMemberStatusOperation(call);
 	const lastMessageOperation = createRemoteMemberLastMessageOperation(call);
@@ -750,7 +762,8 @@ function sourceClient(endpoint: string): BebopSource {
 		send: (command: RemoteFollowUpCommand, options) => call(command, options, (value) => value, true),
 	});
 	const inboxOperation = createRemoteMemberInboxOperation({
-		send: (command: RemoteMemberInboxCommand, options) => call(command, options, (value) => value, true),
+		send: (command: RemoteMemberInboxCommand, options) =>
+			call(command, options, (value) => value, true, preserveInboxRpcErrors),
 	});
 	return {
 		...statusOperation,
