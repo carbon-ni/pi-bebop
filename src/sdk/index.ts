@@ -12,6 +12,7 @@ import {
 	type MemberStatus as WireMemberStatus,
 	type MemberRequestWaitResult,
 } from "../domain/index.ts";
+import { createMemberStatusFlow, MemberStatusFlowError } from "../application/member-status-flow.ts";
 import {
 	MAX_MESSAGE_CONTENT_BYTES,
 	MAX_MESSAGE_INSTRUCTION_BYTES,
@@ -118,6 +119,58 @@ export type MemberStatus =
 			readonly observedAt: string;
 	  };
 
+/**
+ * The narrow read-only status capability shared by remote and in-process adapters.
+ *
+ * This intentionally is not a full client. Runtime membership and trust remain
+ * authoritative at operation time; an in-process adapter receives those reads
+ * through its injected application surface.
+ */
+export interface MemberStatusOperation {
+	getMemberStatus(member: string, options?: BebopOperationOptions): Promise<MemberStatus>;
+}
+
+export type MemberStatusOperationErrorCode = Extract<
+	BebopClientErrorCode,
+	| "not-joined"
+	| "untrusted"
+	| "unknown-member"
+	| "ambiguous-member"
+	| "self-query"
+	| "remote-rejected"
+	| "malformed-response"
+	| "timeout"
+	| "aborted"
+	| "transport-error"
+>;
+
+export interface InProcessMemberStatusSurface {
+	readonly getMembership: () => {
+		readonly member: MemberStatusIdentity & { readonly socketPath: string };
+		readonly socketPath: string;
+		readonly manifest: { readonly members: readonly (MemberStatusIdentity & { readonly socketPath: string })[] };
+	} | null;
+	readonly isTrusted: () => boolean;
+	readonly isIdle: () => boolean;
+	readonly isCompacting?: () => boolean;
+	readonly hasPendingMessages: () => boolean;
+	readonly probeEndpoint: (socketPath: string, signal?: AbortSignal) => Promise<boolean>;
+	readonly requestStatus: (
+		socketPath: string,
+		memberLabel: string,
+		signal?: AbortSignal,
+	) => Promise<
+		| { readonly ok: true; readonly status: MemberStatus }
+		| { readonly ok: false; readonly code: MemberStatusOperationErrorCode }
+	>;
+	readonly now: () => string;
+}
+
+export interface InProcessMemberStatusOperationDependencies {
+	/** Trusted composition supplies the live application surface; no socket is needed. */
+	readonly surface: InProcessMemberStatusSurface;
+}
+
 export interface FollowUpInput {
 	readonly message: string;
 	readonly instructions?: readonly string[];
@@ -183,9 +236,8 @@ export type AskResult =
 			readonly member: MemberStatusIdentity;
 	  };
 
-export interface BebopSource {
+export interface BebopSource extends MemberStatusOperation {
 	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
-	getMemberStatus(member: string, options?: BebopOperationOptions): Promise<MemberStatus>;
 	getMemberLastMessage(member: string, options?: BebopOperationOptions): Promise<MemberLastMessageResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
@@ -402,6 +454,36 @@ function normalizeError(error: unknown, budget: Budget): BebopClientError {
 	return new BebopClientError("transport-error");
 }
 
+/**
+ * Build the in-process status adapter without introducing another policy layer.
+ * The existing application flow remains the owner of membership, trust, target
+ * resolution, self-query and identity validation decisions.
+ */
+export function createInProcessMemberStatusOperation(
+	dependencies: InProcessMemberStatusOperationDependencies,
+): MemberStatusOperation {
+	return {
+		getMemberStatus(member, options) {
+			validateMember(member);
+			return withBudget(options, async (budget) => {
+				const flow = createMemberStatusFlow({
+					...dependencies.surface,
+					requestStatus: (socketPath, memberLabel, signal) =>
+						dependencies.surface.requestStatus(socketPath, memberLabel, signal),
+					signal: budget.signal,
+				});
+				try {
+					return await awaitBudget(flow.queryStatus(member), budget);
+				} catch (error) {
+					if (error instanceof MemberStatusFlowError)
+						throw new BebopClientError(error.code as BebopClientErrorCode, error.message);
+					throw error;
+				}
+			});
+		},
+	};
+}
+
 function mapRemoteError(message: string): BebopClientError {
 	const code = message.trim().split(/[:\s]/u, 1)[0];
 	const known: Partial<Record<string, BebopClientErrorCode>> = {
@@ -565,8 +647,27 @@ function parseStatus(value: { status: "stopped" | "online" | "joined"; projectTr
 	} as const;
 }
 
+type SourceCall = <T>(
+	command: Parameters<typeof sendRpcCommand>[1],
+	options: BebopOperationOptions | undefined,
+	parse: (value: unknown) => T,
+	classifyLostAck?: boolean,
+) => Promise<T>;
+
+function createRemoteMemberStatusOperation(call: SourceCall): MemberStatusOperation {
+	return {
+		getMemberStatus(member, options) {
+			validateMember(member);
+			return call({ type: "member_status_target", target: member }, options, (value) => {
+				if (!isMemberStatusResult(value)) throw new BebopClientError("malformed-response");
+				return value.status as WireMemberStatus as unknown as MemberStatus;
+			});
+		},
+	};
+}
+
 function sourceClient(endpoint: string): BebopSource {
-	const call = async <T>(
+	const call: SourceCall = async <T>(
 		command: Parameters<typeof sendRpcCommand>[1],
 		options: BebopOperationOptions | undefined,
 		parse: (value: unknown) => T,
@@ -583,7 +684,9 @@ function sourceClient(endpoint: string): BebopSource {
 			return parse(response.data);
 		});
 
+	const statusOperation = createRemoteMemberStatusOperation(call);
 	return {
+		...statusOperation,
 		ask(member, input, options) {
 			validateMember(member);
 			if (!input || typeof input !== "object") return invalidInput();
@@ -683,13 +786,6 @@ function sourceClient(endpoint: string): BebopSource {
 					}
 					throw error;
 				}
-			});
-		},
-		getMemberStatus(member, options) {
-			validateMember(member);
-			return call({ type: "member_status_target", target: member }, options, (value) => {
-				if (!isMemberStatusResult(value)) throw new BebopClientError("malformed-response");
-				return value.status as WireMemberStatus as unknown as MemberStatus;
 			});
 		},
 		getMemberLastMessage(member, options) {
