@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { acquireBuildLock } from "./build-lock.mjs";
 import { atomicSwapDirectory } from "./build-swap.mjs";
@@ -66,6 +66,7 @@ try {
 				join(projectRoot, "node_modules/typescript/bin/tsc"),
 				"--declaration",
 				"--emitDeclarationOnly",
+				"--rewriteRelativeImportExtensions",
 				"--outDir",
 				declarationDir,
 				"--rootDir",
@@ -86,7 +87,8 @@ try {
 			],
 			{ cwd: projectRoot, stdio: "inherit" },
 		);
-		await copyFile(join(declarationDir, "src/sdk/index.d.ts"), join(staging, "sdk.d.ts"));
+		await cp(join(declarationDir, "src"), join(staging, "src"), { recursive: true });
+		await writeFile(join(staging, "sdk.d.ts"), 'export * from "./src/sdk/index.js";\n');
 	} finally {
 		await rm(declarationDir, { recursive: true, force: true });
 	}

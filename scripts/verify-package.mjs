@@ -23,6 +23,7 @@ const allowedPath = (file) =>
 	file === "dist/extension.js" ||
 	file === "dist/sdk.js" ||
 	file === "dist/sdk.d.ts" ||
+	(file.startsWith("dist/src/") && file.endsWith(".d.ts")) ||
 	file.startsWith("src/") ||
 	file.startsWith("docs/");
 try {
