@@ -223,8 +223,6 @@ export interface InProcessMemberStatusOperationDependencies {
 	readonly surface: InProcessMemberStatusSurface;
 }
 
-
-
 export interface InboxInput {
 	readonly message: string;
 	readonly instructions?: readonly string[];
