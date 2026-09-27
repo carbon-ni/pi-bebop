@@ -48,9 +48,15 @@ import {
 	createRemoteMemberInboxOperation,
 	type InboxInput,
 	type InboxResult,
+	type MemberInboxOperation,
 	type RemoteMemberInboxCommand,
 } from "./member-inbox-operation.ts";
 import { createRemoteMemberRequestOperation, type MemberRequestOperation } from "./member-request-operation.ts";
+import {
+	createRemoteCrewBroadcastOperation,
+	type CrewBroadcastOperation,
+	type RemoteCrewBroadcastCommand,
+} from "./crew-broadcast-operation.ts";
 export { createInProcessFollowUpOperation, createRemoteFollowUpOperation } from "./follow-up-operation.ts";
 export type {
 	FollowUpInput,
@@ -94,6 +100,20 @@ export type {
 	RemoteMemberRequestWaitCommand,
 	RemoteMemberResponseCommand,
 } from "./member-request-operation.ts";
+export {
+	createInProcessCrewBroadcastOperation,
+	createRemoteCrewBroadcastOperation,
+} from "./crew-broadcast-operation.ts";
+export type {
+	CrewBroadcastInput,
+	CrewBroadcastOperation,
+	CrewBroadcastOperationOptions,
+	CrewBroadcastResult,
+	InProcessCrewBroadcastOperationDependencies,
+	InProcessCrewBroadcastSurface,
+	RemoteCrewBroadcastCommand,
+	RemoteCrewBroadcastDependencies,
+} from "./crew-broadcast-operation.ts";
 
 const MAX_DISCOVERY_ENTRIES = 256;
 const MAX_DISCOVERY_SOURCES = 100;
@@ -308,7 +328,9 @@ export interface BebopSource
 	extends MemberStatusOperation,
 		MemberLastMessageOperation,
 		MemberIdleWaitOperation,
-		MemberRequestOperation {
+		MemberRequestOperation,
+		MemberInboxOperation,
+		CrewBroadcastOperation {
 	ask(member: string, input: AskInput, options?: AskOptions): Promise<AskResult>;
 	sendFollowUp(member: string, input: FollowUpInput, options?: BebopOperationOptions): Promise<FollowUpResult>;
 	sendToInbox(member: string, input: InboxInput, options?: BebopOperationOptions): Promise<InboxResult>;
@@ -458,7 +480,7 @@ function awaitBudget<T>(operation: PromiseLike<T>, budget: Budget): Promise<T> {
 	});
 }
 
-function preserveInboxRpcErrors(error: unknown, budget: Budget): unknown {
+function preserveOperationRpcErrors(error: unknown, budget: Budget): unknown {
 	if (error instanceof RpcProtocolError) return error;
 	return normalizeError(error, budget);
 }
@@ -794,15 +816,19 @@ function sourceClient(endpoint: string): BebopSource {
 	});
 	const inboxOperation = createRemoteMemberInboxOperation({
 		send: (command: RemoteMemberInboxCommand, options) =>
-			call(command, options, (value) => value, true, preserveInboxRpcErrors),
+			call(command, options, (value) => value, true, preserveOperationRpcErrors),
+	});
+	const crewBroadcastOperation = createRemoteCrewBroadcastOperation({
+		send: (command: RemoteCrewBroadcastCommand, options) =>
+			call(command, options, (value) => value, true, preserveOperationRpcErrors),
 	});
 	const requestOperation = createRemoteMemberRequestOperation({
 		sendStart: (command, options) =>
-			call(command, options, (value) => value, true, preserveInboxRpcErrors, MAX_MEMBER_REQUEST_TIMEOUT_MS),
+			call(command, options, (value) => value, true, preserveOperationRpcErrors, MAX_MEMBER_REQUEST_TIMEOUT_MS),
 		sendWait: (command, options) =>
-			call(command, options, (value) => value, false, preserveInboxRpcErrors, MAX_MEMBER_REQUEST_TIMEOUT_MS),
+			call(command, options, (value) => value, false, preserveOperationRpcErrors, MAX_MEMBER_REQUEST_TIMEOUT_MS),
 		sendResponse: (command, options) =>
-			call(command, options, (value) => value, true, preserveInboxRpcErrors, MAX_MEMBER_REQUEST_TIMEOUT_MS),
+			call(command, options, (value) => value, true, preserveOperationRpcErrors, MAX_MEMBER_REQUEST_TIMEOUT_MS),
 	});
 	return {
 		...requestOperation,
@@ -912,6 +938,9 @@ function sourceClient(endpoint: string): BebopSource {
 		},
 		sendFollowUp(member, input, options) {
 			return followUpOperation.sendFollowUp(member, input, options);
+		},
+		broadcastToCrew(input, options) {
+			return crewBroadcastOperation.broadcastToCrew(input, options);
 		},
 		sendToInbox(member, input, options) {
 			return inboxOperation.sendToInbox(member, input, options);

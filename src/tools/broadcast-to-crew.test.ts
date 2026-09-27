@@ -32,7 +32,11 @@ const membership = {
 		],
 	},
 };
-function setup(currentMembership: unknown | (() => unknown), dependencies: MemberMessageDependencies): RegisteredTool {
+function setup(
+	currentMembership: unknown | (() => unknown),
+	dependencies: MemberMessageDependencies,
+	isTrusted: () => boolean = () => true,
+): RegisteredTool {
 	let registeredTool: RegisteredTool | undefined;
 	const pi = {
 		registerTool: (tool: unknown) => (registeredTool = tool as RegisteredTool),
@@ -41,6 +45,7 @@ function setup(currentMembership: unknown | (() => unknown), dependencies: Membe
 		membershipRuntime: {
 			getMembership: typeof currentMembership === "function" ? currentMembership : () => currentMembership,
 		},
+		context: { isProjectTrusted: isTrusted },
 	} as never as SocketState;
 	registerBroadcastToCrewTool(pi, state, dependencies);
 	assert.ok(registeredTool);
@@ -92,10 +97,12 @@ describe("broadcast_to_crew tool", () => {
 		});
 	});
 
-	test("unjoined execution fails without any transport", async () => {
+	test("unjoined and untrusted executions fail without any transport", async () => {
 		const calls: string[] = [];
-		const result = await setup(() => null, deps(calls)).execute("id", { message: "hello" });
-		assert.equal(result.isError, true);
-		assert.equal(calls.length, 0);
+		const unjoined = await setup(() => null, deps(calls)).execute("id", { message: "hello" });
+		assert.equal(unjoined.isError, true);
+		const untrusted = await setup(membership, deps(calls), () => false).execute("id", { message: "hello" });
+		assert.equal(untrusted.isError, true);
+		assert.deepEqual(calls, []);
 	});
 });

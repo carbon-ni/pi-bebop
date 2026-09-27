@@ -23,7 +23,7 @@ import { sendRpcCommand } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
 import { enqueueMemberInboxMessage, MemberInboxMessageError } from "../../application/member-inbox-message.ts";
 import { openTrustedMemberInboxStore } from "../../infra/member-inbox-store.ts";
-import { submitCrewBroadcast, CrewBroadcastApplicationError } from "../../application/crew-broadcast.ts";
+import { createInProcessCrewBroadcastOperation, BebopClientError } from "../../sdk/index.ts";
 import type { CommandHandlerContext } from "./types.ts";
 import { contextIsCompacting, memberMessageErrorCode } from "./utils.ts";
 export async function handleMemberStatus(
@@ -259,12 +259,7 @@ export async function handleCrewBroadcast(
 	context: CommandHandlerContext,
 	command: Extract<RpcInboundCommand, { type: "crew_broadcast" }>,
 ): Promise<void> {
-	const { ctx, state, socket, pi, respond, id } = context;
-	if (state.context?.isProjectTrusted?.() !== true) {
-		respond(false, command.type, undefined, "untrusted-project");
-		return;
-	}
-	const membership = state.membershipRuntime?.getMembership() ?? null;
+	const { state, socket, respond } = context;
 	const dependencies = state.memberMessageDependencies ?? {
 		transport: { send: sendRpcCommand },
 		resolveEndpoint: resolveMemberEndpoint,
@@ -275,15 +270,17 @@ export async function handleCrewBroadcast(
 	socket.once("close", onDisconnect);
 	socket.once("error", onDisconnect);
 	try {
-		const outcome = await submitCrewBroadcast(
-			{
-				membership: membership as never,
-				message: command.message,
-				instructions: command.instructions,
-				signal: controller.signal,
-				approvedGuests: state.approvedGuestsResolver?.(),
+		const operation = createInProcessCrewBroadcastOperation({
+			surface: {
+				getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+				isTrusted: () => state.context?.isProjectTrusted?.() === true,
+				approvedGuests: () => state.approvedGuestsResolver?.() ?? [],
 			},
-			dependencies,
+			message: dependencies,
+		});
+		const outcome = await operation.broadcastToCrew(
+			{ message: command.message, instructions: command.instructions },
+			{ signal: controller.signal },
 		);
 		if (outcome.ok === false) {
 			respond(false, command.type, undefined, outcome.code);
@@ -300,8 +297,8 @@ export async function handleCrewBroadcast(
 			});
 		}
 	} catch (error) {
-		if (error instanceof CrewBroadcastApplicationError) respond(false, command.type, undefined, error.code);
-		else respond(false, command.type, undefined, "transport-error");
+		const code = error instanceof BebopClientError ? error.code : "transport-error";
+		respond(false, command.type, undefined, code === "untrusted" ? "untrusted-project" : code);
 	} finally {
 		controller.abort();
 	}
