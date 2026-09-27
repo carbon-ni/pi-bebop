@@ -686,9 +686,33 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		const socketDir = path.join(home, ".pi", "bebop");
 		await mkdir(socketDir, { recursive: true });
 		const socketPath = path.join(socketDir, "packaged-idle.sock");
-		type IdleServer = net.Server & { socketClosed: Promise<void> };
+		type IdleServer = net.Server & { requestReceived: Promise<void>; socketClosed: Promise<void> };
+		const servers = new Set<IdleServer>();
+		t.after(async () => {
+			for (const server of servers) await closeRpcServer(server).catch(() => undefined);
+		});
+		const awaitPeerEvent = async (event: Promise<void>, label: string): Promise<void> => {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			try {
+				await Promise.race([
+					event,
+					new Promise<never>((_, reject) => {
+						timer = setTimeout(
+							() => reject(new Error(`Timed out waiting for packaged idle peer ${label}`)),
+							5000,
+						);
+					}),
+				]);
+			} finally {
+				if (timer) clearTimeout(timer);
+			}
+		};
 		const respond = async (mode: "idle" | "timeout" | "pending"): Promise<IdleServer> => {
+			let resolveRequestReceived!: () => void;
 			let resolveSocketClosed!: () => void;
+			const requestReceived = new Promise<void>((resolve) => {
+				resolveRequestReceived = resolve;
+			});
 			const socketClosed = new Promise<void>((resolve) => {
 				resolveSocketClosed = resolve;
 			});
@@ -696,7 +720,7 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 				socket.setEncoding("utf8");
 				socket.once("close", resolveSocketClosed);
 				socket.on("error", (error: NodeJS.ErrnoException) => {
-					if (error.code !== "ECONNRESET") throw error;
+					if (!(mode === "pending" && error.code === "ECONNRESET")) throw error;
 				});
 				let buffer = "";
 				socket.on("data", (chunk) => {
@@ -704,6 +728,7 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 					const index = buffer.indexOf("\n");
 					if (index < 0) return;
 					const request = JSON.parse(buffer.slice(0, index)) as { id: string | number };
+					resolveRequestReceived();
 					const subscriptionId = String(request.id);
 					socket.write(
 						JSON.stringify({
@@ -747,7 +772,9 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 				});
 			});
 			await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-			return Object.assign(server, { socketClosed });
+			const packagedServer = Object.assign(server, { requestReceived, socketClosed });
+			servers.add(packagedServer);
+			return packagedServer;
 		};
 		const runWait = async (format: "toon" | "json" | "text", timeout = "60s") =>
 			new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
@@ -769,11 +796,9 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 				child.once("exit", (code) => resolve({ code: code ?? 1, stdout, stderr }));
 			});
 
-		const idleServers: net.Server[] = [];
 		const idleByteCounts: Record<string, number> = {};
 		for (const format of ["json", "toon", "text"] as const) {
 			const server = await respond("idle");
-			idleServers.push(server);
 			const result = await runWait(format);
 			assert.equal(result.code, 0, result.stdout);
 			idleByteCounts[format] = Buffer.byteLength(result.stdout, "utf8");
@@ -796,14 +821,12 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 			cwd: extract,
 			stdio: ["ignore", "pipe", "ignore"],
 		});
+		await awaitPeerEvent(signalServer.requestReceived, "request");
 		setTimeout(() => child.kill("SIGINT"), 100);
 		const signalCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
 		assert.notEqual(signalCode, 0);
-		await signalServer.socketClosed;
+		await awaitPeerEvent(signalServer.socketClosed, "socket close");
 		await closeRpcServer(signalServer);
-		t.after(async () => {
-			for (const server of idleServers) await closeRpcServer(server).catch(() => undefined);
-		});
 	} finally {
 		await rm(archiveDir, { recursive: true, force: true });
 		await rm(extract, { recursive: true, force: true });
