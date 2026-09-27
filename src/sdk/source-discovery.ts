@@ -188,7 +188,11 @@ export function createSourceDiscovery<TSource>(
 				if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
 				throw error;
 			} finally {
-				if (directory !== undefined) await closeDirectory(directory);
+				if (directory !== undefined) {
+					const closing = closeDirectory(directory);
+					// Cleanup must not turn cancellation/deadline into an unbounded wait.
+					if (!budget.signal.aborted) await awaitBudget(closing, budget);
+				}
 			}
 			const bounded = [...entries.values()].sort((left, right) => compareNames(left.name, right.name));
 			const ids = bounded

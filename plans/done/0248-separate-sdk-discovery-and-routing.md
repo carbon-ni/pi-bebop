@@ -29,7 +29,9 @@ Explicit read-only discovery/selection boundaries serve CLI and external consume
 ## Verification
 
 - Extracted bounded source discovery/selection into `src/sdk/source-discovery.ts`; remote operations remain source-bound and in-process operations remain runtime-injected.
-- Focused SDK, target-resolution, and CLI status tests: 91 passed.
+- Existing CLI consumers use the SDK boundary in `src/cli/commands/member-status.ts` and `src/cli/commands/member-last-message.ts`; Ask keeps its Crew/Guest route through `src/application/crew-target-resolution.ts`.
+- `createCrewTargetResolver` remains the authorized Crew/Member routing owner: it checks trusted manifests, manifest-authored contact, live canonical ownership, caller membership/Guest capability, ambiguity, and self-target rules. Discovery never supplies caller identity or mutable authorization state.
+- Focused SDK, target-resolution, and CLI status tests: 91 passed; cancellation held-close regression added.
 - Format, typecheck, presence typecheck, and SDK build passed.
 
 ## Non-goals

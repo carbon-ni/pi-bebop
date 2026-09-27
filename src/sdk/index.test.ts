@@ -1249,6 +1249,44 @@ test("SDK races delayed opendir against the deadline and closes a late handle", 
 	}
 });
 
+test("SDK does not await a held directory close after cancellation", async () => {
+	const original = fs.opendir;
+	let nextStarted!: () => void;
+	let releaseNext!: () => void;
+	let releaseClose!: () => void;
+	let closeStarted!: () => void;
+	const nextReady = new Promise<void>((resolve) => (nextStarted = resolve));
+	const closeReady = new Promise<void>((resolve) => (closeStarted = resolve));
+	fs.opendir = (async () => ({
+		async next() {
+			nextStarted();
+			return new Promise<never>((resolve) => (releaseNext = () => resolve(undefined as never)));
+		},
+		[Symbol.asyncIterator]() {
+			return this;
+		},
+		async close() {
+			closeStarted();
+			await new Promise<void>((resolve) => (releaseClose = resolve));
+		},
+	})) as typeof fs.opendir;
+	const controller = new AbortController();
+	try {
+		const pending = createBebopClient().listSources({ signal: controller.signal, timeoutMs: 1_000 });
+		await nextReady;
+		controller.abort();
+		await assert.rejects(
+			pending,
+			(error: unknown) => error instanceof BebopClientError && error.code === "aborted",
+		);
+		await closeReady;
+		releaseNext?.();
+		releaseClose?.();
+	} finally {
+		fs.opendir = original;
+	}
+});
+
 test("SDK races delayed alias realpath against the selection deadline", async () => {
 	const source = await fakeSource();
 	const alias = `sdk-timeout-alias-${process.pid}-${Date.now()}`;
