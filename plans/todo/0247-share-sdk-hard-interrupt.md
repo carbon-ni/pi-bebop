@@ -1,7 +1,7 @@
 ---
 id: TASK-0247
 title: Share SDK explicit hard Interrupt capability
-status: done
+status: todo
 depends_on: [TASK-0246]
 priority: normal
 tags: [sdk, interrupt, recovery, tdd]
@@ -24,7 +24,7 @@ CLI and Pi use a distinct SDK Interrupt capability backed by the existing runtim
 - [x] No hidden retries, downgrade to Redirect or effects before validation.
 - [x] Tests cover active work, failed abort, disconnect during dispatch, cancellation, offline target and recovery-message ordering.
 - [x] Pi lifecycle hooks remain injected at the Pi edge; no source self-RPC or shared-state duplication.
-- [x] Packed consumers and exact-head gates pass.
+- [ ] Packed consumers and exact-head gates pass.
 
 ## Non-goals
 
