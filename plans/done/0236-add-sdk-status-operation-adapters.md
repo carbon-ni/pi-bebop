@@ -27,14 +27,14 @@ One typed status operation can run against a selected remote source or trusted i
 - [x] Deterministic contract cases in `src/sdk/member-status-operation.test.ts` cover online/offline, invalid input, untrusted/unjoined, self target, malformed/foreign identity, deadline and cancellation; existing remote tests cover ambiguous target mapping.
 - [x] Remote tests exercise real Unix sockets; local tests prove self-query rejects before probe/request, so the in-process path performs no source self-RPC. Remote target communication remains allowed.
 - [x] Existing SDK imports and packed declarations pass (`npm run verify:package`, packed SDK contract, and a temporary consumer importing the in-process factory/types); the SDK bundle imports no Commander/Pi runtime and performs no discovery on operation import.
-- [x] Exact-head isolated watcher and GitHub gates passed at `9b4a7e87c3c198b520d5e1bcab390d2fb08b0185`: `fzz run -- @quick` passed all five jobs; GitHub quality gate run `36310758921` passed.
+- [x] Exact-head isolated task-worktree watcher and GitHub gates passed; the release handoff records the final cwd, socket, generation, terminal results, and unchanged-fingerprint freshness.
 
 ## Verification record
 
-- PR: #46 (draft), exact HEAD `9b4a7e87c3c198b520d5e1bcab390d2fb08b0185`
+- PR: #46 (draft); final board-closure SHA and exact-head watcher evidence are recorded in the release handoff
 - Focused SDK tests: 36/36 passed
 - SDK coverage: `src/sdk/index.ts` 97.53% lines / 82.93% branches; new contract test 99.42% lines / 100% branches
-- Exact-head QA: Kelly PASS; remote sockets, no-self-RPC, live joined/trusted checks, cancellation/deadline, declarations, and packed consumer verified
+- Exact-head QA: Kelly PASS on implementation SHA `9b4a7e8`; remote sockets, no-self-RPC, live joined/trusted checks, cancellation/deadline, declarations, and packed consumer verified
 - No known blockers; CLI/Pi migration remains TASK-0237/0238
 
 ## Non-goals
