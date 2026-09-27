@@ -255,9 +255,9 @@ export const defaultMemberRequestCliDependencies: MemberRequestCliDependencies =
 	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 	requestOperation: (source) =>
 		createRemoteMemberRequestOperation({
-			sendStart: async (command, options) => sendRequestOperation(source, command, options?.signal, true),
-			sendWait: async (command, options) => sendRequestOperation(source, command, options?.signal, false),
-			sendResponse: async (command, options) => sendRequestOperation(source, command, options?.signal, false),
+			sendStart: async (command, options) => sendRequestOperation(source, command, options, true),
+			sendWait: async (command, options) => sendRequestOperation(source, command, options, false),
+			sendResponse: async (command, options) => sendRequestOperation(source, command, options, true),
 		}),
 };
 async function rpcWithSessionFallback<T>(
@@ -275,13 +275,13 @@ async function rpcWithSessionFallback<T>(
 async function sendRequestOperation(
 	source: SourceResolution & { ok: true },
 	command: unknown,
-	signal: AbortSignal | undefined,
+	options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } | undefined,
 	classifyLostAck: boolean,
 ): Promise<unknown> {
 	return rpcWithSessionFallback(source, async (socket) => {
 		const result = await sendRpcCommand(socket, command as never, {
-			timeout: 10_000,
-			signal,
+			timeout: options?.timeoutMs ?? 10_000,
+			signal: options?.signal,
 			classifyLostAck,
 		});
 		if (!result.response.success)
@@ -413,7 +413,7 @@ async function runWithRequestOperation(
 		}
 		const outcome = await operation.waitForRequestOutcome(options.requestId!, {
 			signal: context.signal,
-			timeoutMs: 60_000,
+			timeoutMs: (MAX_MEMBER_REQUEST_MAX_WAIT_SECONDS + MAX_MEMBER_REQUEST_TIMEOUT_SECONDS + 10) * 1000,
 		});
 		return {
 			kind: "result",

@@ -409,6 +409,20 @@ test("SDK Ask rejects a valid but mismatched correlated Request outcome", async 
 	}
 });
 
+test("SDK Request wait rejects a valid but mismatched correlated outcome", async () => {
+	const source = await fakeSource({ askWait: () => "mismatch" });
+	try {
+		const selected = await createBebopClient().selectSource({ session: source.session });
+		const accepted = await selected.startMemberRequest("developer", { message: "Review" });
+		await assert.rejects(
+			selected.waitForRequestOutcome(accepted.requestId),
+			(error: unknown) => error instanceof BebopClientError && error.code === "malformed-response",
+		);
+	} finally {
+		await source.close();
+	}
+});
+
 test("SDK Ask reports timeout-total when its local budget expires after acceptance", async () => {
 	const source = await fakeSource({ holdAskWait: true });
 	try {

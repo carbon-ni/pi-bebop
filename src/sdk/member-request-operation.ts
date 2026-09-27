@@ -14,7 +14,7 @@ import {
 const MAX_TARGET_BYTES = 256;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MIN_TIMEOUT_MS = 50;
-const MAX_TIMEOUT_MS = 60_000;
+const MAX_TIMEOUT_MS = 7_210_000;
 
 export interface MemberRequestStartInput {
 	readonly message: string;
@@ -254,7 +254,9 @@ export function createRemoteMemberRequestOperation(
 				"wait",
 			);
 			if (!isMethodResult("member.request_wait", result)) throw new BebopClientError("malformed-response");
-			return result as unknown as RequestOutcome;
+			const outcome = result as unknown as RequestOutcome;
+			if (outcome.requestId !== requestId) throw new BebopClientError("malformed-response");
+			return outcome;
 		},
 		async respondToMemberRequest(requestId, input, options) {
 			validateRequestId(requestId);
@@ -290,7 +292,7 @@ function mapRequestError(error: unknown, kind: "start" | "wait" | "respond"): Be
 	if (error instanceof RpcProtocolError) {
 		if (error.code === "remote-error") return mapRequestCode(error.message.replace(/^remote-error:\s*/, ""));
 		if (error.code === "outcome-unknown") return new BebopClientError("outcome-unknown");
-		if (error.code === "malformed-response" || error.code === "invalid-result")
+		if (error.code === "malformed-response" || error.code === "invalid-result" || error.code === "mismatched-id")
 			return new BebopClientError("malformed-response");
 		return mapRequestCode(error.code);
 	}
@@ -418,12 +420,15 @@ export function createInProcessMemberRequestOperation(
 				if (!membership) throw new BebopClientError("not-joined");
 				const flow = dependencies.surface.getMemberRequestFlow();
 				if (!flow) throw new BebopClientError("remote-rejected");
-				await flow.respondToMemberRequest({
-					requestId,
-					message: input.message,
-					instructions: input.instructions,
-					member: { name: membership.member.name, role: membership.member.role },
-				});
+				await awaitWithBudget(
+					flow.respondToMemberRequest({
+						requestId,
+						message: input.message,
+						instructions: input.instructions,
+						member: { name: membership.member.name, role: membership.member.role },
+					}),
+					budget,
+				);
 			} catch (error) {
 				throw mapInProcessError(error, budget);
 			} finally {
@@ -447,6 +452,35 @@ async function startGuest(
 		timeoutSeconds: input.timeoutSeconds,
 		maxWaitSeconds: input.maxWaitSeconds,
 		signal,
+	});
+}
+
+function awaitWithBudget<T>(promise: Promise<T>, budget: OperationBudget): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		let settled = false;
+		const cleanup = () => budget.signal.removeEventListener("abort", onAbort);
+		const onAbort = () => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			reject(new BebopClientError(budget.timedOut() ? "timeout" : "aborted"));
+		};
+		promise.then(
+			(value) => {
+				if (settled) return;
+				settled = true;
+				cleanup();
+				resolve(value);
+			},
+			(error) => {
+				if (settled) return;
+				settled = true;
+				cleanup();
+				reject(error);
+			},
+		);
+		budget.signal.addEventListener("abort", onAbort, { once: true });
+		if (budget.signal.aborted) onAbort();
 	});
 }
 

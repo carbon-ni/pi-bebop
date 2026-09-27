@@ -264,7 +264,7 @@ export function registerRespondToMemberRequestTool(
 				return success("Response sent to the active Member request", { requestId: params.request_id });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "response-failed";
-				const code = message.split(":", 1)[0]!;
+				const code = error instanceof BebopClientError ? error.code : message.split(":", 1)[0]!;
 				if (code === "no-pending-request")
 					return failure(code, "No pending Member request; use send_follow_up for ordinary information.");
 				if (code === "ambiguous-request") return failure(code, `${message}; provide request_id.`);

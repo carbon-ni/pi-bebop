@@ -21,6 +21,7 @@ function setup() {
 		},
 	};
 	let sequence = 0;
+	let responseDelay = 0;
 	const flow: InProcessMemberRequestFlowCapability = {
 		sendMemberRequest: async (input) => {
 			const requestId = `request-${++sequence}`;
@@ -40,7 +41,7 @@ function setup() {
 		},
 		waitForRequestOutcomeById: (requestId, onUpdate) => registry.waitForRequest(requestId, onUpdate),
 		respondToMemberRequest: async (input) => {
-			await Promise.resolve();
+			await new Promise((resolve) => setTimeout(resolve, responseDelay));
 			registry.resolveInboundResponse(input.requestId ?? "inbound");
 		},
 	};
@@ -56,6 +57,7 @@ function setup() {
 		registry,
 		setTrusted: (value: boolean) => (trusted = value),
 		setMembership: (value: any) => (membership = value),
+		setResponseDelay: (value: number) => (responseDelay = value),
 	};
 }
 
@@ -86,6 +88,19 @@ test("in-process wait cancellation releases only the waiter and never changes re
 	controller.abort();
 	await assert.rejects(waiting, (error: unknown) => error instanceof BebopClientError && error.code === "aborted");
 	assert.equal(registry.outboundCount(), 1);
+});
+
+test("in-process response observes cancellation while delivery is pending", async () => {
+	const setupResult = setup();
+	setupResult.setResponseDelay(100);
+	const controller = new AbortController();
+	const responding = setupResult.operation.respondToMemberRequest(
+		undefined,
+		{ message: "Acknowledged" },
+		{ signal: controller.signal, timeoutMs: 80 },
+	);
+	setTimeout(() => controller.abort(), 10);
+	await assert.rejects(responding, (error: unknown) => error instanceof BebopClientError && error.code === "aborted");
 });
 
 test("in-process operations read live trust and membership authority", async () => {
