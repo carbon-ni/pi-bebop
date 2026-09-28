@@ -5,28 +5,28 @@
   "intake": { "contact": "Mary" },
   "members": [
     {
-      "name": "Mony",
-      "role": "lead",
-      "description": "Coordinates ownership, verification, and integration",
-      "socket": "sockets/lead.sock",
-      "instructionsFile": "instructions/lead.md"
-    },
-    {
-      "name": "Mary",
+      "name": "Faye",
       "role": "po",
       "description": "Shapes problems, acceptance criteria, and shared language",
       "socket": "sockets/po.sock",
       "instructionsFile": "instructions/product.md"
     },
     {
-      "name": "Dave",
+      "name": "Ed",
       "role": "dev",
       "description": "Builds domain and application changes",
       "socket": "sockets/dev.sock",
       "instructionsFile": "instructions/developer.md"
     },
     {
-      "name": "Kelly",
+      "name": "Spike",
+      "role": "researcher",
+      "description": "Help with side quest investigations",
+      "socket": "sockets/researcher.sock",
+      "instructionsFile": "instructions/researcher.md"
+    },
+    {
+      "name": "Jet",
       "role": "qa",
       "description": "Verifies acceptance and failure paths",
       "socket": "sockets/qa.sock",
