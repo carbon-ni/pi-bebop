@@ -110,6 +110,7 @@ import {
 	RpcResponseSchema,
 	TurnEndNotificationSchema,
 } from "./wire-rpc.ts";
+import { RuntimeCompatibilityCommandSchema } from "./wire-compatibility.ts";
 
 export const MessageSendCommandSchema = Type.Object(
 	{
@@ -169,6 +170,8 @@ export const InboxHintCommandSchema = Type.Object(
 	{ type: Type.Literal("inbox_hint"), id: Type.Optional(RpcIdSchema) },
 	{ additionalProperties: false },
 );
+
+export { RuntimeCompatibilityCommandSchema };
 
 export const RPC_ERROR = {
 	parse: -32700,

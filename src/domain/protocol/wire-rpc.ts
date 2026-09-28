@@ -96,6 +96,7 @@ import {
 import { MemberIdleWaitResultSchema } from "../member-idle-wait.ts";
 import { MAX_MESSAGE_CONTENT_BYTES, MAX_MESSAGE_INSTRUCTIONS } from "../message-payload.ts";
 import { SessionCaptureRequestSchema, SessionCaptureResultSchema } from "./wire-session.ts";
+import { RuntimeCompatibilityRequestSchema, RuntimeCompatibilityResultSchema } from "./wire-compatibility.ts";
 
 export const MemberIdleWaitParamsSchema = Type.Object(
 	{
@@ -165,6 +166,7 @@ export const KnownRequestSchema = Type.Union([
 	GuestLeaveRequestSchema,
 	MemberIdleWaitRequestSchema,
 	SessionCaptureRequestSchema,
+	RuntimeCompatibilityRequestSchema,
 ]);
 export const GenericRequestSchema = Type.Object(
 	{
@@ -309,6 +311,7 @@ export const RpcMethodResultSchema = Type.Union([
 	GuestSendResultSchema,
 	MemberIdleWaitSubscribeResultSchema,
 	SessionCaptureResultSchema,
+	RuntimeCompatibilityResultSchema,
 	EmptyResultSchema,
 ]);
 export const RpcResponseSchema = Type.Union([

@@ -563,6 +563,7 @@ test("TASK-0214: Inbox wake uses a typed control intent, not a model-visible sen
 
 test("command registry defines one bidirectional wire entry per command", () => {
 	const commandNames = [
+		"runtime_compatibility",
 		"send",
 		"interrupt",
 		"subscribe",

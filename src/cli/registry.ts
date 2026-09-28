@@ -120,6 +120,7 @@ import {
 } from "./commands/role-session-resume.ts";
 import type { CliContext } from "./support/context.ts";
 import type { CliOutcome } from "./support/output.ts";
+import { buildDoctorCommand, readDoctorCommand, runDoctorCommand, type DoctorCliOptions } from "./commands/doctor.ts";
 
 /**
  * TASK-0209: the single CLI composition point. Every command is ONE leaf
@@ -224,6 +225,14 @@ export function composeRegistry(leaves: readonly CliLeaf[]): CliRegistry {
 		root: () => buildRootCommand(leaves),
 	};
 }
+
+const doctorLeaf: CliLeaf = {
+	id: "doctor",
+	names: ["doctor"],
+	build: () => buildDoctorCommand(),
+	read: (command) => readDoctorCommand(command),
+	run: (options, context) => runDoctorCommand(options as DoctorCliOptions, context),
+};
 
 const contactLeaf: CliLeaf = {
 	id: "contact",
@@ -458,6 +467,7 @@ const guestBroadcastLeaf: CliLeaf = {
 
 export function createCliRegistry(): CliRegistry {
 	return composeRegistry([
+		doctorLeaf,
 		contactLeaf,
 		askLeaf,
 		crewInitLeaf,

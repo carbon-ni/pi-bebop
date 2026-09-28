@@ -73,10 +73,22 @@ const {
 	MemberRequestWaitResultSchema,
 	SessionCaptureRequestSchema,
 	SessionCaptureResultSchema,
+	RuntimeCompatibilityRequestSchema,
+	RuntimeCompatibilityResultSchema,
 } = schemas;
 import type * as ProtocolTypes from "./protocol-types.ts";
 
 export const COMMAND_REGISTRY: Record<ProtocolTypes.RpcCommand["type"], CommandDefinition> = {
+	runtime_compatibility: {
+		method: "runtime.compatibility",
+		requestSchema: RuntimeCompatibilityRequestSchema,
+		resultSchema: RuntimeCompatibilityResultSchema,
+		toParams: () => ({}),
+		fromParams: (params, id) =>
+			Value.Check(schemas.RuntimeCompatibilityParamsSchema, params)
+				? { type: "runtime_compatibility", id }
+				: invalidCommandParams("Invalid runtime.compatibility params"),
+	},
 	send: {
 		method: "message.send",
 		requestSchema: MessageSendRequestSchema,

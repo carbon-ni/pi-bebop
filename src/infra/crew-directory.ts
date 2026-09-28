@@ -10,7 +10,7 @@ import { probeMemberEndpoint } from "./member-endpoint.ts";
 
 const PROBE_TIMEOUT_MS = 300;
 
-async function readDirectoryManifest(manifestPath: string, projectRoot: string): Promise<CrewManifest> {
+export async function readDirectoryManifest(manifestPath: string, projectRoot: string): Promise<CrewManifest> {
 	// Trust/layout checks happen before any manifest IO. The realpath check also
 	// prevents a supported-looking manifest symlink from escaping the project.
 	if (!isTrustedCrewManifestPath(manifestPath, projectRoot))
