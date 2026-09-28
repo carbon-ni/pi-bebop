@@ -62,20 +62,22 @@ test("doctor reports current runtimes as compatible and hides protocol capabilit
 	});
 });
 
-test("doctor distinguishes older, newer, missing, and malformed versions", async () => {
-	const variants = [
-		["stale-runtime", valid({ protocol: { name: "pi-bebop", major: 0, minor: 9 } })],
-		["newer-runtime", valid({ protocol: { name: "pi-bebop", major: 2, minor: 0 } })],
-		["missing-version", { product: "pi-bebop", capabilities: [] }],
-		["malformed-version", valid({ packageVersion: "dev", buildCommit: "not-a-sha" })],
-	] as const;
-	for (const [expected, value] of variants) {
-		const result = await diagnose(async () => ({ kind: "response", value }));
-		assert.equal(result.crews[0]?.members[0]?.status, expected);
-	}
-});
+for (const [expectedStatus, compatibility] of [
+	["stale-runtime", valid({ protocol: { name: "pi-bebop", major: 0, minor: 9 } })],
+	["newer-runtime", valid({ protocol: { name: "pi-bebop", major: 2, minor: 0 } })],
+	["missing-version", { product: "pi-bebop", capabilities: [] }],
+	["malformed-version", valid({ packageVersion: "dev", buildCommit: "not-a-sha" })],
+] as const) {
+	test(`doctor reports ${expectedStatus} from runtime version evidence`, async () => {
+		const probeRuntime = async () => ({ kind: "response" as const, value: compatibility });
 
-test("doctor identifies missing capabilities without downgrading Member Request semantics", async () => {
+		const result = await diagnose(probeRuntime);
+
+		assert.equal(result.crews[0]?.members[0]?.status, expectedStatus);
+	});
+}
+
+test("doctor diagnostics identify a missing Request capability and recommend an update", async () => {
 	const result = await diagnose(
 		async () => ({ kind: "response", value: valid({ capabilities: ["member.follow_up"] }) }),
 		{
@@ -89,19 +91,21 @@ test("doctor identifies missing capabilities without downgrading Member Request 
 	assert.equal(member?.capabilities?.includes("member.follow_up"), true);
 });
 
-test("doctor maps method-not-found, malformed peer, offline, timeout, and cancellation distinctly", async () => {
-	const variants = [
-		["incompatible-runtime", { kind: "error", code: "method-not-found" }],
-		["malformed-peer", { kind: "error", code: "malformed-response" }],
-		["offline", { kind: "error", code: "ENOENT" }],
-		["timeout", { kind: "error", code: "timeout" }],
-		["cancelled", { kind: "error", code: "aborted" }],
-	] as const;
-	for (const [expected, probe] of variants) {
-		const result = await diagnose(async () => probe);
-		assert.equal(result.crews[0]?.members[0]?.status, expected);
-	}
-});
+for (const [errorCode, expectedStatus] of [
+	["method-not-found", "incompatible-runtime"],
+	["malformed-response", "malformed-peer"],
+	["ENOENT", "offline"],
+	["timeout", "timeout"],
+	["aborted", "cancelled"],
+] as const) {
+	test(`doctor reports ${expectedStatus} when the probe returns ${errorCode}`, async () => {
+		const probeRuntime = async () => ({ kind: "error" as const, code: errorCode });
+
+		const result = await diagnose(probeRuntime);
+
+		assert.equal(result.crews[0]?.members[0]?.status, expectedStatus);
+	});
+}
 
 test("doctor retains deterministic partial rows when one Member is incompatible", async () => {
 	const result = await diagnose(async (socketPath) =>
@@ -117,7 +121,7 @@ test("doctor retains deterministic partial rows when one Member is incompatible"
 	);
 });
 
-test("doctor reports invalid configuration without probing or mutating it", async () => {
+test("doctor reports invalid configuration without probing Members", async () => {
 	let probes = 0;
 	const deps = dependencies(async () => {
 		probes += 1;
@@ -135,7 +139,7 @@ test("doctor reports invalid configuration without probing or mutating it", asyn
 	assert.equal(result.crews[0]?.status, "configuration-error");
 });
 
-test("doctor cancellation is terminal and does not probe later Members", async () => {
+test("doctor skips all Member probes when the request is already cancelled", async () => {
 	const controller = new AbortController();
 	controller.abort(new Error("cancelled by caller"));
 	let probes = 0;
