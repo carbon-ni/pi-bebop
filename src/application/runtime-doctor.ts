@@ -216,82 +216,78 @@ function sanitizeDiagnostic(member: DoctorMemberResult, diagnostic: boolean): Do
 	return safe;
 }
 
-/** Bounded, read-only diagnosis. All Members are inspected independently. */
+async function diagnoseMember(
+	member: CrewManifest["members"][number],
+	request: RuntimeDoctorRequest,
+	deps: RuntimeDoctorDependencies,
+): Promise<DoctorMemberResult> {
+	if (request.signal.aborted) return failure(member.name, member.role, "cancelled");
+
+	const controller = new AbortController();
+	const signal = AbortSignal.any([request.signal, controller.signal]);
+	const timeoutMs = request.timeoutSeconds * 1000;
+	let timedOut = false;
+	const timeout = setTimeout(() => {
+		if (signal.aborted) return;
+		timedOut = true;
+		controller.abort(new Error("doctor timeout"));
+	}, timeoutMs);
+
+	try {
+		const probe = await deps.probeRuntime(member.socketPath, { timeoutMs, signal });
+		if (signal.aborted) return failure(member.name, member.role, timedOut ? "timeout" : "cancelled");
+		if (probe.kind === "error") return failure(member.name, member.role, classifyError(probe));
+		return inspectCompatibility(member.name, member.role, probe.value);
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+/** Bounded, read-only diagnosis. Each Member gets its own probe deadline. */
 export async function diagnoseRuntimeCompatibility(
 	request: RuntimeDoctorRequest,
 	deps: RuntimeDoctorDependencies,
 ): Promise<DoctorResult> {
-	const controller = new AbortController();
-	const onAbort = () => controller.abort(request.signal.reason);
-	if (request.signal.aborted) controller.abort(request.signal.reason);
-	else request.signal.addEventListener("abort", onAbort, { once: true });
-	const timeout = setTimeout(() => controller.abort(new Error("doctor timeout")), request.timeoutSeconds * 1000);
 	const crews: DoctorCrewResult[] = [];
 	let partial = false;
-	try {
-		for (const manifestPath of deps.discoverManifestPaths(request.projectRoot)) {
-			if (controller.signal.aborted) {
-				partial = true;
-				break;
-			}
-			let manifest: CrewManifest;
-			try {
-				manifest = await deps.readManifest(manifestPath, request.projectRoot);
-			} catch {
-				partial = true;
-				crews.push({
-					status: "configuration-error",
-					configuration: "invalid",
-					members: [],
-					message: "Crew configuration is invalid or unavailable.",
-					next: "Fix the trusted Crew configuration, then rerun `bebop doctor`.",
-				});
-				continue;
-			}
-			const members = await Promise.all(
-				manifest.members.map(async (member) => {
-					if (controller.signal.aborted) return failure(member.name, member.role, "cancelled");
-					const probe = await deps.probeRuntime(member.socketPath, {
-						timeoutMs: request.timeoutSeconds * 1000,
-						signal: controller.signal,
-					});
-					if (probe.kind === "error") {
-						const status = classifyError(probe);
-						return failure(member.name, member.role, status);
-					}
-					return inspectCompatibility(member.name, member.role, probe.value);
-				}),
-			);
-			const safeMembers = members.map((member) => sanitizeDiagnostic(member, request.diagnostic));
-			const hasIssues = safeMembers.some((member) => member.status !== "compatible");
-			partial ||= hasIssues;
-			crews.push({
-				...(manifest.crew === undefined
-					? {}
-					: { selector: manifest.crew.id, displayName: manifest.crew.displayName }),
-				status: hasIssues ? "issues" : "healthy",
-				configuration: "healthy",
-				members: safeMembers,
-			});
+	for (const manifestPath of deps.discoverManifestPaths(request.projectRoot)) {
+		if (request.signal.aborted) {
+			partial = true;
+			break;
 		}
-		const status = controller.signal.aborted
-			? request.signal.aborted
-				? "cancelled"
-				: "issues"
-			: crews.length === 0
-				? "empty"
-				: partial
-					? "issues"
-					: "healthy";
-		return {
-			status,
-			cli: deps.cli,
-			crews,
-			configuration: crews.some((crew) => crew.configuration === "invalid") ? "issues" : "healthy",
-			partial,
-		};
-	} finally {
-		clearTimeout(timeout);
-		request.signal.removeEventListener("abort", onAbort);
+		let manifest: CrewManifest;
+		try {
+			manifest = await deps.readManifest(manifestPath, request.projectRoot);
+		} catch {
+			partial = true;
+			crews.push({
+				status: "configuration-error",
+				configuration: "invalid",
+				members: [],
+				message: "Crew configuration is invalid or unavailable.",
+				next: "Fix the trusted Crew configuration, then rerun `bebop doctor`.",
+			});
+			continue;
+		}
+		const members = await Promise.all(manifest.members.map((member) => diagnoseMember(member, request, deps)));
+		const safeMembers = members.map((member) => sanitizeDiagnostic(member, request.diagnostic));
+		const hasIssues = safeMembers.some((member) => member.status !== "compatible");
+		partial ||= hasIssues;
+		crews.push({
+			...(manifest.crew === undefined
+				? {}
+				: { selector: manifest.crew.id, displayName: manifest.crew.displayName }),
+			status: hasIssues ? "issues" : "healthy",
+			configuration: "healthy",
+			members: safeMembers,
+		});
 	}
+	const status = request.signal.aborted ? "cancelled" : crews.length === 0 ? "empty" : partial ? "issues" : "healthy";
+	return {
+		status,
+		cli: deps.cli,
+		crews,
+		configuration: crews.some((crew) => crew.configuration === "invalid") ? "issues" : "healthy",
+		partial,
+	};
 }

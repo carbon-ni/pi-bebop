@@ -33,3 +33,11 @@ test("runtime compatibility exposes version provenance and capabilities without 
 	assert.equal("credentials" in result, false);
 	assert.equal("socket" in result, false);
 });
+
+test("partial compatibility metadata is accepted only for the diagnostic method", () => {
+	const missingVersion = { product: "pi-bebop", capabilities: [] };
+
+	assert.equal(isMethodResult("runtime.compatibility", missingVersion), true);
+	assert.equal(isMethodResult("member.follow_up", missingVersion), false);
+	assert.equal(isMethodResult("member.request_start", missingVersion), false);
+});

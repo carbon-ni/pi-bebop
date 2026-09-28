@@ -16,19 +16,24 @@ export const RuntimeCompatibilityCommandSchema = Type.Object(
 	{ type: Type.Literal("runtime_compatibility"), id: Type.Optional(RpcIdSchema) },
 	{ additionalProperties: false },
 );
+// Missing metadata is diagnostic evidence, not a malformed RPC envelope.
+// Present fields retain their bounds; the doctor classifies version validity.
 export const RuntimeCompatibilityResultSchema = Type.Object(
 	{
 		product: Type.Literal("pi-bebop"),
-		protocol: Type.Object(
-			{
-				name: Type.Literal("pi-bebop"),
-				major: Type.Integer({ minimum: 0 }),
-				minor: Type.Integer({ minimum: 0 }),
-			},
-			{ additionalProperties: false },
+		protocol: Type.Optional(
+			Type.Object(
+				{
+					name: Type.Literal("pi-bebop"),
+					major: Type.Integer({ minimum: 0 }),
+					minor: Type.Integer({ minimum: 0 }),
+				},
+				{ additionalProperties: false },
+			),
 		),
-		packageVersion: Type.String({ minLength: 1, maxLength: 64 }),
-		buildCommit: Type.String({ minLength: 1, maxLength: 64 }),
+		packageVersion: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
+		buildCommit: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
+
 		capabilities: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 128 }),
 	},
 	{ additionalProperties: false },

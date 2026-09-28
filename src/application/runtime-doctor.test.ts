@@ -5,6 +5,7 @@ import {
 	diagnoseRuntimeCompatibility,
 	type RuntimeDoctorDependencies,
 	type RuntimeDoctorRequest,
+	type RuntimeProbe,
 } from "./runtime-doctor.ts";
 
 const request = (overrides: Partial<RuntimeDoctorRequest> = {}): RuntimeDoctorRequest => ({
@@ -160,4 +161,63 @@ test("doctor returns no rows for an empty trusted discovery", async () => {
 	const result = await diagnoseRuntimeCompatibility(request(), deps);
 	assert.equal(result.status, "empty");
 	assert.deepEqual(result.crews, []);
+});
+
+for (const [cause, memberStatus, overallStatus] of [
+	["deadline", "timeout", "issues"],
+	["caller cancellation", "cancelled", "cancelled"],
+] as const) {
+	test(`doctor distinguishes ${cause} while Member probes are pending`, async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const controller = new AbortController();
+		let notifyStarted!: () => void;
+		const probeStarted = new Promise<void>((resolve) => {
+			notifyStarted = resolve;
+		});
+		const deps = dependencies(
+			async (_socketPath, { signal }) =>
+				new Promise<RuntimeProbe>((resolve) => {
+					signal.addEventListener("abort", () => resolve({ kind: "error", code: "aborted" }), { once: true });
+					notifyStarted();
+				}),
+		);
+
+		const pending = diagnoseRuntimeCompatibility(request({ signal: controller.signal }), deps);
+		await probeStarted;
+		if (cause === "deadline") t.mock.timers.tick(1_000);
+		else controller.abort();
+		const result = await pending;
+
+		assert.equal(result.status, overallStatus);
+		assert.deepEqual(
+			result.crews[0]?.members.map((member) => member.status),
+			[memberStatus, memberStatus],
+		);
+	});
+}
+
+test("doctor gives later Crews their own Member deadline after an earlier timeout", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const deps: RuntimeDoctorDependencies = {
+		...dependencies(async (socketPath) => {
+			if (socketPath === "/slow") {
+				t.mock.timers.tick(1_000);
+				return { kind: "error", code: "aborted" };
+			}
+			return { kind: "response", value: valid() };
+		}),
+		discoverManifestPaths: () => ["/slow", "/fast"],
+		readManifest: async (socketPath) => ({
+			...manifest(),
+			members: [{ name: "Alice", role: "developer", socket: "runtime.sock", socketPath }],
+		}),
+	};
+
+	const result = await diagnoseRuntimeCompatibility(request(), deps);
+
+	assert.equal(result.status, "issues");
+	assert.deepEqual(
+		result.crews.map((crew) => crew.members[0]?.status),
+		["timeout", "compatible"],
+	);
 });

@@ -4,8 +4,6 @@ import { sendRpcCommand, RpcProtocolError } from "./rpc-client.ts";
 import { currentRuntimeCompatibility } from "../domain/index.ts";
 import type { RuntimeDoctorDependencies, RuntimeProbe } from "../application/runtime-doctor.ts";
 
-const PROBE_TIMEOUT_MS = 2_000;
-
 function probeError(error: unknown): RuntimeProbe {
 	if (error instanceof RpcProtocolError) {
 		if (error.code === "timeout" || /timeout/i.test(error.message)) return { kind: "error", code: "timeout" };
@@ -28,7 +26,7 @@ export function createRuntimeDoctorDependencies(): RuntimeDoctorDependencies {
 				const { response } = await sendRpcCommand(
 					socketPath,
 					{ type: "runtime_compatibility" },
-					{ timeout: Math.min(options.timeoutMs, PROBE_TIMEOUT_MS), signal: options.signal },
+					{ timeout: options.timeoutMs, signal: options.signal },
 				);
 				if (!response.success) return { kind: "error", code: "remote-rejected", message: response.error };
 				return { kind: "response", value: response.data };
