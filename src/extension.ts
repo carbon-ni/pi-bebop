@@ -19,15 +19,20 @@ import {
 	registerSendMemberRequestTool,
 	registerRespondToMemberRequestTool,
 	registerWaitForRequestOutcomeTool,
+	createMemberRequestOperation,
 } from "./tools/index.ts";
 import { createMemberMessageCoordinator } from "./application/member-message.ts";
 import { createPresenceComposition } from "./pi/presence-composition.ts";
 import { createPresenceObserverAdapter } from "./application/presence-adapter.ts";
 import { createMemberStatusTransport } from "./infra/member-status-transport.ts";
+import {
+	createInProcessMemberIdleWaitOperation,
+	createInProcessMemberInterruptOperation,
+	createInProcessMemberStatusOperation,
+} from "./sdk/index.ts";
 import { sendMemberIdleWait, sendRpcCommand, sendMemberRequest } from "./infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "./infra/socket-endpoint.ts";
 import { probeMemberEndpoint } from "./infra/member-endpoint.ts";
-import { type MemberIdleWaitCommand } from "./domain/index.ts";
 import {
 	activateMembershipTool,
 	createSocketState,
@@ -162,9 +167,10 @@ export default function (pi: ExtensionAPI) {
 			);
 		},
 	});
-	registerSendMemberRequestTool(pi, state);
-	registerRespondToMemberRequestTool(pi, state);
-	registerWaitForRequestOutcomeTool(pi, state);
+	const memberRequestOperation = createMemberRequestOperation(state);
+	registerSendMemberRequestTool(pi, state, memberRequestOperation);
+	registerRespondToMemberRequestTool(pi, state, memberRequestOperation);
+	registerWaitForRequestOutcomeTool(pi, state, memberRequestOperation);
 
 	const memberMessageDependencies = {
 		transport: { send: sendRpcCommand },
@@ -177,25 +183,58 @@ export default function (pi: ExtensionAPI) {
 	registerRedirectMemberTool(pi, state, memberMessageDependencies);
 	registerSendToInboxTool(pi, state);
 	registerBroadcastToCrewTool(pi, state, memberMessageDependencies);
-	registerInterruptMemberTool(pi, state);
-	registerGetMemberStatusTool(pi, state, createMemberStatusTransport());
-	registerWaitForMemberIdleTool(pi, state, {
-		probeEndpoint: (socketPath) => probeMemberEndpoint(socketPath),
-		requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
-			try {
-				const resolved = await resolveMemberEndpoint(endpoint);
-				const command: MemberIdleWaitCommand = {
-					type: "member_idle_wait",
-					member: memberLabel,
-					forwarded: true,
-				};
-				return await sendMemberIdleWait(resolved, command, { timeoutSeconds, signal });
-			} catch (error) {
-				if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
-				return { ok: false, code: "transport-error" };
-			}
+	const memberInterruptOperation = createInProcessMemberInterruptOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+		},
+		resolveEndpoint: resolveMemberEndpoint,
+		transport: {
+			send: (endpoint, command, options) =>
+				sendRpcCommand(endpoint, command, {
+					timeout: options.timeoutMs,
+					signal: options.signal,
+					classifyLostAck: options.classifyLostAck,
+				}),
+		},
+		now: state.now,
+	});
+	registerInterruptMemberTool(pi, memberInterruptOperation);
+	const memberStatusTransport = createMemberStatusTransport();
+	const memberStatusOperation = createInProcessMemberStatusOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			isIdle: () => false,
+			hasPendingMessages: () => false,
+			probeEndpoint: (socketPath, signal) => memberStatusTransport.probeEndpoint(socketPath, signal),
+			requestStatus: (endpoint, member, signal) => memberStatusTransport.requestStatus(endpoint, member, signal),
+			now: () => new Date().toISOString(),
 		},
 	});
+	registerGetMemberStatusTool(pi, memberStatusOperation);
+	const memberIdleWaitOperation = createInProcessMemberIdleWaitOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			probeEndpoint: (socketPath, signal) => probeMemberEndpoint(socketPath, { signal }),
+			requestIdleWait: async (endpoint, memberLabel, { timeoutSeconds, signal }) => {
+				try {
+					const resolved = await resolveMemberEndpoint(endpoint);
+					return await sendMemberIdleWait(
+						resolved,
+						{ type: "member_idle_wait", member: memberLabel, forwarded: true },
+						{ timeoutSeconds, signal },
+					);
+				} catch (error) {
+					if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
+					return { ok: false, code: "transport-error" };
+				}
+			},
+			now: () => new Date().toISOString(),
+		},
+	});
+	registerWaitForMemberIdleTool(pi, state, memberIdleWaitOperation);
 
 	const presenceComposition = createPresenceComposition({
 		getMembership: () => {

@@ -47,7 +47,10 @@ function setup(
 		},
 	} as unknown as ExtensionAPI;
 	const state = createSocketState();
-	state.context = { sessionManager: { getSessionId: () => "dev-session", getSessionName: () => "dev" } } as never;
+	state.context = {
+		sessionManager: { getSessionId: () => "dev-session", getSessionName: () => "dev" },
+		isProjectTrusted: () => true,
+	} as never;
 	state.membershipRuntime = {
 		getMembership: () => (joined ? currentMembership : null),
 	} as unknown as MembershipRuntime;
@@ -190,13 +193,10 @@ test("uses follow-up by default and maps immediate to explicit steering", async 
 	assert.equal(immediate.isError, undefined);
 	assert.equal(calls[0].command.delivery, "follow_up");
 	assert.equal(calls[1].command.delivery, "immediate");
-	assert.deepEqual(
-		calls.map((call) => call.options),
-		[
-			{ signal: undefined, classifyLostAck: true },
-			{ signal: undefined, classifyLostAck: true },
-		],
-	);
+	assert.equal(calls[0].options.classifyLostAck, true);
+	assert.ok(calls[0].options.signal instanceof AbortSignal, "Follow-up operation owns its bounded signal");
+	assert.equal(calls[1].options.classifyLostAck, true);
+	assert.ok(calls[1].options.signal instanceof AbortSignal, "Redirect operation owns its bounded signal");
 });
 
 test("proves FIFO follow-ups wait for the first ack and immediates start concurrently", async () => {

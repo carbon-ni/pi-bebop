@@ -1,8 +1,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerGetMemberStatusTool, type MemberStatusToolTransport } from "./get-member-status.ts";
-import type { SocketState } from "../pi/control-runtime.ts";
+import {
+	BebopClientError,
+	createInProcessMemberStatusOperation,
+	type InProcessMemberStatusSurface,
+	type MemberStatusOperation,
+} from "../sdk/index.ts";
+import { registerGetMemberStatusTool } from "./get-member-status.ts";
 
 type RegisteredTool = {
 	name: string;
@@ -11,6 +16,7 @@ type RegisteredTool = {
 	execute(
 		toolCallId: string,
 		params: Record<string, unknown>,
+		signal?: AbortSignal,
 	): Promise<{
 		content: Array<{ type: "text"; text: string }>;
 		isError?: boolean;
@@ -18,32 +24,23 @@ type RegisteredTool = {
 	}>;
 };
 
-function setup(membership: unknown | (() => unknown), transport: Partial<MemberStatusToolTransport> = {}) {
+function setup(operation?: MemberStatusOperation) {
 	let registeredTool: RegisteredTool | undefined;
 	const pi = {
 		registerTool(tool: unknown) {
 			registeredTool = tool as RegisteredTool;
 		},
 	} as unknown as ExtensionAPI;
-	const getMembership = typeof membership === "function" ? (membership as () => unknown) : () => membership;
-	const state = {
-		membershipRuntime: { getMembership },
-		context: { isProjectTrusted: () => true },
-	} as never as SocketState;
-	const defaultTransport: MemberStatusToolTransport = {
-		probeEndpoint: async () => true,
-		requestStatus: async () => ({
-			ok: true,
-			status: {
-				member: { name: "Bob", role: "dev" },
-				presence: "online",
-				activity: "idle",
-				hasPendingMessages: false,
-				observedAt: "2026-08-23T12:03:00.000Z",
-			},
+	const statusOperation = operation ?? {
+		getMemberStatus: async () => ({
+			member: { name: "Bob", role: "dev" },
+			presence: "online",
+			activity: "idle",
+			hasPendingMessages: false,
+			observedAt: "2026-08-23T12:03:00.000Z",
 		}),
 	};
-	registerGetMemberStatusTool(pi, state, { ...defaultTransport, ...transport });
+	registerGetMemberStatusTool(pi, statusOperation);
 	assert.ok(registeredTool);
 	return registeredTool!;
 }
@@ -85,7 +82,7 @@ const membership = {
 
 describe("get_member_status tool", () => {
 	test("registers with only the member param and an honest mechanical description", () => {
-		const tool = setup(membership);
+		const tool = setup();
 		assert.equal(tool.name, "get_member_status");
 		const properties = Object.keys((tool.parameters as { properties: Record<string, unknown> }).properties);
 		assert.deepEqual(properties, ["member"]);
@@ -93,34 +90,74 @@ describe("get_member_status tool", () => {
 		assert.match(tool.description, /never starts|does not start|no turn|without triggering/);
 	});
 
-	test("unjoined execution resolves to a not-joined error before any probe", async () => {
-		let probed = 0;
-		const tool = setup(() => null, { probeEndpoint: async () => ((probed += 1), true) });
-		const result = await tool.execute("id", { member: "Bob" });
-		assert.equal(result.isError, true);
-		assert.equal((result.details as { error?: string }).error, "not-joined");
-		assert.equal(probed, 0);
+	test("the tool delegates the trimmed target and active turn cancellation to the SDK operation", async () => {
+		let request: { member?: string; signal?: AbortSignal } = {};
+		const signal = new AbortController().signal;
+		const tool = setup({
+			getMemberStatus: async (member, options) => {
+				request = { member, signal: options?.signal };
+				return {
+					member: { name: "Bob", role: "dev" },
+					presence: "online",
+					activity: "busy",
+					hasPendingMessages: true,
+					observedAt: "2026-08-23T12:03:00.000Z",
+				};
+			},
+		});
+		const result = await tool.execute("id", { member: " Bob " }, signal);
+		assert.deepEqual(request, { member: "Bob", signal });
+		assert.equal(result.isError, undefined);
+		assert.match(result.content[0]!.text, /Bob \(dev\)/);
+		assert.match(result.content[0]!.text, /pending messages/);
 	});
 
-	test("configured offline target returns compact offline result without querying", async () => {
+	test("SDK operation errors retain the compact tool error shape", async () => {
+		const tool = setup({
+			getMemberStatus: async () => {
+				throw new BebopClientError("self-query", "Cannot query your own status");
+			},
+		});
+		const result = await tool.execute("id", { member: "Tony" });
+		assert.equal(result.isError, true);
+		assert.deepEqual(result.details, { error: "self-query" });
+		assert.match(result.content[0]!.text, /^\[Tony\] Cannot query your own status$/);
+	});
+
+	test("offline status keeps the compact success result and skips the peer request", async () => {
 		let requests = 0;
-		const tool = setup(membership, {
+		const surface: InProcessMemberStatusSurface = {
+			getMembership: () => membership,
+			isTrusted: () => true,
+			isIdle: () => false,
+			hasPendingMessages: () => false,
 			probeEndpoint: async () => false,
 			requestStatus: async () => {
 				requests += 1;
-				return { ok: true, status: {} as never };
+				return { ok: false, code: "transport-error" };
 			},
-		});
-		const result = await tool.execute("id", { member: "Bob" });
+			now: () => "2026-08-23T12:03:00.000Z",
+		};
+		const result = await setup(createInProcessMemberStatusOperation({ surface })).execute("id", { member: "Bob" });
 		assert.equal(result.isError, undefined);
-		const text = result.content[0]!.text;
-		assert.match(text, /offline/);
-		assert.match(text, /activity unavailable/);
+		assert.match(result.content[0]!.text, /offline/);
+		assert.match(result.content[0]!.text, /activity unavailable/);
 		assert.equal(requests, 0);
 	});
 
-	test("online target returns formatted status with mechanical labels", async () => {
-		const tool = setup(membership, {
+	test("in-process operation keeps live joined/trusted authority and excludes Guest-only sessions", async () => {
+		let currentMembership: typeof membership | null = membership;
+		let trusted = true;
+		let probes = 0;
+		const surface: InProcessMemberStatusSurface = {
+			getMembership: () => currentMembership,
+			isTrusted: () => trusted,
+			isIdle: () => false,
+			hasPendingMessages: () => false,
+			probeEndpoint: async () => {
+				probes += 1;
+				return true;
+			},
 			requestStatus: async () => ({
 				ok: true,
 				status: {
@@ -131,33 +168,88 @@ describe("get_member_status tool", () => {
 					observedAt: "2026-08-23T12:03:00.000Z",
 				},
 			}),
-		});
-		const result = await tool.execute("id", { member: "Bob" });
-		assert.equal(result.isError, undefined);
-		const text = result.content[0]!.text;
-		assert.match(text, /Bob \(dev\)/);
-		assert.match(text, /online/);
-		assert.match(text, /busy/);
-		assert.match(text, /pending messages/);
+			now: () => "2026-08-23T12:03:00.000Z",
+		};
+		const tool = setup(createInProcessMemberStatusOperation({ surface }));
+
+		assert.equal((await tool.execute("id", { member: "Bob" })).isError, undefined);
+		currentMembership = null; // Guest-only sessions have no joined Member membership.
+		const guestOnly = await tool.execute("id", { member: "Bob" });
+		assert.equal((guestOnly.details as { error?: string }).error, "not-joined");
+		assert.equal(probes, 1);
+
+		currentMembership = membership; // Rejoin is observed without rebuilding the operation.
+		assert.equal((await tool.execute("id", { member: "Bob" })).isError, undefined);
+		assert.equal(probes, 2);
+
+		trusted = false;
+		const untrusted = await tool.execute("id", { member: "Bob" });
+		assert.equal((untrusted.details as { error?: string }).error, "untrusted");
+		assert.equal(probes, 2);
 	});
 
-	test("unknown, ambiguous, and self targets are deterministic errors", async () => {
-		const unknown = await setup(membership).execute("id", { member: "Nobody" });
-		assert.equal((unknown.details as { error?: string }).error, "unknown-member");
-		const ambiguous = await setup(membership).execute("id", { member: "dev" });
-		assert.equal((ambiguous.details as { error?: string }).error, "ambiguous-member");
-		const self = await setup(membership).execute("id", { member: "Tony" });
+	test("in-process operation rejects self and foreign identity before reporting status", async () => {
+		const probes: string[] = [];
+		const requests: string[] = [];
+		const surface: InProcessMemberStatusSurface = {
+			getMembership: () => membership,
+			isTrusted: () => true,
+			isIdle: () => false,
+			hasPendingMessages: () => false,
+			probeEndpoint: async (socketPath) => {
+				probes.push(socketPath);
+				return true;
+			},
+			requestStatus: async (socketPath) => {
+				requests.push(socketPath);
+				return {
+					ok: true,
+					status: {
+						member: { name: "Mallory", role: "dev" },
+						presence: "online",
+						activity: "idle",
+						hasPendingMessages: false,
+						observedAt: "2026-08-23T12:03:00.000Z",
+					},
+				};
+			},
+			now: () => "2026-08-23T12:03:00.000Z",
+		};
+		const tool = setup(createInProcessMemberStatusOperation({ surface }));
+		const self = await tool.execute("id", { member: "Tony" });
 		assert.equal((self.details as { error?: string }).error, "self-query");
+		assert.deepEqual(probes, []);
+		assert.deepEqual(requests, []);
+		const foreign = await tool.execute("id", { member: "Bob" });
+		assert.equal((foreign.details as { error?: string }).error, "malformed-response");
+		assert.deepEqual(probes, ["/project/.pi/bebop/sockets/Bob.sock"]);
+		assert.deepEqual(requests, ["/project/.pi/bebop/sockets/Bob.sock"]);
 	});
 
-	test("malformed online peer output and peer rejection map to deterministic errors", async () => {
-		const malformed = await setup(membership, {
-			requestStatus: async () => ({ ok: true, status: { presence: "online" } as never }),
-		}).execute("id", { member: "Bob" });
-		assert.equal((malformed.details as { error?: string }).error, "malformed-response");
-		const rejected = await setup(membership, {
-			requestStatus: async () => ({ ok: false, code: "timeout" }),
-		}).execute("id", { member: "Bob" });
-		assert.equal((rejected.details as { error?: string }).error, "timeout");
+	test("tool cancellation aborts the in-process operation without turn effects", async () => {
+		let receivedSignal: AbortSignal | undefined;
+		let localStateReads = 0;
+		const surface: InProcessMemberStatusSurface = {
+			getMembership: () => membership,
+			isTrusted: () => true,
+			isIdle: () => ((localStateReads += 1), false),
+			hasPendingMessages: () => ((localStateReads += 1), false),
+			probeEndpoint: async (_socketPath, signal) =>
+				await new Promise<boolean>((resolve) => {
+					receivedSignal = signal;
+					signal?.addEventListener("abort", () => resolve(false), { once: true });
+				}),
+			requestStatus: async () => ({ ok: false, code: "aborted" }),
+			now: () => "2026-08-23T12:03:00.000Z",
+		};
+		const tool = setup(createInProcessMemberStatusOperation({ surface }));
+		const controller = new AbortController();
+		const pending = tool.execute("id", { member: "Bob" }, controller.signal);
+		controller.abort();
+		const result = await pending;
+		assert.ok(receivedSignal);
+		assert.equal(receivedSignal.aborted, true);
+		assert.equal((result.details as { error?: string }).error, "aborted");
+		assert.equal(localStateReads, 0);
 	});
 });

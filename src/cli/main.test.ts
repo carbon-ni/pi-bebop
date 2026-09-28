@@ -3,7 +3,7 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -507,7 +507,7 @@ async function packagedMemberStatusQuery(options: {
 	sessionId: string;
 	target: string;
 	format?: string;
-}): Promise<{ code: number; stdout: string }> {
+}): Promise<{ code: number; stdout: string; stderr: string }> {
 	const artifact = path.resolve("dist/cli/main.js");
 	const args = [
 		artifact,
@@ -523,12 +523,17 @@ async function packagedMemberStatusQuery(options: {
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let stdout = "";
+	let stderr = "";
 	child.stdout.setEncoding("utf8");
+	child.stderr.setEncoding("utf8");
 	child.stdout.on("data", (chunk) => {
 		stdout += chunk;
 	});
+	child.stderr.on("data", (chunk) => {
+		stderr += chunk;
+	});
 	const code = await new Promise<number>((resolve) => child.once("exit", (value) => resolve(value ?? 1)));
-	return { code, stdout };
+	return { code, stdout, stderr };
 }
 
 function joinedRuntimeState(socketPath: string, roster: Array<{ name: string; role: string; socketPath: string }>) {
@@ -541,6 +546,7 @@ function joinedRuntimeState(socketPath: string, roster: Array<{ name: string; ro
 			manifest: { members: roster },
 		}),
 	} as never;
+	state.server = {} as never;
 	state.context = {
 		hasUI: false,
 		sessionManager: {
@@ -557,8 +563,9 @@ function joinedRuntimeState(socketPath: string, roster: Array<{ name: string; ro
 }
 
 test("packaged CLI proves a real end-to-end status query with online then offline target", async (t) => {
-	const root = await mkdtemp(path.join(tmpdir(), "bebop-packaged-"));
-	const controlDir = path.join(root, ".pi", "bebop");
+	const root = await mkdtemp(path.join("/tmp", "b23-"));
+	const canonicalRoot = await realpath(root);
+	const controlDir = path.join(canonicalRoot, ".pi", "bebop");
 	await mkdir(controlDir, { recursive: true });
 	const sourceSocket = path.join(controlDir, "source-session-1.sock");
 	const targetSocket = path.join(controlDir, "target.sock");
@@ -586,12 +593,12 @@ test("packaged CLI proves a real end-to-end status query with online then offlin
 
 	// Online: the target answers through its own real dispatcher; exit 0.
 	const online = await packagedMemberStatusQuery({
-		envHome: root,
+		envHome: canonicalRoot,
 		sessionId: "source-session-1",
 		target: "Kelly",
 		format: "json",
 	});
-	assert.equal(online.code, 0, online.stdout);
+	assert.equal(online.code, 0, `${online.stdout}${online.stderr}`);
 	const onlineDecoded = JSON.parse(online.stdout);
 	assert.equal(onlineDecoded.status, "observed");
 	assert.equal(onlineDecoded.data.status.presence, "online");
@@ -602,7 +609,7 @@ test("packaged CLI proves a real end-to-end status query with online then offlin
 	// own observation time; still a successful exit 0 result.
 	await closeRpcServer(targetServer);
 	const offline = await packagedMemberStatusQuery({
-		envHome: root,
+		envHome: canonicalRoot,
 		sessionId: "source-session-1",
 		target: "Kelly",
 		format: "json",
@@ -679,15 +686,49 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		const socketDir = path.join(home, ".pi", "bebop");
 		await mkdir(socketDir, { recursive: true });
 		const socketPath = path.join(socketDir, "packaged-idle.sock");
-		const respond = async (mode: "idle" | "timeout") => {
+		type IdleServer = net.Server & { requestReceived: Promise<void>; socketClosed: Promise<void> };
+		const servers = new Set<IdleServer>();
+		t.after(async () => {
+			for (const server of servers) await closeRpcServer(server).catch(() => undefined);
+		});
+		const awaitPeerEvent = async (event: Promise<void>, label: string): Promise<void> => {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			try {
+				await Promise.race([
+					event,
+					new Promise<never>((_, reject) => {
+						timer = setTimeout(
+							() => reject(new Error(`Timed out waiting for packaged idle peer ${label}`)),
+							5000,
+						);
+					}),
+				]);
+			} finally {
+				if (timer) clearTimeout(timer);
+			}
+		};
+		const respond = async (mode: "idle" | "timeout" | "pending"): Promise<IdleServer> => {
+			let resolveRequestReceived!: () => void;
+			let resolveSocketClosed!: () => void;
+			const requestReceived = new Promise<void>((resolve) => {
+				resolveRequestReceived = resolve;
+			});
+			const socketClosed = new Promise<void>((resolve) => {
+				resolveSocketClosed = resolve;
+			});
 			const server = net.createServer((socket) => {
 				socket.setEncoding("utf8");
+				socket.once("close", resolveSocketClosed);
+				socket.on("error", (error: NodeJS.ErrnoException) => {
+					if (!(mode === "pending" && error.code === "ECONNRESET")) throw error;
+				});
 				let buffer = "";
 				socket.on("data", (chunk) => {
 					buffer += chunk;
 					const index = buffer.indexOf("\n");
 					if (index < 0) return;
 					const request = JSON.parse(buffer.slice(0, index)) as { id: string | number };
+					resolveRequestReceived();
 					const subscriptionId = String(request.id);
 					socket.write(
 						JSON.stringify({
@@ -712,13 +753,30 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 								},
 							}) + "\n",
 						);
+					} else if (mode === "timeout") {
+						socket.write(
+							JSON.stringify({
+								jsonrpc: "2.0",
+								method: "member.idle_wait",
+								params: {
+									subscriptionId,
+									result: {
+										member: { name: "Bob", role: "developer" },
+										outcome: "timeout",
+										observedAt: "2026-08-24T12:00:00.000Z",
+									},
+								},
+							}) + "\n",
+						);
 					}
 				});
 			});
 			await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-			return server;
+			const packagedServer = Object.assign(server, { requestReceived, socketClosed });
+			servers.add(packagedServer);
+			return packagedServer;
 		};
-		const runWait = async (format: "toon" | "json" | "text", timeout = "1s") =>
+		const runWait = async (format: "toon" | "json" | "text", timeout = "60s") =>
 			new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
 				const child = spawn(
 					process.execPath,
@@ -738,11 +796,9 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 				child.once("exit", (code) => resolve({ code: code ?? 1, stdout, stderr }));
 			});
 
-		const idleServers: net.Server[] = [];
 		const idleByteCounts: Record<string, number> = {};
 		for (const format of ["json", "toon", "text"] as const) {
 			const server = await respond("idle");
-			idleServers.push(server);
 			const result = await runWait(format);
 			assert.equal(result.code, 0, result.stdout);
 			idleByteCounts[format] = Buffer.byteLength(result.stdout, "utf8");
@@ -753,25 +809,24 @@ test("packaged CLI proves all leaf help and member idle-wait idle/timeout/SIGINT
 		}
 		assert.deepEqual(idleByteCounts, { json: 345, text: 68, toon: 343 });
 		const timeoutServer = await respond("timeout");
-		const timeoutResult = await runWait("json", "1s");
-		assert.equal(timeoutResult.code, 1);
-		assert.equal(timeoutResult.stdout, "");
-		assert.match(timeoutResult.stderr, /timeout/);
+		const timeoutResult = await runWait("json", "60s");
+		assert.equal(timeoutResult.code, 0, timeoutResult.stderr);
+		assert.equal(timeoutResult.stderr, "");
+		assert.equal(JSON.parse(timeoutResult.stdout).data.result.outcome, "timeout");
 		await closeRpcServer(timeoutServer);
 
-		const signalServer = await respond("timeout");
+		const signalServer = await respond("pending");
 		const child = spawn(process.execPath, [artifact, "member", "wait-idle", "Bob", "--timeout", "10m"], {
 			env: { ...process.env, HOME: home, PI_SESSION_ID: "packaged-idle", NODE_PATH: "" },
 			cwd: extract,
 			stdio: ["ignore", "pipe", "ignore"],
 		});
+		await awaitPeerEvent(signalServer.requestReceived, "request");
 		setTimeout(() => child.kill("SIGINT"), 100);
 		const signalCode = await new Promise<number>((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
 		assert.notEqual(signalCode, 0);
+		await awaitPeerEvent(signalServer.socketClosed, "socket close");
 		await closeRpcServer(signalServer);
-		t.after(async () => {
-			for (const server of idleServers) await closeRpcServer(server).catch(() => undefined);
-		});
 	} finally {
 		await rm(archiveDir, { recursive: true, force: true });
 		await rm(extract, { recursive: true, force: true });

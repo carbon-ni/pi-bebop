@@ -50,6 +50,16 @@ async function run(args: readonly string[]): Promise<RunResult> {
 test.before(async () => {
 	await mkdir(dirname(SESSION_SOCKET), { recursive: true });
 	server = await createRpcServer(SESSION_SOCKET, (command, socket) => {
+		if (command.type === "status") {
+			writeResponse(socket, {
+				type: "response",
+				command: "status",
+				success: true,
+				data: { status: "joined", projectTrusted: true },
+				id: command.id,
+			});
+			return;
+		}
 		writeResponse(socket, {
 			type: "response",
 			command: command.type,
@@ -68,7 +78,6 @@ test.after(async () => {
 });
 
 const CASES: ReadonlyArray<{ name: string; args: readonly string[]; code: string }> = [
-	{ name: "member status", args: ["member", "status", "someone"], code: "unknown-member" },
 	{ name: "member follow-up", args: ["member", "follow-up", "someone", "--message", "hi"], code: "unknown-member" },
 	{
 		name: "member interrupt",

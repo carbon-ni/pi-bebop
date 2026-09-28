@@ -52,6 +52,19 @@ test("interrupt reader preserves recovery guidance options", () => {
 		stdin: false,
 		format: "text",
 	});
+
+	const stdinCommand = buildMemberInterruptCommand()
+		.exitOverride()
+		.configureOutput({ writeOut: () => {}, writeErr: () => {}, outputError: () => {} });
+	stdinCommand.parse(["node", "interrupt", "Kelly", "--session", "source-session", "--stdin"], { from: "node" });
+	assert.deepEqual(readMemberInterruptCommand(stdinCommand), {
+		command: "member-interrupt",
+		member: "Kelly",
+		session: "source-session",
+		instructions: [],
+		stdin: true,
+		format: "text",
+	});
 });
 
 test("interrupt transport mapper covers protocol and socket errors", () => {
@@ -91,10 +104,19 @@ test("interrupt default transport maps accepted, rejected, and malformed acknowl
 	try {
 		const success = await defaultMemberInterruptCliDependencies.deliverInterrupt(
 			{ ok: true, kind: "id", idSocketPath: socketPath, aliasSocketPath: socketPath },
-			{ type: "member_interrupt", target: "Kelly", message: "stop" },
+			{ type: "member_interrupt", target: "Kelly", message: "stop", instructions: ["check state"] },
 			new AbortController().signal,
 		);
 		assert.equal(success.ok, true);
+
+		const aborted = new AbortController();
+		aborted.abort();
+		const cancelled = await defaultMemberInterruptCliDependencies.deliverInterrupt(
+			{ ok: true, kind: "id", idSocketPath: socketPath, aliasSocketPath: socketPath },
+			{ type: "member_interrupt", target: "Kelly", message: "stop" },
+			aborted.signal,
+		);
+		assert.deepEqual(cancelled, { ok: false, code: "aborted" });
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(dir, { recursive: true, force: true });
@@ -102,7 +124,7 @@ test("interrupt default transport maps accepted, rejected, and malformed acknowl
 });
 
 test("interrupt default transport maps rejected and malformed acknowledgements", async () => {
-	for (const malformed of [false, true]) {
+	for (const mode of ["remote-error", "malformed", "offline-member"] as const) {
 		const dir = await mkdtemp(path.join(tmpdir(), "bebop-interrupt-error-"));
 		const socketPath = path.join(dir, "member.sock");
 		const server = net.createServer((socket) => {
@@ -111,9 +133,17 @@ test("interrupt default transport maps rejected and malformed acknowledgements",
 				const request = JSON.parse(String(chunk)) as { id: string | number };
 				socket.write(
 					JSON.stringify(
-						malformed
+						mode === "malformed"
 							? { jsonrpc: "2.0", id: request.id, result: {} }
-							: { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "remote-rejected" } },
+							: {
+									jsonrpc: "2.0",
+									id: request.id,
+									error: {
+										code: -32000,
+										message: mode === "offline-member" ? "target unavailable" : "remote-rejected",
+										...(mode === "offline-member" ? { data: { code: "offline-member" } } : {}),
+									},
+								},
 					) + "\n",
 				);
 			});
@@ -126,6 +156,7 @@ test("interrupt default transport maps rejected and malformed acknowledgements",
 				new AbortController().signal,
 			);
 			assert.equal(outcome.ok, false);
+			if (!outcome.ok && mode === "offline-member") assert.equal(outcome.code, "offline-session");
 		} finally {
 			await new Promise<void>((resolve) => server.close(() => resolve()));
 			await rm(dir, { recursive: true, force: true });
@@ -221,27 +252,60 @@ test("interrupt CLI passes ordered instructions and maps source failures", async
 	);
 });
 
-test("interrupt CLI maps stdin failures and rejects empty stdin", async () => {
+test("interrupt CLI maps stdin failures, delivers stdin recovery, and rejects missing or empty guidance", async () => {
 	const failed = await runMemberInterruptCommand(
 		{ command: "member-interrupt", member: "Kelly", instructions: [], stdin: true, format: "json" },
 		context(),
+		deps({ readStdin: async () => Promise.reject("stdin unavailable") }),
+	);
+	assert.equal(failed.kind, "result");
+	if (failed.kind === "result") {
+		assert.equal(failed.result.error?.code, "stdin-error");
+		assert.match(failed.result.error?.message ?? "", /stdin unavailable/);
+	}
+
+	let deliveredMessage: unknown;
+	const accepted = await runMemberInterruptCommand(
+		{ command: "member-interrupt", member: "Kelly", instructions: [], stdin: true, format: "json" },
+		context(),
 		deps({
-			readStdin: async () => {
-				throw new Error("stdin unavailable");
+			readStdin: async () => "recover from stdin",
+			deliverInterrupt: async (_source, command) => {
+				deliveredMessage = command.message;
+				return {
+					ok: true,
+					result: {
+						member: { name: "Kelly", role: "qa" },
+						interruptId: "stdin-interrupt",
+						disposition: "direct",
+					},
+				};
 			},
 		}),
 	);
-	assert.equal(failed.kind, "result");
-	if (failed.kind === "result") assert.equal(failed.result.error?.code, "stdin-error");
-	await assert.rejects(
-		() =>
-			runMemberInterruptCommand(
-				{ command: "member-interrupt", member: "Kelly", instructions: [], stdin: true, format: "json" },
-				context(),
-				deps({ readStdin: async () => "   " }),
-			),
-		/empty content/,
-	);
+	assert.equal(accepted.kind, "result");
+	assert.equal(deliveredMessage, "recover from stdin");
+
+	for (const options of [
+		{
+			command: "member-interrupt" as const,
+			member: "Kelly",
+			instructions: [],
+			stdin: false,
+			format: "json" as const,
+		},
+		{
+			command: "member-interrupt" as const,
+			member: "Kelly",
+			instructions: [],
+			stdin: true,
+			format: "json" as const,
+		},
+	])
+		await assert.rejects(
+			() => runMemberInterruptCommand(options, context(), deps({ readStdin: async () => "   " })),
+			options.stdin ? /empty content/ : /Missing message source/,
+		);
 });
 
 test("interrupt CLI returns disposition without completion claims and preserves stable errors", async () => {

@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { MessagePayloadSchema } from "../domain/index.ts";
-import { submitCrewBroadcast } from "../application/crew-broadcast.ts";
 import type { BroadcastMessageDependencies } from "../application/crew-broadcast.ts";
+import { BebopClientError, createInProcessCrewBroadcastOperation } from "../sdk/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
 /**
@@ -27,6 +27,14 @@ export function registerBroadcastToCrewTool(
 	state: SocketState,
 	dependencies: BroadcastMessageDependencies,
 ): void {
+	const operation = createInProcessCrewBroadcastOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			approvedGuests: () => dependencies.approvedGuests?.() ?? [],
+		},
+		message: dependencies,
+	});
 	pi.registerTool({
 		name: "broadcast_to_crew",
 		label: "Broadcast To Crew",
@@ -34,17 +42,10 @@ export function registerBroadcastToCrewTool(
 			"Send one transient, non-interrupting Broadcast Follow-up to every other configured crew member in manifest order. Each recipient is attempted independently; offline or rejected recipients are reported as failed and do not stop later deliveries. The sender is excluded. Broadcast never writes or falls back to Inbox, redirects active work, interrupts, or expects a Response. Use send_to_inbox for durable delivery to one member.",
 		parameters,
 		async execute(_toolCallId, params, signal): Promise<ToolResult> {
-			const membership = state.membershipRuntime?.getMembership() ?? null;
 			try {
-				const result = await submitCrewBroadcast(
-					{
-						membership,
-						message: params.message,
-						instructions: params.instructions,
-						signal,
-						approvedGuests: dependencies.approvedGuests?.(),
-					},
-					dependencies,
+				const result = await operation.broadcastToCrew(
+					{ message: params.message, instructions: params.instructions },
+					{ signal },
 				);
 				if (result.ok === false) {
 					const message =
@@ -80,8 +81,7 @@ export function registerBroadcastToCrewTool(
 					details: { ...result.summary, recipients },
 				};
 			} catch (error) {
-				const code =
-					error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : "error";
+				const code = error instanceof BebopClientError ? error.code : "error";
 				const message = error instanceof Error ? error.message : "Broadcast failed";
 				return { content: [{ type: "text", text: message }], isError: true, details: { error: code } };
 			}

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
-import { isMemberMessageResult, MAX_MESSAGE_INSTRUCTIONS, type MemberMessageResult } from "../../domain/index.ts";
+import { MAX_MESSAGE_INSTRUCTIONS, type MemberMessageResult, type RpcCommand } from "../../domain/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult } from "../support/errors.ts";
@@ -9,6 +9,7 @@ import type { CliContext } from "../support/context.ts";
 import type { CliOutcome } from "../support/output.ts";
 import { resolveSourceSession, SESSION_LIST_HINT, type SourceResolution } from "../support/source-session.ts";
 import { readStdinMessage } from "../support/message-input.ts";
+import { BebopClientError, createRemoteFollowUpOperation, createRemoteRedirectOperation } from "../../sdk/index.ts";
 
 /**
  * TASK-0062: `member follow-up <member>` and `member redirect <member>` —
@@ -23,6 +24,10 @@ import { readStdinMessage } from "../support/message-input.ts";
  */
 
 export type MemberMessageIntent = "follow_up" | "redirect";
+
+type MemberMessageWireCommand =
+	| { type: "member_follow_up"; target: string; message: string; instructions: readonly string[] }
+	| { type: "member_redirect"; target: string; message: string; instructions: readonly string[] };
 
 export interface MemberMessageCliOptions {
 	readonly command: "member-follow-up" | "member-redirect";
@@ -168,12 +173,7 @@ export interface MemberMessageCliDependencies {
 	readonly readStdin: typeof readStdinMessage;
 	readonly deliverMessage: (
 		source: SourceResolution & { ok: true },
-		command: {
-			type: "member_follow_up" | "member_redirect";
-			target: string;
-			message: string;
-			instructions: readonly string[];
-		},
+		command: MemberMessageWireCommand,
 		signal: AbortSignal,
 	) => Promise<{ ok: true; result: MemberMessageResult } | { ok: false; code: string }>;
 	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
@@ -190,56 +190,66 @@ function mapTransportError(error: unknown): { ok: false; code: string } {
 	return { ok: false, code: "transport-error" };
 }
 
-async function deliverThroughSocket(
+async function deliverThroughSdk(
 	source: SourceResolution & { ok: true },
-	command: {
-		type: "member_follow_up" | "member_redirect";
-		target: string;
-		message: string;
-		instructions: readonly string[];
-	},
+	command: MemberMessageWireCommand,
 	signal: AbortSignal,
 ): Promise<{ ok: true; result: MemberMessageResult } | { ok: false; code: string }> {
-	const resolved = await resolveMemberEndpoint(source.idSocketPath);
+	const deliver = async (candidate: SourceResolution & { ok: true }) => {
+		const endpoint = await resolveMemberEndpoint(candidate.idSocketPath);
+		const send = async (
+			request: RpcCommand,
+			options?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+		) => {
+			const { response } = await sendRpcCommand(endpoint, request, {
+				timeout: options?.timeoutMs ?? 5000,
+				signal: options?.signal,
+				classifyLostAck: true,
+			});
+			if (!response.success)
+				throw new RpcProtocolError("remote-error", response.error ?? "source rejected operation");
+			return response.data;
+		};
+		const input = {
+			message: command.message,
+			...(command.instructions.length === 0 ? {} : { instructions: command.instructions }),
+		};
+		const result =
+			command.type === "member_follow_up"
+				? await createRemoteFollowUpOperation({ send }).sendFollowUp(command.target, input, {
+						signal,
+						timeoutMs: 5000,
+					})
+				: await createRemoteRedirectOperation({ send }).redirectMember(command.target, input, {
+						signal,
+						timeoutMs: 5000,
+					});
+		return { ok: true as const, result };
+	};
 	try {
-		const { response } = await sendRpcCommand(
-			resolved,
-			{
-				type: command.type,
-				target: command.target,
-				message: command.message,
-				...(command.instructions.length === 0 ? {} : { instructions: [...command.instructions] }),
-			},
-			{ timeout: 5000, signal },
-		);
-		if (!response.success) return { ok: false, code: response.error ?? "remote-rejected" };
-		if (!isMemberMessageResult(response.data)) return { ok: false, code: "malformed-response" };
-		return { ok: true, result: response.data };
-	} catch (error) {
-		if (error instanceof RpcProtocolError && error.code === "remote-error") {
-			return { ok: false, code: error.message.replace(/^remote-error:\s*/, "") };
+		return await deliver(source);
+	} catch (idError) {
+		if (idError instanceof BebopClientError) {
+			if (idError.code !== "unknown-session")
+				return { ok: false, code: idError.code === "offline-member" ? "offline" : idError.code };
+		} else {
+			const mapped = mapTransportError(idError);
+			if (mapped.code !== "unknown-session") return mapped;
 		}
-		throw error;
+		try {
+			return await deliver({ ...source, idSocketPath: source.aliasSocketPath });
+		} catch (aliasError) {
+			return aliasError instanceof BebopClientError
+				? { ok: false, code: aliasError.code === "offline-member" ? "offline" : aliasError.code }
+				: mapTransportError(aliasError);
+		}
 	}
 }
 
 export const defaultMemberMessageCliDependencies: MemberMessageCliDependencies = {
 	resolveSource: (input) => resolveSourceSession(input),
 	readStdin: readStdinMessage,
-	deliverMessage: async (source, command, signal) => {
-		try {
-			return await deliverThroughSocket(source, command, signal);
-		} catch (idError) {
-			const mapped = mapTransportError(idError);
-			if (mapped.code !== "unknown-session") return mapped;
-			// The value may be an alias symlink; fall back once, then report unknown-session.
-			try {
-				return await deliverThroughSocket({ ...source, idSocketPath: source.aliasSocketPath }, command, signal);
-			} catch (aliasError) {
-				return mapTransportError(aliasError);
-			}
-		}
-	},
+	deliverMessage: (source, command, signal) => deliverThroughSdk(source, command, signal),
 	environmentSession: (environment = process.env) => environment.PI_SESSION_ID,
 };
 

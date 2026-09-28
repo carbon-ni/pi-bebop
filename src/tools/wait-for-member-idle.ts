@@ -1,13 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import {
-	createMemberIdleWaitFlow,
-	MemberIdleWaitFlowError,
-	type MemberIdleWaitSurface,
-	type MemberIdleWaitTransportResult,
-} from "../application/member-idle-wait-flow.ts";
+import { MemberIdleWaitFlowError } from "../application/member-idle-wait-flow.ts";
 import { createMemberIdleWaitResult, formatMemberIdleWaitResult } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { BebopClientError, type InProcessMemberIdleWaitOperation, type MemberIdleWaitResult } from "../sdk/index.ts";
 
 const parameters = Type.Object(
 	{
@@ -28,6 +24,10 @@ const parameters = Type.Object(
 );
 const MAX_OUTPUT = 500;
 
+type IdleWaitTerminal =
+	| { readonly ok: true; readonly result: MemberIdleWaitResult }
+	| { readonly ok: false; readonly code: string };
+
 type ToolResult = {
 	content: Array<{ type: "text"; text: string }>;
 	isError?: boolean;
@@ -35,17 +35,6 @@ type ToolResult = {
 	/** Stop the content-free tool-result continuation so Pi drains the queued message. */
 	terminate?: boolean;
 };
-
-export interface MemberIdleWaitToolTransport {
-	/** Finite-time endpoint reachability; failure is a compact offline result. */
-	readonly probeEndpoint: (socketPath: string) => Promise<boolean>;
-	/** Open the one-shot idle subscription and resolve on the terminal outcome or transport code. */
-	readonly requestIdleWait: (
-		endpoint: string,
-		memberLabel: string,
-		options: { timeoutSeconds: number; signal?: AbortSignal },
-	) => Promise<MemberIdleWaitTransportResult>;
-}
 
 function errorResult(target: string, code: string, message: string): ToolResult {
 	return {
@@ -58,7 +47,7 @@ function errorResult(target: string, code: string, message: string): ToolResult 
 export function registerWaitForMemberIdleTool(
 	pi: ExtensionAPI,
 	state: SocketState,
-	transport: MemberIdleWaitToolTransport,
+	operation: InProcessMemberIdleWaitOperation,
 ): void {
 	pi.registerTool({
 		name: "wait_for_member_idle",
@@ -69,31 +58,16 @@ export function registerWaitForMemberIdleTool(
 		async execute(_toolCallId, params, signal): Promise<ToolResult> {
 			const memberLabel = params.member.trim();
 			const timeoutSeconds = typeof params.timeout_seconds === "number" ? params.timeout_seconds : undefined;
-			const surface: MemberIdleWaitSurface = {
-				getMembership: () => state.membershipRuntime?.getMembership() ?? null,
-				isTrusted: () => state.context?.isProjectTrusted?.() === true,
-				probeEndpoint: (socketPath) => transport.probeEndpoint(socketPath),
-				requestIdleWait: (endpoint, label, options) => transport.requestIdleWait(endpoint, label, options),
-				now: () => new Date().toISOString(),
-			};
-			const flow = createMemberIdleWaitFlow(surface);
 			try {
-				// TASK-0081: pure resolution (no IO), then acquire the single local
-				// slot synchronously BEFORE the reachability probe so a concurrent
-				// second wait fails `wait-in-progress` before any IO and never
-				// shares, replaces, or opens a subscription.
-				const resolved = flow.resolveMemberIdleWait({ member: memberLabel, timeoutSeconds });
+				// Resolve the target before arming the local slot. This preserves the
+				// synchronous wait-in-progress boundary without duplicating SDK policy.
+				const resolved = operation.resolveMemberIdleWait({ member: memberLabel, timeoutSeconds });
 				const targetIdentity = { name: resolved.target.name, role: resolved.target.role };
 				const observedAt = () => new Date().toISOString();
-
 				const owned = new AbortController();
-				const terminal = await new Promise<MemberIdleWaitTransportResult>((resolveTerminal) => {
+				const terminal = await new Promise<IdleWaitTerminal>((resolveTerminal) => {
 					let settled = false;
-					const finish = (outcome: MemberIdleWaitTransportResult) => {
-						if (settled) return;
-						settled = true;
-						resolveTerminal(outcome);
-					};
+					let onAbort: (() => void) | undefined;
 					const wakeListener = (deliveryId: string) => {
 						void deliveryId;
 						owned.abort();
@@ -106,60 +80,44 @@ export function registerWaitForMemberIdleTool(
 							),
 						});
 					};
+					const cleanup = () => {
+						state.wakeGate.release(wakeListener);
+						if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
+						owned.abort();
+					};
+					const finish = (outcome: IdleWaitTerminal) => {
+						if (settled) return;
+						settled = true;
+						cleanup();
+						resolveTerminal(outcome);
+					};
 					const armed = state.wakeGate.arm(wakeListener);
 					if (armed.ok === false) {
 						finish({ ok: false, code: "wait-in-progress" });
 						return;
 					}
-					const cleanup = () => {
-						state.wakeGate.release(wakeListener);
-						owned.abort();
-					};
-					if (signal) {
-						if (signal.aborted) {
-							cleanup();
-							finish({ ok: false, code: "aborted" });
-							return;
-						}
-						signal.addEventListener(
-							"abort",
-							() => {
-								cleanup();
-								finish({ ok: false, code: "aborted" });
-							},
-							{ once: true },
-						);
+					onAbort = () => finish({ ok: false, code: "aborted" });
+					if (signal?.aborted) {
+						onAbort();
+						return;
 					}
-					// Reachability probe (IO) runs AFTER the slot is armed; offline
-					// is a compact offline outcome. Then open the one-shot
-					// subscription with the owned controller so a winning local
-					// terminal (message/abort) cancels it.
-					void (async () => {
-						const alive = await surface.probeEndpoint(resolved.target.socketPath);
-						if (!alive) {
-							cleanup();
-							finish({
-								ok: true,
-								result: createMemberIdleWaitResult(
-									targetIdentity,
-									{ outcome: "offline" },
-									observedAt(),
-								),
-							});
-							return;
-						}
-						try {
-							const outcome = await surface.requestIdleWait(resolved.target.socketPath, memberLabel, {
-								timeoutSeconds: resolved.timeoutSeconds,
-								signal: owned.signal,
-							});
-							cleanup();
-							finish(outcome);
-						} catch {
-							cleanup();
-							finish({ ok: false, code: "transport-error" });
-						}
-					})();
+					signal?.addEventListener("abort", onAbort, { once: true });
+					void operation
+						.waitForMemberIdle(memberLabel, {
+							timeoutSeconds: resolved.timeoutSeconds,
+							signal: owned.signal,
+						})
+						.then(
+							(result) => finish({ ok: true, result }),
+							(error) =>
+								finish({
+									ok: false,
+									code:
+										error instanceof Error && "code" in error
+											? String(error.code)
+											: "transport-error",
+								}),
+						);
 				});
 
 				// Map the transport terminal onto the domain outcome union. First
@@ -202,6 +160,8 @@ export function registerWaitForMemberIdleTool(
 				};
 			} catch (error) {
 				if (error instanceof MemberIdleWaitFlowError)
+					return errorResult(memberLabel || "member", error.code, error.message);
+				if (error instanceof BebopClientError)
 					return errorResult(memberLabel || "member", error.code, error.message);
 				const message = error instanceof Error ? error.message : "Member idle wait failed";
 				return errorResult(memberLabel || "member", "transport-error", message);

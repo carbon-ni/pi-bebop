@@ -118,7 +118,7 @@ test("unknown --format is rejected by readers, not silently defaulted", () => {
 
 test("member idle wait reader: member target, session, timeout override", () => {
 	const explicit = readMemberIdleWaitCommand(
-		parseCommand(buildMemberIdleWaitCommand, ["Kelly", "--session", "s-9", "--timeout", "10s", "--format", "text"]),
+		parseCommand(buildMemberIdleWaitCommand, ["Kelly", "--session", "s-9", "--timeout", "60s", "--format", "text"]),
 	);
 	assert.equal(explicit.member, "Kelly");
 	assert.equal(explicit.session, "s-9");

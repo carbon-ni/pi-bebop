@@ -10,6 +10,7 @@ import { probeMemberEndpoint } from "../infra/member-endpoint.ts";
 import { createRpcServer, closeRpcServer } from "../infra/rpc-server.ts";
 import { createSocketState, emitIdleSettled, handleCommand } from "./control-runtime.ts";
 import { registerWaitForMemberIdleTool } from "../tools/wait-for-member-idle.ts";
+import { createInProcessMemberIdleWaitOperation } from "../sdk/member-idle-wait-operation.ts";
 
 /**
  * TASK-0081 real two-runtime barrier matrix (no wall-clock sleeps).
@@ -86,7 +87,7 @@ function waitForNoSubscription(state: { idleWaitSubscriptions: Array<unknown> },
 }
 
 const idleTransport = {
-	probeEndpoint: (socketPath: string) => probeMemberEndpoint(socketPath),
+	probeEndpoint: (socketPath: string, signal?: AbortSignal) => probeMemberEndpoint(socketPath, { signal }),
 	requestIdleWait: async (
 		endpoint: string,
 		memberLabel: string,
@@ -102,6 +103,18 @@ const idleTransport = {
 };
 
 type CapturedMessage = { customType: string; content: string; options: { deliverAs?: string; triggerTurn?: boolean } };
+
+function createIdleOperation(state: ReturnType<typeof createSocketState>) {
+	return createInProcessMemberIdleWaitOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			probeEndpoint: idleTransport.probeEndpoint,
+			requestIdleWait: idleTransport.requestIdleWait,
+			now: () => new Date().toISOString(),
+		},
+	});
+}
 
 function captureServer(socketPath: string, state: ReturnType<typeof createSocketState>, sent: CapturedMessage[]) {
 	return createRpcServer(socketPath, (command, socket) =>
@@ -169,7 +182,7 @@ test("TASK-0081: busy target -> accepted Follow-up wakes the blocked wait; uncha
 	registerWaitForMemberIdleTool(
 		{ registerTool: (tool) => toolsA.push(tool as never) } as never,
 		stateA,
-		idleTransport,
+		createIdleOperation(stateA),
 	);
 	const waitA = toolsA.find((tool) => tool.name === "wait_for_member_idle")!;
 	const pending = waitA.execute("id", { member: "Kelly" } as never) as Promise<{
@@ -235,7 +248,7 @@ test("TASK-0081: busy target -> accepted Redirect wakes the blocked wait; unchan
 	registerWaitForMemberIdleTool(
 		{ registerTool: (tool) => toolsA.push(tool as never) } as never,
 		stateA,
-		idleTransport,
+		createIdleOperation(stateA),
 	);
 	const waitA = toolsA.find((tool) => tool.name === "wait_for_member_idle")!;
 	const pending = waitA.execute("id", { member: "Kelly" } as never) as Promise<{
@@ -285,7 +298,7 @@ test("TASK-0081: busy target -> agent_settled releases the blocked wait with bec
 	registerWaitForMemberIdleTool(
 		{ registerTool: (tool) => toolsA.push(tool as never) } as never,
 		stateA,
-		idleTransport,
+		createIdleOperation(stateA),
 	);
 	const waitA = toolsA.find((tool) => tool.name === "wait_for_member_idle")!;
 	const pending = waitA.execute("id", { member: "Kelly" } as never) as Promise<{

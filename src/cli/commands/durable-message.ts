@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import { sendRpcCommand, RpcProtocolError } from "../../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../../infra/socket-endpoint.ts";
+import type { CrewBroadcastRpcResult, MemberInboxSendResult } from "../../domain/index.ts";
 import {
-	isCrewBroadcastResult,
-	isMemberInboxSendResult,
-	type CrewBroadcastRpcResult,
-	type MemberInboxSendResult,
-} from "../../domain/index.ts";
+	BebopClientError,
+	createRemoteCrewBroadcastOperation,
+	createRemoteMemberInboxOperation,
+} from "../../sdk/index.ts";
 import { UsageError, type CliFormat } from "../support/arguments.ts";
 import { defaultFormatForCommand } from "../audience-policy.ts";
 import { errorResult } from "../support/errors.ts";
@@ -173,6 +173,23 @@ export interface DurableMessageCliDependencies {
 	) => Promise<{ ok: true; result: MemberInboxSendResult | CrewBroadcastRpcResult } | { ok: false; code: string }>;
 	readonly environmentSession: (environment?: NodeJS.ProcessEnv) => string | undefined;
 }
+const SDK_ERROR_CODES = new Set([
+	"invalid-input",
+	"untrusted",
+	"untrusted-project",
+	"not-joined",
+	"unknown-session",
+	"offline-session",
+	"offline-member",
+	"unknown-member",
+	"ambiguous-member",
+	"remote-rejected",
+	"aborted",
+	"timeout",
+	"outcome-unknown",
+	"malformed-response",
+	"transport-error",
+]);
 const REMOTE_MESSAGE_CODES = new Set([
 	"not-joined",
 	"unknown-sender",
@@ -190,6 +207,24 @@ const REMOTE_MESSAGE_CODES = new Set([
 	"no-recipients",
 ]);
 function transportError(error: unknown): { ok: false; code: string } {
+	const sdkCode = error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : undefined;
+	if (error instanceof BebopClientError || sdkCode === "remote-error" || SDK_ERROR_CODES.has(sdkCode ?? "")) {
+		const messageCode = error instanceof Error ? error.message.trim().split(/[:\s]/u, 1)[0] : undefined;
+		const remoteCode =
+			sdkCode === "remote-error" && messageCode
+				? messageCode
+				: sdkCode === "transport-error" && REMOTE_MESSAGE_CODES.has(messageCode ?? "")
+					? messageCode
+					: sdkCode;
+
+		const code =
+			remoteCode === "untrusted"
+				? "untrusted-project"
+				: remoteCode === "invalid-input"
+					? "invalid-request"
+					: remoteCode;
+		if (code) return { ok: false, code };
+	}
 	if (error instanceof RpcProtocolError && (error.code === "outcome-unknown" || REMOTE_MESSAGE_CODES.has(error.code)))
 		return { ok: false, code: error.code };
 	if (error instanceof Error && error.name === "AbortError") return { ok: false, code: "aborted" };
@@ -199,34 +234,114 @@ function transportError(error: unknown): { ok: false; code: string } {
 	if (error instanceof Error && /timeout/i.test(error.message)) return { ok: false, code: "timeout" };
 	return { ok: false, code: "transport-error" };
 }
-async function deliverSocket(
+async function deliverBroadcastSocket(
 	source: SourceResolution & { ok: true },
-	command: DurableMessageCommand,
+	command: Extract<DurableMessageCommand, { type: "crew_broadcast" }>,
 	signal: AbortSignal,
 ) {
-	const { response } = await sendRpcCommand(
-		await resolveMemberEndpoint(source.idSocketPath),
-		{ ...command, ...(command.instructions === undefined ? {} : { instructions: [...command.instructions] }) },
-		{ timeout: 5000, signal, classifyLostAck: true },
+	const endpoint = await resolveMemberEndpoint(source.idSocketPath);
+	const operation = createRemoteCrewBroadcastOperation({
+		send: async (request, options) => {
+			const { response } = await sendRpcCommand(endpoint, request, {
+				timeout: options?.timeoutMs ?? 5000,
+				signal: options?.signal,
+				classifyLostAck: true,
+			});
+			if (!response.success)
+				throw new RpcProtocolError("remote-error", response.error ?? "source rejected Broadcast");
+			return response.data;
+		},
+	});
+	const result = await operation.broadcastToCrew(
+		{
+			message: command.message,
+			...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+		},
+		{ timeoutMs: 5000, signal },
 	);
-	if (!response.success) return { ok: false as const, code: response.error ?? "remote-rejected" };
-	if (command.type === "member_inbox_send" && isMemberInboxSendResult(response.data))
-		return { ok: true as const, result: response.data };
-	if (command.type === "crew_broadcast" && isCrewBroadcastResult(response.data))
-		return { ok: true as const, result: response.data };
-	return { ok: false as const, code: "malformed-response" };
+	if (result.ok === false) return { ok: false as const, code: result.code };
+	return {
+		ok: true as const,
+		result: {
+			dispositions: result.dispositions.map((item) =>
+				item.disposition === "delivered"
+					? {
+							member: item.recipientName,
+							role: item.recipientRole,
+							disposition: item.disposition,
+							deliveryId: item.deliveryId,
+						}
+					: {
+							member: item.recipientName,
+							role: item.recipientRole,
+							disposition: item.disposition,
+							code: item.code,
+						},
+			),
+			summary: result.summary,
+		},
+	};
 }
+async function deliverInboxThroughSdk(
+	source: SourceResolution & { ok: true },
+	command: Extract<DurableMessageCommand, { type: "member_inbox_send" }>,
+	signal: AbortSignal,
+): Promise<{ ok: true; result: MemberInboxSendResult } | { ok: false; code: string }> {
+	const deliver = async (candidate: SourceResolution & { ok: true }) => {
+		const endpoint = await resolveMemberEndpoint(candidate.idSocketPath);
+		const operation = createRemoteMemberInboxOperation({
+			send: async (request, options) => {
+				const { response } = await sendRpcCommand(endpoint, request, {
+					timeout: options?.timeoutMs ?? 5000,
+					signal: options?.signal,
+					classifyLostAck: true,
+				});
+				if (!response.success)
+					throw new RpcProtocolError("remote-error", response.error ?? "source rejected Inbox enqueue");
+				return response.data;
+			},
+		});
+		return {
+			ok: true as const,
+			result: await operation.sendToInbox(
+				command.target,
+				{
+					message: command.message,
+					...(command.instructions === undefined ? {} : { instructions: command.instructions }),
+				},
+				{ signal, timeoutMs: 5000 },
+			),
+		};
+	};
+	try {
+		return await deliver(source);
+	} catch (error) {
+		const mapped = transportError(error);
+		if (mapped.code !== "unknown-session" || source.aliasSocketPath === source.idSocketPath) return mapped;
+		try {
+			return await deliver({ ...source, idSocketPath: source.aliasSocketPath });
+		} catch (aliasError) {
+			return transportError(aliasError);
+		}
+	}
+}
+
 export const defaultDurableMessageCliDependencies: DurableMessageCliDependencies = {
 	resolveSource: (input) => resolveSourceSession(input),
 	readStdin: readStdinMessage,
 	deliver: async (source, command, signal) => {
+		if (command.type === "member_inbox_send") return deliverInboxThroughSdk(source, command, signal);
 		try {
-			return await deliverSocket(source, command, signal);
+			return await deliverBroadcastSocket(source, command, signal);
 		} catch (error) {
 			const mapped = transportError(error);
 			if (mapped.code !== "unknown-session" || source.aliasSocketPath === source.idSocketPath) return mapped;
 			try {
-				return await deliverSocket({ ...source, idSocketPath: source.aliasSocketPath }, command, signal);
+				return await deliverBroadcastSocket(
+					{ ...source, idSocketPath: source.aliasSocketPath },
+					command,
+					signal,
+				);
 			} catch (aliasError) {
 				return transportError(aliasError);
 			}

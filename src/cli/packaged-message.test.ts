@@ -320,6 +320,48 @@ test("packaged CLI delivers follow-up and redirect end to end with accepted disp
 	assert.equal(sessions.getTargetAbortCount(), 0, "Follow-up and Redirect never abort the active target turn");
 });
 
+test("packaged Redirect keeps steer mode for idle and busy targets without abort or fallback", async (t) => {
+	const sessions = await startSessions(t);
+	sessions.setTargetIdle(true);
+	const idle = await packagedMessage(sessions.root, [
+		"member",
+		"redirect",
+		"Kelly",
+		"--session",
+		"source-session-1",
+		"--message",
+		"idle redirect",
+		"--format",
+		"json",
+	]);
+	assert.equal(idle.code, 0, idle.stdout);
+	assert.equal(JSON.parse(idle.stdout).data.disposition, "direct");
+
+	sessions.setTargetIdle(false);
+	const busy = await packagedMessage(sessions.root, [
+		"member",
+		"redirect",
+		"Kelly",
+		"--session",
+		"source-session-1",
+		"--message",
+		"busy redirect",
+		"--format",
+		"json",
+	]);
+	assert.equal(busy.code, 0, busy.stdout);
+	assert.equal(JSON.parse(busy.stdout).data.disposition, "steered");
+	assert.deepEqual(
+		sessions.targetDeliveries.map(({ options }) => options),
+		[
+			{ triggerTurn: true, deliverAs: "steer" },
+			{ triggerTurn: true, deliverAs: "steer" },
+		],
+	);
+	assert.equal(sessions.getTargetAbortCount(), 0);
+	assert.equal(sessions.sourceEntries.length, 0, "Redirect must not persist an Inbox fallback");
+});
+
 test("packaged Follow-up keeps followUp mode for idle and compacting targets", async (t) => {
 	const sessions = await startSessions(t);
 	sessions.setTargetIdle(true);
@@ -377,7 +419,7 @@ test("packaged CLI interrupt proves idle direct and busy best-effort recovery di
 		"--format",
 		"json",
 	]);
-	assert.equal(idle.code, 0, idle.stdout);
+	assert.equal(idle.code, 0, `${idle.stdout}\n${idle.stderr}`);
 	assert.equal(JSON.parse(idle.stdout).data.disposition, "direct");
 	assert.equal(sessions.getTargetAbortCount(), 0);
 	assert.deepEqual(

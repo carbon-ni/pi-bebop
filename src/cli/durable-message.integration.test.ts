@@ -186,11 +186,36 @@ test("Inbox CLI remains durable while Broadcast CLI leaves deliver live Follow-u
 		total: 2,
 	});
 
+	const rejectedSelf = await dependencies.deliver(
+		source,
+		{ type: "member_inbox_send", target: "Tony", message: "self-send" },
+		context().signal,
+	);
+	assert.deepEqual(rejectedSelf, { ok: false, code: "self-send" });
+
+	const aliasDelivered = await dependencies.deliver(
+		{ ...source, idSocketPath: path.join(root, "missing-source.sock") },
+		{ type: "member_inbox_send", target: "Kelly", message: "alias fallback" },
+		context().signal,
+	);
+	assert.equal(aliasDelivered.ok, true);
+
+	const aliasMissing = await dependencies.deliver(
+		{
+			...source,
+			idSocketPath: path.join(root, "missing-source.sock"),
+			aliasSocketPath: path.join(root, "missing-alias.sock"),
+		},
+		{ type: "member_inbox_send", target: "Kelly", message: "missing alias" },
+		context().signal,
+	);
+	assert.deepEqual(aliasMissing, { ok: false, code: "unknown-session" });
+
 	const inboxStore = await openTrustedMemberInboxStore({
 		manifestPath,
 		projectRoot: root,
 		isProjectTrusted: () => true,
 		member: members[2]!,
 	});
-	assert.equal(await inboxStore.count(), 1, "Broadcast must not create Inbox items");
+	assert.equal(await inboxStore.count(), 2, "Broadcast must not create Inbox items");
 });

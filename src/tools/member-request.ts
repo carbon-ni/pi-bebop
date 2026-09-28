@@ -9,7 +9,11 @@ import {
 } from "../domain/index.ts";
 import { MemberMessageError } from "../application/member-message.ts";
 import { RpcProtocolError } from "../infra/rpc-client.ts";
-import { MemberRequestFlow } from "../application/member-request-flow.ts";
+import {
+	BebopClientError,
+	createInProcessMemberRequestOperation,
+	type InProcessMemberRequestOperation,
+} from "../sdk/index.ts";
 import { RequestOutcomeRequestIdSchema } from "../domain/protocol/wire-members.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 
@@ -64,9 +68,29 @@ function success(text: string, details: unknown): ToolResult {
 function failure(code: string, message: string): ToolResult {
 	return { content: [{ type: "text", text: `${code}: ${message}` }], isError: true, details: { error: code } };
 }
-function flowFor(state: SocketState): MemberRequestFlow {
-	if (!state.memberRequestFlow) throw new Error("Crew coordination is not initialized");
-	return state.memberRequestFlow;
+export function createMemberRequestOperation(state: SocketState): InProcessMemberRequestOperation {
+	return createInProcessMemberRequestOperation({
+		surface: {
+			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
+			isTrusted: () => state.context?.isProjectTrusted?.() === true,
+			getMemberRequestFlow: () => state.memberRequestFlow,
+			getGuestRequest: (crew, target) => {
+				const runtime = state.guestMembershipRuntime;
+				const credentials = runtime?.credentials(crew);
+				const memberSocket = runtime?.getMemberSocket(crew);
+				if (!credentials || !memberSocket) return null;
+				return {
+					crewId: crew,
+					memberSocket,
+					target: { name: target },
+					guestIdentity: credentials.guestIdentity,
+					guestName: credentials.guestName,
+					callbackEndpoint: credentials.callbackEndpoint,
+					capability: credentials.capability,
+				};
+			},
+		},
+	});
 }
 
 type RequestOutcomeWait =
@@ -81,7 +105,8 @@ type RequestOutcomeWait =
 				| "wait-in-progress"
 				| "unknown-request"
 				| "invalid-request-id"
-				| "outcome-consumed";
+				| "outcome-consumed"
+				| "wait-failed";
 	  };
 
 /**
@@ -91,7 +116,7 @@ type RequestOutcomeWait =
  * coordination wait.
  */
 function waitForRequestOutcome(
-	flow: MemberRequestFlow,
+	operation: InProcessMemberRequestOperation,
 	wakeGate: AcceptedLocalMessageWakeGate,
 	requestId: string,
 	signal?: AbortSignal,
@@ -112,19 +137,27 @@ function waitForRequestOutcome(
 		};
 		const onAbort = () => finish({ ok: false, code: "aborted" });
 		const onAcceptedMessage = () => finish({ ok: true, wake: "message-received" });
-		const waiting = flow.waitForRequestOutcomeById(requestId, (outcome) => finish({ ok: true, outcome }));
-		if (waiting.ok === false) {
-			finish({ ok: false, code: waiting.code });
+		const registration = operation.beginRequestOutcomeWait(requestId, (outcome) => finish({ ok: true, outcome }));
+		if (registration.ok === false) {
+			const code = registration.code;
+			const mapped =
+				code === "already-waiting" ||
+				code === "no-pending-requests" ||
+				code === "unknown-request" ||
+				code === "invalid-request-id" ||
+				code === "outcome-consumed"
+					? code
+					: "wait-failed";
+			finish({ ok: false, code: mapped });
 			return;
 		}
-		if (waiting.kind === "update") {
-			finish({ ok: true, outcome: waiting.update });
+		if (registration.kind === "update") {
+			finish({ ok: true, outcome: registration.update });
 			return;
 		}
-		cancel = waiting.cancel;
+		cancel = registration.cancel;
 		const armed = wakeGate.arm(onAcceptedMessage);
 		if (armed.ok === false) {
-			cancel();
 			finish({ ok: false, code: "wait-in-progress" });
 			return;
 		}
@@ -133,7 +166,11 @@ function waitForRequestOutcome(
 	});
 }
 
-export function registerSendMemberRequestTool(pi: ExtensionAPI, state: SocketState): void {
+export function registerSendMemberRequestTool(
+	pi: ExtensionAPI,
+	state: SocketState,
+	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
+): void {
 	pi.registerTool({
 		name: "send_member_request",
 		label: "Send Member Request",
@@ -142,31 +179,26 @@ export function registerSendMemberRequestTool(pi: ExtensionAPI, state: SocketSta
 		parameters: requestParameters,
 		async execute(_id, params, signal) {
 			try {
-				const membership = state.membershipRuntime?.getMembership() ?? null;
-				const outcome = await flowFor(state).sendMemberRequest({
-					membership,
-					member: params.member,
-					message: params.message,
-					instructions: params.instructions,
-					timeoutSeconds: params.timeout_seconds,
-					maxWaitSeconds: params.max_wait_seconds,
-					signal,
-				});
-				const memberLabel =
-					outcome.member.kind === "member"
-						? `${outcome.member.name} (${outcome.member.role})`
-						: `${outcome.member.guestName} (guest)`;
+				const outcome = await operation.startMemberRequest(
+					params.member,
+					{
+						message: params.message,
+						instructions: params.instructions,
+						timeoutSeconds: params.timeout_seconds,
+						maxWaitSeconds: params.max_wait_seconds,
+					},
+					{ signal },
+				);
+				const memberLabel = `${outcome.member.name} (${outcome.member.role})`;
 				return success(
 					`Request accepted for ${memberLabel}. Next: call wait_for_request_outcome with request_id=${outcome.requestId}; do not send a replacement after pending-after-idle.`,
 					{
 						requestId: outcome.requestId,
-						member:
-							outcome.member.kind === "member"
-								? { name: outcome.member.name, role: outcome.member.role }
-								: { name: outcome.member.guestName, role: "guest" },
+						member: outcome.member,
 					},
 				);
 			} catch (error) {
+				if (error instanceof BebopClientError) return failure(error.code, error.message);
 				if (error instanceof MemberMessageError) return failure(error.code, error.message);
 				if (error instanceof RpcProtocolError) return failure(error.code, error.message);
 				if (error instanceof Error && error.name === "AbortError") return failure("aborted", "Request aborted");
@@ -180,7 +212,11 @@ export function registerSendMemberRequestTool(pi: ExtensionAPI, state: SocketSta
 	});
 }
 
-export function registerRespondToMemberRequestTool(pi: ExtensionAPI, state: SocketState): void {
+export function registerRespondToMemberRequestTool(
+	pi: ExtensionAPI,
+	state: SocketState,
+	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
+): void {
 	pi.registerTool({
 		name: "respond_to_member_request",
 		label: "Respond to Member Request",
@@ -189,18 +225,14 @@ export function registerRespondToMemberRequestTool(pi: ExtensionAPI, state: Sock
 		parameters: responseParameters,
 		async execute(_id, params) {
 			try {
-				const membership = state.membershipRuntime?.getMembership();
-				if (!membership) return failure("not-joined", "Not joined to a crew");
-				await flowFor(state).respondToMemberRequest({
+				await operation.respondToMemberRequest(params.request_id, {
 					message: params.message,
 					instructions: params.instructions,
-					requestId: params.request_id,
-					member: { name: membership.member.name, role: membership.member.role },
 				});
 				return success("Response sent to the active Member request", { requestId: params.request_id });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "response-failed";
-				const code = message.split(":", 1)[0]!;
+				const code = error instanceof BebopClientError ? error.code : message.split(":", 1)[0]!;
 				if (code === "no-pending-request")
 					return failure(code, "No pending Member request; use send_follow_up for ordinary information.");
 				if (code === "ambiguous-request") return failure(code, `${message}; provide request_id.`);
@@ -212,7 +244,11 @@ export function registerRespondToMemberRequestTool(pi: ExtensionAPI, state: Sock
 	});
 }
 
-export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: SocketState): void {
+export function registerWaitForRequestOutcomeTool(
+	pi: ExtensionAPI,
+	state: SocketState,
+	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
+): void {
 	pi.registerTool({
 		name: "wait_for_request_outcome",
 		label: "Wait for Request Outcome",
@@ -221,8 +257,8 @@ export function registerWaitForRequestOutcomeTool(pi: ExtensionAPI, state: Socke
 		parameters: waitParameters,
 		async execute(_id, params, signal) {
 			try {
-				const flow = flowFor(state);
-				const waited = await waitForRequestOutcome(flow, state.wakeGate, params.request_id, signal);
+				if (!state.memberRequestFlow) return failure("wait-failed", "Could not wait for request outcome");
+				const waited = await waitForRequestOutcome(operation, state.wakeGate, params.request_id, signal);
 				if (waited.ok === false) {
 					if (waited.code === "no-pending-requests")
 						return failure("unknown-request", `Request ${params.request_id} is not active or retained`);

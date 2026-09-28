@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { acquireBuildLock } from "./build-lock.mjs";
 import { atomicSwapDirectory } from "./build-swap.mjs";
@@ -54,14 +54,16 @@ try {
 			__PI_BEBOP_BUILD_COMMIT__: JSON.stringify(buildCommit),
 		},
 	});
-	await build({
+	const sdkBuild = await build({
 		entryPoints: [join(projectRoot, "src/sdk/index.ts")],
 		bundle: true,
 		platform: "node",
 		format: "esm",
 		external: ["@sinclair/typebox", "typebox"],
+		metafile: true,
 		outfile: join(staging, "sdk.js"),
 	});
+	await writeFile(join(staging, "sdk.metafile.json"), JSON.stringify(sdkBuild.metafile));
 	const declarationDir = await mkdtemp(join(projectRoot, ".bebop-sdk-types-"));
 	try {
 		execFileSync(
@@ -70,6 +72,7 @@ try {
 				join(projectRoot, "node_modules/typescript/bin/tsc"),
 				"--declaration",
 				"--emitDeclarationOnly",
+				"--rewriteRelativeImportExtensions",
 				"--outDir",
 				declarationDir,
 				"--rootDir",
@@ -90,7 +93,13 @@ try {
 			],
 			{ cwd: projectRoot, stdio: "inherit" },
 		);
-		await copyFile(join(declarationDir, "src/sdk/index.d.ts"), join(staging, "sdk.d.ts"));
+		await cp(join(declarationDir, "src"), join(staging, "src"), { recursive: true });
+		await writeFile(join(staging, "sdk.d.ts"), 'export * from "./src/sdk/index.js";\n');
+		await cp(join(declarationDir, "src/sdk/errors.d.ts"), join(staging, "errors.d.ts"));
+		await cp(
+			join(declarationDir, "src/sdk/member-idle-wait-operation.d.ts"),
+			join(staging, "member-idle-wait-operation.d.ts"),
+		);
 	} finally {
 		await rm(declarationDir, { recursive: true, force: true });
 	}
