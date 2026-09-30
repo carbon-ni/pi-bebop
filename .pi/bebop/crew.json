@@ -2,7 +2,7 @@
   "version": 2,
   "commonInstructionsFile": "instructions/common.md",
   "presence": { "notifications": true },
-  "intake": { "contact": "Mary" },
+  "intake": { "contact": "Faye" },
   "members": [
     {
       "name": "Faye",
