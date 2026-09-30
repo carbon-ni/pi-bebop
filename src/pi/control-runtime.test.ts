@@ -329,7 +329,7 @@ test("RPC runtime compatibility is read-only and does not require a session cont
 	assert.equal(state.context, null);
 });
 
-test("TASK-0081: inbound Bebop deliveries (send/member_request) notify the accepted-message wake gate before pi.sendMessage", async () => {
+test("TASK-0081: inbound Bebop deliveries (send/member_request) notify the accepted-message wake gate", async () => {
 	const writes: string[] = [];
 	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
 	const sent: Array<{ options: unknown }> = [];

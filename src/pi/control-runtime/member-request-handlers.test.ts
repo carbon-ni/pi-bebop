@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 
 import {
 	createMemberRequestHandlerContext,
+	handleMemberRequest,
 	handleMemberRequestList,
 	handleMemberRequestStart,
 	type MemberRequestHandlerContext,
 } from "./member-request-handlers.ts";
 import { createSocketState } from "../control-runtime.ts";
+import { MemberRequestFlow } from "../../application/member-request-flow.ts";
 
 function membership() {
 	return {
@@ -36,6 +38,49 @@ function handlerContext(overrides: Partial<MemberRequestHandlerContext> = {}): M
 		notifyAcceptedMessage: () => undefined,
 		...overrides,
 	};
+}
+
+for (const scenario of [
+	{ name: "untrusted project", trusted: false, sender: "Mary", deliveryFails: false, error: "untrusted" },
+	{ name: "unknown sender", trusted: true, sender: "Unknown", deliveryFails: false, error: "invalid-origin" },
+	{ name: "failed Pi delivery", trusted: true, sender: "Mary", deliveryFails: true, error: "queue unavailable" },
+]) {
+	test(`JTask-15: ${scenario.name} does not wake an idle wait or retain an inbound request`, async (t) => {
+		const flow = new MemberRequestFlow({
+			resolveEndpoint: async (socketPath) => socketPath,
+			transport: {
+				open: async () => {
+					throw new Error("no outbound request expected");
+				},
+				respond: async (channel, update) => channel.send(update),
+			},
+		});
+		const responses: Array<{ success: boolean; error?: string }> = [];
+		const notifyAcceptedMessage = t.mock.fn();
+		const context = handlerContext({
+			getMemberRequestFlow: () => flow,
+			isProjectTrusted: () => scenario.trusted,
+			notifyAcceptedMessage,
+			pi: {
+				sendMessage: () => {
+					if (scenario.deliveryFails) throw new Error(scenario.error);
+				},
+			},
+			respond: (success, _command, _data, error) => responses.push({ success, error }),
+		});
+
+		await handleMemberRequest(context, {
+			type: "member_request",
+			id: "rpc-15",
+			requestId: "incoming-15",
+			timeoutSeconds: 120,
+			payload: { content: "Please review", origin: { kind: "crew", name: scenario.sender, role: "po" } },
+		});
+
+		assert.deepEqual(responses, [{ success: false, error: scenario.error }]);
+		assert.equal(notifyAcceptedMessage.mock.callCount(), 0);
+		assert.deepEqual(flow.listRequestSummaries("inbound"), []);
+	});
 }
 
 test("Member Request handlers can be constructed from only their narrow capabilities", async () => {

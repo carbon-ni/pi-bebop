@@ -12,6 +12,7 @@ import {
 	type Provider,
 } from "@earendil-works/pi-ai";
 import type { MessagePayload } from "../domain/index.ts";
+import { MemberRequestFlow } from "../application/member-request-flow.ts";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
@@ -77,6 +78,7 @@ interface FakeHarness {
 	readonly state: ReturnType<typeof createSocketState>;
 	readonly pi: ExtensionAPI;
 	readonly cleanup: () => Promise<void>;
+	readonly idleSubscribed: Promise<void>;
 }
 
 /** Parking transport: alive target, idle subscription parks until aborted. */
@@ -88,13 +90,19 @@ const parkTransport = {
 		}),
 };
 
-function createIdleOperation(state: ReturnType<typeof createSocketState>) {
+function createIdleOperation(state: ReturnType<typeof createSocketState>, events: string[], onSubscribed: () => void) {
 	return createInProcessMemberIdleWaitOperation({
 		surface: {
 			getMembership: () => state.membershipRuntime?.getMembership() ?? null,
 			isTrusted: () => state.context?.isProjectTrusted?.() === true,
 			probeEndpoint: parkTransport.probeEndpoint,
-			requestIdleWait: parkTransport.requestIdleWait,
+			requestIdleWait: (endpoint, label, options) => {
+				options.signal?.addEventListener("abort", () => events.push("idle-subscription:aborted"), {
+					once: true,
+				});
+				onSubscribed();
+				return parkTransport.requestIdleWait(endpoint, label, options);
+			},
 			now: () => new Date().toISOString(),
 		},
 	});
@@ -113,6 +121,10 @@ async function createFakeSession(
 	const script: AssistantMessage[] = [];
 	const events: string[] = [];
 	const state = createSocketState();
+	let onSubscribed!: () => void;
+	const idleSubscribed = new Promise<void>((resolve) => {
+		onSubscribed = resolve;
+	});
 
 	const streamSimple = (_model: Model<"bebop-fake">, context: Context) => {
 		contexts.push(context);
@@ -176,6 +188,7 @@ async function createFakeSession(
 				members: [
 					{ name: "Tony", role: "lead", socketPath: "/tmp/a.sock" },
 					{ name: "Kelly", role: "qa", socketPath: "/tmp/b.sock" },
+					{ name: "Dave", role: "dev", socketPath: "/tmp/c.sock" },
 				],
 			},
 		}),
@@ -200,7 +213,7 @@ async function createFakeSession(
 		name: "bebop-0089-continuation",
 		factory: (pi: ExtensionAPI) => {
 			piRef = pi;
-			registerWaitForMemberIdleTool(pi, state, createIdleOperation(state));
+			registerWaitForMemberIdleTool(pi, state, createIdleOperation(state, events, onSubscribed));
 			options.extraTool?.(pi);
 		},
 	};
@@ -249,6 +262,7 @@ async function createFakeSession(
 		script,
 		events,
 		state,
+		idleSubscribed,
 		get pi(): ExtensionAPI {
 			assert.ok(piRef, "extension factory must have run");
 			return piRef;
@@ -388,6 +402,72 @@ test("TASK-0089: accepted Follow-up is consumed in the next provider context bef
 				message.role === "assistant" && message.content?.some((block) => block.text?.includes("acknowledged")),
 		),
 	);
+});
+
+test("JTask-15: an incoming Member request wakes an idle wait for another Member and remains answerable once", async (t) => {
+	const harness = await createFakeSession();
+	t.after(() => harness.cleanup());
+	const requestId = "incoming-request-15";
+	const flow = new MemberRequestFlow({
+		resolveEndpoint: async (socketPath) => socketPath,
+		transport: {
+			open: async () => {
+				throw new Error("no outbound request expected");
+			},
+			respond: async (channel, update) => channel.send(update),
+		},
+	});
+	harness.state.memberRequestFlow = flow;
+	t.after(() => flow.removeInboundRequest(requestId));
+	const writes: string[] = [];
+	const socket = { write: (value: string) => writes.push(value), once: () => socket } as never;
+	harness.script.push(
+		assistantMessage(
+			[{ type: "toolCall", id: "wait-15", name: "wait_for_member_idle", arguments: { member: "Kelly" } }],
+			"toolUse",
+		),
+		assistantMessage([{ type: "text", text: "I can answer Dave now" }], "stop"),
+	);
+
+	const promptDone = harness.session.prompt("wait for Kelly");
+	await harness.idleSubscribed;
+	await handleCommand(
+		harness.pi,
+		harness.state,
+		{
+			type: "member_request",
+			id: "rpc-15",
+			requestId,
+			timeoutSeconds: 120,
+			payload: { content: "Please review my change", origin: { kind: "crew", name: "Dave", role: "dev" } },
+		},
+		socket,
+	);
+	await promptDone;
+
+	assert.equal(JSON.parse(writes[0]!).result.accepted, true);
+	assert.equal(harness.contexts.length, 2, "request must reach the next model call without an empty continuation");
+	assert.equal(occurrences(harness.contexts[1]!, "Please review my change"), 1);
+	assert.equal(occurrences(harness.contexts[1]!, requestId), 1);
+	assert.ok(
+		textBlocks(harness.contexts[1]!).some(
+			({ role, text }) => role === "toolResult" && text.includes("message-received"),
+		),
+	);
+	assert.equal(harness.state.wakeGate.armed, false);
+	assert.ok(harness.events.includes("idle-subscription:aborted"));
+	assert.deepEqual(flow.listRequestSummaries("inbound"), [
+		{ direction: "inbound", requestId, member: { name: "Dave", role: "dev" }, state: "accepted" },
+	]);
+
+	await flow.respondToMemberRequest({ requestId, message: "Reviewed", member: { name: "Tony", role: "lead" } });
+	assert.equal(JSON.parse(writes[1]!).params.requestId, requestId);
+	assert.equal(JSON.parse(writes[1]!).params.message, "Reviewed");
+	await assert.rejects(
+		flow.respondToMemberRequest({ requestId, message: "Duplicate", member: { name: "Tony", role: "lead" } }),
+		{ message: "already-terminal" },
+	);
+	assert.equal(writes.length, 2, "one acceptance and exactly one correlated Response");
 });
 
 test("TASK-0089: accepted Redirect keeps steer semantics and is consumed at its turn boundary", async (t) => {
