@@ -110,10 +110,8 @@ export async function handleMemberRequest(
 		socket.once("error", cleanupInbound);
 		// Registration precedes Pi visibility. Once sendMessage accepts the
 		// request into context, arm idle handling and acknowledge delivery.
-		// TASK-0081: accepted Bebop model delivery wakes a local blocking idle wait.
 		const deliveredAt = context.now?.();
 		const message = renderMemberRequestModelContent(command.payload, command.requestId, deliveredAt);
-		context.notifyAcceptedMessage(command.requestId);
 		pi.sendMessage(
 			{
 				customType: SESSION_MESSAGE_TYPE,
@@ -128,6 +126,8 @@ export async function handleMemberRequest(
 			{ triggerTurn: true },
 		);
 		flow.acceptInboundRequest(command.requestId);
+		// Only accepted requests release a local idle wait. Failed delivery must not consume its wake listener.
+		context.notifyAcceptedMessage(command.requestId);
 		respond(true, command.type, {
 			accepted: true,
 			requestId: command.requestId,

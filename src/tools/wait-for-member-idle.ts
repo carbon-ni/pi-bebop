@@ -53,7 +53,7 @@ export function registerWaitForMemberIdleTool(
 		name: "wait_for_member_idle",
 		label: "Wait for Member Idle",
 		description:
-			"Block this run until the selected member becomes mechanically idle, goes offline, the bounded timeout expires, or a Bebop message is accepted for this session. An accepted message releases the idle wait and, when this is the only call in the tool batch, is consumed immediately in the next model continuation under its original Follow-up or Redirect mode; it does not imply member idle or task completion. Call this coordination wait alone/sequentially, never in a parallel tool batch: Pi only skips the content-free continuation when every result terminates, so a mixed tool batch may consume the waking message one continuation later. Only one blocking Member Idle Wait may be active locally. Two members waiting on each other's idle may remain blocked until a message, offline event, abort, or timeout. The bounded timeout is always armed: default 1,800 seconds (30 minutes), configurable from 60 to 7,200 seconds. Activity is mechanical and never proves the member saw a message, finished a task, intends to reply, or will stay idle. The wait never starts, steers, interrupts, or aborts the target turn and never reads its conversation. For delivery that can wait, prefer send_follow_up.",
+			"Block this run until the selected member becomes mechanically idle, goes offline, the bounded timeout expires, or a Bebop message (including incoming Member requests) is accepted for this session. An accepted message releases the idle wait and, when this is the only call in the tool batch, is consumed immediately in the next model continuation under its original Follow-up or Redirect mode; it does not imply member idle or task completion. Call this coordination wait alone/sequentially, never in a parallel tool batch: Pi only skips the content-free continuation when every result terminates, so a mixed tool batch may consume the waking message one continuation later. Only one blocking Member Idle Wait may be active locally. Two members waiting on each other's idle may remain blocked until a message, offline event, abort, or timeout. The bounded timeout is always armed: default 1,800 seconds (30 minutes), configurable from 60 to 7,200 seconds. Activity is mechanical and never proves the member saw a message, finished a task, intends to reply, or will stay idle. The wait never starts, steers, interrupts, or aborts the target turn and never reads its conversation. For delivery that can wait, prefer send_follow_up.",
 		parameters,
 		async execute(_toolCallId, params, signal): Promise<ToolResult> {
 			const memberLabel = params.member.trim();
@@ -122,8 +122,8 @@ export function registerWaitForMemberIdleTool(
 
 				// Map the transport terminal onto the domain outcome union. First
 				// terminal wins; every later callback only performed idempotent
-				// cleanup. Accepted-message wake resolves BEFORE the unchanged
-				// message is submitted; the message keeps its FIFO/steer mode.
+				// cleanup. Accepted-message wake releases the wait without changing
+				// the message's FIFO/steer delivery mode.
 				let result: ReturnType<typeof createMemberIdleWaitResult>;
 				if (terminal.ok === true) {
 					if (
