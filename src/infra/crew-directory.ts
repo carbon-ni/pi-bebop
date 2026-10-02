@@ -95,11 +95,11 @@ export const defaultCrewDirectoryDependencies: CrewDirectoryDependencies = {
 	manifestExists: async (manifestPath, projectRoot) => {
 		if (!isTrustedCrewManifestPath(manifestPath, projectRoot)) return false;
 		try {
-			await fs.access(manifestPath);
+			await fs.lstat(manifestPath);
 			return true;
 		} catch (error) {
 			const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
-			return code !== "ENOENT" && code !== "ENOTDIR";
+			return code !== "ENOENT";
 		}
 	},
 	readManifest: readDirectoryManifest,

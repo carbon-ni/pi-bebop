@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import net from "node:net";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { currentRuntimeCompatibility, type CrewManifest } from "../domain/index.ts";
@@ -168,6 +168,37 @@ for (const [scenario, prepare] of [
 			{ ...dependencies, probeRuntime: async () => ({ kind: "response", value: currentRuntimeCompatibility() }) },
 		);
 		assert.equal(result.status, "issues");
+		assert.equal(result.configuration, "issues");
+		assert.equal(result.crews[0]?.status, "configuration-error");
+	});
+}
+
+for (const [scenario, prepare] of [
+	[
+		"dangling manifest symlink",
+		async (projectRoot: string) => {
+			const directory = path.join(projectRoot, ".pi", "bebop");
+			await mkdir(directory, { recursive: true });
+			await symlink("missing-crew.json", path.join(directory, "crew.json"));
+		},
+	],
+	[
+		"manifest path under a non-directory",
+		async (projectRoot: string) => {
+			await mkdir(path.join(projectRoot, ".pi"), { recursive: true });
+			await writeFile(path.join(projectRoot, ".pi", "bebop"), "not a directory");
+		},
+	],
+] as const) {
+	test(`doctor reports ${scenario} as configuration errors`, async (t) => {
+		const projectRoot = await mkdtemp(path.join(tmpdir(), "doctor-layout-error-"));
+		t.after(() => rm(projectRoot, { recursive: true, force: true }));
+		await prepare(projectRoot);
+		const dependencies = createRuntimeDoctorDependencies();
+		const result = await diagnoseRuntimeCompatibility(
+			{ projectRoot, timeoutSeconds: 1, diagnostic: false, signal: new AbortController().signal },
+			{ ...dependencies, probeRuntime: async () => ({ kind: "response", value: currentRuntimeCompatibility() }) },
+		);
 		assert.equal(result.configuration, "issues");
 		assert.equal(result.crews[0]?.status, "configuration-error");
 	});
