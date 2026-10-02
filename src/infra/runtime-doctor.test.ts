@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import net from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { currentRuntimeCompatibility, type CrewManifest } from "../domain/index.ts";
@@ -105,6 +105,7 @@ for (const [scenario, response, expectedStatus] of [
 			{
 				...dependencies,
 				discoverManifestPaths: () => ["/project/crew.json"],
+				manifestExists: async () => true,
 				readManifest: async () => manifest,
 			},
 		);
@@ -116,6 +117,115 @@ for (const [scenario, response, expectedStatus] of [
 		assert.doesNotMatch(JSON.stringify(diagnosis), /credentials|private|runtime\.sock/);
 	});
 }
+
+const filesystemManifest = {
+	version: 2,
+	members: [{ name: "Alice", role: "developer", socket: "sockets/runtime.sock" }],
+	presence: { notifications: true },
+};
+
+async function diagnoseFilesystemProject(t: TestContext, layouts: readonly string[]) {
+	const projectRoot = await mkdtemp(path.join(tmpdir(), "doctor-manifests-"));
+	t.after(() => rm(projectRoot, { recursive: true, force: true }));
+	for (const layout of layouts) {
+		const directory = path.join(projectRoot, ".pi", layout);
+		await mkdir(directory, { recursive: true });
+		await writeFile(path.join(directory, "crew.json"), JSON.stringify(filesystemManifest));
+	}
+	const dependencies = createRuntimeDoctorDependencies();
+	return diagnoseRuntimeCompatibility(
+		{ projectRoot, timeoutSeconds: 1, diagnostic: false, signal: new AbortController().signal },
+		{ ...dependencies, probeRuntime: async () => ({ kind: "response", value: currentRuntimeCompatibility() }) },
+	);
+}
+
+for (const [scenario, layouts, expectedCrews] of [
+	["empty project", [], 0],
+	["modern manifest only", ["bebop"], 1],
+	["legacy manifest only", ["crew"], 1],
+	["both supported manifests", ["bebop", "crew"], 2],
+] as const) {
+	test(`doctor handles ${scenario} without phantom configuration errors`, async (t) => {
+		const result = await diagnoseFilesystemProject(t, layouts);
+		assert.equal(result.status, expectedCrews === 0 ? "empty" : "healthy");
+		assert.equal(result.configuration, "healthy");
+		assert.equal(result.crews.length, expectedCrews);
+	});
+}
+
+for (const [scenario, prepare] of [
+	["malformed", async (projectRoot: string) => writeFile(path.join(projectRoot, ".pi", "bebop", "crew.json"), "{")],
+	["unreadable", async (projectRoot: string) => mkdir(path.join(projectRoot, ".pi", "bebop", "crew.json"))],
+] as const) {
+	test(`doctor reports ${scenario} filesystem manifests as configuration errors`, async (t) => {
+		const projectRoot = await mkdtemp(path.join(tmpdir(), "doctor-invalid-manifest-"));
+		t.after(() => rm(projectRoot, { recursive: true, force: true }));
+		await mkdir(path.join(projectRoot, ".pi", "bebop"), { recursive: true });
+		await prepare(projectRoot);
+		const dependencies = createRuntimeDoctorDependencies();
+		const result = await diagnoseRuntimeCompatibility(
+			{ projectRoot, timeoutSeconds: 1, diagnostic: false, signal: new AbortController().signal },
+			{ ...dependencies, probeRuntime: async () => ({ kind: "response", value: currentRuntimeCompatibility() }) },
+		);
+		assert.equal(result.status, "issues");
+		assert.equal(result.configuration, "issues");
+		assert.equal(result.crews[0]?.status, "configuration-error");
+	});
+}
+
+for (const [scenario, prepare] of [
+	[
+		"dangling manifest symlink",
+		async (projectRoot: string) => {
+			const directory = path.join(projectRoot, ".pi", "bebop");
+			await mkdir(directory, { recursive: true });
+			await symlink("missing-crew.json", path.join(directory, "crew.json"));
+		},
+	],
+	[
+		"manifest path under a non-directory",
+		async (projectRoot: string) => {
+			await mkdir(path.join(projectRoot, ".pi"), { recursive: true });
+			await writeFile(path.join(projectRoot, ".pi", "bebop"), "not a directory");
+		},
+	],
+] as const) {
+	test(`doctor reports ${scenario} as configuration errors`, async (t) => {
+		const projectRoot = await mkdtemp(path.join(tmpdir(), "doctor-layout-error-"));
+		t.after(() => rm(projectRoot, { recursive: true, force: true }));
+		await prepare(projectRoot);
+		const dependencies = createRuntimeDoctorDependencies();
+		const result = await diagnoseRuntimeCompatibility(
+			{ projectRoot, timeoutSeconds: 1, diagnostic: false, signal: new AbortController().signal },
+			{ ...dependencies, probeRuntime: async () => ({ kind: "response", value: currentRuntimeCompatibility() }) },
+		);
+		assert.equal(result.configuration, "issues");
+		assert.equal(result.crews[0]?.status, "configuration-error");
+	});
+}
+
+test("doctor preserves unsafe manifest errors after candidate existence filtering", async (t) => {
+	const projectRoot = await mkdtemp(path.join(tmpdir(), "doctor-unsafe-manifest-"));
+	const outsideRoot = await mkdtemp(path.join(tmpdir(), "doctor-outside-"));
+	t.after(async () => {
+		await rm(projectRoot, { recursive: true, force: true });
+		await rm(outsideRoot, { recursive: true, force: true });
+	});
+	const manifestPath = path.join(outsideRoot, "crew.json");
+	await writeFile(manifestPath, JSON.stringify(filesystemManifest));
+	const dependencies = createRuntimeDoctorDependencies();
+	const result = await diagnoseRuntimeCompatibility(
+		{ projectRoot, timeoutSeconds: 1, diagnostic: false, signal: new AbortController().signal },
+		{
+			...dependencies,
+			discoverManifestPaths: () => [manifestPath],
+			manifestExists: async () => true,
+			probeRuntime: async () => ({ kind: "response", value: currentRuntimeCompatibility() }),
+		},
+	);
+	assert.equal(result.configuration, "issues");
+	assert.equal(result.crews[0]?.status, "configuration-error");
+});
 
 test("doctor transport still rejects an uncorrelated missing-version response", async (t) => {
 	const peer = await runtimePeer(t);
