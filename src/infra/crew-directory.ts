@@ -97,8 +97,9 @@ export const defaultCrewDirectoryDependencies: CrewDirectoryDependencies = {
 		try {
 			await fs.access(manifestPath);
 			return true;
-		} catch {
-			return false;
+		} catch (error) {
+			const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+			return code !== "ENOENT" && code !== "ENOTDIR";
 		}
 	},
 	readManifest: readDirectoryManifest,

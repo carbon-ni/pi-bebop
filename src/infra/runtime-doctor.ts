@@ -1,5 +1,5 @@
 import { getTrustedCrewManifestPaths } from "./crew-layout.ts";
-import { readDirectoryManifest } from "./crew-directory.ts";
+import { defaultCrewDirectoryDependencies, readDirectoryManifest } from "./crew-directory.ts";
 import { sendRpcCommand, RpcProtocolError } from "./rpc-client.ts";
 import { currentRuntimeCompatibility } from "../domain/index.ts";
 import type { RuntimeDoctorDependencies, RuntimeProbe } from "../application/runtime-doctor.ts";
@@ -20,6 +20,7 @@ export function createRuntimeDoctorDependencies(): RuntimeDoctorDependencies {
 	const cli = currentRuntimeCompatibility();
 	return {
 		discoverManifestPaths: (projectRoot) => getTrustedCrewManifestPaths(projectRoot),
+		manifestExists: defaultCrewDirectoryDependencies.manifestExists,
 		readManifest: readDirectoryManifest,
 		probeRuntime: async (socketPath, options) => {
 			try {
