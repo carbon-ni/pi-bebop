@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	guestBroadcastOutputSchema,
+	guestMessageOutputSchema,
 	memberDeliveryOutputSchema,
 	projectGuestBroadcastDetails,
 	projectGuestMessageDetails,
 	projectMemberDeliveryDetails,
+	projectWaitDetails,
 	registerBebopTool,
+	waitOutputSchema,
 } from "./codemode-tool.ts";
 
 test("codemode DTOs exclude member endpoints and Guest callback identity", () => {
@@ -59,6 +63,42 @@ test("Guest broadcast DTO keeps delivery facts without remote endpoint data", ()
 			recipients: [{ member: "qa", role: "reviewer", disposition: "delivered", deliveryId: "delivery-3" }],
 		},
 	);
+});
+
+test("codemode output schemas are closed at every public boundary", () => {
+	for (const schema of [
+		memberDeliveryOutputSchema,
+		guestMessageOutputSchema,
+		guestBroadcastOutputSchema,
+		waitOutputSchema,
+	]) {
+		assert.equal(schema.additionalProperties, false);
+	}
+});
+
+test("wait DTOs preserve idle results and accepted-message wake details", () => {
+	assert.deepEqual(
+		projectWaitDetails({
+			result: {
+				member: { name: "qa", role: "reviewer" },
+				outcome: "idle",
+				disposition: "became-idle",
+				observedAt: "2026-01-09T12:00:00.000Z",
+			},
+		}),
+		{
+			result: {
+				member: { name: "qa", role: "reviewer" },
+				outcome: "idle",
+				disposition: "became-idle",
+				observedAt: "2026-01-09T12:00:00.000Z",
+			},
+		},
+	);
+	assert.deepEqual(projectWaitDetails({ outcome: "message-received", request_id: "req-1" }), {
+		outcome: "message-received",
+		request_id: "req-1",
+	});
 });
 
 test("registered codemode calls preserve semantic results and AbortSignal", async () => {

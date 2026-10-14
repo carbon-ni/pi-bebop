@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { TSchema } from "typebox";
+import { MemberIdleWaitResultSchema } from "../domain/index.ts";
 
 /** Pi 1.1 tool fields are kept structural so the extension remains source-compatible with 0.84 hosts. */
 export type CodemodeToolExposure = "direct" | "model-only" | "codemode" | "deferred" | "hidden";
@@ -10,20 +11,31 @@ type CodemodeToolDefinition<TParams extends TSchema, TDetails> = ToolDefinition<
 	readonly outputSchema?: TSchema;
 };
 
-export const memberDeliveryOutputSchema = Type.Object({
-	member: Type.Optional(Type.Object({ name: Type.String(), role: Type.String() })),
-	deliveryId: Type.Optional(Type.String()),
-	disposition: Type.Optional(Type.String()),
-	error: Type.Optional(Type.String()),
-});
+const publicMemberOutputSchema = Type.Object(
+	{ name: Type.String(), role: Type.String() },
+	{ additionalProperties: false },
+);
 
-export const guestMessageOutputSchema = Type.Object({
-	target: Type.Optional(Type.Object({ name: Type.String(), role: Type.String() })),
-	deliveryId: Type.Optional(Type.String()),
-	disposition: Type.Optional(Type.String()),
-	fromGuestName: Type.Optional(Type.String()),
-	error: Type.Optional(Type.String()),
-});
+export const memberDeliveryOutputSchema = Type.Object(
+	{
+		member: Type.Optional(publicMemberOutputSchema),
+		deliveryId: Type.Optional(Type.String()),
+		disposition: Type.Optional(Type.String()),
+		error: Type.Optional(Type.String()),
+	},
+	{ additionalProperties: false },
+);
+
+export const guestMessageOutputSchema = Type.Object(
+	{
+		target: Type.Optional(publicMemberOutputSchema),
+		deliveryId: Type.Optional(Type.String()),
+		disposition: Type.Optional(Type.String()),
+		fromGuestName: Type.Optional(Type.String()),
+		error: Type.Optional(Type.String()),
+	},
+	{ additionalProperties: false },
+);
 
 const memberIdentitySchema = Type.Object({ name: Type.String(), role: Type.String() }, { additionalProperties: false });
 const errorSchema = Type.Optional(Type.String());
@@ -110,19 +122,11 @@ const requestOutcomeSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-const idleOutcomeSchema = Type.Object(
-	{
-		member: memberIdentitySchema,
-		outcome: Type.String(),
-		observedAt: Type.String(),
-		disposition: Type.Optional(Type.String()),
-	},
-	{ additionalProperties: false },
-);
+const waitWakeSchema = Type.Literal("message-received");
 export const waitOutputSchema = Type.Object(
 	{
-		result: Type.Optional(requestOutcomeSchema),
-		outcome: Type.Optional(idleOutcomeSchema),
+		result: Type.Optional(Type.Union([requestOutcomeSchema, MemberIdleWaitResultSchema])),
+		outcome: Type.Optional(waitWakeSchema),
 		request_id: Type.Optional(Type.String()),
 		error: errorSchema,
 	},
@@ -138,21 +142,27 @@ export const interruptOutputSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const guestBroadcastOutputSchema = Type.Object({
-	summary: Type.Optional(summarySchema),
-	recipients: Type.Optional(
-		Type.Array(
-			Type.Object({
-				member: Type.String(),
-				role: Type.String(),
-				disposition: Type.String(),
-				deliveryId: Type.Optional(Type.String()),
-				code: Type.Optional(Type.String()),
-			}),
+export const guestBroadcastOutputSchema = Type.Object(
+	{
+		summary: Type.Optional(summarySchema),
+		recipients: Type.Optional(
+			Type.Array(
+				Type.Object(
+					{
+						member: Type.String(),
+						role: Type.String(),
+						disposition: Type.String(),
+						deliveryId: Type.Optional(Type.String()),
+						code: Type.Optional(Type.String()),
+					},
+					{ additionalProperties: false },
+				),
+			),
 		),
-	),
-	error: Type.Optional(Type.String()),
-});
+		error: Type.Optional(Type.String()),
+	},
+	{ additionalProperties: false },
+);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object";
@@ -284,11 +294,15 @@ function projectIdleOutcome(value: unknown): Record<string, unknown> | undefined
 	};
 }
 
+function projectWaitResult(value: unknown): Record<string, unknown> | undefined {
+	return projectRequestOutcome(value) ?? projectIdleOutcome(value);
+}
+
 export function projectWaitDetails(details: unknown): Record<string, unknown> {
 	if (!isRecord(details)) return { error: "invalid-result" };
 	if (typeof details.error === "string") return { error: details.error };
-	const outcome = projectIdleOutcome(details.outcome);
-	const result = projectRequestOutcome(details.result);
+	const outcome = details.outcome === "message-received" ? details.outcome : undefined;
+	const result = projectWaitResult(details.result);
 	return {
 		...(typeof details.request_id === "string" ? { request_id: details.request_id } : {}),
 		...(outcome === undefined ? {} : { outcome }),
