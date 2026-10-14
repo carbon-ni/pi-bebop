@@ -21,7 +21,8 @@ const settled = await Promise.allSettled([
 ]);
 const blocked = [];
 for (const name of ["wait_for_member_idle", "wait_for_request_outcome"]) {
-  try { await tools[name]({ member: "qa", request_id: "request-1" }); }
+  const args = name === "wait_for_member_idle" ? { member: "qa" } : { request_id: "request-1" };
+  try { await tools[name](args); }
   catch { blocked.push(name); }
 }
 const requests = await Promise.all([
