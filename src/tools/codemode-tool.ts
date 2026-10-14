@@ -207,7 +207,8 @@ export function projectStatusDetails(details: unknown): Record<string, unknown> 
 export function projectBroadcastDetails(details: unknown): Record<string, unknown> {
 	if (!isRecord(details)) return { error: "invalid-result" };
 	if (typeof details.error === "string") return { error: details.error };
-	const summary = isRecord(details) && isRecord(details.summary) ? details.summary : undefined;
+	const nestedSummary = isRecord(details.summary) ? details.summary : undefined;
+	const summary = nestedSummary ?? details;
 	const recipients = Array.isArray(details.recipients) ? details.recipients : undefined;
 	return {
 		...(summary && [summary.delivered, summary.failed, summary.total].every((value) => typeof value === "number")

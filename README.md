@@ -254,6 +254,14 @@ npm run build
 npm test
 ```
 
+Codemode host acceptance is opt-in because it launches a real Pi 1.1 AgentSession. Run it with Pi 1.1 on `PATH`:
+
+```bash
+PI_BEBOP_REAL_HOST_TEST=1 node --import tsx --test src/pi/codemode-host.integration.test.ts
+```
+
+The test uses a deterministic faux provider and in-process Bebop operations; it does not contact live crew members. Codemode exposes only projected, closed DTOs, keeps blocking waits out of nested scripts, runs independent nested calls concurrently, and cancels pending children when the script exits. The test covers both `codemode.mode=on` and `codemode.mode=only`, semantic tool errors, correlated request Responses after script completion, and cancellation.
+
 To use the CLI from this checkout:
 
 ```bash
