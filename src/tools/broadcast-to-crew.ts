@@ -4,6 +4,7 @@ import { MessagePayloadSchema } from "../domain/index.ts";
 import type { BroadcastMessageDependencies } from "../application/crew-broadcast.ts";
 import { BebopClientError, createInProcessCrewBroadcastOperation } from "../sdk/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { registerBebopTool } from "./codemode-tool.ts";
 
 /**
  * broadcast_to_crew — transient, non-interrupting Follow-up fan-out.
@@ -35,7 +36,7 @@ export function registerBroadcastToCrewTool(
 		},
 		message: dependencies,
 	});
-	pi.registerTool({
+	registerBebopTool(pi, {
 		name: "broadcast_to_crew",
 		label: "Broadcast To Crew",
 		description:

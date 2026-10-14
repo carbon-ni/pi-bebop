@@ -16,6 +16,7 @@ import {
 } from "../sdk/index.ts";
 import { RequestOutcomeRequestIdSchema } from "../domain/protocol/wire-members.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { registerBebopTool } from "./codemode-tool.ts";
 
 const requestParameters = Type.Object(
 	{
@@ -171,7 +172,7 @@ export function registerSendMemberRequestTool(
 	state: SocketState,
 	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
-	pi.registerTool({
+	registerBebopTool(pi, {
 		name: "send_member_request",
 		label: "Send Member Request",
 		description:
@@ -217,7 +218,7 @@ export function registerRespondToMemberRequestTool(
 	state: SocketState,
 	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
-	pi.registerTool({
+	registerBebopTool(pi, {
 		name: "respond_to_member_request",
 		label: "Respond to Member Request",
 		description:
@@ -249,57 +250,61 @@ export function registerWaitForRequestOutcomeTool(
 	state: SocketState,
 	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
-	pi.registerTool({
-		name: "wait_for_request_outcome",
-		label: "Wait for Request Outcome",
-		description:
-			"Requester-side: block until this exact Request ID reports a Response, offline, pending-after-idle, or max-wait. An accepted inbound Bebop message releases this wait; it does not settle the Request. After pending-after-idle or message wake, call this tool again with the same request_id. Never send a replacement solely because a wait ended. The wait never handles inbound assignments or ordinary messages itself. The wait is cancellable and does not poll, monitor, or claim completion, correctness, or availability.",
-		parameters: waitParameters,
-		async execute(_id, params, signal) {
-			try {
-				if (!state.memberRequestFlow) return failure("wait-failed", "Could not wait for request outcome");
-				const waited = await waitForRequestOutcome(operation, state.wakeGate, params.request_id, signal);
-				if (waited.ok === false) {
-					if (waited.code === "no-pending-requests")
-						return failure("unknown-request", `Request ${params.request_id} is not active or retained`);
-					if (waited.code === "invalid-request-id")
-						return failure(
-							waited.code,
-							`Malformed Request ID ${params.request_id}; use the exact ID returned by send_member_request`,
-						);
-					if (waited.code === "unknown-request")
-						return failure(
-							waited.code,
-							`Unknown Request ID ${params.request_id}; use the ID returned by send_member_request`,
-						);
-					if (waited.code === "outcome-consumed")
-						return failure(
-							waited.code,
-							`Outcome for Request ID ${params.request_id} was already consumed; do not send a replacement automatically`,
-						);
-					if (waited.code === "aborted")
-						return failure("aborted", `Request outcome wait aborted for ${params.request_id}`);
-					if (waited.code === "already-waiting")
-						return failure(waited.code, "Another Request outcome wait is already active");
-					if (waited.code === "wait-in-progress")
-						return failure(waited.code, "Another Bebop blocking wait is already active");
-					return failure("wait-failed", `Could not wait for request outcome: ${waited.code}`);
+	registerBebopTool(
+		pi,
+		{
+			name: "wait_for_request_outcome",
+			label: "Wait for Request Outcome",
+			description:
+				"Requester-side: block until this exact Request ID reports a Response, offline, pending-after-idle, or max-wait. An accepted inbound Bebop message releases this wait; it does not settle the Request. After pending-after-idle or message wake, call this tool again with the same request_id. Never send a replacement solely because a wait ended. The wait never handles inbound assignments or ordinary messages itself. The wait is cancellable and does not poll, monitor, or claim completion, correctness, or availability.",
+			parameters: waitParameters,
+			async execute(_id, params, signal) {
+				try {
+					if (!state.memberRequestFlow) return failure("wait-failed", "Could not wait for request outcome");
+					const waited = await waitForRequestOutcome(operation, state.wakeGate, params.request_id, signal);
+					if (waited.ok === false) {
+						if (waited.code === "no-pending-requests")
+							return failure("unknown-request", `Request ${params.request_id} is not active or retained`);
+						if (waited.code === "invalid-request-id")
+							return failure(
+								waited.code,
+								`Malformed Request ID ${params.request_id}; use the exact ID returned by send_member_request`,
+							);
+						if (waited.code === "unknown-request")
+							return failure(
+								waited.code,
+								`Unknown Request ID ${params.request_id}; use the ID returned by send_member_request`,
+							);
+						if (waited.code === "outcome-consumed")
+							return failure(
+								waited.code,
+								`Outcome for Request ID ${params.request_id} was already consumed; do not send a replacement automatically`,
+							);
+						if (waited.code === "aborted")
+							return failure("aborted", `Request outcome wait aborted for ${params.request_id}`);
+						if (waited.code === "already-waiting")
+							return failure(waited.code, "Another Request outcome wait is already active");
+						if (waited.code === "wait-in-progress")
+							return failure(waited.code, "Another Bebop blocking wait is already active");
+						return failure("wait-failed", `Could not wait for request outcome: ${waited.code}`);
+					}
+					if ("wake" in waited)
+						return {
+							...success(
+								"An accepted Bebop message is ready; process it before waiting again with the same Request ID.",
+								{ outcome: waited.wake, request_id: params.request_id },
+							),
+							terminate: true,
+						};
+					return success(formatRequestOutcomeWithHeader(waited.outcome), {
+						result: waited.outcome,
+						request_id: params.request_id,
+					});
+				} catch {
+					return failure("wait-failed", "Could not wait for request outcome");
 				}
-				if ("wake" in waited)
-					return {
-						...success(
-							"An accepted Bebop message is ready; process it before waiting again with the same Request ID.",
-							{ outcome: waited.wake, request_id: params.request_id },
-						),
-						terminate: true,
-					};
-				return success(formatRequestOutcomeWithHeader(waited.outcome), {
-					result: waited.outcome,
-					request_id: params.request_id,
-				});
-			} catch {
-				return failure("wait-failed", "Could not wait for request outcome");
-			}
+			},
 		},
-	});
+		{ exposure: "model-only", executionMode: "sequential" },
+	);
 }

@@ -7,6 +7,7 @@ import { BebopClientError, createInProcessMemberInboxOperation } from "../sdk/in
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { registerBebopTool } from "./codemode-tool.ts";
 
 const parameters = Type.Object(
 	{
@@ -59,7 +60,7 @@ export function registerSendToInboxTool(
 		},
 	});
 
-	pi.registerTool({
+	registerBebopTool(pi, {
 		name: "send_to_inbox",
 		label: "Send To Inbox",
 		description:

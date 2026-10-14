@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { BebopClientError, type MemberStatusOperation } from "../sdk/index.ts";
 import { formatMemberStatus } from "../domain/index.ts";
+import { registerBebopTool } from "./codemode-tool.ts";
 
 const parameters = Type.Object(
 	{
@@ -25,7 +26,7 @@ function errorResult(target: string, code: string, message: string): ToolResult 
 }
 
 export function registerGetMemberStatusTool(pi: ExtensionAPI, operation: MemberStatusOperation): void {
-	pi.registerTool({
+	registerBebopTool(pi, {
 		name: "get_member_status",
 		label: "Get Member Status",
 		description:
