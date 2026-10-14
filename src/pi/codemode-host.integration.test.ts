@@ -16,21 +16,24 @@ test(
 		for (const mode of ["on", "only"] as const) {
 			const directory = mkdtempSync(join(tmpdir(), `bebop-codemode-host-${mode}-`));
 			const probe = join(directory, "probe.ts");
+			const statusTool = fileURLToPath(new URL("../tools/get-member-status.ts", import.meta.url));
+			const idleWaitTool = fileURLToPath(new URL("../tools/wait-for-member-idle.ts", import.meta.url));
 			const script =
-				'const values = await Promise.allSettled([tools.probe_fast({value: "ok"}), tools.probe_error({})]); const pending = tools.probe_pending({}); let wait = "available"; try { await tools.probe_wait({}); } catch { wait = "rejected"; } const request = await tools.probe_request_start({}); return { values: values.map((value) => value.status), error: values[1].value?.code, wait, requestId: request.requestId };';
+				'const values = await Promise.allSettled([tools.get_member_status({member: "qa"}), tools.get_member_status({member: "error"})]); const pending = tools.get_member_status({member: "pending"}); let wait = "available"; try { await tools.wait_for_member_idle({member: "qa"}); } catch { wait = "rejected"; } const request = await tools.probe_request_start({}); return { values: values.map((value) => value.status), error: values[1].value?.error, wait, requestId: request.requestId };';
 			writeFileSync(join(directory, "settings.json"), `{"codemode":{"mode":"${mode}"}}\n`);
 			writeFileSync(
 				probe,
 				`import { createFauxCore, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
+import { registerGetMemberStatusTool } from ${JSON.stringify(statusTool)};
+import { registerWaitForMemberIdleTool } from ${JSON.stringify(idleWaitTool)};
 let pendingAborted = false;
 let requestResponse;
 const schema = { type: "object", properties: {}, additionalProperties: false };
 export default (pi) => {
-  pi.registerTool({ name: "probe_fast", label: "Probe Fast", description: "fast", parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"], additionalProperties: false }, outputSchema: schema, executionMode: "parallel", async execute(_id, params) { return { content: [{ type: "text", text: params.value }], details: { value: params.value }, structuredContent: { value: params.value } }; } });
-  pi.registerTool({ name: "probe_error", label: "Probe Error", description: "error", parameters: schema, outputSchema: schema, executionMode: "parallel", async execute() { return { content: [{ type: "text", text: "expected" }], isError: true, details: { code: "expected" }, structuredContent: { code: "expected" } }; } });
+  registerGetMemberStatusTool(pi, { async getMemberStatus(member, options) { if (member === "pending") return await new Promise((resolve) => { options?.signal?.addEventListener("abort", () => { pendingAborted = true; resolve({ member: { name: member, role: "dev" }, presence: "offline", activity: "unavailable", hasPendingMessages: "unavailable", observedAt: new Date().toISOString() }); }, { once: true }); }); if (member === "error") throw new Error("expected"); return { member: { name: member, role: "dev" }, presence: "online", activity: "idle", hasPendingMessages: false, observedAt: new Date().toISOString() }; } });
+  registerWaitForMemberIdleTool(pi, { resolveMemberIdleWait({ member, timeoutSeconds }) { return { target: { name: member, role: "dev" }, timeoutSeconds: timeoutSeconds ?? 60 }; }, async waitForMemberIdle() { throw new Error("not-called"); } });
   pi.registerTool({ name: "probe_request_start", label: "Probe Request Start", description: "request", parameters: schema, outputSchema: schema, executionMode: "parallel", async execute() { setTimeout(() => { requestResponse = { requestId: "request-1", message: "response-after-script" }; }, 25); return { content: [{ type: "text", text: "accepted" }], details: { accepted: true, requestId: "request-1" }, structuredContent: { accepted: true, requestId: "request-1" } }; } });
   pi.registerTool({ name: "probe_pending", label: "Probe Pending", description: "pending", parameters: schema, outputSchema: schema, executionMode: "parallel", async execute(_id, _params, signal) { await new Promise((resolve) => { if (signal?.aborted) { pendingAborted = true; resolve(); return; } signal?.addEventListener("abort", () => { pendingAborted = true; resolve(); }, { once: true }); }); return { content: [{ type: "text", text: "aborted" }], details: { aborted: pendingAborted }, structuredContent: { aborted: pendingAborted } }; } });
-  pi.registerTool({ name: "probe_wait", label: "Probe Wait", description: "wait", parameters: schema, exposure: "model-only", async execute() { return { content: [{ type: "text", text: "bad" }], details: { called: true }, structuredContent: { called: true } }; } });
   const faux = createFauxCore({ api: "faux-codemode", provider: "faux-codemode", models: [{ id: "probe", name: "Probe" }] });
   pi.registerProvider("faux-codemode", { api: faux.api, models: faux.models, stream: faux.stream, streamSimple: faux.streamSimple });
   faux.setResponses([
@@ -39,7 +42,6 @@ export default (pi) => {
   ]);
 };\n`,
 			);
-			const extension = fileURLToPath(new URL("../extension.ts", import.meta.url));
 			const child = spawn(
 				"pi",
 				[
@@ -49,15 +51,13 @@ export default (pi) => {
 					"--extension",
 					"builtin:codemode",
 					"--extension",
-					extension,
-					"--extension",
 					probe,
 					"--model",
 					"faux-codemode/probe",
 					"--api-key",
 					"test",
 					"--tools",
-					"codemode,probe_fast,probe_error,probe_pending,probe_request_start",
+					"codemode,get_member_status,wait_for_member_idle,probe_request_start",
 					"-p",
 					"run the codemode probe",
 				],
@@ -88,15 +88,15 @@ export default (pi) => {
 			assert.deepEqual(result.requestResponse, { requestId: "request-1", message: "response-after-script" });
 			const text = result.last.content.map((item) => item.text ?? "").join("\n");
 			assert.match(text, /values.*fulfilled.*fulfilled/);
-			assert.match(text, /error.*expected/);
+			assert.match(text, /error.*transport-error/);
 			assert.match(text, /wait.*rejected/);
 			assert.match(text, /requestId.*request-1/);
 			assert.deepEqual(
 				result.last.details?.calls?.map((call) => [call.name, call.status]),
 				[
-					["probe_fast", "ok"],
-					["probe_error", "error"],
-					["probe_pending", "ok"],
+					["get_member_status", "ok"],
+					["get_member_status", "error"],
+					["get_member_status", "ok"],
 					["probe_request_start", "ok"],
 				],
 			);
