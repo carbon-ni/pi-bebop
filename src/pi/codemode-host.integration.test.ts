@@ -6,27 +6,34 @@ import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const piPath = spawnSync("pi", ["--version"], { encoding: "utf8" }).status === 0;
+const piProbe = spawnSync("pi", ["--version"], { encoding: "utf8" });
 const runRealHost = process.env.PI_BEBOP_REAL_HOST_TEST === "1";
 
-test(
-	"Pi 1.1 host executes codemode with parallel results and cancellation",
-	{ skip: !piPath || !runRealHost },
-	async () => {
-		for (const mode of ["on", "only"] as const) {
-			const directory = mkdtempSync(join(tmpdir(), `bebop-codemode-host-${mode}-`));
-			const probe = join(directory, "probe.ts");
-			const statusTool = fileURLToPath(new URL("../tools/get-member-status.ts", import.meta.url));
-			const idleWaitTool = fileURLToPath(new URL("../tools/wait-for-member-idle.ts", import.meta.url));
-			const requestTool = fileURLToPath(new URL("../tools/member-request.ts", import.meta.url));
-			const requestFlow = fileURLToPath(new URL("../application/member-request-flow.ts", import.meta.url));
-			const requestOperation = fileURLToPath(new URL("../sdk/member-request-operation.ts", import.meta.url));
-			const script =
-				'const values = await Promise.allSettled([tools.get_member_status({member: "qa"}), tools.get_member_status({member: "error"})]); const pending = tools.get_member_status({member: "pending"}); let wait = "available"; try { await tools.wait_for_member_idle({member: "qa"}); } catch { wait = "rejected"; } const request = await tools.send_member_request({member: "peer", message: "report", timeout_seconds: 1, max_wait_seconds: 60}); return { values: values.map((value) => value.status), error: values[1].value?.error, wait, requestId: request.requestId };';
-			writeFileSync(join(directory, "settings.json"), `{"codemode":{"mode":"${mode}"}}\n`);
-			writeFileSync(
-				probe,
-				`import { createFauxCore, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
+test("Pi 1.1 host executes codemode with parallel results and cancellation", { skip: !runRealHost }, async () => {
+	assert.equal(
+		piProbe.status,
+		0,
+		`Pi 1.1 is required for the real-host test; could not run \'pi --version\': ${piProbe.error ?? piProbe.stderr}`,
+	);
+	assert.match(
+		`${piProbe.stdout}\n${piProbe.stderr}`,
+		/\b1\.1\.\d+\b/,
+		`Pi 1.1 is required for the real-host test; found: ${piProbe.stdout || piProbe.stderr}`,
+	);
+	for (const mode of ["on", "only"] as const) {
+		const directory = mkdtempSync(join(tmpdir(), `bebop-codemode-host-${mode}-`));
+		const probe = join(directory, "probe.ts");
+		const statusTool = fileURLToPath(new URL("../tools/get-member-status.ts", import.meta.url));
+		const idleWaitTool = fileURLToPath(new URL("../tools/wait-for-member-idle.ts", import.meta.url));
+		const requestTool = fileURLToPath(new URL("../tools/member-request.ts", import.meta.url));
+		const requestFlow = fileURLToPath(new URL("../application/member-request-flow.ts", import.meta.url));
+		const requestOperation = fileURLToPath(new URL("../sdk/member-request-operation.ts", import.meta.url));
+		const script =
+			'const values = await Promise.allSettled([tools.get_member_status({member: "qa"}), tools.get_member_status({member: "error"})]); const pending = tools.get_member_status({member: "pending"}); let wait = "available"; try { await tools.wait_for_member_idle({member: "qa"}); } catch { wait = "rejected"; } const request = await tools.send_member_request({member: "peer", message: "report", timeout_seconds: 1, max_wait_seconds: 60}); return { values: values.map((value) => value.status), error: values[1].value?.error, wait, requestId: request.requestId };';
+		writeFileSync(join(directory, "settings.json"), `{"codemode":{"mode":"${mode}"}}\n`);
+		writeFileSync(
+			probe,
+			`import { createFauxCore, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { registerGetMemberStatusTool } from ${JSON.stringify(statusTool)};
 import { registerWaitForMemberIdleTool } from ${JSON.stringify(idleWaitTool)};
 import { registerSendMemberRequestTool } from ${JSON.stringify(requestTool)};
@@ -55,91 +62,86 @@ export default (pi) => {
     async (context) => { releaseRequestResponse?.(); await requestResponseReady; const last = context.messages[context.messages.length - 1]; process.stderr.write("CODEMODE_EXECUTION:" + JSON.stringify({ pendingAborted, requestResponse, statusStarts, declaredTools, last }) + "\\n"); return fauxAssistantMessage("done"); },
   ]);
 };\n`,
-			);
-			const child = spawn(
-				"pi",
-				[
-					"--no-session",
-					"--no-extensions",
-					"--offline",
-					"--extension",
-					"builtin:codemode",
-					"--extension",
-					probe,
-					"--model",
-					"faux-codemode/probe",
-					"--api-key",
-					"test",
-					"--tools",
-					"codemode,get_member_status,wait_for_member_idle,send_member_request",
-					"-p",
-					"run the codemode probe",
-				],
-				{
-					cwd: fileURLToPath(new URL("../..", import.meta.url)),
-					env: Object.fromEntries(
-						Object.entries({ ...process.env, HOME: directory, PI_CODING_AGENT_DIR: directory }).filter(
-							([key]) => !key.startsWith("npm_"),
-						),
+		);
+		const child = spawn(
+			"pi",
+			[
+				"--no-session",
+				"--no-extensions",
+				"--offline",
+				"--extension",
+				"builtin:codemode",
+				"--extension",
+				probe,
+				"--model",
+				"faux-codemode/probe",
+				"--api-key",
+				"test",
+				"--tools",
+				"codemode,get_member_status,wait_for_member_idle,send_member_request",
+				"-p",
+				"run the codemode probe",
+			],
+			{
+				cwd: fileURLToPath(new URL("../..", import.meta.url)),
+				env: Object.fromEntries(
+					Object.entries({ ...process.env, HOME: directory, PI_CODING_AGENT_DIR: directory }).filter(
+						([key]) => !key.startsWith("npm_"),
 					),
-					stdio: ["ignore", "pipe", "pipe"],
-				},
-			);
-			let stderr = "";
-			let stdout = "";
-			child.stdout.setEncoding("utf8");
-			child.stdout.on("data", (chunk) => (stdout += chunk));
-			child.stderr.setEncoding("utf8");
-			child.stderr.on("data", (chunk) => (stderr += chunk));
-			const exitCode = await new Promise<number>((resolve) => {
-				let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
-				const killTimer = setTimeout(() => {
-					child.kill("SIGTERM");
-					forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1000);
-				}, 15_000);
-				child.on("close", (code) => {
-					clearTimeout(killTimer);
-					if (forceKillTimer !== undefined) clearTimeout(forceKillTimer);
-					resolve(code ?? -1);
-				});
+				),
+				stdio: ["ignore", "pipe", "pipe"],
+			},
+		);
+		let stderr = "";
+		let stdout = "";
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (chunk) => (stdout += chunk));
+		child.stderr.setEncoding("utf8");
+		child.stderr.on("data", (chunk) => (stderr += chunk));
+		const exitCode = await new Promise<number>((resolve) => {
+			let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+			const killTimer = setTimeout(() => {
+				child.kill("SIGTERM");
+				forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1000);
+			}, 15_000);
+			child.on("close", (code) => {
+				clearTimeout(killTimer);
+				if (forceKillTimer !== undefined) clearTimeout(forceKillTimer);
+				resolve(code ?? -1);
 			});
-			rmSync(directory, { recursive: true, force: true });
+		});
+		rmSync(directory, { recursive: true, force: true });
 
-			assert.equal(exitCode, 0, stderr);
-			const marker = stderr.split("\n").find((line) => line.startsWith("CODEMODE_EXECUTION:"));
-			assert.ok(marker, `stdout=${stdout}\nstderr=${stderr}`);
-			const result = JSON.parse(marker.slice("CODEMODE_EXECUTION:".length)) as {
-				pendingAborted: boolean;
-				requestResponse?: { requestId: string; message: string };
-				statusStarts: string[];
-				declaredTools: string[];
-				last: {
-					content: Array<{ type: string; text?: string }>;
-					details?: { calls?: Array<{ name: string; status: string }> };
-				};
+		assert.equal(exitCode, 0, stderr);
+		const marker = stderr.split("\n").find((line) => line.startsWith("CODEMODE_EXECUTION:"));
+		assert.ok(marker, `stdout=${stdout}\nstderr=${stderr}`);
+		const result = JSON.parse(marker.slice("CODEMODE_EXECUTION:".length)) as {
+			pendingAborted: boolean;
+			requestResponse?: { requestId: string; message: string };
+			statusStarts: string[];
+			declaredTools: string[];
+			last: {
+				content: Array<{ type: string; text?: string }>;
+				details?: { calls?: Array<{ name: string; status: string }> };
 			};
-			assert.equal(result.pendingAborted, true);
-			assert.deepEqual(result.requestResponse, { requestId: "request-1", message: "response-after-script" });
-			assert.deepEqual([...result.statusStarts].sort(), ["error", "qa"]);
-			assert.equal(
-				result.declaredTools.includes("wait_for_member_idle"),
-				true,
-				JSON.stringify(result.declaredTools),
-			);
-			const text = result.last.content.map((item) => item.text ?? "").join("\n");
-			assert.match(text, /values.*fulfilled.*fulfilled/);
-			assert.match(text, /error.*transport-error/);
-			assert.match(text, /wait.*rejected/);
-			assert.match(text, /requestId.*request-1/);
-			assert.deepEqual(
-				result.last.details?.calls?.map((call) => [call.name, call.status]),
-				[
-					["get_member_status", "ok"],
-					["get_member_status", "error"],
-					["get_member_status", "ok"],
-					["send_member_request", "ok"],
-				],
-			);
-		}
-	},
-);
+		};
+		assert.equal(result.pendingAborted, true);
+		assert.deepEqual(result.requestResponse, { requestId: "request-1", message: "response-after-script" });
+		assert.deepEqual([...result.statusStarts].sort(), ["error", "qa"]);
+		assert.equal(result.declaredTools.includes("wait_for_member_idle"), true, JSON.stringify(result.declaredTools));
+		const text = result.last.content.map((item) => item.text ?? "").join("\n");
+		assert.match(text, /values.*fulfilled.*fulfilled/);
+		assert.match(text, /error.*transport-error/);
+		assert.match(text, /wait.*rejected/);
+		assert.match(text, /requestId.*request-1/);
+		assert.deepEqual(
+			result.last.details?.calls?.map((call) => [call.name, call.status]),
+			[
+				["get_member_status", "ok"],
+				["get_member_status", "error"],
+				["get_member_status", "ok"],
+				["send_member_request", "ok"],
+			],
+		);
+	}
+});
