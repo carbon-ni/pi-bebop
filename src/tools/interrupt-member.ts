@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { MessagePayloadSchema } from "../domain/index.ts";
 import { BebopClientError, type MemberInterruptOperation } from "../sdk/index.ts";
-import { registerBebopTool } from "./codemode-tool.ts";
+import { interruptOutputSchema, projectInterruptDetails, registerBebopTool } from "./codemode-tool.ts";
 
 const parameters = Type.Object(
 	{
@@ -68,6 +68,11 @@ export function registerInterruptMemberTool(pi: ExtensionAPI, operation: MemberI
 				}
 			},
 		},
-		{ exposure: "model-only", executionMode: "sequential" },
+		{
+			exposure: "model-only",
+			executionMode: "sequential",
+			outputSchema: interruptOutputSchema,
+			projectDetails: projectInterruptDetails,
+		},
 	);
 }

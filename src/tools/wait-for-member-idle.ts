@@ -4,7 +4,7 @@ import { MemberIdleWaitFlowError } from "../application/member-idle-wait-flow.ts
 import { createMemberIdleWaitResult, formatMemberIdleWaitResult } from "../domain/index.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
 import { BebopClientError, type InProcessMemberIdleWaitOperation, type MemberIdleWaitResult } from "../sdk/index.ts";
-import { registerBebopTool } from "./codemode-tool.ts";
+import { projectWaitDetails, registerBebopTool, waitOutputSchema } from "./codemode-tool.ts";
 
 const parameters = Type.Object(
 	{
@@ -175,6 +175,11 @@ export function registerWaitForMemberIdleTool(
 				}
 			},
 		},
-		{ exposure: "model-only", executionMode: "sequential" },
+		{
+			exposure: "model-only",
+			executionMode: "sequential",
+			outputSchema: waitOutputSchema,
+			projectDetails: projectWaitDetails,
+		},
 	);
 }

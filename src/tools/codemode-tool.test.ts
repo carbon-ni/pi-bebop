@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	memberDeliveryOutputSchema,
 	projectGuestBroadcastDetails,
 	projectGuestMessageDetails,
 	projectMemberDeliveryDetails,
@@ -64,20 +65,39 @@ test("registered codemode calls preserve semantic results and AbortSignal", asyn
 	let registered: any;
 	const pi = { registerTool: (tool: unknown) => (registered = tool) } as unknown as ExtensionAPI;
 	let receivedSignal: AbortSignal | undefined;
-	registerBebopTool(pi, {
-		name: "fixture",
-		label: "Fixture",
-		description: "fixture",
-		parameters: {} as never,
-		execute: async (_id, _params, signal) => {
-			receivedSignal = signal;
-			return { content: [{ type: "text", text: "prose" }], details: { ok: true, socketPath: "/private" } };
+	registerBebopTool(
+		pi,
+		{
+			name: "fixture",
+			label: "Fixture",
+			description: "fixture",
+			parameters: {} as never,
+			execute: async (_id, _params, signal) => {
+				receivedSignal = signal;
+				return {
+					content: [{ type: "text", text: "prose" }],
+					details: {
+						member: { name: "qa", role: "reviewer", socketPath: "/private" },
+						deliveryId: "delivery",
+						disposition: "queued",
+					},
+				};
+			},
 		},
-	});
+		{
+			outputSchema: memberDeliveryOutputSchema,
+			projectDetails: projectMemberDeliveryDetails,
+		},
+	);
 	const controller = new AbortController();
 	const result = await registered.execute("id", {}, controller.signal);
 	assert.equal(receivedSignal, controller.signal);
-	assert.deepEqual(result.structuredContent, { ok: true, socketPath: "/private" });
+	assert.deepEqual(result.structuredContent, {
+		member: { name: "qa", role: "reviewer" },
+		deliveryId: "delivery",
+		disposition: "queued",
+	});
+	assert.equal("socketPath" in result.structuredContent.member, false);
 	assert.equal(result.content[0].text, "prose");
 	assert.equal(registered.outputSchema !== undefined, true);
 	assert.equal(registered.executionMode, "parallel");
