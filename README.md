@@ -246,6 +246,14 @@ See [Member requests](docs/MEMBER-REQUEST-WORKFLOW.md) for the full flow.
 - **Guests:** admit and revoke trusted guests, send direct messages, and broadcast in a defined order.
 - **Waits and requests:** tie responses to requests, wake waits for incoming messages, and report timeouts and failures explicitly.
 
+## Codemode
+
+On Pi 1.1, nonblocking Bebop tools return structured, allowlisted results to scripts. Independent calls can run with `Promise.all` or `Promise.allSettled`. Pi 0.84 remains supported for direct tool calls.
+
+`wait_for_member_idle`, `wait_for_request_outcome`, and `interrupt_member` are direct-only tools. They remain model-declared in codemode's `only` mode. Call blocking waits alone: nested codemode calls cannot preserve their turn-termination behavior.
+
+A fulfilled script call can contain a semantic failure: check `error`, and for broadcasts check `summary.failed`. Invalid arguments and host failures reject. Script cancellation does not roll back accepted deliveries. Keep the returned `requestId` and use `wait_for_request_outcome` directly; do not resend an accepted request because its script ended.
+
 ## Development
 
 ```bash
