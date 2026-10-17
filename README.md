@@ -1,5 +1,7 @@
 # Pi Bebop
 
+<img width="180" alt="Pi Bebop logo" src="https://github.com/user-attachments/assets/ff4eccd9-73e7-4e09-a617-ce7b7db7e299" />
+
 Pi Bebop connects independent [Pi](https://github.com/badlogic/pi-mono) sessions as a crew. Each member keeps its own conversation, context, and tools. Bebop delivers messages and tracks membership; your crew decides who does the work and when it is done.
 
 ## Install
