@@ -6,4 +6,4 @@ Write a `.draft` or temporary file under `.pi/bebop/intake/new/`, then atomicall
 
 Any trusted joined member of that exact crew may ingest the file. The configured contact determines the durable Inbox recipient, not which member ingests it. Bebop scans after membership activation and at lifecycle safe points; filesystem events only prompt a scan. Accepted files become ordinary, **unverified external-intake Follow-ups**. Delivery does not mean the contact read, classified, delegated, or acted on the content.
 
-The original target survives contact changes and crashes before receipt through private commit intents. Files remain under `processed/` or `failed/` for review. See [crew setup](CREW-INIT.md) for layout and recovery details.
+Private commit intents keep the original recipient across contact changes or crashes before receipt. On restart, Bebop retries a pending enqueue with the same key rather than creating a duplicate; failed files are not retried automatically. Files remain under `processed/` or `failed/` for review. See [crew setup](CREW-INIT.md) for the manifest layout.

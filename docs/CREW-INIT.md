@@ -1,73 +1,30 @@
-# Crew Init
+# Set up a crew
 
-`bebop crew init` is the deterministic, non-interactive scaffold that
-creates a canonical software crew layout in a project. It is creation, not
-configuration migration: it never overwrites, merges, or forces.
+From your project root, run:
 
-> TASK-0053 defines the contract (managed layout, deterministic versioned
-> template bytes, preflight/conflict decision, output and exit-code contract,
-> usage validation, path redaction). The CLI wiring and filesystem mutation
-> are TASK-0054 and are not implemented by this task.
-
-## Command
-
-```text
-bebop crew init [--project <directory>] [--format toon|json|text]
+```bash
+bebop crew init
+bebop crew roles
 ```
 
-Defaults:
+`crew init` creates `.pi/bebop/crew.json`, shared and role instructions, and a `sockets/` directory. It does not prompt, start members, or overwrite your files. A byte-identical rerun changes nothing; a partial or conflicting layout fails without a partial update. Use `--project <directory>` to target another project and `--format toon|json` for structured output.
 
-- `--project`: current working directory;
-- canonical layout only: `.pi/bebop` (never compatibility `.pi/crew`);
-- output: concise human-readable text;
-- use `--format toon|json` for structured automation output;
-- no prompts and no `--force`.
+## Review the scaffold
 
-## Managed layout
+The default manifest has `lead`, `product`, `developer`, and `quality` members. It uses shared instructions at `instructions/common.md`, role instructions under `instructions/`, and `product` as the local Intake contact. Review names, roles, contact, and instructions before joining. The contact receives external Intake; it does not become a manager, permission, or default internal recipient.
 
-```text
-.pi/bebop/
-├── .gitignore
-├── crew.json
-├── instructions/
-│   ├── common.md
-│   ├── lead.md
-│   ├── product.md
-│   ├── developer.md
-│   └── quality.md
-├── intake/
-│   ├── new/
-│   ├── processed/
-│   ├── failed/
-│   └── commits/ (private runtime evidence)
-└── sockets/
+Start members in separate terminals, using roles shown by `crew roles`:
+
+```bash
+pi --crew-role lead
+pi --crew-role developer
 ```
 
-- `crew.json` is valid version 2 configuration with generic exact names `lead`,
-  `product`, `developer`, and `quality`; a shared `commonInstructionsFile` at
-  `instructions/common.md`; matching roles, descriptions, and
-  `instructionsFile` values under `instructions/`; notifications enabled; exact
-  Intake contact `product`. Review names, contact, common guidance, and role
-  instructions before starting member processes.
-- `.gitignore` excludes runtime-owned `sockets/`, private durable `inbox/`, and the local Intake dropbox.
-- Init creates empty `sockets/` for immediate discoverability but never creates socket links, member processes, Inbox records, Intake messages, session state, Git commits, or Pi trust decisions. Runtime creates `inbox/` and `intake/{new,processed,failed,commits}/` only when needed.
-- With an exact `intake.contact`, write `.draft` files in `intake/new/` and atomically rename them to `.md` or `.txt`. Any trusted joined Member of the exact Crew may ingest the file; `intake.contact` controls the only durable Inbox recipient and delivery contact. Intake transports opaque text as an unverified Follow-up; delivery does not imply action, classification, or delegation. The boundary is local-only.
-- Crash recovery is monotonic:
+Inside Pi, `/crew members` shows the active roster with `current`, `online`, or `offline` observations. It does not report task progress. Agent tools become available only after joining. Instructions load when a member starts, restores, or joins again; edit, leave, and rejoin to refresh them.
 
-    | State                         | Restart action                                                                                                         | Inbox result        |
-    | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------- |
-    | `new`                         | Claim and process normally                                                                                             | One enqueue         |
-    | `processing`, no receipt      | Use the private commit intent's original target, retry `enqueueWithId` with the same key, write the receipt, then move | Exactly one enqueue |
-    | `processing`, receipt present | Verify the receipt and move without enqueueing                                                                         | No duplicate        |
-    | `processed`, receipt present  | Ignore; both durable evidence records already exist                                                                    | No duplicate        |
-    | `failed`, reason present      | Retain for review; do not retry automatically                                                                          | No enqueue          |
+## Customize the manifest
 
-    A manifest or membership generation change before persistence requeues the claim. A change after the Inbox commit does not retroactively move that persisted item; the receipt preserves the commit point. Failed validation is durably recorded beside the retained file.
-
-## Manual layout
-
-The same layout can be authored by hand or scripted; the minimal manifest is
-version 1 with exact member names/roles and socket-relative paths:
+You can also write `.pi/bebop/crew.json` yourself. A minimal version 1 manifest names each member, role, and project-relative socket:
 
 ```json
 {
@@ -79,17 +36,7 @@ version 1 with exact member names/roles and socket-relative paths:
 }
 ```
 
-Version 2 may select one shared `commonInstructionsFile` under the active
-layout's `instructions/` directory. Every member receives the same loaded
-common snapshot before its role instructions, including members without a role
-file. Version 1 remains accepted for compatibility, but a version 1 runtime
-rejects the version 2 extension rather than ignoring it.
-
-A member may use either inline instructions or a Markdown file, never both;
-common and role file paths stay beneath the active layout's `instructions/`
-directory and are rejected on symlink escapes, directories, invalid UTF-8, NULs,
-blank files, or files over 64 KiB. Files are read once during startup, restore,
-or explicit join/rejoin (no hot reload; leave and rejoin to refresh):
+Version 2 supports one shared `commonInstructionsFile` and per-member `instructionsFile` entries under `.pi/bebop/instructions/`:
 
 ```json
 {
@@ -106,76 +53,6 @@ or explicit join/rejoin (no hot reload; leave and rejoin to refresh):
 }
 ```
 
-Descriptions are short, stable, crew-visible profiles for choosing an exact
-member when roles repeat — never routing keys, permissions, role instructions,
-or current work. Keep them to one non-secret line:
+A member can have inline instructions **or** an instruction file, not both. Instruction files must stay under the active layout's `instructions/` directory; symlink escapes, blank files, invalid UTF-8, and files over 64 KiB are rejected. A short `description` helps people choose between members with the same role; it is not a routing key or permission. Address an exact name when roles repeat.
 
-```json
-{
-	"name": "Bob",
-	"role": "developer",
-	"description": "Builds domain and application changes",
-	"socket": "sockets/Bob.sock"
-}
-```
-
-`/crew members` renders the authoritative roster for the active membership:
-configured project socket paths and exactly `current`, `online`, or `offline`;
-global UUID destinations, aliases, and full instructions are never shown. The
-current member is identified from membership without probing; other endpoints
-are probed independently. Unjoined, `/crew members` prints `Crew not joined.
-Use /crew join <socket>.` with no discovery and no agent turn.
-
-```text
-Crew: /project/.pi/bebop/crew.json
-Members (3):
-- lead (lead) — current — /project/.pi/bebop/sockets/lead.sock
-- Bob (dev) — online — /project/.pi/bebop/sockets/Bob.sock
-- Kelly (qa) — offline — /project/.pi/bebop/sockets/Kelly.sock
-```
-
-## Mutation contract
-
-- Preflight the project and every managed path before writing.
-- Missing target layout is created from deterministic versioned template bytes.
-- Exact rerun returns successful `unchanged` with zero writes.
-- Any existing/symlinked layout or differing managed file returns a conflict
-  with the offending relative path and an actionable next step; no partial
-  update and no silent overwrite.
-- Publish is same-filesystem atomic and cleans staging after
-  write/rename/concurrency failure without deleting pre-existing paths.
-- No `--force`: init is creation, not configuration migration.
-
-## Output contract
-
-Structured success includes `status: created|unchanged`, project root, relative
-manifest path, created/verified relative paths, and next commands. The default
-text view reports the state, target project, manifest and path counts, and first
-next command without a structured envelope:
-
-```text
-Crew scaffold created: /project
-Manifest: /project/.pi/bebop/crew.json
-Created: 2 path(s)
-Verified: 1 path(s)
-Next: bebop --crew-role lead
-```
-
-Use `--format toon` or `--format json` to retain the canonical structured result.
-Conflicts, usage, and operational errors use stable codes and never leak stack
-traces, secrets, absolute home expansion, or raw dependency errors.
-
-Exit codes:
-
-- `0`: created or byte-identical no-op;
-- `1`: filesystem/conflict/operational failure;
-- `2`: usage error.
-
-## Relationship to other signals
-
-- Crew contact is the exact manifest member triaging external Crew Intake; it
-  is not lead, manager, authority, default internal recipient, or permission.
-- Internal member communication still targets an exact member name or unique
-  role through existing tools; init never auto-routes through the contact.
-- The scaffold is a starting point for a software crew; templates are examples,
-  not permissions.
+The scaffold ignores runtime sockets, private Inbox records, and Intake files in Git. To submit local text to the configured contact, follow the [Intake guide](LOCAL-INTAKE.md). For command options and diagnostics, see the [CLI guide](CLI.md) or `bebop crew init --help`.
