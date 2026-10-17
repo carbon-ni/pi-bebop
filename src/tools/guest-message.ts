@@ -8,6 +8,13 @@ import {
 	type GuestMessageRequest,
 } from "../application/guest-message.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import {
+	guestBroadcastOutputSchema,
+	guestMessageOutputSchema,
+	projectGuestBroadcastDetails,
+	projectGuestMessageDetails,
+	registerBebopTool,
+} from "./codemode-tool.ts";
 
 export const GUEST_MESSAGING_TOOLS = ["guest_send", "guest_broadcast"] as const;
 
@@ -48,80 +55,94 @@ export function registerGuestMessagingTools(
 	state: SocketState,
 	dependencies: GuestMessagingToolDependencies,
 ): void {
-	pi.registerTool({
-		name: "guest_send",
-		label: "Guest Send",
-		description:
-			"Send a direct, ordinary Follow-up as an approved Guest. Requires the exact crew selector on every call; target resolution stays inside that crew. Guest cannot use Inbox, Redirect, Interrupt, or Member administration.",
-		parameters: sendParameters,
-		async execute(_toolCallId, params, signal): Promise<ToolResult> {
-			try {
-				const outcome = await submitGuestMessage(
-					{
-						guestRuntime: state.guestMembershipRuntime!,
-						guestIdentity: "runtime-derived",
-						crew: params.crew,
-						target: params.target,
-						message: params.message,
-						instructions: params.instructions,
-						loadManifest: dependencies.loadManifest,
-						signal,
-					},
-					dependencies,
-				);
-				return {
-					content: [
+	registerBebopTool(
+		pi,
+		{
+			name: "guest_send",
+			label: "Guest Send",
+			description:
+				"Send a direct, ordinary Follow-up as an approved Guest. Requires the exact crew selector on every call; target resolution stays inside that crew. Guest cannot use Inbox, Redirect, Interrupt, or Member administration.",
+			parameters: sendParameters,
+			async execute(_toolCallId, params, signal): Promise<ToolResult> {
+				try {
+					const outcome = await submitGuestMessage(
 						{
-							type: "text",
-							text: `[${outcome.target.name} (${outcome.target.role})] Message accepted (${outcome.disposition})`,
+							guestRuntime: state.guestMembershipRuntime!,
+							guestIdentity: "runtime-derived",
+							crew: params.crew,
+							target: params.target,
+							message: params.message,
+							instructions: params.instructions,
+							loadManifest: dependencies.loadManifest,
+							signal,
 						},
-					],
-					details: outcome,
-				};
-			} catch (error) {
-				return errorResult(error);
-			}
+						dependencies,
+					);
+					return {
+						content: [
+							{
+								type: "text",
+								text: `[${outcome.target.name} (${outcome.target.role})] Message accepted (${outcome.disposition})`,
+							},
+						],
+						details: outcome,
+					};
+				} catch (error) {
+					return errorResult(error);
+				}
+			},
 		},
-	});
-	pi.registerTool({
-		name: "guest_broadcast",
-		label: "Guest Broadcast",
-		description:
-			"Send one transient Broadcast Follow-up directly to every other approved participant in the exact selected crew. Reports each delivered/failed recipient; never persists or retries.",
-		parameters: broadcastParameters,
-		async execute(_toolCallId, params, signal): Promise<ToolResult> {
-			try {
-				const outcome = await submitGuestBroadcast(
-					{
-						guestRuntime: state.guestMembershipRuntime!,
-						guestIdentity: "runtime-derived",
-						crew: params.crew,
-						message: params.message,
-						instructions: params.instructions,
-						loadManifest: dependencies.loadManifest,
-						signal,
-					},
-					dependencies,
-				);
-				const failed = outcome.summary.failed;
-				return {
-					content: [
+		{
+			outputSchema: guestMessageOutputSchema,
+			projectDetails: projectGuestMessageDetails,
+		},
+	);
+	registerBebopTool(
+		pi,
+		{
+			name: "guest_broadcast",
+			label: "Guest Broadcast",
+			description:
+				"Send one transient Broadcast Follow-up directly to every other approved participant in the exact selected crew. Reports each delivered/failed recipient; never persists or retries.",
+			parameters: broadcastParameters,
+			async execute(_toolCallId, params, signal): Promise<ToolResult> {
+				try {
+					const outcome = await submitGuestBroadcast(
 						{
-							type: "text",
-							text:
-								failed === 0
-									? `Delivered to ${outcome.summary.delivered} recipient${outcome.summary.delivered === 1 ? "" : "s"}`
-									: `Delivered to ${outcome.summary.delivered} of ${outcome.summary.total} recipients (${failed} failed)`,
+							guestRuntime: state.guestMembershipRuntime!,
+							guestIdentity: "runtime-derived",
+							crew: params.crew,
+							message: params.message,
+							instructions: params.instructions,
+							loadManifest: dependencies.loadManifest,
+							signal,
 						},
-					],
-					isError: failed > 0,
-					details: outcome,
-				};
-			} catch (error) {
-				return errorResult(error);
-			}
+						dependencies,
+					);
+					const failed = outcome.summary.failed;
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									failed === 0
+										? `Delivered to ${outcome.summary.delivered} recipient${outcome.summary.delivered === 1 ? "" : "s"}`
+										: `Delivered to ${outcome.summary.delivered} of ${outcome.summary.total} recipients (${failed} failed)`,
+							},
+						],
+						isError: failed > 0,
+						details: outcome,
+					};
+				} catch (error) {
+					return errorResult(error);
+				}
+			},
 		},
-	});
+		{
+			outputSchema: guestBroadcastOutputSchema,
+			projectDetails: projectGuestBroadcastDetails,
+		},
+	);
 }
 
 export function reconcileGuestMessagingTools(pi: ExtensionAPI, state: SocketState): void {

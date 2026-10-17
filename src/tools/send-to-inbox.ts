@@ -7,6 +7,7 @@ import { BebopClientError, createInProcessMemberInboxOperation } from "../sdk/in
 import { sendRpcCommand } from "../infra/rpc-client.ts";
 import { resolveMemberEndpoint } from "../infra/socket-endpoint.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import { inboxOutputSchema, projectInboxDetails, registerBebopTool } from "./codemode-tool.ts";
 
 const parameters = Type.Object(
 	{
@@ -59,39 +60,46 @@ export function registerSendToInboxTool(
 		},
 	});
 
-	pi.registerTool({
-		name: "send_to_inbox",
-		label: "Send To Inbox",
-		description:
-			"Persist a durable inbox message for a crew member. Unlike send_follow_up (delivered when the peer finishes current work) or redirect_member (redirects active work), this stores the message durably; the recipient reads it after startup, restore, or explicit rejoin, even if offline now. Success means persisted, never delivered or completed. Requires joined membership; the recipient may be offline.",
-		parameters,
-		async execute(_toolCallId, params) {
-			const target = params.member.trim();
-			try {
-				const outcome = await operation.sendToInbox(target, {
-					message: params.message,
-					instructions: params.instructions,
-				});
-				return {
-					content: [
-						{
-							type: "text",
-							text: `[${outcome.member.name} (${outcome.member.role})] Inbox item persisted (${outcome.itemId})`,
+	registerBebopTool(
+		pi,
+		{
+			name: "send_to_inbox",
+			label: "Send To Inbox",
+			description:
+				"Persist a durable inbox message for a crew member. Unlike send_follow_up (delivered when the peer finishes current work) or redirect_member (redirects active work), this stores the message durably; the recipient reads it after startup, restore, or explicit rejoin, even if offline now. Success means persisted, never delivered or completed. Requires joined membership; the recipient may be offline.",
+			parameters,
+			async execute(_toolCallId, params) {
+				const target = params.member.trim();
+				try {
+					const outcome = await operation.sendToInbox(target, {
+						message: params.message,
+						instructions: params.instructions,
+					});
+					return {
+						content: [
+							{
+								type: "text",
+								text: `[${outcome.member.name} (${outcome.member.role})] Inbox item persisted (${outcome.itemId})`,
+							},
+						],
+						details: {
+							itemId: outcome.itemId,
+							persisted: true,
+							target: outcome.member.name,
 						},
-					],
-					details: {
-						itemId: outcome.itemId,
-						persisted: true,
-						target: outcome.member.name,
-					},
-				} satisfies ToolResult;
-			} catch (error) {
-				if (error instanceof BebopClientError) return errorResult(target, error.code, error.message);
-				const message = error instanceof Error ? error.message : "Inbox enqueue failed";
-				return errorResult(target, "inbox-failed", message);
-			}
+					} satisfies ToolResult;
+				} catch (error) {
+					if (error instanceof BebopClientError) return errorResult(target, error.code, error.message);
+					const message = error instanceof Error ? error.message : "Inbox enqueue failed";
+					return errorResult(target, "inbox-failed", message);
+				}
+			},
 		},
-	});
+		{
+			outputSchema: inboxOutputSchema,
+			projectDetails: projectInboxDetails,
+		},
+	);
 }
 
 function errorResult(target: string, code: string, message: string): ToolResult {

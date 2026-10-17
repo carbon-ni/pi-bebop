@@ -17,6 +17,7 @@ type RegisteredTool = {
 		content: Array<{ type: "text"; text: string }>;
 		isError?: boolean;
 		details: unknown;
+		structuredContent?: unknown;
 	}>;
 };
 
@@ -51,13 +52,14 @@ function setup(
 	assert.ok(registeredTool);
 	return registeredTool!;
 }
-function deps(calls: string[]): MemberMessageDependencies {
+function deps(calls: string[], failEndpoint?: string): MemberMessageDependencies {
 	return {
 		resolveEndpoint: async (socketPath) => socketPath,
 		coordinator: createMemberMessageCoordinator(),
 		transport: {
 			send: async (endpoint, command) => {
 				calls.push(`${endpoint}:${String((command.payload as { kind: string }).kind)}:${command.delivery}`);
+				if (endpoint === failEndpoint) throw new Error("offline");
 				return {
 					response: {
 						success: true,
@@ -93,6 +95,26 @@ describe("broadcast_to_crew tool", () => {
 			recipients: [
 				{ member: "Bob", role: "dev", disposition: "delivered", deliveryId: "delivery-1" },
 				{ member: "Kelly", role: "qa", disposition: "delivered", deliveryId: "delivery-2" },
+			],
+		});
+		assert.deepEqual(result.structuredContent, {
+			summary: { delivered: 2, failed: 0, total: 2 },
+			recipients: [
+				{ member: "Bob", role: "dev", disposition: "delivered", deliveryId: "delivery-1" },
+				{ member: "Kelly", role: "qa", disposition: "delivered", deliveryId: "delivery-2" },
+			],
+		});
+	});
+
+	test("projects partial failure summary and recipient code", async () => {
+		const calls: string[] = [];
+		const result = await setup(membership, deps(calls, "/project/kelly.sock")).execute("id", { message: "hello" });
+		assert.equal(result.isError, true);
+		assert.deepEqual(result.structuredContent, {
+			summary: { delivered: 1, failed: 1, total: 2 },
+			recipients: [
+				{ member: "Bob", role: "dev", disposition: "delivered", deliveryId: "delivery-1" },
+				{ member: "Kelly", role: "qa", disposition: "failed", code: "transport-error" },
 			],
 		});
 	});
