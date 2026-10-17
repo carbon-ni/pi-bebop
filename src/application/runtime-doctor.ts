@@ -64,6 +64,8 @@ export interface DoctorResult {
 
 export interface RuntimeDoctorDependencies {
 	readonly discoverManifestPaths: (projectRoot: string) => readonly string[];
+	/** Optional candidates are filtered before readManifest; read errors remain configuration errors. */
+	readonly manifestExists?: (manifestPath: string, projectRoot: string) => Promise<boolean>;
 	readonly readManifest: (manifestPath: string, projectRoot: string) => Promise<CrewManifest>;
 	readonly probeRuntime: (
 		socketPath: string,
@@ -255,6 +257,7 @@ export async function diagnoseRuntimeCompatibility(
 			partial = true;
 			break;
 		}
+		if (deps.manifestExists && !(await deps.manifestExists(manifestPath, request.projectRoot))) continue;
 		let manifest: CrewManifest;
 		try {
 			manifest = await deps.readManifest(manifestPath, request.projectRoot);

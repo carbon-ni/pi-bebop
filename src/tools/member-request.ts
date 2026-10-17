@@ -16,6 +16,15 @@ import {
 } from "../sdk/index.ts";
 import { RequestOutcomeRequestIdSchema } from "../domain/protocol/wire-members.ts";
 import type { SocketState } from "../pi/control-runtime.ts";
+import {
+	memberRequestOutputSchema,
+	projectMemberRequestDetails,
+	projectResponseDetails,
+	projectWaitDetails,
+	registerBebopTool,
+	responseOutputSchema,
+	waitOutputSchema,
+} from "./codemode-tool.ts";
 
 const requestParameters = Type.Object(
 	{
@@ -171,45 +180,54 @@ export function registerSendMemberRequestTool(
 	state: SocketState,
 	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
-	pi.registerTool({
-		name: "send_member_request",
-		label: "Send Member Request",
-		description:
-			"Requester-side: send a non-interrupting Member request requiring exactly one correlated Response; you are the Requester and alone wait for its outcome with wait_for_request_outcome. Recommended for any message whose sender requires one answer, report, verdict, or evidence response. Use send_follow_up for information that does not require a Response. Accepted never means answered, completed, correct, authenticated, or progress.",
-		parameters: requestParameters,
-		async execute(_id, params, signal) {
-			try {
-				const outcome = await operation.startMemberRequest(
-					params.member,
-					{
-						message: params.message,
-						instructions: params.instructions,
-						timeoutSeconds: params.timeout_seconds,
-						maxWaitSeconds: params.max_wait_seconds,
-					},
-					{ signal },
-				);
-				const memberLabel = `${outcome.member.name} (${outcome.member.role})`;
-				return success(
-					`Request accepted for ${memberLabel}. Next: call wait_for_request_outcome with request_id=${outcome.requestId}; do not send a replacement after pending-after-idle.`,
-					{
-						requestId: outcome.requestId,
-						member: outcome.member,
-					},
-				);
-			} catch (error) {
-				if (error instanceof BebopClientError) return failure(error.code, error.message);
-				if (error instanceof MemberMessageError) return failure(error.code, error.message);
-				if (error instanceof RpcProtocolError) return failure(error.code, error.message);
-				if (error instanceof Error && error.name === "AbortError") return failure("aborted", "Request aborted");
-				if (error instanceof Error && /timeout/i.test(error.message)) return failure("timeout", error.message);
-				const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-				if (systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN")
-					return failure("offline", "Member request channel is offline");
-				return failure("request-failed", error instanceof Error ? error.message : "Request failed");
-			}
+	registerBebopTool(
+		pi,
+		{
+			name: "send_member_request",
+			label: "Send Member Request",
+			description:
+				"Requester-side: send a non-interrupting Member request requiring exactly one correlated Response; you are the Requester and alone wait for its outcome with wait_for_request_outcome. Recommended for any message whose sender requires one answer, report, verdict, or evidence response. Use send_follow_up for information that does not require a Response. Accepted never means answered, completed, correct, authenticated, or progress.",
+			parameters: requestParameters,
+			async execute(_id, params, signal) {
+				try {
+					const outcome = await operation.startMemberRequest(
+						params.member,
+						{
+							message: params.message,
+							instructions: params.instructions,
+							timeoutSeconds: params.timeout_seconds,
+							maxWaitSeconds: params.max_wait_seconds,
+						},
+						{ signal },
+					);
+					const memberLabel = `${outcome.member.name} (${outcome.member.role})`;
+					return success(
+						`Request accepted for ${memberLabel}. Next: call wait_for_request_outcome with request_id=${outcome.requestId}; do not send a replacement after pending-after-idle.`,
+						{
+							requestId: outcome.requestId,
+							member: outcome.member,
+						},
+					);
+				} catch (error) {
+					if (error instanceof BebopClientError) return failure(error.code, error.message);
+					if (error instanceof MemberMessageError) return failure(error.code, error.message);
+					if (error instanceof RpcProtocolError) return failure(error.code, error.message);
+					if (error instanceof Error && error.name === "AbortError")
+						return failure("aborted", "Request aborted");
+					if (error instanceof Error && /timeout/i.test(error.message))
+						return failure("timeout", error.message);
+					const systemCode = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+					if (systemCode === "ENOENT" || systemCode === "ECONNREFUSED" || systemCode === "ENOTCONN")
+						return failure("offline", "Member request channel is offline");
+					return failure("request-failed", error instanceof Error ? error.message : "Request failed");
+				}
+			},
 		},
-	});
+		{
+			outputSchema: memberRequestOutputSchema,
+			projectDetails: projectMemberRequestDetails,
+		},
+	);
 }
 
 export function registerRespondToMemberRequestTool(
@@ -217,31 +235,38 @@ export function registerRespondToMemberRequestTool(
 	state: SocketState,
 	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
-	pi.registerTool({
-		name: "respond_to_member_request",
-		label: "Respond to Member Request",
-		description:
-			"Responder-side: send one correlated Response to an inbound Member request you received. Use this only in reply to a Member request you are currently answering, never for ordinary information. With one active request request_id is optional; with multiple, provide the opaque Request ID. This is correlated output, not ordinary send_follow_up.",
-		parameters: responseParameters,
-		async execute(_id, params) {
-			try {
-				await operation.respondToMemberRequest(params.request_id, {
-					message: params.message,
-					instructions: params.instructions,
-				});
-				return success("Response sent to the active Member request", { requestId: params.request_id });
-			} catch (error) {
-				const message = error instanceof Error ? error.message : "response-failed";
-				const code = error instanceof BebopClientError ? error.code : message.split(":", 1)[0]!;
-				if (code === "no-pending-request")
-					return failure(code, "No pending Member request; use send_follow_up for ordinary information.");
-				if (code === "ambiguous-request") return failure(code, `${message}; provide request_id.`);
-				if (code === "response-expired")
-					return failure(code, "Request expired; resend as ordinary send_follow_up.");
-				return failure(code, "Could not respond to member request");
-			}
+	registerBebopTool(
+		pi,
+		{
+			name: "respond_to_member_request",
+			label: "Respond to Member Request",
+			description:
+				"Responder-side: send one correlated Response to an inbound Member request you received. Use this only in reply to a Member request you are currently answering, never for ordinary information. With one active request request_id is optional; with multiple, provide the opaque Request ID. This is correlated output, not ordinary send_follow_up.",
+			parameters: responseParameters,
+			async execute(_id, params) {
+				try {
+					await operation.respondToMemberRequest(params.request_id, {
+						message: params.message,
+						instructions: params.instructions,
+					});
+					return success("Response sent to the active Member request", { requestId: params.request_id });
+				} catch (error) {
+					const message = error instanceof Error ? error.message : "response-failed";
+					const code = error instanceof BebopClientError ? error.code : message.split(":", 1)[0]!;
+					if (code === "no-pending-request")
+						return failure(code, "No pending Member request; use send_follow_up for ordinary information.");
+					if (code === "ambiguous-request") return failure(code, `${message}; provide request_id.`);
+					if (code === "response-expired")
+						return failure(code, "Request expired; resend as ordinary send_follow_up.");
+					return failure(code, "Could not respond to member request");
+				}
+			},
 		},
-	});
+		{
+			outputSchema: responseOutputSchema,
+			projectDetails: projectResponseDetails,
+		},
+	);
 }
 
 export function registerWaitForRequestOutcomeTool(
@@ -249,57 +274,66 @@ export function registerWaitForRequestOutcomeTool(
 	state: SocketState,
 	operation: InProcessMemberRequestOperation = createMemberRequestOperation(state),
 ): void {
-	pi.registerTool({
-		name: "wait_for_request_outcome",
-		label: "Wait for Request Outcome",
-		description:
-			"Requester-side: block until this exact Request ID reports a Response, offline, pending-after-idle, or max-wait. An accepted inbound Bebop message releases this wait; it does not settle the Request. After pending-after-idle or message wake, call this tool again with the same request_id. Never send a replacement solely because a wait ended. The wait never handles inbound assignments or ordinary messages itself. The wait is cancellable and does not poll, monitor, or claim completion, correctness, or availability.",
-		parameters: waitParameters,
-		async execute(_id, params, signal) {
-			try {
-				if (!state.memberRequestFlow) return failure("wait-failed", "Could not wait for request outcome");
-				const waited = await waitForRequestOutcome(operation, state.wakeGate, params.request_id, signal);
-				if (waited.ok === false) {
-					if (waited.code === "no-pending-requests")
-						return failure("unknown-request", `Request ${params.request_id} is not active or retained`);
-					if (waited.code === "invalid-request-id")
-						return failure(
-							waited.code,
-							`Malformed Request ID ${params.request_id}; use the exact ID returned by send_member_request`,
-						);
-					if (waited.code === "unknown-request")
-						return failure(
-							waited.code,
-							`Unknown Request ID ${params.request_id}; use the ID returned by send_member_request`,
-						);
-					if (waited.code === "outcome-consumed")
-						return failure(
-							waited.code,
-							`Outcome for Request ID ${params.request_id} was already consumed; do not send a replacement automatically`,
-						);
-					if (waited.code === "aborted")
-						return failure("aborted", `Request outcome wait aborted for ${params.request_id}`);
-					if (waited.code === "already-waiting")
-						return failure(waited.code, "Another Request outcome wait is already active");
-					if (waited.code === "wait-in-progress")
-						return failure(waited.code, "Another Bebop blocking wait is already active");
-					return failure("wait-failed", `Could not wait for request outcome: ${waited.code}`);
+	registerBebopTool(
+		pi,
+		{
+			name: "wait_for_request_outcome",
+			label: "Wait for Request Outcome",
+			description:
+				"Requester-side: block until this exact Request ID reports a Response, offline, pending-after-idle, or max-wait. An accepted inbound Bebop message releases this wait; it does not settle the Request. After pending-after-idle or message wake, call this tool again with the same request_id. Never send a replacement solely because a wait ended. The wait never handles inbound assignments or ordinary messages itself. The wait is cancellable and does not poll, monitor, or claim completion, correctness, or availability.",
+			parameters: waitParameters,
+			async execute(_id, params, signal) {
+				try {
+					if (!state.memberRequestFlow) return failure("wait-failed", "Could not wait for request outcome");
+					const waited = await waitForRequestOutcome(operation, state.wakeGate, params.request_id, signal);
+					if (waited.ok === false) {
+						if (waited.code === "no-pending-requests")
+							return failure("unknown-request", `Request ${params.request_id} is not active or retained`);
+						if (waited.code === "invalid-request-id")
+							return failure(
+								waited.code,
+								`Malformed Request ID ${params.request_id}; use the exact ID returned by send_member_request`,
+							);
+						if (waited.code === "unknown-request")
+							return failure(
+								waited.code,
+								`Unknown Request ID ${params.request_id}; use the ID returned by send_member_request`,
+							);
+						if (waited.code === "outcome-consumed")
+							return failure(
+								waited.code,
+								`Outcome for Request ID ${params.request_id} was already consumed; do not send a replacement automatically`,
+							);
+						if (waited.code === "aborted")
+							return failure("aborted", `Request outcome wait aborted for ${params.request_id}`);
+						if (waited.code === "already-waiting")
+							return failure(waited.code, "Another Request outcome wait is already active");
+						if (waited.code === "wait-in-progress")
+							return failure(waited.code, "Another Bebop blocking wait is already active");
+						return failure("wait-failed", `Could not wait for request outcome: ${waited.code}`);
+					}
+					if ("wake" in waited)
+						return {
+							...success(
+								"An accepted Bebop message is ready; process it before waiting again with the same Request ID.",
+								{ outcome: waited.wake, request_id: params.request_id },
+							),
+							terminate: true,
+						};
+					return success(formatRequestOutcomeWithHeader(waited.outcome), {
+						result: waited.outcome,
+						request_id: params.request_id,
+					});
+				} catch {
+					return failure("wait-failed", "Could not wait for request outcome");
 				}
-				if ("wake" in waited)
-					return {
-						...success(
-							"An accepted Bebop message is ready; process it before waiting again with the same Request ID.",
-							{ outcome: waited.wake, request_id: params.request_id },
-						),
-						terminate: true,
-					};
-				return success(formatRequestOutcomeWithHeader(waited.outcome), {
-					result: waited.outcome,
-					request_id: params.request_id,
-				});
-			} catch {
-				return failure("wait-failed", "Could not wait for request outcome");
-			}
+			},
 		},
-	});
+		{
+			exposure: "model-only",
+			executionMode: "sequential",
+			outputSchema: waitOutputSchema,
+			projectDetails: projectWaitDetails,
+		},
+	);
 }
