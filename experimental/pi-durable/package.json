@@ -1,0 +1,22 @@
+{
+  "name": "@carbon-ni/pi-bebop-durable-experiment",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && node --experimental-strip-types --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-durable": "1.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.0",
+    "typescript": "5.9.3"
+  }
+}

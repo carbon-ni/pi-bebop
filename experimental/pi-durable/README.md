@@ -29,7 +29,18 @@ npm start --prefix experimental/pi-durable -- start \
   --workspace "$HOME/work/project" \
   --instructions-file crew/designer.md
 
+# Optional: connect this member to its configured trusted-project Inbox.
+# Set this only after Pi has trusted the selected project.
+BEBOP_PROJECT_TRUSTED=1 npm start --prefix experimental/pi-durable -- start \
+  --db "$HOME/.local/share/bebop-durable/designer.sqlite" \
+  --member-id designer --role designer --model gpt-4.1-mini \
+  --workspace "$HOME/work/project" \
+  --trusted-project-root "$HOME/work/project" \
+  --manifest "$HOME/work/project/.pi/bebop/crew.json"
+
 npm start --prefix experimental/pi-durable -- status --db "$HOME/.local/share/bebop-durable/designer.sqlite"
+# If Inbox opt-in is configured, request an immediate drain:
+npm start --prefix experimental/pi-durable -- drain-inbox --db "$HOME/.local/share/bebop-durable/designer.sqlite"
 printf '%s' 'Summarize the project notes' | npm start --prefix experimental/pi-durable -- send \
   --db "$HOME/.local/share/bebop-durable/designer.sqlite" --member-id designer
 npm start --prefix experimental/pi-durable -- stop --db "$HOME/.local/share/bebop-durable/designer.sqlite"
@@ -37,7 +48,7 @@ npm start --prefix experimental/pi-durable -- stop --db "$HOME/.local/share/bebo
 
 `start` launches a detached local host. Closing a client terminal does not close that host or cancel its accepted submission. If the host process crashes, rerun the same `start` command; it reopens the SQLite database and the same root conversation. Use a unique database per independent member. The DB persists and checks member ID, role, model, canonical workspace, and instructions hash; changing any requires a new DB. The optional role instruction file must be inside the workspace.
 
-The host has one custom tool: bounded UTF-8 file reading (64 KiB maximum) under `--workspace`. It does not write files or run shell commands. For uncertain client retries, pass the same `--request-id <stable-delivery-id>` to each `send` attempt. The host stores a message hash before Durable admission and rejects reusing that key with different content. Admission is not work completion, and this does not claim exactly-once external effects.
+The host has one custom tool: bounded UTF-8 file reading (64 KiB maximum) under `--workspace`. It does not write files or run shell commands. `stop` closes pending client sockets and gives Durable five seconds to close; if active work ignores cancellation, the host exits so its lock can be recovered on the next start. The client allows 120 seconds of inactivity for a model submission (control requests use one second); a timeout disconnects only the client, not accepted host work. `send` prints its delivery request ID before dispatch. For uncertain retries, pass that same `--request-id <stable-delivery-id>` to each `send` attempt. The host stores a message hash before Durable admission and rejects reusing that key with different content. Admission is not work completion, and this does not claim exactly-once external effects.
 
 ## Test
 
@@ -52,7 +63,7 @@ The experimental package now has a narrow bridge API in `src/inbox.ts`; this doe
 
 For each item, the bridge renders a deterministic Inbox message and calls an injected immediate `admit(message, requestId, payloadHash)` API. The request ID is stable for the configured recipient, Inbox item ID, and enqueue timestamp. This scopes retries to one queue occurrence, because the root store may reuse an item ID after its queue empties. `payloadHash` is SHA-256 over the full canonical stored payload and is checked separately from the request ID. The source store has no unique occurrence token finer than its enqueue timestamp; two otherwise identical records re-enqueued with the same timestamp cannot be distinguished, so exactly-once delivery is not claimed for that edge case. The admission adapter must persist that ID/hash pair and reject reuse with another payload hash; the bridge removes the Inbox item only after it returns a submission receipt. A retry after admission but before removal reuses the same key/hash. No cross-store atomic transaction is claimed. The message shows the actual enqueue timestamp and always says the item may be stale; it does not fabricate a delivery age. The rendered message is limited to 8,000 characters by the current Durable admission API; oversized items stay in the Inbox.
 
-The host CLI/lifecycle is not yet wired to poll or trigger this bridge. Treat it as an integration seam, not a user-ready Inbox feature. Full membership RPC, presence, Member Requests, and session restoration remain out of scope.
+When both `--trusted-project-root` and `--manifest` are supplied, `BEBOP_PROJECT_TRUSTED=1` is also required as an explicit caller attestation. The host listens on its private local socket, opens the trusted recipient Inbox bridge and claims the configured socket alias before calling Durable `resume()`. It drains up to 100 queued items per startup/settled-submission pass to keep host startup and replies bounded; use `drain-inbox` again for larger backlogs. It releases the endpoint during shutdown. This trust attestation is not Pi's own trust store: only set it after checking project trust through Pi. Without those three opt-ins, Inbox is not opened and its endpoint is not claimed. Full Bebop membership RPC, presence, Member Requests, and session restoration remain out of scope.
 
 ## Boundaries and remaining gaps
 

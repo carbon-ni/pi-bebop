@@ -54,6 +54,10 @@ Inside Pi, run `/crew members` to see who joined. Agent tools are available only
 - [Resume a session by role](docs/ROLE-SESSION-RESUME.md)
 - [Bookmark member sessions together](docs/CREW-SESSION.md)
 
+## Experimental persistent members
+
+The `experiment-pi-durable` branch includes an opt-in, read-only persistent-member runtime under [`experimental/pi-durable/`](experimental/pi-durable/README.md). It has separate dependencies and does not replace the Pi extension. Follow its guide for supported integration, credentials, startup, and restart instructions. See the [experiment charter](docs/experiments/pi-durable.md) for scope and merge criteria.
+
 ## Development
 
 ```bash

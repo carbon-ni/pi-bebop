@@ -18,11 +18,25 @@ Existing Pi members remain usable alongside experimental members. A requester do
 
 ## Working agreement
 
-- Develop and evaluate this experiment on its separate branch and worktree.
-- Keep `develop` unchanged by experimental work.
+- Develop and evaluate this experiment on `experiment-pi-durable` in the current checkout. No additional worktree is required.
+- Keep `develop` unchanged by experimental work. The nested `experimental/pi-durable/` package isolates new runtime dependencies, not Git history.
 - Use small, tested commits and record supported behavior and known gaps.
 - Judge the result through sustained real use, not only a successful demo.
 - Prepare a merge only when Cristian decides the experiment is useful enough. Do not merge or replace the default runtime automatically.
+
+## MVP evaluation boundary
+
+The first runnable slice is a local persistent host with separate command-line clients. Its nested package has its own pinned dependencies and setup instructions in [`experimental/pi-durable/README.md`](../../experimental/pi-durable/README.md).
+
+Judge the MVP by these user-visible checks:
+
+1. Start a member and record its storage location, member identity, and conversation ID. Conversation IDs are local to their storage; the root ID alone does not prove history was restored.
+2. Send a message from another process. Closing that client must leave the host alive.
+3. Stop or kill the host, restart it with the same configuration, and check that the prior accepted submission and conversation state survive according to replay policy—not just that the root ID is unchanged.
+4. Retry an uncertain submission with its original delivery ID. It must not create another admission; different content under that ID must be refused.
+5. Exercise only the documented crew integration. A standalone host is not proof of membership, presence, or correlated Member Request support.
+
+This is a read-only runtime experiment, not yet a replacement coding agent. Existing Pi authentication, extensions, skills, and session bookmarks do not carry over automatically. Use a narrow workspace; provider credentials and private files should not be placed in a workspace the model is allowed to read. Durable history remains on disk; compaction is not deletion.
 
 ## Milestones
 

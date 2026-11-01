@@ -179,12 +179,11 @@ export async function openDurableInboxBridge(options: DurableInboxBridgeOptions)
 			return { status: "admitted", itemId: item.id, submissionId: admission.submissionId };
 		});
 
-	const close = (): Promise<void> =>
-		serialized(async () => {
-			if (closed) return;
-			await dependencies.releaseEndpoint(configuredMember.socketPath, options.hostSocketPath);
-			closed = true;
-		});
+	const close = async (): Promise<void> => {
+		if (closed) return;
+		closed = true;
+		await dependencies.releaseEndpoint(configuredMember.socketPath, options.hostSocketPath);
+	};
 
 	return { drainOne, close };
 }
