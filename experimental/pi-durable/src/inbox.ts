@@ -54,9 +54,12 @@ const defaultDependencies: DurableInboxBridgeDependencies = {
 	readEndpointTarget: readlink,
 };
 
-export function inboxRequestId(memberId: string, itemId: string): string {
-	if (!memberId.trim() || !itemId.trim()) throw new Error("memberId and Inbox item ID must not be empty");
-	const digest = createHash("sha256").update(`${memberId}\0${itemId}`).digest("hex");
+export function inboxRequestId(recipientIdentity: string, itemId: string, enqueuedAt: number): string {
+	if (!recipientIdentity.trim() || !itemId.trim()) throw new Error("recipient identity and Inbox item ID must not be empty");
+	if (!Number.isFinite(enqueuedAt) || enqueuedAt < 0) throw new Error("Inbox enqueue time must be a non-negative finite number");
+	const digest = createHash("sha256")
+		.update(canonicalJson({ recipient: path.resolve(recipientIdentity), itemId, enqueuedAt }))
+		.digest("hex");
 	return `bebop:${digest}`;
 }
 
@@ -163,7 +166,7 @@ export async function openDurableInboxBridge(options: DurableInboxBridgeOptions)
 			if (!item) return { status: "empty" };
 			if (!(await ownsEndpoint())) return { status: "not-owner" };
 
-			const requestId = inboxRequestId(options.memberId, item.id);
+			const requestId = inboxRequestId(configuredMember.socketPath, item.id, item.enqueuedAt);
 			const message = renderInboxAdmissionMessage(item);
 			if (message.length > 8_000) throw new Error("Inbox message exceeds the Durable member's 8000-character limit");
 			const admission = await options.admit(message, requestId, inboxPayloadHash(item.payload));

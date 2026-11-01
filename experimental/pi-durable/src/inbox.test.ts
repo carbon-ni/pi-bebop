@@ -139,7 +139,7 @@ test("claims the configured endpoint and removes only after Durable admission", 
 		submissionId: "submission-1",
 	});
 	assert.deepEqual(order, ["claim", "remove"]);
-	assert.deepEqual(member.calls.map(({ requestId }) => requestId), [inboxRequestId(MEMBER_ID, item.id)]);
+	assert.deepEqual(member.calls.map(({ requestId }) => requestId), [inboxRequestId(f.memberSocketPath, item.id, item.enqueuedAt)]);
 	assert.match(member.calls[0]?.message ?? "", /Enqueued at 1970-01-01T00:00:01\.000Z/);
 	assert.match(member.calls[0]?.message ?? "", /no correlated Response is expected/);
 	assert.match(member.calls[0]?.message ?? "", /may be stale/);
@@ -188,6 +188,38 @@ test("retries the same receipt after admission succeeds but Inbox removal fails"
 	assert.equal(member.calls[0]?.messageHash, member.calls[1]?.messageHash);
 	assert.equal(member.calls[0]?.payloadHash, member.calls[1]?.payloadHash);
 	assert.equal(await f.store.count(), 0);
+});
+
+test("treats the same item ID enqueued again as a new delivery occurrence", async (t) => {
+	const f = await fixture();
+	t.after(f.cleanup);
+	const payload = { content: "repeat this", kind: "inbox" as const };
+	const firstItem = (await f.store.enqueue(payload, 4_000)).item;
+	const hostSocketPath = path.join(f.projectRoot, "host.sock");
+	const server = await listen(hostSocketPath);
+	t.after(() => closeServer(server, hostSocketPath));
+	const member = memberWithReceipts();
+	const bridge = await openDurableInboxBridge({
+		manifestPath: f.manifestPath,
+		projectRoot: f.projectRoot,
+		isProjectTrusted: () => true,
+		memberId: MEMBER_ID,
+		hostSocketPath,
+		admit: member.admit,
+	});
+	t.after(bridge.close);
+
+	assert.equal((await bridge.drainOne()).status, "admitted");
+	const secondItem = (await f.store.enqueue(payload, 5_000)).item;
+	assert.equal(secondItem.id, firstItem.id);
+	assert.equal(secondItem.enqueuedAt, 5_000);
+	assert.deepEqual(await bridge.drainOne(), {
+		status: "admitted",
+		itemId: secondItem.id,
+		submissionId: "submission-2",
+	});
+	assert.equal(member.calls.length, 2);
+	assert.notEqual(member.calls[0]?.requestId, member.calls[1]?.requestId);
 });
 
 test("rejects payload metadata changes even when rendered text is stable", async (t) => {
