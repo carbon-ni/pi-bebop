@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
 import { readlink } from "node:fs/promises";
 import path from "node:path";
-import { renderInboxModelContent } from "../../../src/domain/index.ts";
-import {
-	readTrustedCrewManifestMetadata,
-	type CrewManifest,
-} from "../../../src/infra/crew-manifest-store.ts";
+import type { CrewManifest } from "../../../src/domain/crew-manifest.ts";
+import { renderInboxModelContent } from "../../../src/domain/message-renderer.ts";
+import { readTrustedCrewManifestMetadata } from "../../../src/infra/crew-manifest-store.ts";
 import {
 	claimMemberEndpoint,
 	probeMemberEndpoint,
