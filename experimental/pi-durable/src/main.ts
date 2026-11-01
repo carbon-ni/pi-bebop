@@ -126,7 +126,10 @@ async function startHost(options: Options): Promise<void> {
 			console.log(`Local endpoint: ${socketPath}`);
 			return;
 		} catch (error) {
-			if (exitStatus) throw new Error(`member host failed to start (exit ${exitStatus.code ?? exitStatus.signal ?? "unknown"})`);
+			if (exitStatus)
+				throw new Error(
+					`member host failed to start (exit ${exitStatus.code ?? exitStatus.signal ?? "unknown"}); rerun the same options with 'serve' to see the startup error`,
+				);
 			if (attempt === 99) throw new Error(`member host did not become ready: ${error instanceof Error ? error.message : error}`);
 			await delay(50);
 		}
@@ -224,28 +227,36 @@ async function sendMessage(options: Options): Promise<void> {
 	if (!message) throw new Error("Provide message text on stdin");
 	const memberId = required(options, "--member-id");
 	const deliveryId = options.get("--request-id") ?? randomUUID();
-	console.log(`Request ID: ${deliveryId}`);
+	console.error(`Request ID: ${deliveryId}`);
 	const result = await requestMember(db, {
 		type: "submit",
 		memberId,
 		message,
 		requestId: memberRequestId(memberId, deliveryId),
 	});
-	const response = result.result as { status?: string; answer?: string } | undefined;
-	console.log(response?.answer ?? `Submission settled: ${response?.status ?? "unknown"}`);
+	const response = result.result as { status?: string; answer?: string; reason?: string } | undefined;
+	if (response?.status !== "done") {
+		// Provider error bodies can contain secrets. Report only bounded, known outcome metadata.
+		const reason = typeof response?.reason === "string"
+			? response.reason.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80)
+			: "";
+		throw new Error(`Submission did not complete: ${response?.status ?? "unknown"}${reason ? ` (${reason})` : ""}. Check provider credentials and model access; retry only with the original Request ID and message.`);
+	}
+	console.log(response.answer ?? "Submission completed without text.");
 }
 
 function printHelp(): void {
 	console.log(`Local persistent Pi Durable member (Node >=22.19, OPENAI_API_KEY required)
 
 Commands:
-  start --db <sqlite-file> --member-id <id> --model <openai-model-id> [--role <role>] [--workspace <dir>] [--instructions-file <path>]
+  start --db <sqlite-file> --member-id <id> --model <openai-model-id> [--role <role>] [--workspace <dir>] [--instructions-file <path>] [--trusted-project-root <root> --manifest <path>]
+  serve --db <sqlite-file> --member-id <id> --model <openai-model-id> [same member and Inbox options]  # foreground diagnostics
   send --db <sqlite-file> --member-id <id> [--request-id <stable-delivery-id>]  # message from stdin
   drain-inbox --db <sqlite-file>
   status --db <sqlite-file>
   stop --db <sqlite-file>
 
-The host runs separately over a private local Unix socket. One host owns one database. Inbox drain is explicitly opt-in on serve with --trusted-project-root <root> --manifest <trusted-manifest> and BEBOP_PROJECT_TRUSTED=1; the host claims the configured recipient endpoint before resuming Durable work. It drains pending items at startup and after settled submissions; drain-inbox requests an immediate manual drain. The host releases the endpoint on shutdown.
+The host runs separately over a private local Unix socket. One host owns one database. Inbox drain is explicitly opt-in on start/serve with --trusted-project-root <root> --manifest <trusted-manifest> and BEBOP_PROJECT_TRUSTED=1; the host claims the configured recipient endpoint before resuming Durable work. It drains pending items at startup and after settled submissions; drain-inbox requests an immediate manual drain. The host releases the endpoint on shutdown. If detached start fails, rerun the same options with serve in the foreground for detailed diagnostics.
 `);
 }
 

@@ -36,6 +36,8 @@ Judge the MVP by these user-visible checks:
 4. Retry an uncertain submission with its original delivery ID. It must not create another admission; different content under that ID must be refused.
 5. Exercise only the documented crew integration. A standalone host is not proof of membership, presence, or correlated Member Request support.
 
+Configured-recipient Inbox evaluation requires stopping the ordinary Pi member first, not merely waiting until it is idle. Endpoint claims refuse reachable live owners, but are not a distributed consumer lease: a stale Pi runtime can still retain in-process membership. Do not run both runtimes for one recipient or claim concurrent exactly-once processing.
+
 This is a read-only runtime experiment, not yet a replacement coding agent. Existing Pi authentication, extensions, skills, and session bookmarks do not carry over automatically. Use a narrow workspace; provider credentials and private files should not be placed in a workspace the model is allowed to read. Durable history remains on disk; compaction is not deletion.
 
 ## Milestones
