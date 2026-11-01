@@ -60,12 +60,12 @@ async function fixture() {
 
 function memberWithReceipts() {
 	const receipts = new Map<string, { readonly payloadHash: string; readonly submissionId: string }>();
-	const calls: Array<{ messageHash: string; payloadHash: string; requestId: string }> = [];
+	const calls: Array<{ message: string; messageHash: string; payloadHash: string; requestId: string }> = [];
 	return {
 		calls,
 		admit: async (message: string, requestId: string, payloadHash: string) => {
 			const messageHash = createHash("sha256").update(message).digest("hex");
-			calls.push({ messageHash, payloadHash, requestId });
+			calls.push({ message, messageHash, payloadHash, requestId });
 			const existing = receipts.get(requestId);
 			if (existing) {
 				if (existing.payloadHash !== payloadHash) throw new Error("Inbox item payload changed for an existing receipt");
@@ -140,6 +140,9 @@ test("claims the configured endpoint and removes only after Durable admission", 
 	});
 	assert.deepEqual(order, ["claim", "remove"]);
 	assert.deepEqual(member.calls.map(({ requestId }) => requestId), [inboxRequestId(MEMBER_ID, item.id)]);
+	assert.match(member.calls[0]?.message ?? "", /Enqueued at 1970-01-01T00:00:01\.000Z/);
+	assert.match(member.calls[0]?.message ?? "", /no correlated Response is expected/);
+	assert.match(member.calls[0]?.message ?? "", /may be stale/);
 	assert.equal(await f.store.count(), 0);
 	await bridge.close();
 	await assert.rejects(fs.lstat(f.memberSocketPath), /ENOENT/);

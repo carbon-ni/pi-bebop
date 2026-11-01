@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { readlink } from "node:fs/promises";
 import path from "node:path";
 import type { CrewManifest } from "../../../src/domain/crew-manifest.ts";
-import { renderInboxModelContent } from "../../../src/domain/message-renderer.ts";
+import { renderMessagePayload } from "../../../src/domain/message-renderer.ts";
+import type { InboxItem } from "../../../src/domain/member-inbox.ts";
 import {
 	claimMemberEndpoint,
 	openTrustedMemberInboxStore,
@@ -74,6 +75,18 @@ function canonicalJson(value: unknown): string {
 
 function inboxPayloadHash(payload: unknown): string {
 	return createHash("sha256").update(canonicalJson(payload)).digest("hex");
+}
+
+function renderInboxAdmissionMessage(item: InboxItem): string {
+	const enqueuedAt = new Date(item.enqueuedAt);
+	const timestamp = Number.isFinite(enqueuedAt.getTime()) ? enqueuedAt.toISOString() : "unknown time";
+	return [
+		`[inbox] Enqueued at ${timestamp}.`,
+		"Information only; no correlated Response is expected.",
+		"Verify current relevance before acting; the item may be stale.",
+		"",
+		renderMessagePayload(item.payload),
+	].join("\n");
 }
 
 function manifestMember(manifest: CrewManifest, memberId: string): CrewManifest["members"][number] {
@@ -151,11 +164,7 @@ export async function openDurableInboxBridge(options: DurableInboxBridgeOptions)
 			if (!(await ownsEndpoint())) return { status: "not-owner" };
 
 			const requestId = inboxRequestId(options.memberId, item.id);
-			const message = renderInboxModelContent(item.payload, {
-				enqueuedAt: item.enqueuedAt,
-				deliveredAt: item.enqueuedAt,
-				kind: "inbox",
-			});
+			const message = renderInboxAdmissionMessage(item);
 			if (message.length > 8_000) throw new Error("Inbox message exceeds the Durable member's 8000-character limit");
 			const admission = await options.admit(message, requestId, inboxPayloadHash(item.payload));
 			if (!admission.submissionId) throw new Error("Durable Inbox admission did not return a receipt");
