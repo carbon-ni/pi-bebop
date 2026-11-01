@@ -147,13 +147,13 @@ async function runServer(options: Options): Promise<void> {
 		throw new Error("--trusted-project-root and --manifest must be supplied together");
 	if (projectRoot && process.env.BEBOP_PROJECT_TRUSTED !== "1")
 		throw new Error("set BEBOP_PROJECT_TRUSTED=1 only after Pi has trusted this project");
+	const socketPath = await durableSocketPath(memberOptionsValue.storagePath);
 	const member = await openDurableMember({
 		...memberOptionsValue,
 		autoResume: false,
 		trustedProjectRoot: projectRoot,
 		inboxManifestPath: manifestPath,
 	});
-	const socketPath = await durableSocketPath(memberOptionsValue.storagePath);
 	let inboxRuntime: Awaited<ReturnType<typeof openDurableInboxRuntime>> | undefined;
 	try {
 		console.log(`Durable member ${memberOptionsValue.memberId} opened (${member.conversationId}).`);
