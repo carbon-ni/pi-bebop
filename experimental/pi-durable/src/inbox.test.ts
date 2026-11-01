@@ -5,8 +5,11 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { getDefaultCrewManifestPath } from "../../../src/infra/crew-layout.ts";
-import { openTrustedMemberInboxStore, type MemberInboxStore } from "../../../src/infra/member-inbox-store.ts";
+import {
+	claimMemberEndpoint,
+	openTrustedMemberInboxStore,
+	type TrustedMemberInboxStore,
+} from "./bebop-inbox-adapter.mjs";
 import { inboxRequestId, openDurableInboxBridge } from "./inbox.ts";
 
 const MEMBER_ID = "developer";
@@ -32,7 +35,7 @@ async function closeServer(server: Server, socketPath: string): Promise<void> {
 
 async function fixture() {
 	const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-durable-inbox-"));
-	const manifestPath = getDefaultCrewManifestPath(projectRoot);
+	const manifestPath = path.join(projectRoot, ".pi", "bebop", "crew.json");
 	const layout = path.dirname(manifestPath);
 	const memberSocketPath = path.join(layout, "sockets", `${MEMBER_ID}.sock`);
 	await fs.mkdir(layout, { recursive: true });
@@ -111,7 +114,7 @@ test("claims the configured endpoint and removes only after Durable admission", 
 			order.push("remove");
 			return originalRemove(id);
 		},
-	}) as MemberInboxStore;
+	}) as TrustedMemberInboxStore;
 	const bridge = await openDurableInboxBridge({
 		manifestPath: f.manifestPath,
 		projectRoot: f.projectRoot,
@@ -123,7 +126,6 @@ test("claims the configured endpoint and removes only after Durable admission", 
 			openStore: async () => store,
 			claimEndpoint: async (...args) => {
 				order.push("claim");
-				const { claimMemberEndpoint } = await import("../../../src/infra/member-endpoint.ts");
 				return claimMemberEndpoint(...args);
 			},
 		},
@@ -159,7 +161,7 @@ test("retries the same receipt after admission succeeds but Inbox removal fails"
 			if (removals === 1) throw new Error("simulated crash before Inbox removal");
 			return originalRemove(id);
 		},
-	}) as MemberInboxStore;
+	}) as TrustedMemberInboxStore;
 	const bridge = await openDurableInboxBridge({
 		manifestPath: f.manifestPath,
 		projectRoot: f.projectRoot,
@@ -209,7 +211,7 @@ test("rejects a retried Inbox ID with changed payload content", async (t) => {
 			if (removals === 1) throw new Error("simulated crash before Inbox removal");
 			return originalRemove(id);
 		},
-	}) as MemberInboxStore;
+	}) as TrustedMemberInboxStore;
 	const bridge = await openDurableInboxBridge({
 		manifestPath: f.manifestPath,
 		projectRoot: f.projectRoot,

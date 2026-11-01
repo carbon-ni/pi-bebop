@@ -3,13 +3,13 @@ import { readlink } from "node:fs/promises";
 import path from "node:path";
 import type { CrewManifest } from "../../../src/domain/crew-manifest.ts";
 import { renderInboxModelContent } from "../../../src/domain/message-renderer.ts";
-import { readTrustedCrewManifestMetadata } from "../../../src/infra/crew-manifest-store.ts";
 import {
 	claimMemberEndpoint,
+	openTrustedMemberInboxStore,
 	probeMemberEndpoint,
+	readTrustedCrewManifestMetadata,
 	releaseMemberEndpoint,
-} from "../../../src/infra/member-endpoint.ts";
-import { openTrustedMemberInboxStore } from "../../../src/infra/member-inbox-store.ts";
+} from "./bebop-inbox-adapter.mjs";
 export interface DurableInboxAdmission {
 	(message: string, requestId: string): Promise<{ readonly submissionId: string }>;
 }
