@@ -133,6 +133,7 @@ export async function runMemberServer(options: MemberServerOptions): Promise<voi
 			if (request.type === "status") {
 				send(socket, {
 					ok: true,
+					pid: process.pid,
 					memberId: options.memberId,
 					role: options.role,
 					modelId: options.modelId,

@@ -40,7 +40,7 @@ BEBOP_PROJECT_TRUSTED=1 npm start --prefix experimental/pi-durable -- start \
   --trusted-project-root "$HOME/work/project" \
   --manifest "$HOME/work/project/.pi/bebop/crew.json"
 
-npm start --prefix experimental/pi-durable -- status --db "$HOME/.local/share/bebop-durable/designer.sqlite"
+npm start --prefix experimental/pi-durable -- status --db "$HOME/.local/share/bebop-durable/designer.sqlite" # includes host PID and effective configuration
 # For the alternative Inbox-bound host, explicitly deliver newly queued items:
 npm start --prefix experimental/pi-durable -- drain-inbox --db "$HOME/.local/share/bebop-durable/designer-inbox.sqlite"
 printf '%s' 'Summarize the project notes' | npm start --prefix experimental/pi-durable -- send \

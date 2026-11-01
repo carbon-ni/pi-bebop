@@ -197,6 +197,7 @@ test("status reports the effective configuration of the running member", async (
 
 	// Then status reports identity and execution configuration without raw instructions.
 	const status = await requestMember(storagePath, { type: "status" });
+	assert.equal(Number.isInteger(status.pid), true);
 	assert.equal(status.memberId, "designer");
 	assert.equal(status.role, "qa");
 	assert.equal(status.modelId, "gpt-4.1-mini");
