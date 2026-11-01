@@ -13,10 +13,15 @@
   "dependencies": {
     "@earendil-works/chord": "1.4.0",
     "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
     "@earendil-works/pi-durable": "1.4.0"
   },
   "devDependencies": {
     "@types/node": "22.13.0",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "minimatch": "11.0.3",
+    "undici": "8.12.3"
   }
 }

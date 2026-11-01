@@ -115,6 +115,10 @@ test("reopening the same database restores the same independent member conversat
 			/database is bound to a different member configuration/,
 		);
 		await assert.rejects(
+			openDurableMember({ storagePath, memberId: "designer", providerId: "anthropic", modelId: "gpt-4.1-mini", workspacePath: join(directory, "workspace") }),
+			/database is bound to a different member configuration/,
+		);
+		await assert.rejects(
 			openDurableMember({ storagePath, memberId: "designer", modelId: "gpt-4.1", workspacePath: join(directory, "workspace") }),
 			/database is bound to a different member configuration/,
 		);

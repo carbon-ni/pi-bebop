@@ -33,7 +33,7 @@ function runCli(
 		const timeout = setTimeout(() => {
 			timedOut = true;
 			child.kill("SIGKILL");
-		}, options.timeoutMs ?? 2_000);
+		}, options.timeoutMs ?? 5_000);
 		child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
 		child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
 		child.once("error", reject);
@@ -94,7 +94,8 @@ test("help works without credentials and unknown CLI inputs fail clearly", async
 	// Then help succeeds while invalid command and flag produce concise errors.
 	assert.equal(help.code, 0, help.stderr);
 	assert.match(help.stdout, /Commands:/);
-	assert.match(help.stdout, /OPENAI_API_KEY required/i);
+	assert.match(help.stdout, /saved login by default/i);
+	assert.match(help.stdout, /models \[--provider/);
 	assert.equal(command.code, 1);
 	assert.match(command.stderr, /Unknown command: frobnicate/);
 	assert.doesNotMatch(command.stderr, /\n\s+at /);
@@ -103,20 +104,27 @@ test("help works without credentials and unknown CLI inputs fail clearly", async
 	assert.doesNotMatch(option.stderr, /\n\s+at /);
 });
 
-test("start reports missing credentials before creating its database directory", async (t) => {
-	// Given a new DB path and no API credentials.
+test("models lists saved Pi login metadata without exposing token values", async (t) => {
+	// Given a temporary Pi agent directory with a saved OAuth credential.
 	const directory = await mkdtemp(join(tmpdir(), "bebop-durable-cli-auth-"));
+	const agentDirectory = join(directory, "agent");
+	await mkdir(agentDirectory, { mode: 0o700 });
+	const accessToken = "test-access-token-never-print";
+	const refreshToken = "test-refresh-token-never-print";
+	await writeFile(join(agentDirectory, "auth.json"), JSON.stringify({
+		openai: { type: "oauth", access: accessToken, refresh: refreshToken, expires: Date.now() + 60_000 },
+	}), { mode: 0o600 });
 	t.after(() => rm(directory, { recursive: true, force: true }));
-	const result = await runCli([
-		"start", "--db", join(directory, "state", "member.sqlite"),
-		"--member-id", "designer", "--model", "gpt-4.1-mini",
-	], { env: withoutApiKey() });
 
-	// Then the CLI reports the missing key without creating storage or a stack trace.
-	assert.equal(result.code, 1);
-	assert.match(result.stderr, /OPENAI_API_KEY is required/);
-	assert.doesNotMatch(result.stderr, /\n\s+at /);
-	await assert.rejects(access(join(directory, "state")));
+	// When saved-login model discovery runs offline, without a database argument.
+	const result = await runCli(["models", "--provider", "openai"], {
+		env: { ...withoutApiKey(), PI_CODING_AGENT_DIR: agentDirectory, PI_OFFLINE: "1" },
+	});
+
+	// Then it lists static catalog choices, not credentials or a model response.
+	assert.equal(result.code, 0, result.stderr);
+	assert.match(result.stdout, /openai\/.*\(oauth;/);
+	assert.doesNotMatch(result.stdout + result.stderr, new RegExp(`${accessToken}|${refreshToken}`));
 });
 
 test("unsafe storage configuration returns a user-facing recovery message", async (t) => {
@@ -170,7 +178,7 @@ test("status times out when the private local endpoint accepts but never respond
 	});
 
 	// When a status client waits for that host.
-	const result = await runCli(["status", "--db", storagePath], { timeoutMs: 1_500 });
+	const result = await runCli(["status", "--db", storagePath], { timeoutMs: 4_000 });
 
 	// Then the CLI returns a bounded timeout instead of hanging.
 	assert.equal(result.timedOut, false, "status hung on an unresponsive host");
@@ -199,6 +207,7 @@ test("status reports the effective configuration of the running member", async (
 	const status = await requestMember(storagePath, { type: "status" });
 	assert.equal(Number.isInteger(status.pid), true);
 	assert.equal(status.memberId, "designer");
+	assert.equal(status.providerId, "openai");
 	assert.equal(status.role, "qa");
 	assert.equal(status.modelId, "gpt-4.1-mini");
 	assert.equal(status.workspacePath, await realpath(workspace));

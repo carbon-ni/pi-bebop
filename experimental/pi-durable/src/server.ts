@@ -18,6 +18,7 @@ export interface MemberServerOptions {
 	readonly memberId: string;
 	readonly role?: string;
 	readonly modelId?: string;
+	readonly providerId?: string;
 	readonly workspacePath?: string;
 	readonly instructionsHash?: string;
 	readonly inboxManifestPath?: string | null;
@@ -135,6 +136,7 @@ export async function runMemberServer(options: MemberServerOptions): Promise<voi
 					ok: true,
 					pid: process.pid,
 					memberId: options.memberId,
+					providerId: options.providerId ?? "openai",
 					role: options.role,
 					modelId: options.modelId,
 					workspacePath: options.workspacePath,

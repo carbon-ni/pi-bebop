@@ -4,7 +4,7 @@ import { lstat, mkdir, open, readFile, realpath, stat, unlink } from "node:fs/pr
 import { hostname } from "node:os";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Type } from "@earendil-works/pi-ai";
+import { Type, type Models } from "@earendil-works/pi-ai";
 import { AssistantEntry, createRegistry, defineDoc, defineExtension, defineTool, Harness, type SubmissionId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createModels, type Provider } from "@earendil-works/pi-ai/models";
@@ -13,6 +13,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 const MAX_READ_BYTES = 64 * 1024;
 const MemberIdentityDoc = defineDoc<{
 	memberId: string;
+	providerId?: string;
 	role: string;
 	modelId: string;
 	workspacePath: string;
@@ -26,7 +27,7 @@ const MemberIdentityDoc = defineDoc<{
 	scope: "conversation",
 	history: "latest",
 	fork: "initial",
-	initial: () => ({ memberId: "", role: "", modelId: "", workspacePath: "", instructionsHash: "", trustedProjectRoot: "", inboxManifestPath: "", requestHashes: {} }),
+	initial: () => ({ memberId: "", providerId: "", role: "", modelId: "", workspacePath: "", instructionsHash: "", trustedProjectRoot: "", inboxManifestPath: "", requestHashes: {} }),
 	checkpointWhen: () => false,
 });
 
@@ -87,6 +88,8 @@ export interface DurableMemberOptions {
 	readonly storagePath: string;
 	readonly memberId: string;
 	readonly modelId: string;
+	readonly providerId?: string;
+	readonly models?: Models;
 	readonly workspacePath: string;
 	readonly role?: string;
 	readonly instructions?: string;
@@ -167,6 +170,7 @@ export async function durableSocketPath(storagePath: string): Promise<string> {
 
 export interface DurableMember {
 	readonly conversationId: number;
+	readonly providerId?: string;
 	resume: () => void;
 	submit: (message: string, requestId: string) => Promise<{ readonly status: string; readonly answer?: string; readonly reason?: string; readonly detail?: unknown }>;
 	admit: (message: string, requestId: string, payloadHash?: string) => Promise<{ readonly submissionId: string }>;
@@ -192,9 +196,16 @@ export async function openDurableMember(options: DurableMemberOptions): Promise<
 	const storageLock = await acquireStorageLock(storagePath);
 	let harness: Awaited<ReturnType<typeof Harness.open>> | undefined;
 	try {
-		const models = createModels();
-		const provider = options.provider ?? openaiProvider();
-		models.setProvider(provider);
+		const provider = options.provider ?? (!options.models ? openaiProvider() : undefined);
+		let models: Models;
+		if (options.models) {
+			models = options.models;
+		} else {
+			const defaultModels = createModels();
+			defaultModels.setProvider(provider!);
+			models = defaultModels;
+		}
+		const providerId = options.providerId ?? provider?.id ?? "openai";
 		const registry = createRegistry();
 		registry.install(
 			defineExtension({
@@ -219,7 +230,7 @@ export async function openDurableMember(options: DurableMemberOptions): Promise<
 		);
 		const conversation = await harness.root(context, {
 			agent: {
-				model: { provider: provider.id, modelId: options.modelId },
+				model: { provider: providerId, modelId: options.modelId },
 				instructions: [
 					`You are independent Bebop crew member ${options.memberId}, serving as ${role}.`,
 					"You can only inspect files using read_file under the configured workspace. Do not claim to have changed files or performed work you could not do.",
@@ -232,6 +243,7 @@ export async function openDurableMember(options: DurableMemberOptions): Promise<
 			if (
 				identity.memberId &&
 				(identity.memberId !== options.memberId ||
+					(identity.providerId ?? "openai") !== providerId ||
 					identity.role !== role ||
 					identity.modelId !== options.modelId ||
 					identity.workspacePath !== workspace ||
@@ -242,6 +254,7 @@ export async function openDurableMember(options: DurableMemberOptions): Promise<
 				throw new Error("database is bound to a different member configuration");
 			Object.assign(identity, {
 				memberId: options.memberId,
+				providerId,
 				role,
 				modelId: options.modelId,
 				workspacePath: workspace,
@@ -286,6 +299,7 @@ export async function openDurableMember(options: DurableMemberOptions): Promise<
 		return {
 			resume: () => harness!.resume(),
 			conversationId: conversation.id,
+			providerId,
 			admit: async (message, requestId, payloadHash = createHash("sha256").update(message).digest("hex")) => {
 				const { submissionId } = await admit(message, requestId, payloadHash);
 				return { submissionId };

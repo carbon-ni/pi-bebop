@@ -40,6 +40,7 @@ async function memberOptions(options: Options) {
 		storagePath: required(options, "--db"),
 		memberId: required(options, "--member-id"),
 		modelId: required(options, "--model"),
+		providerId: options.get("--provider") ?? "openai",
 		workspacePath,
 		role: options.get("--role") ?? "member",
 		instructions,
@@ -50,7 +51,7 @@ async function memberOptions(options: Options) {
 
 function hostEnvironment(): NodeJS.ProcessEnv {
 	const allowed = [
-		"HOME", "PATH", "OPENAI_API_KEY", "TMPDIR", "TMP", "TEMP", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+		"HOME", "PATH", "PI_CODING_AGENT_DIR", "OPENAI_API_KEY", "TMPDIR", "TMP", "TEMP", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
 		"NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "LANG", "LC_ALL", "TZ",
 		"BEBOP_PROJECT_TRUSTED",
 	];
@@ -58,7 +59,10 @@ function hostEnvironment(): NodeJS.ProcessEnv {
 }
 
 async function startHost(options: Options): Promise<void> {
-	if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required by this MVP");
+	const member = await memberOptions(options);
+	const { openPiModelRuntime, requirePiModel } = await import("./pi-models.ts");
+	const modelRuntime = await openPiModelRuntime();
+	await requirePiModel(modelRuntime, member.providerId, member.modelId);
 	const projectRootOption = options.get("--trusted-project-root");
 	const projectRoot = projectRootOption ? await realpath(projectRootOption) : undefined;
 	const manifestPathValue = options.get("--manifest");
@@ -67,7 +71,6 @@ async function startHost(options: Options): Promise<void> {
 		throw new Error("--trusted-project-root and --manifest must be supplied together");
 	if (projectRoot && process.env.BEBOP_PROJECT_TRUSTED !== "1")
 		throw new Error("set BEBOP_PROJECT_TRUSTED=1 only after Pi has trusted this project");
-	const member = await memberOptions(options);
 	const db = await prepareStoragePath(member.storagePath);
 	const socketPath = await durableSocketPath(db);
 	try {
@@ -75,6 +78,7 @@ async function startHost(options: Options): Promise<void> {
 		if (status.status !== "running") throw new Error("member host is still initializing");
 		if (
 			status.memberId !== member.memberId ||
+			status.providerId !== member.providerId ||
 			status.role !== member.role ||
 			status.modelId !== member.modelId ||
 			status.workspacePath !== member.workspacePath ||
@@ -94,7 +98,7 @@ async function startHost(options: Options): Promise<void> {
 		process.execPath,
 		[
 			"--experimental-strip-types", script, "serve", "--db", db,
-			"--member-id", member.memberId, "--model", member.modelId,
+			"--member-id", member.memberId, "--provider", member.providerId, "--model", member.modelId,
 			"--workspace", member.workspacePath, "--role", member.role,
 			...(member.instructionsFile ? ["--instructions-file", member.instructionsFile] : []),
 			...(options.get("--trusted-project-root") ? ["--trusted-project-root", options.get("--trusted-project-root")!] : []),
@@ -114,6 +118,7 @@ async function startHost(options: Options): Promise<void> {
 			}
 			if (
 				status.memberId !== member.memberId ||
+				status.providerId !== member.providerId ||
 				status.role !== member.role ||
 				status.modelId !== member.modelId ||
 				status.workspacePath !== member.workspacePath ||
@@ -137,8 +142,10 @@ async function startHost(options: Options): Promise<void> {
 }
 
 async function runServer(options: Options): Promise<void> {
-	if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required by this MVP");
 	const memberOptionsValue = await memberOptions(options);
+	const { openPiModelRuntime, requirePiModel } = await import("./pi-models.ts");
+	const modelRuntime = await openPiModelRuntime();
+	await requirePiModel(modelRuntime, memberOptionsValue.providerId, memberOptionsValue.modelId);
 	const projectRootOption = options.get("--trusted-project-root");
 	const projectRoot = projectRootOption ? await realpath(projectRootOption) : undefined;
 	const manifestPathOption = options.get("--manifest");
@@ -150,6 +157,7 @@ async function runServer(options: Options): Promise<void> {
 	const socketPath = await durableSocketPath(memberOptionsValue.storagePath);
 	const member = await openDurableMember({
 		...memberOptionsValue,
+		models: modelRuntime,
 		autoResume: false,
 		trustedProjectRoot: projectRoot,
 		inboxManifestPath: manifestPath,
@@ -160,6 +168,7 @@ async function runServer(options: Options): Promise<void> {
 		await runMemberServer({
 			socketPath,
 			memberId: memberOptionsValue.memberId,
+			providerId: memberOptionsValue.providerId,
 			role: memberOptionsValue.role,
 			modelId: memberOptionsValue.modelId,
 			workspacePath: memberOptionsValue.workspacePath,
@@ -245,16 +254,33 @@ async function sendMessage(options: Options): Promise<void> {
 	console.log(response.answer ?? "Submission completed without text.");
 }
 
+async function listModels(options: Options): Promise<void> {
+	const { listPiModelChoices, openPiModelRuntime } = await import("./pi-models.ts");
+	const runtime = await openPiModelRuntime();
+	const choices = await listPiModelChoices(runtime, options.get("--provider"));
+	if (choices.length === 0) {
+		const providerId = options.get("--provider");
+		const scope = providerId ? ` for ${providerId}` : "";
+		const recovery = providerId ? `Open Pi and run /login ${providerId}` : "Open Pi and run /login";
+		throw new Error(`No saved Pi login models found${scope}. ${recovery} to sign in. The existing OPENAI_API_KEY route still supports explicit OpenAI model selection.`);
+	}
+	for (const choice of choices)
+		console.log(`${choice.providerId}/${choice.modelId} (${choice.authType}; ${choice.providerName}: ${choice.modelName})`);
+}
+
 function printHelp(): void {
-	console.log(`Local persistent Pi Durable member (Node >=22.19, OPENAI_API_KEY required)
+	console.log(`Local persistent Pi Durable member (Node >=22.19; uses Pi's saved login by default)
 
 Commands:
-  start --db <sqlite-file> --member-id <id> --model <openai-model-id> [--role <role>] [--workspace <dir>] [--instructions-file <path>] [--trusted-project-root <root> --manifest <path>]
-  serve --db <sqlite-file> --member-id <id> --model <openai-model-id> [same member and Inbox options]  # foreground diagnostics
+  models [--provider <provider-id>]  # list models for saved Pi logins; no database or model request
+  start --db <sqlite-file> --member-id <id> --provider <provider-id> --model <model-id> [--role <role>] [--workspace <dir>] [--instructions-file <path>] [--trusted-project-root <root> --manifest <path>]
+  serve --db <sqlite-file> --member-id <id> --provider <provider-id> --model <model-id> [same member and Inbox options]  # foreground diagnostics
   send --db <sqlite-file> --member-id <id> [--request-id <stable-delivery-id>]  # message from stdin
   drain-inbox --db <sqlite-file>
   status --db <sqlite-file>
   stop --db <sqlite-file>
+
+The runtime uses Pi's public ModelRuntime and reads saved credentials from the normal Pi agent directory (including PI_CODING_AGENT_DIR). The models command lists catalog models for saved login metadata without reading token values, opening the Durable database, refreshing OAuth, or sending a model request. Select a provider/model shown by that command. The existing OPENAI_API_KEY environment route remains supported for explicit OpenAI provider/model selection.
 
 The host runs separately over a private local Unix socket. One host owns one database. Inbox drain is explicitly opt-in on start/serve with --trusted-project-root <root> --manifest <trusted-manifest> and BEBOP_PROJECT_TRUSTED=1; the host claims the configured recipient endpoint before resuming Durable work. It drains pending items at startup and after settled submissions; drain-inbox requests an immediate manual drain. The host releases the endpoint on shutdown. If detached start fails, rerun the same options with serve in the foreground for detailed diagnostics.
 `);
@@ -264,16 +290,18 @@ async function main(): Promise<void> {
 	const [command, ...args] = process.argv.slice(2);
 	if (!command || command === "--help" || command === "-h") return printHelp();
 	const allowedOptions: Readonly<Record<string, readonly string[]>> = {
-		start: ["--db", "--member-id", "--model", "--workspace", "--role", "--instructions-file", "--trusted-project-root", "--manifest"],
-		serve: ["--db", "--member-id", "--model", "--workspace", "--role", "--instructions-file", "--trusted-project-root", "--manifest"],
+		start: ["--db", "--member-id", "--provider", "--model", "--workspace", "--role", "--instructions-file", "--trusted-project-root", "--manifest"],
+		serve: ["--db", "--member-id", "--provider", "--model", "--workspace", "--role", "--instructions-file", "--trusted-project-root", "--manifest"],
 		send: ["--db", "--member-id", "--request-id"],
 		status: ["--db"],
 		stop: ["--db"],
 		"drain-inbox": ["--db"],
+		models: ["--provider"],
 	};
 	const allowed = allowedOptions[command];
 	if (!allowed) throw new Error(`Unknown command: ${command}`);
 	const options = parseOptions(args, allowed);
+	if (command === "models") return listModels(options);
 	if (command === "start") return startHost(options);
 	if (command === "serve") return runServer(options);
 	if (command === "send") return sendMessage(options);
