@@ -59,19 +59,19 @@ async function fixture() {
 }
 
 function memberWithReceipts() {
-	const receipts = new Map<string, { readonly messageHash: string; readonly submissionId: string }>();
-	const calls: Array<{ messageHash: string; requestId: string }> = [];
+	const receipts = new Map<string, { readonly payloadHash: string; readonly submissionId: string }>();
+	const calls: Array<{ messageHash: string; payloadHash: string; requestId: string }> = [];
 	return {
 		calls,
-		admit: async (message: string, requestId: string) => {
+		admit: async (message: string, requestId: string, payloadHash: string) => {
 			const messageHash = createHash("sha256").update(message).digest("hex");
-			calls.push({ messageHash, requestId });
+			calls.push({ messageHash, payloadHash, requestId });
 			const existing = receipts.get(requestId);
 			if (existing) {
-				if (existing.messageHash !== messageHash) throw new Error("Inbox item payload changed for an existing receipt");
+				if (existing.payloadHash !== payloadHash) throw new Error("Inbox item payload changed for an existing receipt");
 				return { submissionId: existing.submissionId };
 			}
-			const receipt = { messageHash, submissionId: `submission-${receipts.size + 1}` };
+			const receipt = { payloadHash, submissionId: `submission-${receipts.size + 1}` };
 			receipts.set(requestId, receipt);
 			return { submissionId: receipt.submissionId };
 		},
@@ -183,13 +183,14 @@ test("retries the same receipt after admission succeeds but Inbox removal fails"
 	assert.equal(member.calls.length, 2);
 	assert.equal(member.calls[0]?.requestId, member.calls[1]?.requestId);
 	assert.equal(member.calls[0]?.messageHash, member.calls[1]?.messageHash);
+	assert.equal(member.calls[0]?.payloadHash, member.calls[1]?.payloadHash);
 	assert.equal(await f.store.count(), 0);
 });
 
-test("rejects a retried Inbox ID with changed payload content", async (t) => {
+test("rejects payload metadata changes even when rendered text is stable", async (t) => {
 	const f = await fixture();
 	t.after(f.cleanup);
-	await f.store.enqueue({ content: "original", kind: "inbox" }, 2_500);
+	await f.store.enqueue({ content: "same rendered message", kind: "inbox", sentAt: 5_000 }, 2_500);
 	const hostSocketPath = path.join(f.projectRoot, "host.sock");
 	const server = await listen(hostSocketPath);
 	t.after(() => closeServer(server, hostSocketPath));
@@ -204,7 +205,7 @@ test("rejects a retried Inbox ID with changed payload content", async (t) => {
 			peeks += 1;
 			return peeks === 1 || current === null
 				? current
-				: { ...current, payload: { ...current.payload, content: "changed" } };
+				: { ...current, payload: { ...current.payload, sentAt: 6_000 } };
 		},
 		remove: async (id: string) => {
 			removals += 1;
@@ -226,7 +227,8 @@ test("rejects a retried Inbox ID with changed payload content", async (t) => {
 	await assert.rejects(bridge.drainOne(), /simulated crash/);
 	await assert.rejects(bridge.drainOne(), /payload changed/);
 	assert.equal(member.calls.length, 2);
-	assert.notEqual(member.calls[0]?.messageHash, member.calls[1]?.messageHash);
+	assert.equal(member.calls[0]?.messageHash, member.calls[1]?.messageHash);
+	assert.notEqual(member.calls[0]?.payloadHash, member.calls[1]?.payloadHash);
 	assert.equal(await f.store.count(), 1);
 });
 

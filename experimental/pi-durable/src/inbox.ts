@@ -11,7 +11,7 @@ import {
 	releaseMemberEndpoint,
 } from "./bebop-inbox-adapter.mjs";
 export interface DurableInboxAdmission {
-	(message: string, requestId: string): Promise<{ readonly submissionId: string }>;
+	(message: string, requestId: string, payloadHash: string): Promise<{ readonly submissionId: string }>;
 }
 
 export interface DurableInboxBridgeOptions {
@@ -57,6 +57,23 @@ export function inboxRequestId(memberId: string, itemId: string): string {
 	if (!memberId.trim() || !itemId.trim()) throw new Error("memberId and Inbox item ID must not be empty");
 	const digest = createHash("sha256").update(`${memberId}\0${itemId}`).digest("hex");
 	return `bebop:${digest}`;
+}
+
+function canonicalJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	if (typeof value === "object" && value !== null) {
+		const fields = Object.entries(value as Record<string, unknown>)
+			.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+			.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`);
+		return `{${fields.join(",")}}`;
+	}
+	const serialized = JSON.stringify(value);
+	if (serialized === undefined) throw new Error("Inbox payload must be JSON serializable");
+	return serialized;
+}
+
+function inboxPayloadHash(payload: unknown): string {
+	return createHash("sha256").update(canonicalJson(payload)).digest("hex");
 }
 
 function manifestMember(manifest: CrewManifest, memberId: string): CrewManifest["members"][number] {
@@ -140,7 +157,7 @@ export async function openDurableInboxBridge(options: DurableInboxBridgeOptions)
 				kind: "inbox",
 			});
 			if (message.length > 8_000) throw new Error("Inbox message exceeds the Durable member's 8000-character limit");
-			const admission = await options.admit(message, requestId);
+			const admission = await options.admit(message, requestId, inboxPayloadHash(item.payload));
 			if (!admission.submissionId) throw new Error("Durable Inbox admission did not return a receipt");
 			if (!(await ownsEndpoint())) return { status: "not-owner" };
 
