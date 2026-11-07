@@ -74,6 +74,16 @@ jobs:
           - .watch.yaml
       run_on_init: true
 
+    - name: experimental Pi Durable tests @agent-final
+      run: npm test --prefix experimental/pi-durable
+      change:
+          - experimental/pi-durable/src/**/*.ts
+          - experimental/pi-durable/package.json
+          - experimental/pi-durable/package-lock.json
+          - experimental/pi-durable/tsconfig.json
+          - .watch.yaml
+      run_on_init: true
+
     - name: quality gate @agent-final
       run: make all
       change:
